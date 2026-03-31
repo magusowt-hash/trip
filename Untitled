@@ -1,0 +1,14 @@
+✨ 修改 MediaColumnTranslateX.tsx
+把 Props 改成：
+type Props = {
+  mainSrc: string; // ✅ 加回来
+  images: string[];
+  activeImageIndex: number;
+  onSelectImage: (i: number) => void;
+  title?: string; // ✅ 可选
+};
+✨ 同时修 img 报错（顺手解决 warning）
+<img
+  src={src}
+  alt={title || ''} // ✅ 必须加
+/>

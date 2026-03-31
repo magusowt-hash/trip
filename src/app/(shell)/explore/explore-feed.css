@@ -1,0 +1,125 @@
+/**
+ * 仅由 explore/page.tsx 引入：四列独立纵向列表 + 整页统一滚动（列内不设独立滚动条）。
+ */
+
+.explore-feed-masonry {
+  display: grid;
+  gap: var(--explore-feed-gutter, clamp(14px, 1.6vw, 22px));
+  padding-inline: var(--explore-feed-gutter, clamp(14px, 1.6vw, 22px));
+  padding-bottom: var(--explore-feed-gutter, clamp(14px, 1.6vw, 22px));
+  box-sizing: border-box;
+  align-items: start;
+}
+
+.explore-feed-masonry--cols-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.explore-feed-masonry--cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.explore-feed-masonry--cols-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.explore-feed-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--explore-feed-gutter, clamp(14px, 1.6vw, 22px));
+  min-width: 0;
+}
+
+.explore-feed-masonry .post-card[data-feed-enlarged] .post-cover {
+  min-height: calc(240px * 1.15);
+}
+
+@media (orientation: landscape) and (min-width: 1024px) {
+  .explore-feed-masonry .post-card[data-feed-enlarged] .post-cover {
+    min-height: calc(210px * 1.15);
+  }
+}
+
+@media (orientation: portrait) and (min-width: 768px) and (max-width: 1023px) {
+  .explore-feed-column {
+    gap: var(--explore-feed-gutter, clamp(14px, 1.6vw, 22px));
+  }
+
+  .explore-feed-masonry .post-card[data-feed-enlarged] .post-cover {
+    min-height: calc(260px * 1.15);
+  }
+}
+
+@media (max-width: 767px) {
+  .explore-feed-masonry .post-card[data-feed-enlarged] .post-cover {
+    min-height: calc(185px * 1.15);
+  }
+}
+
+@media (max-width: 520px) {
+  .explore-feed-masonry .post-card[data-feed-enlarged] .post-cover {
+    min-height: calc(210px * 1.15);
+  }
+}
+
+.explore-feed .post-card.card[data-feed-enlarged] {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.explore-feed .post-card[data-feed-enlarged] .post-cover-wrap {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-card);
+}
+
+/** 发现流：图片不可选中、不可拖动另存 */
+.explore-feed .post-card[data-feed-enlarged] img.post-cover,
+.explore-feed .post-card[data-feed-enlarged] img.post-author-avatar {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
+.explore-feed .post-card[data-feed-enlarged] img {
+  pointer-events: none;
+}
+
+.explore-feed .post-card[data-feed-enlarged] .post-card-meta {
+  padding-left: 0;
+  padding-right: 0;
+  text-align: left;
+  justify-items: start;
+  background: transparent;
+}
+
+.post-card[data-feed-enlarged] .post-topic-tag {
+  font-size: calc(12px * 1.15);
+  right: calc(10px * 1.15);
+  bottom: calc(10px * 1.15);
+  padding: calc(2px * 1.15) calc(8px * 1.15);
+}
+
+.post-card[data-feed-enlarged] .post-author-avatar {
+  width: calc(18px * 1.15);
+  height: calc(18px * 1.15);
+}
+
+.post-card[data-feed-enlarged] .post-author-name {
+  font-size: calc(var(--font-caption) * 1.15);
+  max-width: calc(92px * 1.15);
+}
+
+.post-card[data-feed-enlarged]:hover {
+  transform: translateY(calc(-4px * 1.15));
+}
+
+.explore-feed .post-card[data-feed-enlarged]:hover .post-cover-wrap {
+  box-shadow: 0 16px 30px rgba(17, 24, 39, 0.14);
+}
+
+.explore-feed .post-card.card {
+  border-radius: calc(var(--radius-md) * 1.05);
+}
