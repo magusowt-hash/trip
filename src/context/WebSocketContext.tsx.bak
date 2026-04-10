@@ -1,0 +1,145 @@
+'use client';
+
+import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
+import { io, Socket } from 'socket.io-client';
+import { getAuthTokenFromCookies } from '@/services/auth-cookies';
+
+export interface ChatMessage {
+  id: number;
+  senderId: number;
+  receiverId: number;
+  content: string;
+  isRead: number;
+  createdAt: string;
+}
+
+interface WebSocketContextType {
+  socket: Socket | null;
+  isConnected: boolean;
+  onNewMessage: (callback: (message: ChatMessage) => void) => () => void;
+  sendMessage: (receiverId: number, content: string, onSent?: (success: boolean, message?: ChatMessage) => void) => void;
+  emitTyping: (receiverId: number) => void;
+  onTyping: (callback: (data: { userId: number; isTyping: boolean }) => void) => () => void;
+}
+
+const WebSocketContext = createContext<WebSocketContextType>({
+  socket: null,
+  isConnected: false,
+  onNewMessage: () => () => {},
+  sendMessage: () => {},
+  emitTyping: () => {},
+  onTyping: () => () => {},
+});
+
+export function WebSocketProvider({ children }: { children: ReactNode }) {
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const tokenRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    tokenRef.current = getAuthTokenFromCookies();
+    if (tokenRef.current) {
+      setTokenAndConnect(tokenRef.current);
+    }
+    
+    const interval = setInterval(() => {
+      const newToken = getAuthTokenFromCookies();
+      if (newToken !== tokenRef.current) {
+        tokenRef.current = newToken;
+        if (newToken) {
+          setTokenAndConnect(newToken);
+        } else {
+          setSocket((s) => {
+            s?.close();
+            return null;
+          });
+          setIsConnected(false);
+        }
+      }
+    }, 2000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  const setTokenAndConnect = useCallback((token: string) => {
+    if (socket?.connected) {
+      return;
+    }
+    
+    const wsUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:3002';
+    console.log('[WS] Connecting to:', wsUrl);
+
+    const newSocket = io(wsUrl, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    });
+
+    newSocket.on('connect', () => {
+      setIsConnected(true);
+      console.log('[WS] Connected, socket id:', newSocket.id);
+    });
+
+    newSocket.on('disconnect', (reason) => {
+      setIsConnected(false);
+      console.log('[WS] Disconnected:', reason);
+    });
+
+    newSocket.on('connect_error', (error) => {
+      console.error('[WS] Connection error:', error.message);
+    });
+
+    setSocket(newSocket);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      socket?.close();
+    };
+  }, [socket]);
+
+  const onNewMessage = useCallback((callback: (message: ChatMessage) => void) => {
+    socket?.on('new_message', callback);
+    return () => {
+      socket?.off('new_message', callback);
+    };
+  }, [socket]);
+
+  const sendMessage = useCallback((receiverId: number, content: string, onSent?: (success: boolean, message?: ChatMessage) => void) => {
+    if (!socket?.connected) {
+      onSent?.(false);
+      return;
+    }
+    
+    socket.emit('send_message', { receiverId, content }, (response: any) => {
+      if (response && response.id) {
+        onSent?.(true, response);
+      } else {
+        onSent?.(false);
+      }
+    });
+  }, [socket]);
+
+  const emitTyping = useCallback((receiverId: number) => {
+    socket?.emit('typing', { receiverId });
+  }, [socket]);
+
+  const onTyping = useCallback((callback: (data: { userId: number; isTyping: boolean }) => void) => {
+    socket?.on('user_typing', callback);
+    return () => {
+      socket?.off('user_typing', callback);
+    };
+  }, [socket]);
+
+  return (
+    <WebSocketContext.Provider value={{ socket, isConnected, onNewMessage, sendMessage, emitTyping, onTyping }}>
+      {children}
+    </WebSocketContext.Provider>
+  );
+}
+
+export function useWebSocket() {
+  return useContext(WebSocketContext);
+}

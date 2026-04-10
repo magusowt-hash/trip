@@ -1,0 +1,164 @@
+.page {
+  padding: var(--space-16) 0 var(--space-24);
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.container {
+  padding: 0 clamp(16px, 4vw, 24px);
+}
+
+.loading {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 40px 0;
+}
+
+.title {
+  margin: 0 0 var(--space-20);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text);
+  text-align: center;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-20);
+}
+
+.avatarSection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatarPreview {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--color-bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--color-border);
+  transition: border-color 0.2s ease;
+}
+
+.avatarPreview:hover {
+  border-color: var(--color-primary);
+}
+
+.avatarImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatarPlaceholder {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: 8px;
+}
+
+.fileInput {
+  display: none;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.genderOptions {
+  display: flex;
+  gap: 8px;
+}
+
+.genderBtn {
+  flex: 1;
+  padding: 10px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.genderBtn:hover {
+  border-color: var(--color-primary);
+}
+
+.genderBtnActive {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+.error {
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--color-danger);
+  font-size: 14px;
+  text-align: center;
+}
+
+.success {
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  font-size: 14px;
+  text-align: center;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: var(--space-8);
+}
+
+.cancelBtn {
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cancelBtn:hover {
+  background: var(--color-bg-secondary);
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: var(--space-12) 0 var(--space-16);
+  }
+}

@@ -1,0 +1,79 @@
+.root {
+  width: min(560px, 92%);
+  margin: 0 auto;
+  padding: var(--space-16) 0 0;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-h1);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.sub {
+  margin: var(--space-8) 0 var(--space-16);
+  color: var(--color-text-muted);
+  font-size: var(--font-body);
+}
+
+.form {
+  display: grid;
+  gap: var(--space-16);
+}
+
+.fieldGroup {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+
+.errorBox {
+  margin-top: var(--space-12);
+  color: var(--color-danger);
+  font-size: 14px;
+}
+
+.switchRow {
+  margin-top: var(--space-16);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.switchBtn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin-left: 8px;
+  cursor: pointer;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.switchBtn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.fadeIn {
+  animation: auth-in 220ms ease-out both;
+}
+
+@keyframes auth-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+

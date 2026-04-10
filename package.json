@@ -1,0 +1,43 @@
+{
+  "name": "trip-web",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "start:bind": "next start -H 0.0.0.0 -p 3000",
+    "start:bind:nginx": "next start -H 0.0.0.0 -p 3001",
+    "dev:nginx": "next dev -p 3001",
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "drizzle-orm": "^0.36.4",
+    "jose": "^5.9.6",
+    "mysql2": "^3.12.0",
+    "next": "14.2.18",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.17.6",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "drizzle-kit": "^0.24.1",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "14.2.18",
+    "playwright": "^1.59.1",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,0 +1,330 @@
+/**
+ * 仅此模块使用：隐藏缩略图轨道滚动条，保持可横向滚动（组件级，非全局 base.css）
+ */
+.mainImageStage:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
+
+.imageCounter {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 4;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(17, 24, 39, 0.55);
+  pointer-events: none;
+}
+
+.mainImageSlideEnter {
+  animation: mainImageSlideIn 0.36s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+  transform-origin: center center;
+}
+
+@keyframes mainImageSlideIn {
+  from {
+    opacity: 0.78;
+    transform: translateX(var(--slide-from, 0px)) scale(var(--slide-scale-from, 0.97));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.imageViewerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  background: #fff;
+}
+
+.imageViewerClose {
+  position: fixed;
+  top: 16px;
+  left: 18px;
+  z-index: 230;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  color: #111827;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.imageViewerStage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.viewerEdgeFrostLeft,
+.viewerEdgeFrostRight {
+  position: absolute;
+  top: 50%;
+  bottom: auto;
+  height: min(68vh, 760px);
+  transform: translateY(-50%);
+  width: 6.25%;
+  pointer-events: none;
+  z-index: 3;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 12px;
+  overflow: hidden;
+  /* 顶部/底部不显示毛玻璃：仅中间段生效 */
+  mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 1) 18%,
+    rgba(0, 0, 0, 1) 82%,
+    rgba(0, 0, 0, 0) 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 1) 18%,
+    rgba(0, 0, 0, 1) 82%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+
+.viewerEdgeFrostLeft {
+  left: 0;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0.92) 0%,
+    rgba(255, 255, 255, 0.65) 35%,
+    rgba(255, 255, 255, 0.25) 70%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.viewerEdgeFrostRight {
+  right: 0;
+  background: linear-gradient(
+    to left,
+    rgba(255, 255, 255, 0.92) 0%,
+    rgba(255, 255, 255, 0.65) 35%,
+    rgba(255, 255, 255, 0.25) 70%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.viewerEdgeFillInLeft {
+  animation: edgeFillInLeft 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+
+.viewerEdgeFillInRight {
+  animation: edgeFillInRight 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+
+@keyframes edgeFillInLeft {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateX(-80%) scale(0.55);
+  }
+  to {
+    opacity: 0.72;
+    transform: translate(-50%, -50%) translateX(-60%) scale(0.68);
+  }
+}
+
+@keyframes edgeFillInRight {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateX(80%) scale(0.55);
+  }
+  to {
+    opacity: 0.72;
+    transform: translate(-50%, -50%) translateX(60%) scale(0.68);
+  }
+}
+
+.imageCounterViewer {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  z-index: 5;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 13px;
+  color: #111827;
+  background: rgba(243, 244, 246, 0.9);
+}
+
+.viewerMainImage {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: min(82vw, 1120px);
+  height: min(92vh, 1200px);
+  object-fit: contain;
+  object-position: center;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.viewerIncomingFromRight,
+.viewerIncomingFromLeft {
+  z-index: 5;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.viewerIncomingFromRight {
+  transform-origin: right center;
+  animation: sideToMainFromRight 0.42s cubic-bezier(0.18, 0.85, 0.28, 1) forwards;
+}
+
+.viewerIncomingFromLeft {
+  transform-origin: left center;
+  animation: sideToMainFromLeft 0.42s cubic-bezier(0.18, 0.85, 0.28, 1) forwards;
+}
+
+@keyframes sideToMainFromRight {
+  from {
+    transform: translate(-50%, -50%) translateX(60%) scale(0.68);
+    opacity: 0.55;
+  }
+  to {
+    transform: translate(-50%, -50%) translateX(0) scale(1);
+    opacity: 0.72;
+  }
+}
+
+@keyframes sideToMainFromLeft {
+  from {
+    transform: translate(-50%, -50%) translateX(-60%) scale(0.68);
+    opacity: 0.55;
+  }
+  to {
+    transform: translate(-50%, -50%) translateX(0) scale(1);
+    opacity: 0.72;
+  }
+}
+
+.viewerOutgoingToLeft,
+.viewerOutgoingToRight {
+  pointer-events: none;
+  z-index: 4;
+  will-change: transform, opacity;
+}
+
+.viewerOutgoingToLeft {
+  transform-origin: left center;
+  animation: mainToSideLeft 0.42s cubic-bezier(0.18, 0.85, 0.28, 1) forwards;
+}
+
+.viewerOutgoingToRight {
+  transform-origin: right center;
+  animation: mainToSideRight 0.42s cubic-bezier(0.18, 0.85, 0.28, 1) forwards;
+}
+
+@keyframes mainToSideLeft {
+  from {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+  /* 先滑出更远处 */
+  45% {
+    transform: translateX(-82%) scale(0.54);
+    opacity: 0.34;
+  }
+  /* 回弹到更接近侧图目标位置（轻微回拉） */
+  65% {
+    transform: translateX(-66%) scale(0.63);
+    opacity: 0.16;
+  }
+  /* 回到侧图目标位 */
+  80% {
+    transform: translateX(-60%) scale(0.68);
+    opacity: 0.08;
+  }
+  to {
+    transform: translateX(-60%) scale(0.68);
+    opacity: 0;
+  }
+}
+
+@keyframes mainToSideRight {
+  from {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+  /* 先滑出更远处 */
+  45% {
+    transform: translateX(82%) scale(0.54);
+    opacity: 0.34;
+  }
+  /* 回弹 */
+  65% {
+    transform: translateX(66%) scale(0.63);
+    opacity: 0.16;
+  }
+  /* 落回侧图目标位 */
+  80% {
+    transform: translateX(60%) scale(0.68);
+    opacity: 0.08;
+  }
+  to {
+    transform: translateX(60%) scale(0.68);
+    opacity: 0;
+  }
+}
+
+.viewerAdjacent {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(82vw, 1120px);
+  height: min(92vh, 1200px);
+  border: none;
+  padding: 0;
+  background: transparent;
+  border-radius: 12px;
+  opacity: 0.72;
+  transform: translate(-50%, -50%) translateX(var(--adj-x, 50%)) scale(0.68);
+  filter: saturate(1);
+  pointer-events: auto;
+  z-index: 2;
+  cursor: pointer;
+  transition: opacity 0.18s ease;
+}
+
+.viewerAdjacent:hover {
+  opacity: 0.88;
+}
+
+.viewerAdjacentImg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 12px;
+  display: block;
+}
+
+.viewerAdjacentLeft {
+  --adj-x: -60%;
+}
+
+.viewerAdjacentRight {
+  --adj-x: 60%;
+}
+
+.thumbRail {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.thumbRail::-webkit-scrollbar {
+  display: none;
+}
