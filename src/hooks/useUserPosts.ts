@@ -15,8 +15,7 @@ export function useUserPosts() {
     setError(null);
 
     try {
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-      const response = await fetch(`${apiBaseUrl}/api/users/${String(userId)}/posts`, {
+      const response = await fetch(`/api/users/${String(userId)}/posts`, {
         credentials: 'include',
       });
 

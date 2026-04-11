@@ -5,14 +5,14 @@ const nextConfig = {
   output: 'standalone',
   // 隐藏 X-Powered-By，降低指纹暴露
   poweredByHeader: false,
-  // 生产环境安全响应头（HTTPS 站点可在 Nginx 再补 Strict-Transport-Security）
+  // 开发环境使用内置 API，生产环境可配置重写到后端
   async rewrites() {
-    return [
+    return process.env.NODE_ENV === 'production' ? [
       {
         source: '/api/:path*',
         destination: 'http://127.0.0.1:3002/api/:path*',
       },
-    ];
+    ] : [];
   },
   async headers() {
     return [

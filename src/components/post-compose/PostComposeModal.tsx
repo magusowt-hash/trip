@@ -332,15 +332,17 @@ export function PostComposeModal({
     setPublishing(true);
 
     try {
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
-      if (!apiBaseUrl) throw new Error('API base URL not configured');
-
-      // Step 1: Upload images first
       const imageIds: string[] = [];
+
       for (const img of images) {
-        const response = await fetch(`${apiBaseUrl}/api/upload`, {
+        const blob = await fetch(img.url).then((r) => r.blob());
+        const file = new File([blob], img.id, { type: blob.type });
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('/api/upload', {
           method: 'POST',
-          body: new FormData(),
+          body: formData,
           credentials: 'include',
         });
         if (!response.ok) throw new Error('Image upload failed');
@@ -348,8 +350,7 @@ export function PostComposeModal({
         imageIds.push(data.id);
       }
 
-      // Step 2: Create post with image IDs
-      const postResponse = await fetch(`${apiBaseUrl}/api/posts`, {
+      const postResponse = await fetch('/api/posts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
