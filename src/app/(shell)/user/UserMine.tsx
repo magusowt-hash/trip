@@ -1,8 +1,10 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useMemo } from 'react';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { useFeedColumnCount } from '@/hooks/useFeedColumnCount';
+import { useUserPosts } from '@/hooks/useUserPosts';
 import { PostCard } from '@/modules/post';
 import '../explore/explore-feed.css';
 import styles from './page.module.css';
@@ -10,31 +12,26 @@ import styles from './page.module.css';
 export function UserMine() {
   const { profile, loading: profileLoading } = useUserProfile();
   const columnCount = useFeedColumnCount();
+  const { posts, loading: postsLoading, fetchUserPosts } = useUserPosts();
 
   const avatar = profile?.avatar || '/default-avatar.svg';
   const nickname = profile?.nickname || '旅行用户';
 
-  type MyPost = {
-    cover: string;
-    topic: string;
-    title: string;
-    content: string;
-    author: string;
-    avatar: string;
-    gallery: string[];
-  };
-
-  const MY_POSTS: MyPost[] = [];
+  useEffect(() => {
+    if (profile?.id) {
+      fetchUserPosts(profile.id);
+    }
+  }, [profile?.id, fetchUserPosts]);
 
   const columns = useMemo(() => {
-    const cols = Array.from({ length: columnCount }, () => [] as typeof MY_POSTS);
-    MY_POSTS.forEach((item, index) => {
+    const cols = Array.from({ length: columnCount }, () => [] as typeof posts);
+    posts.forEach((item, index) => {
       cols[index % columnCount].push(item);
     });
     return cols;
-  }, [columnCount, MY_POSTS]);
+  }, [posts, columnCount]);
 
-  if (profileLoading) {
+  if (profileLoading || postsLoading) {
     return (
       <section className={styles.page} aria-busy="true" aria-label="加载中">
         <div className={`${styles.profileBar} ${styles.profileBarSkeleton}`}>
@@ -66,23 +63,28 @@ export function UserMine() {
 
       <h2 className={styles.sectionHeading}>我的帖子</h2>
       <div className={`explore-feed explore-feed-masonry explore-feed-masonry--cols-${columnCount}`}>
-        {columns.map((colItems, colIndex) => (
-          <div key={colIndex} className="explore-feed-column">
-            {colItems.map((item) => (
-              <PostCard
-                key={item.title}
-                cover={item.cover}
-                topic={item.topic}
-                title={item.title}
-                content={item.content}
-                author={item.author}
-                avatar={item.avatar}
-                gallery={item.gallery}
-                feedEnlarged
-              />
-            ))}
-          </div>
-        ))}
+        {columns.length === 0 ? (
+          <div className={styles.emptyState}>还没有帖子，快去发布第一篇吧！</div>
+        ) : (
+          columns.map((colItems, colIndex) => (
+            <div key={colIndex} className="explore-feed-column">
+              {colItems.map((item) => (
+                <PostCard
+                  key={item.id}
+                  cover={item.coverImageUrl}
+                  topic={item.topic}
+                  title={item.title}
+                  author={item.author}
+                  avatar={item.avatar}
+                  gallery={item.gallery}
+                  comments={item.commentsCnt}
+                  favorites={item.favoritesCnt}
+                  feedEnlarged
+                />
+              ))}
+            </div>
+          ))
+        )}
       </div>
     </section>
   );
