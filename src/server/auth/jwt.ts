@@ -16,6 +16,18 @@ function getSecretKey(): Uint8Array {
   return new TextEncoder().encode(s);
 }
 
+function normalizeSubject(subject: unknown): string {
+  if (typeof subject === 'string') {
+    return subject;
+  }
+
+  if (subject == null) {
+    return '';
+  }
+
+  return String(subject);
+}
+
 export async function signAuthToken(payload: AuthJwtPayload): Promise<string> {
   return await new SignJWT({ phone: payload.phone })
     .setProtectedHeader({ alg: 'HS256' })
@@ -33,8 +45,7 @@ export async function verifyAuthToken(token: string): Promise<AuthJwtPayload> {
   const subRaw = payload.sub;
   const phoneRaw = payload.phone;
 
-  const sub =
-    typeof subRaw === 'string' ? subRaw : subRaw != null ? String(subRaw) : '';
+  const sub = normalizeSubject(subRaw);
   const phone = typeof phoneRaw === 'string' ? phoneRaw : '';
 
   if (!sub || !phone) {

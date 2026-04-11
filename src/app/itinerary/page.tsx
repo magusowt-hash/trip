@@ -24,6 +24,18 @@ type DayKey = keyof typeof dayData;
 
 type ItineraryState = 'default' | 'edit' | 'empty';
 
+function getPageTitle(state: ItineraryState): string {
+  if (state === 'edit') {
+    return 'Itinerary_Edit';
+  }
+
+  if (state === 'empty') {
+    return 'Itinerary_Empty';
+  }
+
+  return 'Itinerary_Default';
+}
+
 export default function ItineraryPage() {
   const [activeDay, setActiveDay] = useState<DayKey>('Day1');
   const [state, setState] = useState<ItineraryState>('default');
@@ -33,9 +45,7 @@ export default function ItineraryPage() {
     <main>
       <section className="container page grid">
         <div className="card grid">
-          <h2 className="page-title">
-            {state === 'edit' ? 'Itinerary_Edit' : state === 'empty' ? 'Itinerary_Empty' : 'Itinerary_Default'}
-          </h2>
+          <h2 className="page-title">{getPageTitle(state)}</h2>
           <p className="page-desc">行程页支持 Default / Edit / Empty 状态切换。</p>
           <div className="row">
             <Button onClick={() => setState('default')}>Default</Button>

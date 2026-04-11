@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { getAuthTokenFromCookies } from '@/services/auth-cookies';
-import { addToQueue, getQueue, removeFromQueue, initDB } from '@/services/messaging/storage';
+import { getQueue, removeFromQueue, initDB } from '@/services/messaging/storage';
 import type { MessageQueueItem } from '@/services/messaging/types';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
@@ -35,26 +35,67 @@ const WebSocketContext = createContext<WebSocketContextType>({
   onTyping: () => () => {},
 });
 
+type SocketAckResponse = {
+  id?: number;
+  error?: unknown;
+};
+
+function isChatMessage(response: ChatMessage | SocketAckResponse | undefined): response is ChatMessage {
+  return Boolean(response && response.id);
+}
+
+async function loadMessageQueue(): Promise<MessageQueueItem[]> {
+  await initDB();
+  return await getQueue();
+}
+
+async function flushQueuedMessages(socket: Socket, queue: MessageQueueItem[]): Promise<void> {
+  if (queue.length === 0) {
+    return;
+  }
+
+  queue.forEach((item) => {
+    socket.emit(
+      'send_message',
+      {
+        receiverId: parseInt(item.message.receiverId, 10),
+        content: item.message.content,
+      },
+      async (response: { id?: number } | undefined) => {
+        if (response?.id) {
+          await removeFromQueue(item.id);
+        }
+      }
+    );
+  });
+}
+
 export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const tokenRef = useRef<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
-  const [messageQueue, setMessageQueue] = useState<MessageQueueItem[]>([]);
   const messageQueueRef = useRef<MessageQueueItem[]>([]);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const resetConnectionState = useCallback(() => {
+    socketRef.current?.close();
+    socketRef.current = null;
+    setSocket(null);
+    setIsConnected(false);
+  }, []);
 
   useEffect(() => {
-    initDB().then(() => getQueue().then((queue) => {
-      setMessageQueue(queue);
-      messageQueueRef.current = queue;
-    })).catch(console.error);
+    loadMessageQueue()
+      .then((queue) => {
+        messageQueueRef.current = queue;
+      })
+      .catch(console.error);
   }, []);
 
   useEffect(() => {
     if (isConnected && socket) {
       heartbeatIntervalRef.current = setInterval(() => {
-        socketRef.current?.emit('ping', {}, (response: any) => {
+        socketRef.current?.emit('ping', {}, (response: SocketAckResponse | undefined) => {
           if (!response || response.error) {
             console.log('[WS] Heartbeat failed, triggering reconnect');
           }
@@ -79,16 +120,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         if (newToken && WS_URL) {
           setTokenAndConnect(newToken);
         } else {
-          socketRef.current?.close();
-          socketRef.current = null;
-          setSocket(null);
-          setIsConnected(false);
+          resetConnectionState();
         }
       }
     }, 2000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [resetConnectionState, setTokenAndConnect]);
 
   const setTokenAndConnect = useCallback((token: string) => {
     if (socketRef.current?.connected) {
@@ -109,20 +147,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     newSocket.on('connect', () => {
       setIsConnected(true);
       console.log('[WS] Connected, socket id:', newSocket.id);
-      
-      const currentQueue = messageQueueRef.current;
-      if (currentQueue.length > 0) {
-        currentQueue.forEach((item) => {
-          newSocket.emit('send_message', { 
-            receiverId: parseInt(item.message.receiverId), 
-            content: item.message.content 
-          }, async (response: any) => {
-            if (response?.id) {
-              await removeFromQueue(item.id);
-            }
-          });
-        });
-      }
+
+      void flushQueuedMessages(newSocket, messageQueueRef.current);
     });
 
     newSocket.on('disconnect', (reason) => {
@@ -140,10 +166,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     return () => {
-      socketRef.current?.close();
-      socketRef.current = null;
+      resetConnectionState();
     };
-  }, []);
+  }, [resetConnectionState]);
 
   const onNewMessage = useCallback((callback: (message: ChatMessage) => void) => {
     socket?.on('new_message', callback);
@@ -158,8 +183,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       return;
     }
     
-    socket.emit('send_message', { receiverId, content }, (response: any) => {
-      if (response && response.id) {
+    socket.emit('send_message', { receiverId, content }, (response: ChatMessage | SocketAckResponse | undefined) => {
+      if (isChatMessage(response)) {
         onSent?.(true, response);
       } else {
         onSent?.(false);

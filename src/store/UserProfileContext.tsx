@@ -13,6 +13,39 @@ type UserProfileContextType = {
 
 const UserProfileContext = createContext<UserProfileContextType | null>(null);
 
+function mapCachedUserToProfile(cachedUser: ReturnType<typeof getUser>): UserProfile | null {
+  if (!cachedUser) {
+    return null;
+  }
+
+  return {
+    id: Number(cachedUser.id),
+    phone: cachedUser.phone,
+    nickname: cachedUser.nickname,
+    avatar: cachedUser.avatar,
+    gender: cachedUser.gender as UserProfile['gender'],
+    birthday: cachedUser.birthday,
+    region: cachedUser.region,
+  };
+}
+
+function syncProfileToStore(profile: UserProfile | null): void {
+  if (!profile) {
+    setUser(null);
+    return;
+  }
+
+  setUser({
+    id: String(profile.id),
+    phone: profile.phone,
+    nickname: profile.nickname,
+    avatar: profile.avatar,
+    gender: profile.gender,
+    birthday: profile.birthday,
+    region: profile.region,
+  });
+}
+
 export function useUserProfileContext() {
   const context = useContext(UserProfileContext);
   if (!context) {
@@ -23,26 +56,19 @@ export function useUserProfileContext() {
 
 export function UserProfileProvider({ children }: { children: ReactNode }) {
   const cachedUser = getUser();
+  const initialProfile = mapCachedUserToProfile(cachedUser);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(!cachedUser);
+  const [loading, setLoading] = useState(initialProfile === null);
   const initialized = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
       const data = await getUserProfile();
       setProfile(data.user);
-      setUser({
-        id: String(data.user.id),
-        phone: data.user.phone,
-        nickname: data.user.nickname,
-        avatar: data.user.avatar,
-        gender: data.user.gender,
-        birthday: data.user.birthday,
-        region: data.user.region,
-      });
+      syncProfileToStore(data.user);
     } catch {
       setProfile(null);
-      setUser(null);
+      syncProfileToStore(null);
     } finally {
       setLoading(false);
     }
@@ -52,28 +78,20 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
     if (initialized.current) return;
     initialized.current = true;
 
-    if (cachedUser && isLoggedIn()) {
-      setProfile({
-        id: Number(cachedUser.id),
-        phone: cachedUser.phone,
-        nickname: cachedUser.nickname,
-        avatar: cachedUser.avatar,
-        gender: cachedUser.gender as UserProfile['gender'],
-        birthday: cachedUser.birthday,
-        region: cachedUser.region,
-      });
+    if (initialProfile && isLoggedIn()) {
+      setProfile(initialProfile);
       setLoading(false);
-      refresh();
+      void refresh();
     } else {
-      refresh();
+      void refresh();
     }
 
     const unsubscribe = subscribeToProfileUpdates(() => {
-      refresh();
+      void refresh();
     });
 
     return unsubscribe;
-  }, [refresh, cachedUser]);
+  }, [initialProfile, refresh]);
 
   return (
     <UserProfileContext.Provider value={{ profile, loading, refresh }}>

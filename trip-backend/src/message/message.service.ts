@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Message } from './message.entity';
-import { User } from '../user/user.entity';
 
 export interface ChatWithUser {
   userId: number;
@@ -12,13 +11,28 @@ export interface ChatWithUser {
   unreadCount: number;
 }
 
+type RecentChatRow = {
+  other_user_id: number | string;
+  nickname: string | null;
+  avatar: string | null;
+  content: string;
+  sender_id: number | string;
+  receiver_id: number | string;
+  is_read: number;
+  created_at: string;
+  id: number | string;
+  unread_count: number | string;
+};
+
+type NoticeMessage = Pick<Message, 'id' | 'content' | 'senderId' | 'receiverId' | 'isRead' | 'createdAt'> & {
+  type: 'system';
+};
+
 @Injectable()
 export class MessageService {
   constructor(
     @InjectRepository(Message)
     private readonly messages: Repository<Message>,
-    @InjectRepository(User)
-    private readonly users: Repository<User>,
   ) {}
 
   async sendMessage(senderId: number, receiverId: number, content: string): Promise<Message> {
@@ -73,22 +87,22 @@ export class MessageService {
       ) unread ON unread.sender_id = latest.other_user_id
       ORDER BY m.created_at DESC
       LIMIT ?
-    `, [userId, userId, userId, userId, userId, limit]);
+    `, [userId, userId, userId, userId, userId, limit]) as RecentChatRow[];
     console.log(`[PERF] getRecentChats: ${Date.now() - start}ms`);
 
-    return rawResults.map((r: any) => ({
-      userId: Number(r.other_user_id),
-      nickname: r.nickname,
-      avatar: r.avatar,
+    return rawResults.map((row) => ({
+      userId: Number(row.other_user_id),
+      nickname: row.nickname,
+      avatar: row.avatar,
       lastMessage: {
-        id: Number(r.id),
-        senderId: Number(r.sender_id),
-        receiverId: Number(r.receiver_id),
-        content: r.content,
-        isRead: r.is_read,
-        createdAt: r.created_at,
+        id: Number(row.id),
+        senderId: Number(row.sender_id),
+        receiverId: Number(row.receiver_id),
+        content: row.content,
+        isRead: row.is_read,
+        createdAt: row.created_at,
       },
-      unreadCount: Number(r.unread_count),
+      unreadCount: Number(row.unread_count),
     }));
   }
 
@@ -103,7 +117,7 @@ export class MessageService {
     return this.messages.findOne({ where: { id } });
   }
 
-  async getNotices(userId: number, limit = 20): Promise<any[]> {
+  async getNotices(userId: number, limit = 20): Promise<NoticeMessage[]> {
     const notices = await this.messages.find({
       where: { senderId: 0 },
       order: { createdAt: 'DESC' },
@@ -111,8 +125,9 @@ export class MessageService {
       select: ['id', 'content', 'senderId', 'receiverId', 'isRead', 'createdAt'],
     });
 
-    return notices.map(n => ({
-      ...n,
+    return notices.map((notice) => ({
+      ...notice,
+      receiverId: userId,
       type: 'system',
     }));
   }

@@ -35,6 +35,135 @@ type Conversation = {
   location?: string;
 };
 
+type IncomingMessage = {
+  id: number;
+  senderId: number;
+  receiverId: number;
+  content: string;
+  createdAt: string;
+};
+
+const TIME_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+  hour: '2-digit',
+  minute: '2-digit',
+};
+
+function formatTime(value?: string): string {
+  if (!value) {
+    return '';
+  }
+
+  return new Date(value).toLocaleTimeString('zh-CN', TIME_FORMAT_OPTIONS);
+}
+
+function getMessageStatusClassName(status: MessageData['status']): string {
+  if (status === 'sending') {
+    return styles.messageStatusSending;
+  }
+
+  if (status === 'failed') {
+    return styles.messageStatusFailed;
+  }
+
+  if (status === 'read') {
+    return styles.messageStatusRead;
+  }
+
+  return '';
+}
+
+function getMessageStatusLabel(status: MessageData['status']): string {
+  if (status === 'sending') {
+    return '···';
+  }
+
+  if (status === 'sent') {
+    return '✓';
+  }
+
+  if (status === 'delivered' || status === 'read') {
+    return '✓✓';
+  }
+
+  if (status === 'failed') {
+    return '!';
+  }
+
+  return '';
+}
+
+function mapConversationMessage(message: ChatMessage, currentUserId: number): MessageData {
+  const isCurrentUser = message.senderId === currentUserId;
+
+  return {
+    id: String(message.id),
+    content: message.content,
+    sender: isCurrentUser ? 'me' : 'other',
+    time: formatTime(message.createdAt),
+    status: isCurrentUser ? 'delivered' : 'read',
+  };
+}
+
+function mapChatItem(chat: {
+  userId?: number;
+  nickname?: string;
+  avatar?: string;
+  unreadCount?: number;
+  lastMessage?: { content?: string; createdAt?: string };
+}): InboxItem | null {
+  const chatUserId = chat.userId;
+  if (!chatUserId || Number.isNaN(chatUserId)) {
+    return null;
+  }
+
+  return {
+    id: String(chatUserId),
+    name: chat.nickname || `用户${chatUserId}`,
+    preview: chat.lastMessage?.content || '',
+    time: formatTime(chat.lastMessage?.createdAt),
+    unread: chat.unreadCount ?? 0,
+    avatar: chat.avatar || '/default-avatar.svg',
+  };
+}
+
+function mapNoticeItem(notice: { id: number; content: string; createdAt?: string; isRead: number }): InboxItem {
+  return {
+    id: `notice_${notice.id}`,
+    name: '通知消息',
+    preview: notice.content,
+    time: formatTime(notice.createdAt),
+    unread: notice.isRead === 0 ? 1 : 0,
+    avatar: '/notification-icon.svg',
+    isSystem: true,
+  };
+}
+
+function getPendingMessageStatus(success: boolean): MessageData['status'] {
+  if (success) {
+    return 'sent';
+  }
+
+  return 'failed';
+}
+
+function getUnreadBadgeContent(unread: number): string | null {
+  if (unread <= 0) {
+    return null;
+  }
+
+  return unread > 99 ? '99+' : String(unread);
+}
+
+function UnreadBadge({ unread }: { unread: number }) {
+  const badgeContent = getUnreadBadgeContent(unread);
+
+  if (!badgeContent) {
+    return null;
+  }
+
+  return <span className={styles.badge}>{badgeContent}</span>;
+}
+
 function ChatHeader({ conversation, onBack }: { conversation: Conversation; onBack: () => void }) {
   return (
     <header className={styles.chatHeader}>
@@ -139,16 +268,8 @@ function ChatView({ conversation, onSendMessage, onTyping, isFriendTyping, onBac
                 <span>{msg.time}</span>
                 {msg.sender === 'me' && (
                   <>
-                    <span className={`${styles.messageStatus} ${
-                      msg.status === 'sending' ? styles.messageStatusSending : 
-                      msg.status === 'failed' ? styles.messageStatusFailed :
-                      msg.status === 'read' ? styles.messageStatusRead : ''
-                    }`}>
-                      {msg.status === 'sending' ? '···' : 
-                       msg.status === 'sent' ? '✓' : 
-                       msg.status === 'delivered' ? '✓✓' : 
-                       msg.status === 'read' ? '✓✓' :
-                       msg.status === 'failed' ? '!' : ''}
+                    <span className={`${styles.messageStatus} ${getMessageStatusClassName(msg.status)}`}>
+                      {getMessageStatusLabel(msg.status)}
                     </span>
                     {msg.status === 'failed' && onRetry && (
                       <button 
@@ -211,7 +332,6 @@ const cachedData = {
   profile: null as { user: { id: number } } | null,
   friends: null as FriendItem[] | null,
   chats: null as InboxItem[] | null,
-  notices: null as InboxItem[] | null,
   timestamp: 0,
 };
 
@@ -257,7 +377,7 @@ export function MessagesClient() {
     };
   }, [isConnected, onTyping, activeChat]);
 
-  const handleNewMessage = useCallback((msg: { id: number; senderId: number; receiverId: number; content: string; createdAt: string }) => {
+  const handleNewMessage = useCallback((msg: IncomingMessage) => {
     if (!activeChat) return;
     
     const isRelevant = msg.senderId === Number(activeChat.id) || msg.receiverId === currentUserId;
@@ -273,7 +393,7 @@ export function MessagesClient() {
           id: String(msg.id),
           content: msg.content,
           sender: msg.senderId === currentUserId ? 'me' : 'other',
-          time: new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          time: formatTime(msg.createdAt),
         };
         return { ...prev, messages: updatedMessages };
       }
@@ -282,7 +402,7 @@ export function MessagesClient() {
         id: String(msg.id),
         content: msg.content,
         sender: msg.senderId === currentUserId ? 'me' : 'other',
-        time: new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+        time: formatTime(msg.createdAt),
       };
       return { ...prev, messages: [...prev.messages, newMsg] };
     });
@@ -328,28 +448,10 @@ export function MessagesClient() {
         setCurrentUserId(profile.user.id);
         setFriends(friendsData.friends ?? []);
         
-        const mappedChats: InboxItem[] = (chatsData.chats ?? []).map((chat) => {
-          const chatUserId = chat.userId;
-          if (!chatUserId || isNaN(chatUserId)) return null;
-          return {
-            id: String(chatUserId),
-            name: chat.nickname || `用户${chatUserId}`,
-            preview: chat.lastMessage?.content || '',
-            time: chat.lastMessage?.createdAt ? new Date(chat.lastMessage.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '',
-            unread: chat.unreadCount ?? 0,
-            avatar: chat.avatar || '/default-avatar.svg',
-          };
-        }).filter(Boolean) as InboxItem[];
-        
-        const mappedNotices: InboxItem[] = (noticesData.notices ?? []).map((notice) => ({
-          id: `notice_${notice.id}`,
-          name: '通知消息',
-          preview: notice.content,
-          time: notice.createdAt ? new Date(notice.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '',
-          unread: notice.isRead === 0 ? 1 : 0,
-          avatar: '/notification-icon.svg',
-          isSystem: true,
-        }));
+        const mappedChats = (chatsData.chats ?? [])
+          .map(mapChatItem)
+          .filter((item): item is InboxItem => item !== null);
+        const mappedNotices = (noticesData.notices ?? []).map(mapNoticeItem);
         
         const allItems = [...mappedChats, ...mappedNotices].sort((a, b) => {
           if (!a.time || !b.time) return 0;
@@ -421,13 +523,9 @@ export function MessagesClient() {
   async function handleFriendClick(friend: FriendItem) {
     try {
       const data = await getConversation(friend.id);
-      const messages: MessageData[] = data.messages.map((m: ChatMessage) => ({
-        id: String(m.id),
-        content: m.content,
-        sender: m.senderId === currentUserId ? 'me' : 'other',
-        time: new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-        status: m.senderId === currentUserId ? 'delivered' : 'read',
-      }));
+      const messages = data.messages.map((message: ChatMessage) =>
+        mapConversationMessage(message, currentUserId)
+      );
       const chat: Conversation = {
         id: String(friend.id),
         name: friend.nickname,
@@ -453,7 +551,7 @@ export function MessagesClient() {
       id: tempId,
       content,
       sender: 'me',
-      time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+      time: formatTime(new Date().toISOString()),
       status: 'sending',
     };
     setActiveChat((prev) => prev ? { ...prev, messages: [...prev.messages, newMsg] } : prev);
@@ -464,7 +562,7 @@ export function MessagesClient() {
         return {
           ...prev,
           messages: prev.messages.map((m) =>
-            m.id === tempId ? { ...m, status: success ? 'sent' : 'failed' } : m
+            m.id === tempId ? { ...m, status: getPendingMessageStatus(success) } : m
           ),
         };
       });
@@ -472,11 +570,11 @@ export function MessagesClient() {
   }
 
   function handleRetryMessage(messageId: string) {
-    const message = activeChat?.messages.find(m => m.id === messageId);
+    const message = activeChat?.messages.find((m) => m.id === messageId);
     if (message && activeChat) {
-      setActiveChat(prev => prev ? {
+      setActiveChat((prev) => prev ? {
         ...prev,
-        messages: prev.messages.filter(m => m.id !== messageId)
+        messages: prev.messages.filter((m) => m.id !== messageId),
       } : prev);
       handleMessageSent(Number(activeChat.id), message.content);
     }
@@ -490,13 +588,9 @@ export function MessagesClient() {
     }
     try {
       const data = await getConversation(targetUserId);
-      const messages: MessageData[] = data.messages.map((m: ChatMessage) => ({
-        id: String(m.id),
-        content: m.content,
-        sender: m.senderId === currentUserId ? 'me' : 'other',
-        time: m.createdAt ? new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '',
-        status: m.senderId === currentUserId ? 'delivered' : 'read',
-      }));
+      const messages = data.messages.map((message: ChatMessage) =>
+        mapConversationMessage(message, currentUserId)
+      );
       const chat: Conversation = {
         id: item.id,
         name: item.name,
@@ -590,11 +684,16 @@ export function MessagesClient() {
               <p className={styles.emptyHint}>暂无消息</p>
             ) : (
               list.map((item) => (
-                <button 
+                <button
                   key={item.id} 
                   type="button" 
-                  className={`${styles.convRow} ${(item as any).isSystem ? styles.systemNoticeRow : ''}`} 
-                  onClick={() => (item as any).isSystem ? () => {} : handleChatClick(item)}
+                  className={`${styles.convRow} ${item.isSystem ? styles.systemNoticeRow : ''}`}
+                  onClick={() => {
+                    if (!item.isSystem) {
+                      handleChatClick(item);
+                    }
+                  }}
+                  disabled={item.isSystem}
                 >
                   <img className={styles.avatar} src={item.avatar} alt="" />
                   <div className={styles.body}>
@@ -604,7 +703,7 @@ export function MessagesClient() {
                     </div>
                     <div className={styles.previewRow}>
                       <span className={styles.preview}>{item.preview}</span>
-                      {item.unread > 0 ? <span className={styles.badge}>{item.unread > 99 ? '99+' : item.unread}</span> : null}
+                      <UnreadBadge unread={item.unread} />
                     </div>
                   </div>
                 </button>

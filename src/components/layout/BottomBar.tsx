@@ -7,6 +7,21 @@ import { PRIMARY_NAV_TABS } from './navTabs';
 
 const tabs = PRIMARY_NAV_TABS;
 
+function getTabStyle(isActive: boolean) {
+  return {
+    color: isActive ? 'var(--color-primary)' : 'var(--color-text-muted)',
+    fontWeight: isActive ? 700 : 500,
+  };
+}
+
+function BottomBarLink({ href, label, isActive }: { href: string; label: string; isActive: boolean }) {
+  return (
+    <Link href={href} className="app-bottom-link" style={getTabStyle(isActive)}>
+      {label}
+    </Link>
+  );
+}
+
 export function BottomBar() {
   const pathname = usePathname();
   const { openPublish } = usePublishFlow();
@@ -17,22 +32,14 @@ export function BottomBar() {
         <div className="row app-bottom-inner">
           {tabs.slice(0, 2).map((tab) => {
             const active = pathname === tab.href;
-            return (
-              <Link key={tab.href} href={tab.href} className="app-bottom-link" style={{ color: active ? 'var(--color-primary)' : 'var(--color-text-muted)', fontWeight: active ? 700 : 500 }}>
-                {tab.label}
-              </Link>
-            );
+            return <BottomBarLink key={tab.href} href={tab.href} label={tab.label} isActive={active} />;
           })}
 
           <div className="app-bottom-gap" />
 
           {tabs.slice(2).map((tab) => {
             const active = pathname === tab.href;
-            return (
-              <Link key={tab.href} href={tab.href} className="app-bottom-link" style={{ color: active ? 'var(--color-primary)' : 'var(--color-text-muted)', fontWeight: active ? 700 : 500 }}>
-                {tab.label}
-              </Link>
-            );
+            return <BottomBarLink key={tab.href} href={tab.href} label={tab.label} isActive={active} />;
           })}
         </div>
 

@@ -13,6 +13,18 @@ type PostPageProps = {
   };
 };
 
+function getDetailTitle(state: DetailState): string {
+  if (state === 'loading') {
+    return 'Detail_Loading';
+  }
+
+  if (state === 'error') {
+    return 'Detail_Error';
+  }
+
+  return 'Detail_Default';
+}
+
 export default function PostDetailPage({ params }: PostPageProps) {
   const [state, setState] = useState<DetailState>('default');
 
@@ -20,9 +32,7 @@ export default function PostDetailPage({ params }: PostPageProps) {
     <main>
       <section className="container page grid">
         <article className="card grid">
-          <h2 className="page-title">
-            {state === 'loading' ? 'Detail_Loading' : state === 'error' ? 'Detail_Error' : 'Detail_Default'}
-          </h2>
+          <h2 className="page-title">{getDetailTitle(state)}</h2>
           <p className="page-desc">文章 ID: {params.id}</p>
           <div className="row">
             <Button onClick={() => setState('default')}>Default</Button>
