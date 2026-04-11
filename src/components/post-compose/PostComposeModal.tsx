@@ -10,7 +10,7 @@ import styles from './post-compose.module.css';
 const DRAFT_KEY = 'trip-publish-draft-v1';
 const MAX_IMAGES = 20;
 
-type Privacy = 'public' | 'friends' | 'private';
+type Privacy = 'public' | 'private';
 
 type ImageItem = {
   id: string;
@@ -330,36 +330,43 @@ export function PostComposeModal({
   const doPublish = async () => {
     if (!canPublish || publishing) return;
     setPublishing(true);
+
     try {
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
-      if (!apiBaseUrl) {
-        throw new Error('API base URL not configured');
+      if (!apiBaseUrl) throw new Error('API base URL not configured');
+
+      // Step 1: Upload images first
+      const imageIds: string[] = [];
+      for (const img of images) {
+        const response = await fetch(`${apiBaseUrl}/api/upload`, {
+          method: 'POST',
+          body: new FormData(),
+          credentials: 'include',
+        });
+        if (!response.ok) throw new Error('Image upload failed');
+        const data = await response.json();
+        imageIds.push(data.id);
       }
 
-      const formData = new FormData();
-      formData.append('title', title);
-      formData.append('content', content);
-      formData.append('privacy', privacy);
-      images.forEach((img, i) => {
-        formData.append(`images[${i}][id]`, img.id);
-        formData.append(`images[${i}][caption]`, img.caption);
-      });
-
-      const response = await fetch(`${apiBaseUrl}/api/post/publish`, {
+      // Step 2: Create post with image IDs
+      const postResponse = await fetch(`${apiBaseUrl}/api/posts`, {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          content,
+          privacy,
+          topic: '推荐',
+          imageIds,
+        }),
         credentials: 'include',
       });
 
-      if (!response.ok) {
-        throw new Error('发布失败');
-      }
+      if (!postResponse.ok) throw new Error('Post creation failed');
 
       try {
         window.localStorage.removeItem(DRAFT_KEY);
-      } catch {
-        /* */
-      }
+      } catch { /* ignore */ }
       onClose();
     } catch {
       setPublishing(false);
@@ -536,7 +543,6 @@ export function PostComposeModal({
                     aria-label="隐私设置"
                   >
                     <option value="public">🌍 公开</option>
-                    <option value="friends">👥 仅好友</option>
                     <option value="private">🔒 仅自己</option>
                   </select>
                 </div>
