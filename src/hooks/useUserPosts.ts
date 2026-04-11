@@ -8,7 +8,7 @@ export function useUserPosts() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchUserPosts = useCallback(async (userId: string) => {
+  const fetchUserPosts = useCallback(async (userId: string | number) => {
     if (!userId || loading) return;
 
     setLoading(true);
@@ -16,7 +16,7 @@ export function useUserPosts() {
 
     try {
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-      const response = await fetch(`${apiBaseUrl}/api/users/${userId}/posts`, {
+      const response = await fetch(`${apiBaseUrl}/api/users/${String(userId)}/posts`, {
         credentials: 'include',
       });
 
