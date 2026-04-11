@@ -1,4 +1,4 @@
-import { mysqlTable, serial, varchar, timestamp, uniqueIndex, tinyint, date, text } from 'drizzle-orm/mysql-core';
+import { mysqlTable, serial, varchar, timestamp, uniqueIndex, tinyint, date, text, int } from 'drizzle-orm/mysql-core';
 
 export const users = mysqlTable(
   'users',
@@ -19,3 +19,58 @@ export const users = mysqlTable(
   }),
 );
 
+// NEW: Posts table
+export const posts = mysqlTable(
+  'posts',
+  {
+    id: serial('id').primaryKey(),
+    userId: int('user_id').notNull(),
+    title: varchar('title', { length: 120 }).notNull(),
+    content: text('content'),
+    coverImageUrl: text('cover_image_url'),
+    privacy: varchar('privacy', { length: 16 }).default('public'),
+    topic: varchar('topic', { length: 64 }),
+    status: varchar('status', { length: 16 }).default('published'),
+    commentsCnt: int('comments_cnt').default(0),
+    favoritesCnt: int('favorites_cnt').default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+);
+
+// NEW: Post images table
+export const postImages = mysqlTable(
+  'post_images',
+  {
+    id: serial('id').primaryKey(),
+    postId: int('post_id').notNull(),
+    url: text('url').notNull(),
+    caption: text('caption'),
+    sortOrder: int('sort_order').default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+);
+
+// NEW: Comments table
+export const comments = mysqlTable(
+  'comments',
+  {
+    id: serial('id').primaryKey(),
+    postId: int('post_id').notNull(),
+    userId: int('user_id').notNull(),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+);
+
+// NEW: Friendships table
+export const friendships = mysqlTable(
+  'friendships',
+  {
+    id: serial('id').primaryKey(),
+    userId: int('user_id').notNull(),
+    friendUserId: int('friend_user_id').notNull(),
+    status: varchar('status', { length: 16 }).default('pending'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+);
