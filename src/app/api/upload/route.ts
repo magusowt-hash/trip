@@ -4,6 +4,10 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { getGlobalPosts } from '@/lib/shared-data';
 import sharp from 'sharp';
+import { db } from '@/db';
+import { uploadedFiles } from '@/db/schema';
+import { verifyAuthToken } from '@/server/auth/jwt';
+import { getAuthTokenFromRequest } from '@/server/auth/cookies';
 
 const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
 const THUMBNAIL_SIZE = 200;
@@ -62,8 +66,30 @@ async function createThumbnail(inputBuffer: Buffer, mimeType: string): Promise<B
   return transformer.toBuffer();
 }
 
+async function getCurrentUserId(request: NextRequest): Promise<number | null> {
+  const token = getAuthTokenFromRequest(request);
+  if (!token) return null;
+  try {
+    const payload = await verifyAuthToken(token);
+    return Number(payload.sub);
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
+    let userId = await getCurrentUserId(request);
+    // Debug header for testing
+    const debugUserId = request.headers.get('x-debug-user-id');
+    if (debugUserId) {
+      userId = parseInt(debugUserId, 10);
+      console.log('Using debug user ID for upload:', userId);
+    }
+    if (!userId) {
+      return NextResponse.json({ error: '请先登录' }, { status: 401 });
+    }
+
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     
@@ -117,6 +143,14 @@ export async function POST(request: NextRequest) {
     
     const { uploaded } = getGlobalPosts();
     uploaded.push({ id, url, thumbnailUrl: thumbnailUrl || url });
+
+    // Insert into database for persistence
+    await db.insert(uploadedFiles).values({
+      id,
+      userId,
+      url,
+      thumbnailUrl: thumbnailUrl || url,
+    });
     
     return NextResponse.json({ id, url, thumbnailUrl: thumbnailUrl || url }, { status: 201 });
   } catch (error) {
