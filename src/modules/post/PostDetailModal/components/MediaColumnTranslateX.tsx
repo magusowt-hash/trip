@@ -706,7 +706,7 @@ export function MediaColumnTranslateX({
           position: 'relative',
           overflow: 'hidden',
           cursor: 'pointer',
-          background: '#f3f4f6',
+          background: '#ffffff',
         }}
       >
         {/* 留白区域使用同图高斯模糊铺底 */}
@@ -831,7 +831,7 @@ export function MediaColumnTranslateX({
                   padding: 0,
                   marginRight: 8,
                   overflow: 'hidden',
-                  background: '#fff',
+                  background: '#ffffff',
                   cursor: 'pointer',
                   verticalAlign: 'top',
                   transform: active ? 'translateY(-1px) scale(1.02)' : 'translateY(0) scale(1)',
@@ -850,6 +850,7 @@ export function MediaColumnTranslateX({
                     height: '100%',
                     objectFit: 'cover',
                     display: 'block',
+                    background: '#ffffff',
                     userSelect: 'none',
                     WebkitUserSelect: 'none',
                     pointerEvents: 'none',
