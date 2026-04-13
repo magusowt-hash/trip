@@ -18,6 +18,7 @@ export function PostCard(props: PostCardProps) {
   const [gallery, setGallery] = useState<string[]>([]);
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [createdAt, setCreatedAt] = useState<string | undefined>(undefined);
+  const [galleryLoaded, setGalleryLoaded] = useState(false);
   const s = feedEnlarged ? 1.15 : 1;
 
   useEffect(() => {
@@ -30,8 +31,11 @@ export function PostCard(props: PostCardProps) {
             setComments(data.commentsCnt);
             setFavorites(data.favoritesCnt);
             setGallery(data.images?.map((i: { url: string }) => i.url) || []);
-            setThumbnails(data.images?.map((i: { url: string; thumbnailUrl?: string }) => i.thumbnailUrl || i.url) || []);
             setCreatedAt(data.createdAt);
+            
+            const thumbs = data.images?.map((i: { url: string; thumbnailUrl?: string }) => i.thumbnailUrl || i.url) || [];
+            setThumbnails(thumbs);
+            setGalleryLoaded(true);
           }
         })
         .catch(() => {});
@@ -76,8 +80,8 @@ export function PostCard(props: PostCardProps) {
         avatar={avatar}
         comments={comments}
         favorites={favorites}
-        gallery={gallery.length > 0 ? gallery : undefined}
-        thumbnails={thumbnails.length > 0 ? thumbnails : undefined}
+        gallery={galleryLoaded ? gallery : gallery}
+        thumbnails={galleryLoaded ? thumbnails : gallery}
         createdAt={createdAt}
       />
     </>

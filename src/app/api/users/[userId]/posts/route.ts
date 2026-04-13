@@ -52,7 +52,7 @@ export async function GET(
         author: userInfo.nickname,
         avatar: userInfo.avatar,
         coverImageUrl: p.coverImageUrl || '',
-        gallery: postImages.map((i) => i.thumbnailUrl || i.url),
+        gallery: postImages.map((i) => i.url),
         imagesCount: p.imagesCount,
         commentsCnt: p.commentsCnt,
         favoritesCnt: p.favoritesCnt,

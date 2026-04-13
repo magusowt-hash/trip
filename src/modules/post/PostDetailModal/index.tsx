@@ -35,6 +35,9 @@ export function PostDetailModal({
 
   const images = useMemo(() => sanitizeGalleryImages(gallery, title, author), [gallery, title, author]);
   const thumbs = useMemo(() => {
+    if (!thumbnails || thumbnails.length === 0) {
+      return images;
+    }
     const sanitizedThumbs = sanitizeGalleryImages(thumbnails, title, author);
     return images.map((_, i) => sanitizedThumbs[i] || images[i]);
   }, [thumbnails, images, title, author]);
