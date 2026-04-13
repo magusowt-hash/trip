@@ -21,3 +21,6 @@ npm-debug.log*
 .idea/
 *.swp
 *.swo
+
+# 工作树目录
+.worktrees/
