@@ -6,6 +6,7 @@ import { flushSync } from 'react-dom';
 import { MediaColumnTranslateX } from '@/modules/post/PostDetailModal/components/MediaColumnTranslateX';
 import { WHEEL_TO_SCROLL_FACTOR } from '@/modules/post/PostDetailModal/utils/galleryUtils';
 import styles from './post-compose.module.css';
+import { compressImage } from '@/lib/image-compressor';
 
 const DRAFT_KEY = 'trip-publish-draft-v1';
 const MAX_IMAGES = 20;
@@ -64,9 +65,11 @@ function animateThumbRailScroll(rail: HTMLDivElement, targetLeft: number, rafRef
 export function PostComposeModal({
   open,
   onClose,
+  onPublished,
 }: {
   open: boolean;
   onClose: () => void;
+  onPublished?: () => void;
 }) {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -336,7 +339,8 @@ export function PostComposeModal({
 
       for (const img of images) {
         const blob = await fetch(img.url).then((r) => r.blob());
-        const file = new File([blob], img.id, { type: blob.type });
+        let file = new File([blob], img.id, { type: blob.type });
+        file = await compressImage(file);
         const formData = new FormData();
         formData.append('file', file);
 
@@ -363,12 +367,17 @@ export function PostComposeModal({
         credentials: 'include',
       });
 
-      if (!postResponse.ok) throw new Error('Post creation failed');
+      if (!postResponse.ok) {
+        const errorData = await postResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Post creation failed');
+      }
 
       try {
         window.localStorage.removeItem(DRAFT_KEY);
       } catch { /* ignore */ }
       onClose();
+      onPublished?.();
+      window.dispatchEvent(new CustomEvent('trip:post-published'));
     } catch {
       setPublishing(false);
     }
