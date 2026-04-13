@@ -1,14 +1,15 @@
 export type CommentItem = {
   id: string;
-  name: string;
+  author: string;
   avatar: string;
-  text: string;
-  time: string;
+  content: string;
+  createdAt: string;
 };
 
 export type PostDetailModalProps = {
   open: boolean;
   onClose: () => void;
+  postId: string;
   cover: string;
   topic: string;
   title: string;
@@ -18,4 +19,6 @@ export type PostDetailModalProps = {
   comments?: number;
   favorites?: number;
   gallery?: string[];
+  thumbnails?: string[];
+  createdAt?: string;
 };

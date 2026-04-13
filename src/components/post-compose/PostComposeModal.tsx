@@ -16,6 +16,7 @@ type Privacy = 'public' | 'private';
 type ImageItem = {
   id: string;
   url: string;
+  thumbnailUrl: string;
   caption: string;
 };
 
@@ -283,6 +284,7 @@ export function PostComposeModal({
     const next: ImageItem[] = slice.map((file) => ({
       id: uid(),
       url: URL.createObjectURL(file),
+      thumbnailUrl: URL.createObjectURL(file),
       caption: '',
     }));
     const merged = [...prev, ...next];
@@ -500,6 +502,7 @@ export function PostComposeModal({
                     <MediaColumnTranslateX
                       mainSrc={mainGallerySrc}
                       images={imageUrls}
+                      thumbnails={imageUrls}
                       activeImageIndex={activeIndex}
                       onSelectImage={setActiveIndex}
                       title={title}

@@ -7,6 +7,7 @@ export type FeedPostDTO = {
   avatar: string;
   coverImageUrl: string;
   gallery: string[];
+  imagesCount: number;
   commentsCnt: number;
   favoritesCnt: number;
   createdAt: string;
@@ -23,6 +24,7 @@ export type FeedResponse = {
 export type DetailImageDTO = {
   id: string;
   url: string;
+  thumbnailUrl: string;
   caption: string;
 };
 
@@ -45,6 +47,7 @@ export type DetailResponse = DetailPostDTO;
 export type UploadResponse = {
   id: string;
   url: string;
+  thumbnailUrl: string;
 };
 
 // Create post payload

@@ -6,6 +6,7 @@ import { getGlobalPosts } from '@/lib/shared-data';
 import sharp from 'sharp';
 
 const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
+const THUMBNAIL_SIZE = 200;
 
 const getUploadDir = async () => {
   if (!existsSync(UPLOAD_DIR)) {
@@ -40,6 +41,27 @@ async function compressWithSharp(inputBuffer: Buffer, mimeType: string): Promise
   return inputBuffer;
 }
 
+async function createThumbnail(inputBuffer: Buffer, mimeType: string): Promise<Buffer> {
+  let transformer = sharp(inputBuffer);
+  
+  transformer = transformer.resize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, {
+    fit: 'cover',
+    position: 'center',
+  });
+
+  if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
+    return transformer.jpeg({ quality: 75 }).toBuffer();
+  } else if (mimeType === 'image/png') {
+    return transformer.png({ quality: 75 }).toBuffer();
+  } else if (mimeType === 'image/webp') {
+    return transformer.webp({ quality: 75 }).toBuffer();
+  } else if (mimeType === 'image/gif') {
+    return transformer.gif().toBuffer();
+  }
+
+  return transformer.toBuffer();
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -57,11 +79,14 @@ export async function POST(request: NextRequest) {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     
     let finalExt = ext;
+    let thumbnailUrl = '';
     
     if (IMAGE_MIME_TYPES.includes(mimeType)) {
       try {
         const compressed = await compressWithSharp(buffer, mimeType);
         buffer = Buffer.from(compressed);
+        
+        const thumbnailBuffer = await createThumbnail(buffer, mimeType);
         
         if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
           finalExt = 'jpg';
@@ -72,6 +97,11 @@ export async function POST(request: NextRequest) {
         } else if (mimeType === 'image/gif') {
           finalExt = 'gif';
         }
+        
+        const thumbFilename = `${id}_thumb.${finalExt}`;
+        const uploadDir = await getUploadDir();
+        await writeFile(join(uploadDir, thumbFilename), thumbnailBuffer);
+        thumbnailUrl = `/uploads/${thumbFilename}`;
       } catch (compressError) {
         console.warn('Backend compression failed, using original:', compressError);
       }
@@ -86,9 +116,9 @@ export async function POST(request: NextRequest) {
     const url = `/uploads/${filename}`;
     
     const { uploaded } = getGlobalPosts();
-    uploaded.push({ id, url });
+    uploaded.push({ id, url, thumbnailUrl: thumbnailUrl || url });
     
-    return NextResponse.json({ id, url }, { status: 201 });
+    return NextResponse.json({ id, url, thumbnailUrl: thumbnailUrl || url }, { status: 201 });
   } catch (error) {
     console.error('POST /api/upload error:', error);
     return NextResponse.json({ error: '上传失败', message: String(error) }, { status: 500 });

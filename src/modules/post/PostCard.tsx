@@ -1,18 +1,42 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { PostDetailModal, type PostDetailModalProps } from '@/modules/post/PostDetailModal';
 
 export type PostCardProps = Omit<PostDetailModalProps, 'open' | 'onClose'> & {
+  postId: string;
   /** 仅主页流使用：整体约 1.15 倍，其它页面勿传 */
   feedEnlarged?: boolean;
 };
 
 export function PostCard(props: PostCardProps) {
-  const { feedEnlarged = false, ...modalFields } = props;
-  const { cover, topic, title, author, avatar } = modalFields;
+  const { feedEnlarged = false, postId, cover, topic, title, author, avatar } = props;
   const [open, setOpen] = useState(false);
+  const [detailContent, setDetailContent] = useState<string | undefined>(undefined);
+  const [comments, setComments] = useState(0);
+  const [favorites, setFavorites] = useState(0);
+  const [gallery, setGallery] = useState<string[]>([]);
+  const [thumbnails, setThumbnails] = useState<string[]>([]);
+  const [createdAt, setCreatedAt] = useState<string | undefined>(undefined);
   const s = feedEnlarged ? 1.15 : 1;
+
+  useEffect(() => {
+    if (open && postId) {
+      fetch(`/api/posts/${postId}`, { credentials: 'include' })
+        .then((res) => res.json())
+        .then((data) => {
+          if (!data.error) {
+            setDetailContent(data.content);
+            setComments(data.commentsCnt);
+            setFavorites(data.favoritesCnt);
+            setGallery(data.images?.map((i: { url: string }) => i.url) || []);
+            setThumbnails(data.images?.map((i: { url: string; thumbnailUrl?: string }) => i.thumbnailUrl || i.url) || []);
+            setCreatedAt(data.createdAt);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [open, postId]);
 
   return (
     <>
@@ -40,7 +64,22 @@ export function PostCard(props: PostCardProps) {
         </div>
       </button>
 
-      <PostDetailModal {...modalFields} open={open} onClose={() => setOpen(false)} />
+      <PostDetailModal
+        open={open}
+        onClose={() => setOpen(false)}
+        postId={postId}
+        cover={cover}
+        topic={topic}
+        title={title}
+        content={detailContent}
+        author={author}
+        avatar={avatar}
+        comments={comments}
+        favorites={favorites}
+        gallery={gallery.length > 0 ? gallery : undefined}
+        thumbnails={thumbnails.length > 0 ? thumbnails : undefined}
+        createdAt={createdAt}
+      />
     </>
   );
 }
