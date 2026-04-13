@@ -60,7 +60,8 @@ export async function POST(request: NextRequest) {
     
     if (IMAGE_MIME_TYPES.includes(mimeType)) {
       try {
-        buffer = await compressWithSharp(buffer, mimeType);
+        const compressed = await compressWithSharp(buffer, mimeType);
+        buffer = Buffer.from(compressed);
         
         if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
           finalExt = 'jpg';
