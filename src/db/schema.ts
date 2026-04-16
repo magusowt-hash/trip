@@ -1,4 +1,5 @@
 import { mysqlTable, serial, varchar, timestamp, uniqueIndex, tinyint, date, text, int } from 'drizzle-orm/mysql-core';
+import { relations } from 'drizzle-orm';
 
 export const users = mysqlTable(
   'users',
@@ -59,8 +60,37 @@ export const comments = mysqlTable(
     postId: int('post_id').notNull(),
     userId: int('user_id').notNull(),
     content: text('content').notNull(),
+    parentId: int('parent_id'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
+);
+
+// NEW: Favorites table (likes/bookmarks)
+export const favorites = mysqlTable(
+  'favorites',
+  {
+    id: serial('id').primaryKey(),
+    postId: int('post_id').notNull(),
+    userId: int('user_id').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    uniquePostUser: uniqueIndex('favorites_post_user_unique').on(t.postId, t.userId),
+  })
+);
+
+// NEW: Comment likes table
+export const commentLikes = mysqlTable(
+  'comment_likes',
+  {
+    id: serial('id').primaryKey(),
+    commentId: int('comment_id').notNull(),
+    userId: int('user_id').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    uniqueCommentUser: uniqueIndex('comment_likes_comment_user_unique').on(t.commentId, t.userId),
+  })
 );
 
  // NEW: Friendships table
@@ -86,3 +116,53 @@ export const uploadedFiles = mysqlTable(
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
 );
+
+// Plans table - 用户计划主表
+export const plans = mysqlTable(
+  'plans',
+  {
+    id: serial('id').primaryKey(),
+    userId: int('user_id').notNull(),
+    name: varchar('name', { length: 120 }).notNull(),
+    activeTab: int('active_tab').default(0),
+    startDate: date('start_date'),
+    endDate: date('end_date'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    userIdIdx: uniqueIndex('plans_user_id_idx').on(t.userId),
+  }),
+);
+
+// Transport items table - 计划中的交通项
+export const transportItems = mysqlTable(
+  'transport_items',
+  {
+    id: serial('id').primaryKey(),
+    planId: int('plan_id').notNull(),
+    from: varchar('from', { length: 255 }),
+    to: varchar('to', { length: 255 }),
+    note: text('note'),
+    noteExpanded: tinyint('note_expanded').default(0),
+    sortOrder: int('sort_order').default(0),
+    startDate: date('start_date'),
+    endDate: date('end_date'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    planIdIdx: uniqueIndex('transport_items_plan_id_idx').on(t.planId, t.sortOrder),
+  }),
+);
+
+// Define relations
+export const plansRelations = relations(plans, ({ many }) => ({
+  transportItems: many(transportItems),
+}));
+
+export const transportItemsRelations = relations(transportItems, ({ one }) => ({
+  plan: one(plans, {
+    fields: [transportItems.planId],
+    references: [plans.id],
+  }),
+}));
