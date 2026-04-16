@@ -21,8 +21,7 @@ export function usePosts() {
       if (!reset && nextCursor) params.set('cursor', nextCursor);
       if (topic && topic !== '推荐') params.set('topic', topic);
 
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-      const response = await fetch(`${apiBaseUrl}/api/posts?${params}`, {
+      const response = await fetch(`/api/posts?${params}`, {
         credentials: 'include',
       });
 

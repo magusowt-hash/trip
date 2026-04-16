@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { DetailPostDTO } from '@/types/post';
 import { getGlobalPosts } from '@/lib/shared-data';
 import { db } from '@/db';
-import { users } from '@/db/schema';
+import { users, posts, postImages } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 async function getUserInfo(userId: number) {
@@ -17,31 +17,54 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const { posts, images } = getGlobalPosts();
-    const post = posts.find((p) => p.id === Number(id));
-
-    if (!post) {
+    const postId = Number(id);
+    
+    // Fetch post from database
+    const postResult = await db.select({
+      id: posts.id,
+      userId: posts.userId,
+      title: posts.title,
+      content: posts.content,
+      coverImageUrl: posts.coverImageUrl,
+      privacy: posts.privacy,
+      topic: posts.topic,
+      commentsCnt: posts.commentsCnt,
+      favoritesCnt: posts.favoritesCnt,
+      createdAt: posts.createdAt,
+    }).from(posts).where(eq(posts.id, postId)).limit(1);
+    
+    if (postResult.length === 0) {
       return NextResponse.json({ error: '帖子不存在' }, { status: 404 });
     }
-
+    
+    const post = postResult[0];
     const userInfo = await getUserInfo(post.userId);
-    const postImages = images.filter((i) => i.postId === post.id).sort((a, b) => a.sortOrder - b.sortOrder);
-
+    
+    // Fetch post images
+    const postImagesResult = await db.select({
+      id: postImages.id,
+      postId: postImages.postId,
+      url: postImages.url,
+      thumbnailUrl: postImages.thumbnailUrl,
+      caption: postImages.caption,
+      sortOrder: postImages.sortOrder,
+    }).from(postImages).where(eq(postImages.postId, postId)).orderBy(postImages.sortOrder);
+    
     const detailPost: DetailPostDTO = {
       id: String(post.id),
       title: post.title,
-      content: post.content,
-      topic: post.topic,
+      content: post.content || '',
+      topic: post.topic || '推荐',
       author: userInfo.nickname,
       avatar: userInfo.avatar,
-      images: postImages.map((i) => ({
+      images: postImagesResult.map((i) => ({
         id: String(i.id),
         url: i.url,
         thumbnailUrl: i.thumbnailUrl || i.url,
         caption: i.caption || '',
       })),
-      commentsCnt: post.commentsCnt,
-      favoritesCnt: post.favoritesCnt,
+      commentsCnt: post.commentsCnt || 0,
+      favoritesCnt: post.favoritesCnt || 0,
       createdAt: post.createdAt.toISOString(),
     };
 

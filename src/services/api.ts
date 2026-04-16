@@ -96,13 +96,19 @@ export async function getRecentChats(): Promise<{ chats: RecentChat[] }> {
 }
 
 export async function getConversation(userId: number): Promise<{ messages: ChatMessage[] }> {
-  return request<{ messages: ChatMessage[] }>(`/api/message/conversation/${userId}`);
+  return request<{ messages: ChatMessage[] }>(`/api/message/conversation/${userId}?limit=100`);
 }
 
 export async function sendMessage(receiverId: number, content: string): Promise<{ message: ChatMessage }> {
   return request<{ message: ChatMessage }>('/api/message/send', {
     method: 'POST',
     body: { receiverId, content },
+  });
+}
+
+export async function markAllMessagesAsRead(userId: number): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/api/message/read-all/${userId}`, {
+    method: 'POST',
   });
 }
 

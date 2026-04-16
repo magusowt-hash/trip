@@ -10,11 +10,17 @@ import './explore-feed.css';
 export default function ExplorePage() {
   const { activeCategory } = useExploreFeed();
   const columnCount = useFeedColumnCount();
-  const { posts, loading, fetchPosts, loadMore, hasMore } = usePosts();
+  const { posts, loading, fetchPosts, loadMore, hasMore, refresh } = usePosts();
 
   useEffect(() => {
     fetchPosts(activeCategory, true);
   }, [activeCategory]);
+
+  useEffect(() => {
+    const onPublished = () => refresh();
+    window.addEventListener('trip:post-published', onPublished);
+    return () => window.removeEventListener('trip:post-published', onPublished);
+  }, [refresh]);
 
   const filteredPosts = useMemo(
     () => (activeCategory === '推荐' ? posts : posts.filter((item) => item.topic === activeCategory)),
@@ -34,18 +40,20 @@ export default function ExplorePage() {
       {columns.map((colItems, colIndex) => (
         <div key={colIndex} className="explore-feed-column">
           {colItems.map((item) => (
-            <PostCard
-              key={item.id}
-              cover={item.coverImageUrl}
-              topic={item.topic}
-              title={item.title}
-              author={item.author}
-              avatar={item.avatar}
-              gallery={item.gallery}
-              comments={item.commentsCnt}
-              favorites={item.favoritesCnt}
-              feedEnlarged
-            />
+             <PostCard
+               key={item.id}
+               postId={item.id}
+               cover={item.coverImageUrl}
+               topic={item.topic}
+               title={item.title}
+               author={item.author}
+               avatar={item.avatar}
+               gallery={item.gallery}
+               imagesCount={item.imagesCount}
+               comments={item.commentsCnt}
+               favorites={item.favoritesCnt}
+               feedEnlarged
+             />
           ))}
         </div>
       ))}

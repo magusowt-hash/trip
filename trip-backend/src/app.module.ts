@@ -9,8 +9,11 @@ import { ChatModule } from './chat/chat.module';
 import { User } from './user/user.entity';
 import { Friend } from './friend/friend.entity';
 import { Message } from './message/message.entity';
+import { Post, PostImage } from './post/post.entity';
 import { parseWantsSsl } from './database-url.util';
 import { TestModule } from './test/test.module';
+import { PostModule } from './post/post.module';
+import { UploadModule } from './upload/upload.module';
 
 @Module({
   imports: [
@@ -43,7 +46,7 @@ import { TestModule } from './test/test.module';
             password: parsed.password,
             database: parsed.pathname.replace(/^\//, ''),
             ssl,
-            entities: [User, Friend, Message],
+            entities: [User, Friend, Message, Post, PostImage],
             synchronize,
             extra: {
               min: 2,
@@ -62,7 +65,7 @@ import { TestModule } from './test/test.module';
             password: parsed.password,
             database: parsed.pathname.replace(/^\//, ''),
             ssl,
-            entities: [User, Friend, Message],
+            entities: [User, Friend, Message, Post, PostImage],
             synchronize,
             poolSize: 10,
           };
@@ -76,6 +79,8 @@ import { TestModule } from './test/test.module';
     FriendModule,
     MessageModule,
     ChatModule,
+    PostModule,
+    UploadModule,
     TestModule,
   ],
 })

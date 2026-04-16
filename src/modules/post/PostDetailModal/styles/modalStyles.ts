@@ -58,7 +58,7 @@ export const modalStyles: Record<string, CSSProperties> = {
     alignSelf: 'stretch',
     display: 'flex',
     flexDirection: 'column',
-    background: '#fff',
+    background: 'transparent',
     overflow: 'hidden',
   },
   /** 父级在 mediaPanel flex 内占满剩余高度后，内部绝对定位 img 才能稳定铺满（避免 img 百分比高度在 flex 下为 0） */

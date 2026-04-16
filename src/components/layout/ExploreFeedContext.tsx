@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 
-export const EXPLORE_CATEGORIES = ['推荐', '城市漫游', '海边假期', '避坑指南', '摄影灵感'] as const;
+export const EXPLORE_CATEGORIES = ['推荐'] as const;
 
 type Ctx = {
   activeCategory: string;

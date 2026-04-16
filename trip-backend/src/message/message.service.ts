@@ -113,6 +113,13 @@ export class MessageService {
     );
   }
 
+  async markAllAsReadFromUser(senderId: number, receiverId: number): Promise<void> {
+    await this.messages.update(
+      { senderId, receiverId, isRead: 0 },
+      { isRead: 1 },
+    );
+  }
+
   async findById(id: number): Promise<Message | null> {
     return this.messages.findOne({ where: { id } });
   }

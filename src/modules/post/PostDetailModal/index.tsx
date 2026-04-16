@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { clampImageIndex, resolveMainImageSrc, sanitizeGalleryImages } from './utils/galleryUtils';
+import { clampImageIndex, resolveMainImageSrc, sanitizeGalleryImages, FALLBACK_IMAGE } from './utils/galleryUtils';
 import { InfoColumn } from './components/InfoColumn';
 import { MediaColumnTranslateX as MediaColumn } from './components/MediaColumnTranslateX';
 import { modalStyles as s } from './styles/modalStyles';
@@ -24,6 +24,7 @@ export function PostDetailModal({
   favorites = 0,
   gallery,
   thumbnails,
+  imagesCount,
   createdAt,
 }: PostDetailModalProps) {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -31,16 +32,43 @@ export function PostDetailModal({
   const [commentList, setCommentList] = useState<CommentItem[]>([]);
   const [loadingComments, setLoadingComments] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [localFavorites, setLocalFavorites] = useState(favorites);
+  const [localComments, setLocalComments] = useState(commentCount);
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const prevOverflowRef = useRef<string | null>(null);
 
-  const images = useMemo(() => sanitizeGalleryImages(gallery, title, author), [gallery, title, author]);
+  // Use cover as fallback image for immediate display while loading
+  const fallbackImages = cover ? [cover] : [];
+  const images = useMemo(() => {
+    if (gallery && gallery.length > 0) {
+      const loadedImages = sanitizeGalleryImages(gallery, title, author);
+      if (loadedImages.length > 0) {
+        return loadedImages;
+      }
+    }
+    // If no loaded images but we know the count, create placeholders
+    if (imagesCount && imagesCount > 0) {
+      const placeholder = cover || FALLBACK_IMAGE;
+      return Array.from({ length: imagesCount }, () => placeholder);
+    }
+    return fallbackImages;
+  }, [gallery, title, author, cover, imagesCount]);
+
   const thumbs = useMemo(() => {
-    if (!thumbnails || thumbnails.length === 0) {
+    if (thumbnails && thumbnails.length > 0) {
+      const sanitizedThumbs = sanitizeGalleryImages(thumbnails, title, author);
+      return images.map((_, i) => sanitizedThumbs[i] || images[i]);
+    }
+    // If no thumbnails but we have images, use images as thumbnails
+    if (images.length > 0) {
       return images;
     }
-    const sanitizedThumbs = sanitizeGalleryImages(thumbnails, title, author);
-    return images.map((_, i) => sanitizedThumbs[i] || images[i]);
-  }, [thumbnails, images, title, author]);
+    // If we know the image count but no images yet, create placeholders
+    if (imagesCount && imagesCount > 0) {
+      return Array.from({ length: imagesCount }, () => cover || '');
+    }
+    return [];
+  }, [thumbnails, images, title, author, cover, imagesCount]);
 
   const mainSrc = useMemo(
     () => resolveMainImageSrc(images, activeImageIndex, cover),
@@ -51,6 +79,7 @@ export function PostDetailModal({
     if (!open) {
       setActiveImageIndex(0);
       setCommentList([]);
+      setReplyingTo(null);
       return;
     }
     setActiveImageIndex(0);
@@ -61,12 +90,29 @@ export function PostDetailModal({
       .then((res) => res.json())
       .then((data) => {
         if (data.comments) {
-          setCommentList(data.comments);
+          // Ensure each comment has parentId
+          const commentsWithParentId = data.comments.map((c: any) => ({
+            id: c.id,
+            author: c.author,
+            avatar: c.avatar,
+            content: c.content,
+            parentId: c.parentId || null,
+            createdAt: c.createdAt,
+          }));
+          setCommentList(commentsWithParentId);
         }
       })
       .catch(() => {})
       .finally(() => setLoadingComments(false));
   }, [open, postId]);
+
+  useEffect(() => {
+    setLocalFavorites(favorites);
+  }, [favorites]);
+
+  useEffect(() => {
+    setLocalComments(commentCount);
+  }, [commentCount]);
 
   useEffect(() => {
     setActiveImageIndex((i) => clampImageIndex(i, images.length));
@@ -105,10 +151,15 @@ export function PostDetailModal({
 
     setSubmitting(true);
     try {
+      const body = {
+        content: value,
+        parentId: replyingTo ? parseInt(replyingTo) : undefined,
+      };
+      
       const res = await fetch(`/api/posts/${postId}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: value }),
+        body: JSON.stringify(body),
         credentials: 'include',
       });
 
@@ -120,14 +171,60 @@ export function PostDetailModal({
 
       const data = await res.json();
       if (data.comment) {
-        setCommentList((prev) => [data.comment, ...prev]);
+        // Ensure the comment has parentId
+        const newComment: CommentItem = {
+          id: data.comment.id,
+          author: data.comment.author,
+          avatar: data.comment.avatar,
+          content: data.comment.content,
+          parentId: data.comment.parentId || null,
+          createdAt: data.comment.createdAt,
+        };
+        setCommentList((prev) => [newComment, ...prev]);
+        setLocalComments((prev) => prev + 1);
       }
       setCommentText('');
+      setReplyingTo(null);
     } catch {
       alert('评论失败');
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleFavorite() {
+    if (!postId) return;
+    try {
+      const res = await fetch(`/api/posts/${postId}/favorite`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || '操作失败');
+        return;
+      }
+      const data = await res.json();
+      setLocalFavorites(data.favoritesCnt);
+    } catch {
+      alert('操作失败');
+    }
+  }
+
+  function handleReplyClick(commentId: string, author: string) {
+    if (commentId === '') {
+      // Cancel reply
+      setReplyingTo(null);
+      return;
+    }
+    setReplyingTo(commentId);
+    // Optionally focus the input field
+    // You could add "@author " to the input text
+    // For now, just set the state, placeholder will show
+  }
+
+  function cancelReply() {
+    setReplyingTo(null);
   }
 
   if (!open) return null;
@@ -175,8 +272,8 @@ export function PostDetailModal({
           content={content}
           author={author}
           avatar={avatar}
-          comments={commentCount}
-          favorites={favorites}
+          comments={localComments}
+          favorites={localFavorites}
           createdAt={createdAt}
           onClose={onClose}
           commentList={commentList}
@@ -184,6 +281,9 @@ export function PostDetailModal({
           commentText={commentText}
           onCommentTextChange={setCommentText}
           onSubmitComment={submitComment}
+          onFavoriteClick={handleFavorite}
+          onReplyClick={handleReplyClick}
+          replyingTo={replyingTo}
         />
       </article>
     </div>

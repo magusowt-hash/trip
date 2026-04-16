@@ -76,4 +76,15 @@ export class MessageController {
     await this.messageService.markAsRead(Number(messageId), userId);
     return { success: true };
   }
+
+  @Post('read-all/:userId')
+  async markAllAsRead(@Req() req: AuthRequest, @Param('userId') userId: string) {
+    const currentUserId = Number(req.user?.sub);
+    if (!currentUserId || isNaN(currentUserId)) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    await this.messageService.markAllAsReadFromUser(Number(userId), currentUserId);
+    return { success: true };
+  }
 }

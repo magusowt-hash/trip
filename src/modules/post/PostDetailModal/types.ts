@@ -3,6 +3,7 @@ export type CommentItem = {
   author: string;
   avatar: string;
   content: string;
+  parentId: string | null;
   createdAt: string;
 };
 
@@ -20,5 +21,6 @@ export type PostDetailModalProps = {
   favorites?: number;
   gallery?: string[];
   thumbnails?: string[];
+  imagesCount?: number;
   createdAt?: string;
 };

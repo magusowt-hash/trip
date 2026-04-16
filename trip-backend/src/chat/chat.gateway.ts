@@ -105,20 +105,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.emit('pong', { status: 'ok' });
   }
 
-  @SubscribeMessage('typing')
-  handleTyping(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: { receiverId: number },
-  ) {
-    const senderId = this.connectedUsers.get(client.id);
-    if (!senderId) return;
-
-    this.server.to(`user_${data.receiverId}`).emit('user_typing', {
-      userId: senderId,
-      isTyping: true,
-    });
-  }
-
   sendToUser(userId: number, event: string, data: unknown) {
     this.server.to(`user_${userId}`).emit(event, data);
   }

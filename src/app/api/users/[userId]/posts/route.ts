@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { FeedPostDTO } from '@/types/post';
 import { getGlobalPosts } from '@/lib/shared-data';
 import { db } from '@/db';
-import { users } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { users, posts, postImages } from '@/db/schema';
+import { eq, desc, inArray, and, or, lt, SQL } from 'drizzle-orm';
 
 async function getUserInfo(userId: number) {
   const result = await db.select({ nickname: users.nickname, avatar: users.avatar }).from(users).where(eq(users.id, userId)).limit(1);
@@ -20,42 +20,92 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const cursor = searchParams.get('cursor');
     const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50);
-
-    const { posts, images } = getGlobalPosts();
     const numericUserId = Number(userId);
 
     const userInfo = await getUserInfo(numericUserId);
 
-    const userPosts = posts
-      .filter((p) => p.userId === numericUserId && p.privacy === 'public')
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    // Build where conditions
+    const conditions: SQL[] = [
+      eq(posts.userId, numericUserId),
+      eq(posts.privacy, 'public')
+    ];
 
-    let filtered = userPosts;
+    // Apply cursor pagination
     if (cursor) {
       const [cursorCreatedAt, cursorId] = cursor.split('_');
       const cursorDate = new Date(cursorCreatedAt);
       const cursorNumId = parseInt(cursorId);
-      filtered = userPosts.filter(
-        (p) => p.createdAt < cursorDate || (p.createdAt.getTime() === cursorDate.getTime() && p.id < cursorNumId)
+      const cursorCondition = or(
+        lt(posts.createdAt, cursorDate),
+        and(
+          eq(posts.createdAt, cursorDate),
+          lt(posts.id, cursorNumId)
+        )
       );
+      if (cursorCondition) {
+        conditions.push(cursorCondition);
+      }
     }
 
-    const sliced = filtered.slice(0, limit);
-    const hasMore = filtered.length > limit;
+    // Build and execute query
+    const dbPosts = await db.select({
+      id: posts.id,
+      userId: posts.userId,
+      title: posts.title,
+      content: posts.content,
+      coverImageUrl: posts.coverImageUrl,
+      privacy: posts.privacy,
+      topic: posts.topic,
+      commentsCnt: posts.commentsCnt,
+      favoritesCnt: posts.favoritesCnt,
+      createdAt: posts.createdAt,
+    })
+    .from(posts)
+    .where(and(...conditions))
+    .orderBy(desc(posts.createdAt), desc(posts.id))
+    .limit(limit + 1); // Fetch one extra to check hasMore
+    
+    const hasMore = dbPosts.length > limit;
+    const sliced = hasMore ? dbPosts.slice(0, limit) : dbPosts;
+    
+    // Get images for all posts in a single query
+    const postIds = sliced.map((p: { id: number }) => p.id);
+    const imagesMap = new Map<number, any[]>();
+    if (postIds.length > 0) {
+      const allImages = await db.select({
+        id: postImages.id,
+        postId: postImages.postId,
+        url: postImages.url,
+        thumbnailUrl: postImages.thumbnailUrl,
+        caption: postImages.caption,
+        sortOrder: postImages.sortOrder,
+      })
+      .from(postImages)
+      .where(inArray(postImages.postId, postIds))
+      .orderBy(postImages.sortOrder);
+      
+      // Group images by postId
+      for (const img of allImages) {
+        if (!imagesMap.has(img.postId)) {
+          imagesMap.set(img.postId, []);
+        }
+        imagesMap.get(img.postId)!.push(img);
+      }
+    }
 
-    const feedPosts: FeedPostDTO[] = sliced.map((p) => {
-      const postImages = images.filter((i) => i.postId === p.id).sort((a, b) => a.sortOrder - b.sortOrder);
+    const feedPosts: FeedPostDTO[] = sliced.map((p: typeof dbPosts[0]) => {
+      const postImages = imagesMap.get(p.id) || [];
       return {
         id: String(p.id),
         title: p.title,
-        topic: p.topic,
+        topic: p.topic || '推荐',
         author: userInfo.nickname,
         avatar: userInfo.avatar,
         coverImageUrl: p.coverImageUrl || '',
-        gallery: postImages.map((i) => i.url),
-        imagesCount: p.imagesCount,
-        commentsCnt: p.commentsCnt,
-        favoritesCnt: p.favoritesCnt,
+        gallery: postImages.map((i: { url: string }) => i.url),
+        imagesCount: postImages.length,
+        commentsCnt: p.commentsCnt || 0,
+        favoritesCnt: p.favoritesCnt || 0,
         createdAt: p.createdAt.toISOString(),
         cursor: `${p.createdAt.toISOString()}_${p.id}`,
       };

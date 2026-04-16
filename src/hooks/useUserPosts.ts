@@ -9,7 +9,7 @@ export function useUserPosts() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchUserPosts = useCallback(async (userId: string | number) => {
-    if (!userId || loading) return;
+    if (!userId) return;
 
     setLoading(true);
     setError(null);
@@ -28,7 +28,7 @@ export function useUserPosts() {
     } finally {
       setLoading(false);
     }
-  }, [loading]);
+  }, []);
 
   const refresh = useCallback(() => {
     // Will be implemented with userId from context

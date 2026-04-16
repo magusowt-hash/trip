@@ -5,7 +5,8 @@
 ```
 docs/
 ├── api/                    # API相关文档
-│   └── api-debug.md       # API调试指南
+│   ├── api-debug.md       # API调试指南
+│   └── post-api-500-error-debugging.md # Post接口500错误调试文档
 ├── architecture/           # 系统架构文档
 │   └── figma-structure.md # Figma设计结构
 ├── deployment/             # 部署文档

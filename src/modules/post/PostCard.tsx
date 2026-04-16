@@ -10,15 +10,29 @@ export type PostCardProps = Omit<PostDetailModalProps, 'open' | 'onClose'> & {
 };
 
 export function PostCard(props: PostCardProps) {
-  const { feedEnlarged = false, postId, cover, topic, title, author, avatar } = props;
+  const { 
+    feedEnlarged = false, 
+    postId, 
+    cover, 
+    topic, 
+    title, 
+    author, 
+    avatar,
+    gallery: initialGallery = [],
+    thumbnails: initialThumbnails = [],
+    comments: initialComments = 0,
+    favorites: initialFavorites = 0,
+    imagesCount: initialImagesCount = 0,
+    createdAt: initialCreatedAt
+  } = props;
+  
   const [open, setOpen] = useState(false);
   const [detailContent, setDetailContent] = useState<string | undefined>(undefined);
-  const [comments, setComments] = useState(0);
-  const [favorites, setFavorites] = useState(0);
-  const [gallery, setGallery] = useState<string[]>([]);
-  const [thumbnails, setThumbnails] = useState<string[]>([]);
-  const [createdAt, setCreatedAt] = useState<string | undefined>(undefined);
-  const [galleryLoaded, setGalleryLoaded] = useState(false);
+  const [comments, setComments] = useState(initialComments);
+  const [favorites, setFavorites] = useState(initialFavorites);
+  const [gallery, setGallery] = useState<string[]>(initialGallery);
+  const [thumbnails, setThumbnails] = useState<string[]>(initialThumbnails);
+  const [createdAt, setCreatedAt] = useState<string | undefined>(initialCreatedAt);
   const s = feedEnlarged ? 1.15 : 1;
 
   useEffect(() => {
@@ -35,7 +49,6 @@ export function PostCard(props: PostCardProps) {
             
             const thumbs = data.images?.map((i: { url: string; thumbnailUrl?: string }) => i.thumbnailUrl || i.url) || [];
             setThumbnails(thumbs);
-            setGalleryLoaded(true);
           }
         })
         .catch(() => {});
@@ -80,8 +93,9 @@ export function PostCard(props: PostCardProps) {
         avatar={avatar}
         comments={comments}
         favorites={favorites}
-        gallery={galleryLoaded ? gallery : gallery}
-        thumbnails={galleryLoaded ? thumbnails : gallery}
+        gallery={gallery}
+        thumbnails={thumbnails}
+        imagesCount={initialImagesCount}
         createdAt={createdAt}
       />
     </>

@@ -107,27 +107,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     };
   }, [isConnected, socket]);
 
-  useEffect(() => {
-    tokenRef.current = getAuthTokenFromCookies();
-    if (tokenRef.current && WS_URL) {
-      setTokenAndConnect(tokenRef.current);
-    }
-
-    const interval = setInterval(() => {
-      const newToken = getAuthTokenFromCookies();
-      if (newToken !== tokenRef.current) {
-        tokenRef.current = newToken;
-        if (newToken && WS_URL) {
-          setTokenAndConnect(newToken);
-        } else {
-          resetConnectionState();
-        }
-      }
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [resetConnectionState, setTokenAndConnect]);
-
   const setTokenAndConnect = useCallback((token: string) => {
     if (socketRef.current?.connected) {
       return;
@@ -163,6 +142,27 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     socketRef.current = newSocket;
     setSocket(newSocket);
   }, []);
+
+  useEffect(() => {
+    tokenRef.current = getAuthTokenFromCookies();
+    if (tokenRef.current && WS_URL) {
+      setTokenAndConnect(tokenRef.current);
+    }
+
+    const interval = setInterval(() => {
+      const newToken = getAuthTokenFromCookies();
+      if (newToken !== tokenRef.current) {
+        tokenRef.current = newToken;
+        if (newToken && WS_URL) {
+          setTokenAndConnect(newToken);
+        } else {
+          resetConnectionState();
+        }
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [resetConnectionState, setTokenAndConnect]);
 
   useEffect(() => {
     return () => {

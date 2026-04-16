@@ -17,11 +17,13 @@ export function UserMine() {
   const avatar = profile?.avatar || '/default-avatar.svg';
   const nickname = profile?.nickname || '旅行用户';
 
+  const profileId = profile?.id;
+
   useEffect(() => {
-    if (profile?.id) {
-      fetchUserPosts(profile.id);
+    if (profileId) {
+      fetchUserPosts(profileId);
     }
-  }, [profile?.id, fetchUserPosts]);
+  }, [profileId, fetchUserPosts]);
 
   const columns = useMemo(() => {
     const cols = Array.from({ length: columnCount }, () => [] as typeof posts);
@@ -71,6 +73,7 @@ export function UserMine() {
               {colItems.map((item) => (
                 <PostCard
                   key={item.id}
+                  postId={item.id}
                   cover={item.coverImageUrl}
                   topic={item.topic}
                   title={item.title}

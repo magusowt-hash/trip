@@ -2,10 +2,12 @@ module.exports = {
   apps: [
     {
       name: 'backend',
-      script: './trip-backend/dist/main.js',
+      script: 'npm',
+      interpreter: 'none',
+      args: 'run start:dev --prefix ./trip-backend',
       cwd: '/root/trip',
       env: {
-        NODE_ENV: 'production',
+        NODE_ENV: 'development',
         PORT: 3002,
         HOST: '0.0.0.0',
         DATABASE_URL: 'mysql://magus:3W.xh.com@127.0.0.1:3306/trip',
@@ -17,12 +19,11 @@ module.exports = {
     {
       name: 'frontend',
       script: './node_modules/.bin/next',
-      args: 'start -p 3001 -H 0.0.0.0',
+      args: 'dev -p 3001 -H 0.0.0.0',
       cwd: '/root/trip',
       env: {
-        NODE_ENV: 'production',
+        NODE_ENV: 'development',
         PORT: 3001,
-        HOSTNAME: '0.0.0.0',
       },
     },
   ],

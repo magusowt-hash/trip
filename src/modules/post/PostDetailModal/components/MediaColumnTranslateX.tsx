@@ -45,6 +45,7 @@ export function MediaColumnTranslateX({
     'trip-main-image-in-from-right',
   );
   const [inlineCounterVisible, setInlineCounterVisible] = useState(false);
+  const [imageRatios, setImageRatios] = useState<(number | null)[]>(() => images.map(() => null));
   const menuRef = useRef<HTMLDivElement | null>(null);
   const closeMenuByImageTapRef = useRef(false);
   const singleClickTimerRef = useRef<number | null>(null);
@@ -58,6 +59,7 @@ export function MediaColumnTranslateX({
     baseIndexRef.current = index;
     setDisplayIndex(index);
     displayIndexRef.current = index;
+    prevIndexRef.current = displayIndexRef.current;
   }, [index]);
 
   // 主图区切图方向：下一张从右入，上一张从左入
@@ -122,6 +124,9 @@ export function MediaColumnTranslateX({
   const thumbRailRef = useRef<HTMLDivElement | null>(null);
   const thumbBtnRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const thumbAlignRafRef = useRef<number | null>(null);
+  const thumbAlignedRef = useRef(false);
+  const lastScrollLeftRef = useRef(0);
+  const prevIndexRef = useRef(index);
   const setRef = (el: HTMLDivElement | null, i: number) => {
     if (el) slidesRef.current[i] = el;
   };
@@ -291,6 +296,33 @@ export function MediaColumnTranslateX({
     preload(index + 2);
     preload(index - 2);
   }, [index, total, images, lastIndex]);
+
+  // =========================
+  // 获取每张图片的宽高比（用于限制横图最大高度）
+  // =========================
+  useEffect(() => {
+    if (total <= 0) return;
+    images.forEach((src, i) => {
+      if (imageRatios[i] !== null) return;
+      const img = new Image();
+      img.onload = () => {
+        const ratio = img.naturalWidth / img.naturalHeight;
+        setImageRatios((prev) => {
+          const next = [...prev];
+          next[i] = ratio;
+          return next;
+        });
+      };
+      img.onerror = () => {
+        setImageRatios((prev) => {
+          const next = [...prev];
+          next[i] = 1;
+          return next;
+        });
+      };
+      img.src = src;
+    });
+  }, [total, images, imageRatios]);
 
   // =========================
   // 拖拽（鼠标/触摸）带速度计算
@@ -650,6 +682,7 @@ export function MediaColumnTranslateX({
     i,
     src,
     dist: Math.abs(signedDistance(index, i)),
+    aspectRatio: imageRatios[i] ?? 1,
   }));
 
   // 当索引变化时重新渲染位置（但不破坏动画）
@@ -660,13 +693,45 @@ export function MediaColumnTranslateX({
   // 确保当前图缩略图始终可见，并尽量居中
   useEffect(() => {
     const rail = thumbRailRef.current;
-    const activeBtn = thumbBtnRefs.current[index];
-    if (!rail || !activeBtn) return;
-    const targetLeft = activeBtn.offsetLeft - (rail.clientWidth - activeBtn.offsetWidth) / 2;
-    const maxLeft = rail.scrollWidth - rail.clientWidth;
-    const nextLeft = clamp(targetLeft, 0, Math.max(maxLeft, 0));
-    animateThumbRailTo(rail, nextLeft);
-  }, [index, open]);
+    if (!rail) return;
+    
+    const inner = rail.children[1] as HTMLElement;
+    if (!inner) return;
+    const scrollEl = inner;
+    
+    const buttons = scrollEl.querySelectorAll('[data-thumb-btn]');
+    if (!buttons[index]) return;
+    const activeBtn = buttons[index] as HTMLButtonElement;
+    
+    const railLeft = scrollEl.scrollLeft;
+    const railRight = railLeft + scrollEl.clientWidth;
+    const btnLeft = activeBtn.offsetLeft;
+    const btnRight = btnLeft + activeBtn.offsetWidth;
+    
+    // 最后一张完全显示时，不再滚动
+    if (index === lastIndex && btnRight <= railRight + 1) return;
+    
+    // 使用 index 判断位置：第5张及以上（index >= 4）时居中
+    const unitWidth = 80;
+    const shouldCenter = index >= 4;
+    
+    let targetLeft: number;
+    
+    if (shouldCenter) {
+      targetLeft = btnLeft - (scrollEl.clientWidth - activeBtn.offsetWidth) / 2;
+      thumbAlignedRef.current = true;
+      // 居中时限制范围
+      targetLeft = Math.max(0, Math.min(targetLeft, scrollEl.scrollWidth - scrollEl.clientWidth));
+    } else {
+      // 只滚动一个单位
+      const direction = index > prevIndexRef.current ? 1 : -1;
+      targetLeft = scrollEl.scrollLeft + direction * unitWidth;
+    }
+    
+    targetLeft = Math.max(0, Math.min(targetLeft, scrollEl.scrollWidth - scrollEl.clientWidth));
+    animateThumbRailTo(scrollEl as HTMLDivElement, targetLeft);
+    lastScrollLeftRef.current = targetLeft;
+  }, [index]);
 
   useEffect(() => {
     return () => {
@@ -680,6 +745,24 @@ export function MediaColumnTranslateX({
   return (
     <>
     <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      {/* 高斯模糊背景 - 整体 */}
+      <img
+        src={mainSrc}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        style={{
+          position: 'absolute',
+          inset: -20,
+          width: 'calc(100% + 40px)',
+          height: 'calc(100% + 40px)',
+          objectFit: 'cover',
+          filter: 'blur(12px)',
+          opacity: 0.4,
+          pointerEvents: 'none',
+          zIndex: -1,
+        }}
+      />
       {/* 主图（非全屏模式） */}
       <div
         onClick={() => setOpen(true)}
@@ -706,39 +789,12 @@ export function MediaColumnTranslateX({
           position: 'relative',
           overflow: 'hidden',
           cursor: 'pointer',
-          background: '#ffffff',
+          background: 'transparent',
         }}
       >
         {/* 留白区域使用同图高斯模糊铺底 */}
-        <img
-          src={mainSrc}
-          alt=""
-          aria-hidden="true"
-          draggable={false}
-          style={{
-            position: 'absolute',
-            inset: '-8%',
-            width: '116%',
-            height: '116%',
-            objectFit: 'cover',
-            objectPosition: 'center',
-            filter: 'blur(24px)',
-            transform: 'scale(1.06)',
-            opacity: 0.65,
-            userSelect: 'none',
-            WebkitUserSelect: 'none',
-            pointerEvents: 'none',
-          }}
-        />
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'rgba(243, 244, 246, 0.18)',
-            pointerEvents: 'none',
-          }}
-        />
-        <img
+        {/* 已移至外层容器统一高斯模糊 */}
+         <img
           key={mainSrc}
           src={mainSrc}
           alt={title || ''}
@@ -794,14 +850,35 @@ export function MediaColumnTranslateX({
             height: 92,
             flex: '0 0 92px',
             padding: '8px 12px',
-            borderTop: '1px solid rgba(17,24,39,0.08)',
-            background: '#fff',
+            position: 'relative',
             overflowX: 'auto',
             overflowY: 'hidden',
             whiteSpace: 'nowrap',
             scrollbarWidth: 'none',
             msOverflowStyle: 'none',
           }}
+        >
+          {/* 缩略图组边缘深色渐变遮罩 */}
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'linear-gradient(to top, rgba(0,0,0,0.12) 0%, transparent 30%, transparent 70%, rgba(0,0,0,0.12) 100%)',
+              pointerEvents: 'none',
+              zIndex: 1,
+            }}
+          />
+          <div
+            style={{
+              position: 'relative',
+              zIndex: 2,
+              overflowX: 'auto',
+              overflowY: 'hidden',
+              whiteSpace: 'nowrap',
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none',
+              pointerEvents: 'auto',
+            }}
           onWheel={(e) => {
             e.preventDefault();
             e.currentTarget.scrollLeft += e.deltaY + e.deltaX;
@@ -813,6 +890,7 @@ export function MediaColumnTranslateX({
               <button
                 key={`${thumbSrc}-${i}`}
                 ref={(el) => setThumbRef(el, i)}
+                data-thumb-btn=""
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -831,11 +909,11 @@ export function MediaColumnTranslateX({
                   padding: 0,
                   marginRight: 8,
                   overflow: 'hidden',
-                  background: '#ffffff',
+                  background: 'transparent',
                   cursor: 'pointer',
                   verticalAlign: 'top',
                   transform: active ? 'translateY(-1px) scale(1.02)' : 'translateY(0) scale(1)',
-                  boxShadow: active ? '0 6px 16px rgba(37,99,235,0.24)' : '0 2px 8px rgba(17,24,39,0.08)',
+                  boxShadow: active ? '0 6px 16px rgba(37,99,235,0.24)' : 'none',
                   transition: 'transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
                 }}
                 aria-label={`查看第 ${i + 1} 张`}
@@ -850,7 +928,7 @@ export function MediaColumnTranslateX({
                     height: '100%',
                     objectFit: 'cover',
                     display: 'block',
-                    background: '#ffffff',
+                    background: 'transparent',
                     userSelect: 'none',
                     WebkitUserSelect: 'none',
                     pointerEvents: 'none',
@@ -859,6 +937,7 @@ export function MediaColumnTranslateX({
               </button>
             );
           })}
+        </div>
         </div>
       )}
       <style>{`
@@ -1098,34 +1177,40 @@ export function MediaColumnTranslateX({
               touchAction: 'pan-y',
               cursor: isFullscreen ? 'zoom-in' : 'grab',
             }}
-          >
-            {slides.map((slide) => (
-              <div
-                key={`${slide.i}-${slide.src}`}
-                ref={(el) => setRef(el, slide.i)}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '90%',      // 主图更宽，竖图仍占满高度
-                  height: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  willChange: 'transform',
-                }}
-              >
+>
+            {slides.map((slide) => {
+              const isLandscape = slide.aspectRatio > 1;
+              const maxHeightPercent = isLandscape
+                ? Math.min(70, Math.max(50, 100 / slide.aspectRatio))
+                : 100;
+              return (
                 <div
+                  key={`${slide.i}-${slide.src}`}
+                  ref={(el) => setRef(el, slide.i)}
                   style={{
-                    width: '100%',
-                    height: '100%',
+                    position: 'absolute',
+                    top: isLandscape ? `${(100 - maxHeightPercent) / 2}%` : 0,
+                    left: 0,
+                    width: '90%',
+                    height: isLandscape ? `${maxHeightPercent}%` : '100%',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    willChange: 'transform',
                   }}
                 >
                   <div
-                    data-media-clip
+                    style={{
+                      width: '100%',
+                      height: isLandscape ? 'auto' : '100%',
+                      maxHeight: isLandscape ? '100%' : 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <div
+                      data-media-clip
                     ref={slide.i === displayIndex ? clipRef : undefined}
                     onClick={(e) => {
                       // 单击图片：只打开气泡菜单
@@ -1188,7 +1273,7 @@ export function MediaColumnTranslateX({
                   </div>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </div>
         ,
