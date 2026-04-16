@@ -57,7 +57,7 @@ function PlanTimelinePanel({
 }) {
   const [showModal, setShowModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<{ id: number; name: string; items: any[] } | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<{ id: number; name: string; items: any[]; startDate?: string; endDate?: string } | null>(null);
   const [userPlans, setUserPlans] = useState<{ id: number; name: string; start_date?: string; end_date?: string }[]>([]);
   const [editingPlan, setEditingPlan] = useState<{ id: number; name: string; items: any[] } | null>(null);
 
@@ -72,11 +72,16 @@ function PlanTimelinePanel({
       .catch((err) => console.error('Failed to fetch plans:', err));
   }, []);
 
-  const handleViewPlan = (plan: { id: number; name: string }) => {
+  const handleViewPlan = (plan: { id: number; name: string; start_date?: string; end_date?: string }) => {
     fetch(`/api/plans/${plan.id}`)
       .then((res) => res.json())
       .then((data) => {
-        setSelectedPlan({ ...plan, items: data.items || [] });
+        setSelectedPlan({ 
+          ...plan, 
+          items: data.items || [],
+          startDate: data.start_date,
+          endDate: data.end_date
+        });
         setShowViewModal(true);
       })
       .catch((err) => console.error('Failed to fetch plan details:', err));
@@ -123,7 +128,7 @@ function PlanTimelinePanel({
 }
 
 interface PlanViewModalProps {
-  plan: { id: number; name: string; items: any[] };
+  plan: { id: number; name: string; items: any[]; startDate?: string; endDate?: string };
   onClose: () => void;
   onEdit: () => void;
 }
@@ -134,7 +139,12 @@ function PlanViewModal({ plan, onClose, onEdit }: PlanViewModalProps) {
       <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
         <div className={styles.modalRegion1}>
           <div className={styles.planInfo}>
-            <span className={styles.planName}>{plan.name}</span>
+            <span className={styles.planName}>
+              {plan.name}
+              {plan.startDate && plan.endDate && (
+                <span className={styles.dateLine}> ({formatDateRange(plan.startDate, plan.endDate)})</span>
+              )}
+            </span>
             <button type="button" className={styles.editButton} onClick={onEdit}>
               编辑
             </button>
@@ -155,6 +165,9 @@ function PlanViewModal({ plan, onClose, onEdit }: PlanViewModalProps) {
                         <span>{item.from || '起点'}</span>
                         <span>→</span>
                         <span>{item.to || '终点'}</span>
+                        {item.startDate && item.endDate && (
+                          <span className={styles.dateLine}> {formatDateRange(item.startDate, item.endDate)}</span>
+                        )}
                         {item.note && <span className={styles.viewNote}>{item.note}</span>}
                       </div>
                     ))
