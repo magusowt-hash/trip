@@ -12,6 +12,8 @@ interface TransportItem {
   to: string;
   note: string;
   noteExpanded?: boolean;
+  startDate?: string;
+  endDate?: string;
 }
 
 export default function PlanPage() {
@@ -156,7 +158,7 @@ function PlanViewModal({ plan, onClose, onEdit }: PlanViewModalProps) {
 function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id: number; name: string; items: any[]; startDate?: string; endDate?: string } | null }) {
   const [activeTab, setActiveTab] = useState<number>(0);
   const [transportList, setTransportList] = useState<TransportItem[]>([
-    { id: 1, from: '', to: '', note: '', noteExpanded: false },
+    { id: 1, from: '', to: '', note: '', noteExpanded: false, startDate: '', endDate: '' },
   ]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editField, setEditField] = useState<'from' | 'to' | 'note' | null>(null);
@@ -180,6 +182,8 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
             to: item.to || '',
             note: item.note || '',
             noteExpanded: item.noteExpanded || false,
+            startDate: item.startDate || '',
+            endDate: item.endDate || '',
           }))
         );
       }
@@ -242,6 +246,8 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
       to: '',
       note: '',
       noteExpanded: false,
+      startDate: '',
+      endDate: '',
     };
     setTransportList([...transportList, newItem]);
   };
@@ -251,7 +257,7 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
       setTransportList(
         transportList.map((t) => {
           if (t.id === id) {
-            return { ...t, from: '', to: '', note: '', noteExpanded: false };
+            return { ...t, from: '', to: '', note: '', noteExpanded: false, startDate: '', endDate: '' };
           }
           return t;
         })
@@ -261,7 +267,7 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     setTransportList(transportList.filter((t) => t.id !== id));
   };
 
-  const handleUpdate = (id: number, field: 'from' | 'to' | 'note', value: string) => {
+  const handleUpdate = (id: number, field: 'from' | 'to' | 'note' | 'startDate' | 'endDate', value: string) => {
     setTransportList(
       transportList.map((t) => (t.id === id ? { ...t, [field]: value } : t))
     );
@@ -358,6 +364,19 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
               </span>
             )}
           </span>
+          <input
+            type="date"
+            className={styles.transportDateInput}
+            value={item.startDate || ''}
+            onChange={(e) => handleUpdate(item.id, 'startDate', e.target.value)}
+          />
+          <span style={{ color: '#9ca3af', fontSize: '12px' }}>→</span>
+          <input
+            type="date"
+            className={styles.transportDateInput}
+            value={item.endDate || ''}
+            onChange={(e) => handleUpdate(item.id, 'endDate', e.target.value)}
+          />
           <button
             type="button"
             className={styles.transportAdd}
