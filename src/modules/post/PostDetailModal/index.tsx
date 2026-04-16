@@ -10,31 +10,37 @@ import type { CommentItem, PostDetailModalProps } from './types';
 
 export type { PostDetailModalProps } from './types';
 
-const SEED_COMMENTS: CommentItem[] = [
-  { id: '1', name: '旅行小白', avatar: 'https://i.pravatar.cc/40?u=travel-1', text: '路线很实用，已收藏。', time: '2小时前' },
-  { id: '2', name: '街拍爱好者', avatar: 'https://i.pravatar.cc/40?u=travel-2', text: '这个机位太绝了，下周就去试。', time: '4小时前' },
-  { id: '3', name: '背包客阿澄', avatar: 'https://i.pravatar.cc/40?u=travel-3', text: '预算信息很有参考价值。', time: '昨天' },
-];
-
 export function PostDetailModal({
   open,
   onClose,
+  postId,
   cover,
   topic,
   title,
   content,
   author,
   avatar,
-  comments = 12,
-  favorites = 36,
+  comments: commentCount = 0,
+  favorites = 0,
   gallery,
+  thumbnails,
+  createdAt,
 }: PostDetailModalProps) {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [commentText, setCommentText] = useState('');
-  const [commentList, setCommentList] = useState<CommentItem[]>(SEED_COMMENTS);
+  const [commentList, setCommentList] = useState<CommentItem[]>([]);
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const prevOverflowRef = useRef<string | null>(null);
 
   const images = useMemo(() => sanitizeGalleryImages(gallery, title, author), [gallery, title, author]);
+  const thumbs = useMemo(() => {
+    if (!thumbnails || thumbnails.length === 0) {
+      return images;
+    }
+    const sanitizedThumbs = sanitizeGalleryImages(thumbnails, title, author);
+    return images.map((_, i) => sanitizedThumbs[i] || images[i]);
+  }, [thumbnails, images, title, author]);
 
   const mainSrc = useMemo(
     () => resolveMainImageSrc(images, activeImageIndex, cover),
@@ -42,13 +48,25 @@ export function PostDetailModal({
   );
 
   useEffect(() => {
-    // 关闭帖子后重置到初始图，保证下次打开从原图开始
     if (!open) {
       setActiveImageIndex(0);
+      setCommentList([]);
       return;
     }
     setActiveImageIndex(0);
-  }, [open]);
+
+    if (!postId) return;
+    setLoadingComments(true);
+    fetch(`/api/posts/${postId}/comments`, { credentials: 'include' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.comments) {
+          setCommentList(data.comments);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingComments(false));
+  }, [open, postId]);
 
   useEffect(() => {
     setActiveImageIndex((i) => clampImageIndex(i, images.length));
@@ -69,7 +87,6 @@ export function PostDetailModal({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        // 图片查看层打开时，优先关闭查看层而不是直接关闭整个帖子浮窗。
         const viewerOpen = Boolean((window as any).__tripPostImageViewerOpen);
         if (viewerOpen) {
           window.dispatchEvent(new Event('trip:close-post-image-viewer'));
@@ -82,14 +99,35 @@ export function PostDetailModal({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
 
-  function submitComment() {
+  async function submitComment() {
     const value = commentText.trim();
-    if (!value) return;
-    setCommentList((prev) => [
-      { id: String(Date.now()), name: '你', avatar: 'https://i.pravatar.cc/40?u=self', text: value, time: '刚刚' },
-      ...prev,
-    ]);
-    setCommentText('');
+    if (!value || !postId || submitting) return;
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/posts/${postId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: value }),
+        credentials: 'include',
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || '评论失败');
+        return;
+      }
+
+      const data = await res.json();
+      if (data.comment) {
+        setCommentList((prev) => [data.comment, ...prev]);
+      }
+      setCommentText('');
+    } catch {
+      alert('评论失败');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   if (!open) return null;
@@ -125,6 +163,7 @@ export function PostDetailModal({
         <MediaColumn
           mainSrc={mainSrc}
           images={images}
+          thumbnails={thumbs}
           activeImageIndex={activeImageIndex}
           onSelectImage={setActiveImageIndex}
           title={title}
@@ -136,10 +175,12 @@ export function PostDetailModal({
           content={content}
           author={author}
           avatar={avatar}
-          comments={comments}
+          comments={commentCount}
           favorites={favorites}
+          createdAt={createdAt}
           onClose={onClose}
           commentList={commentList}
+          loading={loadingComments}
           commentText={commentText}
           onCommentTextChange={setCommentText}
           onSubmitComment={submitComment}

@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 type Props = {
   mainSrc: string;
   images: string[];
+  thumbnails: string[];
   activeImageIndex: number;
   onSelectImage: (i: number) => void;
   title?: string;
@@ -26,6 +27,7 @@ function signedDistance(from: number, to: number) {
 export function MediaColumnTranslateX({
   mainSrc,
   images,
+  thumbnails,
   activeImageIndex,
   onSelectImage,
   title,
@@ -704,7 +706,7 @@ export function MediaColumnTranslateX({
           position: 'relative',
           overflow: 'hidden',
           cursor: 'pointer',
-          background: '#f3f4f6',
+          background: '#ffffff',
         }}
       >
         {/* 留白区域使用同图高斯模糊铺底 */}
@@ -805,11 +807,11 @@ export function MediaColumnTranslateX({
             e.currentTarget.scrollLeft += e.deltaY + e.deltaX;
           }}
         >
-          {images.map((src, i) => {
+          {thumbnails.map((thumbSrc, i) => {
             const active = i === index;
             return (
               <button
-                key={`${src}-${i}`}
+                key={`${thumbSrc}-${i}`}
                 ref={(el) => setThumbRef(el, i)}
                 type="button"
                 onClick={(e) => {
@@ -829,7 +831,7 @@ export function MediaColumnTranslateX({
                   padding: 0,
                   marginRight: 8,
                   overflow: 'hidden',
-                  background: '#fff',
+                  background: '#ffffff',
                   cursor: 'pointer',
                   verticalAlign: 'top',
                   transform: active ? 'translateY(-1px) scale(1.02)' : 'translateY(0) scale(1)',
@@ -839,15 +841,16 @@ export function MediaColumnTranslateX({
                 aria-label={`查看第 ${i + 1} 张`}
               >
                 <img
-                  src={src}
+                  src={thumbSrc}
                   alt=""
                   draggable={false}
-                  loading={Math.abs(i - index) <= 2 ? 'eager' : 'lazy'}
+                  loading="lazy"
                   style={{
                     width: '100%',
                     height: '100%',
                     objectFit: 'cover',
                     display: 'block',
+                    background: '#ffffff',
                     userSelect: 'none',
                     WebkitUserSelect: 'none',
                     pointerEvents: 'none',

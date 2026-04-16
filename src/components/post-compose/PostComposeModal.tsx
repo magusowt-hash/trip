@@ -6,15 +6,17 @@ import { flushSync } from 'react-dom';
 import { MediaColumnTranslateX } from '@/modules/post/PostDetailModal/components/MediaColumnTranslateX';
 import { WHEEL_TO_SCROLL_FACTOR } from '@/modules/post/PostDetailModal/utils/galleryUtils';
 import styles from './post-compose.module.css';
+import { compressImage } from '@/lib/image-compressor';
 
 const DRAFT_KEY = 'trip-publish-draft-v1';
 const MAX_IMAGES = 20;
 
-type Privacy = 'public' | 'friends' | 'private';
+type Privacy = 'public' | 'private';
 
 type ImageItem = {
   id: string;
   url: string;
+  thumbnailUrl: string;
   caption: string;
 };
 
@@ -64,9 +66,11 @@ function animateThumbRailScroll(rail: HTMLDivElement, targetLeft: number, rafRef
 export function PostComposeModal({
   open,
   onClose,
+  onPublished,
 }: {
   open: boolean;
   onClose: () => void;
+  onPublished?: () => void;
 }) {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -280,6 +284,7 @@ export function PostComposeModal({
     const next: ImageItem[] = slice.map((file) => ({
       id: uid(),
       url: URL.createObjectURL(file),
+      thumbnailUrl: URL.createObjectURL(file),
       caption: '',
     }));
     const merged = [...prev, ...next];
@@ -330,37 +335,51 @@ export function PostComposeModal({
   const doPublish = async () => {
     if (!canPublish || publishing) return;
     setPublishing(true);
+
     try {
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
-      if (!apiBaseUrl) {
-        throw new Error('API base URL not configured');
+      const imageIds: string[] = [];
+
+      for (const img of images) {
+        const blob = await fetch(img.url).then((r) => r.blob());
+        let file = new File([blob], img.id, { type: blob.type });
+        file = await compressImage(file);
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+          credentials: 'include',
+        });
+        if (!response.ok) throw new Error('Image upload failed');
+        const data = await response.json();
+        imageIds.push(data.id);
       }
 
-      const formData = new FormData();
-      formData.append('title', title);
-      formData.append('content', content);
-      formData.append('privacy', privacy);
-      images.forEach((img, i) => {
-        formData.append(`images[${i}][id]`, img.id);
-        formData.append(`images[${i}][caption]`, img.caption);
-      });
-
-      const response = await fetch(`${apiBaseUrl}/api/post/publish`, {
+      const postResponse = await fetch('/api/posts', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          content,
+          privacy,
+          topic: '推荐',
+          imageIds,
+        }),
         credentials: 'include',
       });
 
-      if (!response.ok) {
-        throw new Error('发布失败');
+      if (!postResponse.ok) {
+        const errorData = await postResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Post creation failed');
       }
 
       try {
         window.localStorage.removeItem(DRAFT_KEY);
-      } catch {
-        /* */
-      }
+      } catch { /* ignore */ }
       onClose();
+      onPublished?.();
+      window.dispatchEvent(new CustomEvent('trip:post-published'));
     } catch {
       setPublishing(false);
     }
@@ -483,6 +502,7 @@ export function PostComposeModal({
                     <MediaColumnTranslateX
                       mainSrc={mainGallerySrc}
                       images={imageUrls}
+                      thumbnails={imageUrls}
                       activeImageIndex={activeIndex}
                       onSelectImage={setActiveIndex}
                       title={title}
@@ -536,7 +556,6 @@ export function PostComposeModal({
                     aria-label="隐私设置"
                   >
                     <option value="public">🌍 公开</option>
-                    <option value="friends">👥 仅好友</option>
                     <option value="private">🔒 仅自己</option>
                   </select>
                 </div>

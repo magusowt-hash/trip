@@ -1,37 +1,33 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useExploreFeed } from '@/components/layout/ExploreFeedContext';
 import { useFeedColumnCount } from '@/hooks/useFeedColumnCount';
+import { usePosts } from '@/hooks/usePosts';
 import { PostCard } from '@/modules/post';
 import './explore-feed.css';
-
-type FeedItem = {
-  cover: string;
-  topic: string;
-  title: string;
-  content: string;
-  author: string;
-  gallery: string[];
-};
-
-const feed: FeedItem[] = [];
 
 export default function ExplorePage() {
   const { activeCategory } = useExploreFeed();
   const columnCount = useFeedColumnCount();
-  const filteredFeed = useMemo(
-    () => (activeCategory === '推荐' ? feed : feed.filter((item) => item.topic === activeCategory)),
-    [activeCategory],
+  const { posts, loading, fetchPosts, loadMore, hasMore } = usePosts();
+
+  useEffect(() => {
+    fetchPosts(activeCategory, true);
+  }, [activeCategory]);
+
+  const filteredPosts = useMemo(
+    () => (activeCategory === '推荐' ? posts : posts.filter((item) => item.topic === activeCategory)),
+    [posts, activeCategory],
   );
 
   const columns = useMemo(() => {
-    const cols = Array.from({ length: columnCount }, () => [] as typeof filteredFeed);
-    filteredFeed.forEach((item, index) => {
+    const cols = Array.from({ length: columnCount }, () => [] as typeof filteredPosts);
+    filteredPosts.forEach((item, index) => {
       cols[index % columnCount].push(item);
     });
     return cols;
-  }, [filteredFeed, columnCount]);
+  }, [filteredPosts, columnCount]);
 
   return (
     <div className={`explore-feed explore-feed-masonry explore-feed-masonry--cols-${columnCount}`}>
@@ -39,13 +35,15 @@ export default function ExplorePage() {
         <div key={colIndex} className="explore-feed-column">
           {colItems.map((item) => (
             <PostCard
-              key={item.title}
-              cover={item.cover}
+              key={item.id}
+              cover={item.coverImageUrl}
               topic={item.topic}
               title={item.title}
-              content={item.content}
               author={item.author}
+              avatar={item.avatar}
               gallery={item.gallery}
+              comments={item.commentsCnt}
+              favorites={item.favoritesCnt}
               feedEnlarged
             />
           ))}

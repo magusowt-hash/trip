@@ -195,6 +195,475 @@
   color: var(--color-text-muted);
 }
 
+/* 制定计划按钮 */
+.createPlanButton {
+  width: 100%;
+  padding: 14px 20px;
+  margin-top: 16px;
+  border-radius: 10px;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.createPlanButton:hover {
+  background: #1d4ed8;
+}
+
+/* 弹窗遮罩 */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+/* 弹窗内容 */
+.modalContent {
+  width: 80%;
+  height: 80vh;
+  border-radius: 16px;
+  background: #fff;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 10% 90%;
+  grid-template-columns: 20% 80%;
+}
+
+/* 命名区域1：顶部 10% 高度-计划名称及切换区域 */
+.modalRegion1 {
+  grid-column: 1 / 3;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #e5e7eb;
+  box-sizing: border-box;
+}
+
+.planInfo {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+}
+
+.planName {
+  font-size: 16px;
+  color: #111827;
+  text-align: center;
+}
+
+.switchButton {
+  padding: 8px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 14px;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.switchButton:active {
+  background: #f3f4f6;
+}
+
+.editButton {
+  padding: 8px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 14px;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.editButton:active {
+  background: #f3f4f6;
+}
+
+.planNameInput {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #374151;
+  outline: none;
+  background: #fff;
+}
+
+.planNameInput:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.tabSection {
+  flex: 1;
+}
+
+.divider {
+  width: 80%;
+  height: 1px;
+  background: #e5e7eb;
+  margin: 12px auto;
+}
+
+.importSection {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+}
+
+.importButton {
+  flex: 1;
+  padding: 10px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.importButton:hover {
+  background: #f9fafb;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.importButton:active {
+  transform: translateY(1px);
+}
+
+.planNameInput:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* 命名区域2-1：左侧 20% 宽度-一级选项区域 */
+.modalRegion21 {
+  padding: 16px;
+  border-right: 1px solid #e5e7eb;
+  box-sizing: border-box;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.tabList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tabItem {
+  padding: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: #374151;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.tabItem:active {
+  background: #f3f4f6;
+}
+
+.tabActive {
+  font-weight: 600;
+}
+
+/* 命名区域2-2：右侧 80% 宽度-自由发挥区域 */
+.modalRegion22 {
+  padding: 16px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.region22Content {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.quickAdd {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 18px;
+  color: #374151;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quickAdd:active {
+  background: #f3f4f6;
+}
+
+.hintText {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 13px;
+  color: #9ca3af;
+  text-align: center;
+}
+
+.tabContent {
+  padding-top: 40px;
+}
+
+.saveButton {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  padding: 8px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 14px;
+  color: #374151;
+  cursor: pointer;
+}
+
+.saveButton:active {
+  background: #f3f4f6;
+}
+
+/* 交通列表 */
+.transportList {
+  padding-top: 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.transportRow {
+  display: flex;
+  align-items: center;
+  width: 80%;
+  gap: 20px;
+}
+
+.transportItem {
+  flex: 1;
+  padding: 14px 12px;
+  font-size: 14px;
+  color: #000000;
+  background: #fff;
+  border: none;
+  border-radius: 16px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s ease;
+  box-shadow: 
+    0 6px 10px -2px rgba(0, 0, 0, 0.15),
+    0 4px 8px -4px rgba(0, 0, 0, 0.1),
+    0 2px 4px -2px rgba(0, 0, 0, 0.08),
+    inset 0 3px 6px rgba(255, 255, 255, 0.9);
+}
+
+.transportItem::placeholder {
+  color: #9ca3af;
+}
+
+.filled {
+  color: #000000;
+}
+
+.placeholder {
+  color: #9ca3af;
+}
+
+.transportItem:hover {
+  transform: translateY(-3px);
+  box-shadow: 
+    0 12px 20px -4px rgba(0, 0, 0, 0.2),
+    0 8px 12px -4px rgba(0, 0, 0, 0.15),
+    0 4px 6px -2px rgba(0, 0, 0, 0.1),
+    inset 0 3px 6px rgba(255, 255, 255, 0.9);
+}
+
+.transportItem:active {
+  transform: translateY(0);
+  box-shadow: 
+    0 2px 4px -1px rgba(0, 0, 0, 0.1),
+    0 1px 2px -2px rgba(0, 0, 0, 0.05),
+    inset 0 2px 4px rgba(255, 255, 255, 0.8);
+}
+
+/* 箭头容器 */
+.arrowContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 1.2;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.transportNoteBubble {
+  position: absolute;
+  top: -32px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: #9ca3af;
+  background: #ffffff;
+  border: none;
+  border-radius: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 
+    0 4px 8px -2px rgba(0, 0, 0, 0.12),
+    0 2px 4px -2px rgba(0, 0, 0, 0.08),
+    0 1px 2px -1px rgba(0, 0, 0, 0.06),
+    inset 0 2px 4px rgba(255, 255, 255, 0.9);
+}
+
+.noteExpanded {
+  max-width: 120px;
+  overflow: visible;
+  white-space: normal;
+}
+
+.transportNoteBubble:hover {
+  transform: translateY(-2px);
+  box-shadow: 
+    0 8px 12px -2px rgba(0, 0, 0, 0.18),
+    0 4px 8px -2px rgba(0, 0, 0, 0.12),
+    0 2px 4px -2px rgba(0, 0, 0, 0.08),
+    inset 0 2px 4px rgba(255, 255, 255, 0.9);
+}
+
+.arrowLine {
+  width: 100px;
+  height: 24px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.arrowLine svg {
+  width: 100%;
+  height: 100%;
+}
+
+.transportInput {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  background: transparent;
+  color: #000000;
+  text-align: center;
+}
+
+.transportInput::placeholder {
+  color: #9ca3af;
+}
+
+.transportAdd {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 20px;
+  color: #9ca3af;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+  box-shadow: 
+    0 6px 10px -2px rgba(0, 0, 0, 0.15),
+    0 4px 8px -4px rgba(0, 0, 0, 0.1),
+    0 2px 4px -2px rgba(0, 0, 0, 0.08),
+    inset 0 3px 6px rgba(255, 255, 255, 0.9);
+}
+
+.transportDelete {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 24px;
+  font-weight: 300;
+  color: #9ca3af;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+  box-shadow: 
+    0 6px 10px -2px rgba(0, 0, 0, 0.15),
+    0 4px 8px -4px rgba(0, 0, 0, 0.1),
+    0 2px 4px -2px rgba(0, 0, 0, 0.08),
+    inset 0 3px 6px rgba(255, 255, 255, 0.9);
+}
+
+.transportDelete:focus,
+.transportDelete:focus-visible {
+  color: #ef4444;
+  box-shadow: 
+    0 6px 10px -2px rgba(239, 68, 68, 0.25),
+    0 4px 8px -4px rgba(239, 68, 68, 0.2),
+    0 2px 4px -2px rgba(239, 68, 68, 0.15),
+    inset 0 3px 6px rgba(255, 255, 255, 0.9);
+}
+
+.transportDelete:hover {
+  transform: translateY(-2px) scale(1.05);
+  color: #dc2626;
+  box-shadow: 
+    0 12px 20px -4px rgba(220, 38, 38, 0.25),
+    0 8px 12px -4px rgba(220, 38, 38, 0.2),
+    0 4px 8px -2px rgba(220, 38, 38, 0.15),
+    inset 0 3px 6px rgba(255, 255, 255, 0.9);
+}
+
+.transportAdd:hover {
+  transform: translateY(-2px) scale(1.05);
+  color: #2563eb;
+  box-shadow: 
+    0 12px 20px -4px rgba(37, 99, 235, 0.25),
+    0 8px 12px -4px rgba(37, 99, 235, 0.2),
+    0 4px 8px -2px rgba(37, 99, 235, 0.15),
+    inset 0 3px 6px rgba(255, 255, 255, 0.9);
+}
+
+.transportAdd:active {
+  transform: translateY(0) scale(0.95);
+}
+
 @media (max-width: 900px) {
   .root {
     min-height: 0;
@@ -223,4 +692,111 @@
     width: min(100%, 288px);
     margin-left: auto;
   }
+}
+
+/* 查看模式样式 */
+.viewContent {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.viewSection {
+  margin-bottom: 24px;
+}
+
+.viewSectionTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.viewSectionContent {
+  padding: 8px 0;
+}
+
+.viewTransportItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #f9fafb;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #374151;
+}
+
+.viewNote {
+  color: #6b7280;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.viewEmpty {
+  font-size: 13px;
+  color: #9ca3af;
+  text-align: center;
+  padding: 20px;
+}
+
+/* 日期选择器区域 */
+.dateRangePicker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  margin-top: 16px;
+}
+
+.dateInput {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  background: #fff;
+  text-align: center;
+}
+
+.dateInput:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+
+.dateSeparator {
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+/* 交通项日期显示 */
+.transportDate {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #8a7f74;
+  margin-left: 8px;
+  cursor: pointer;
+}
+
+.transportDateInput {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  width: 85px;
+  text-align: center;
+}
+
+.transportDateInput:focus {
+  outline: none;
+  border-color: #2563eb;
 }
