@@ -800,3 +800,33 @@
   outline: none;
   border-color: #2563eb;
 }
+
+/* 区域1内的计划日期选择器 */
+.planDateRange {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.planDateInput {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  background: #fff;
+  text-align: center;
+  width: 90px;
+}
+
+.planDateInput:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+
+.planDateSeparator {
+  color: #9ca3af;
+  font-size: 12px;
+}

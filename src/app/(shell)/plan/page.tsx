@@ -87,7 +87,7 @@ function PlanTimelinePanel({
       .catch((err) => console.error('Failed to fetch plan details:', err));
   };
 
-  const handleEditFromView = (plan: { id: number; name: string; items: any[] }) => {
+  const handleEditFromView = (plan: { id: number; name: string; items: any[]; startDate?: string; endDate?: string }) => {
     setShowViewModal(false);
     setEditingPlan(plan);
     setShowModal(true);
@@ -449,6 +449,23 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
               切换计划
             </button>
           </div>
+          <div className={styles.planDateRange}>
+            <input
+              type="date"
+              className={styles.planDateInput}
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              placeholder="开始日期"
+            />
+            <span className={styles.planDateSeparator}>→</span>
+            <input
+              type="date"
+              className={styles.planDateInput}
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              placeholder="结束日期"
+            />
+          </div>
         </div>
         <div className={styles.modalRegion21}>
           <div className={styles.tabSection}>
@@ -477,25 +494,6 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
         </div>
         <div className={styles.modalRegion22}>
           <div className={styles.region22Content}>
-            {activeTab === 0 && (
-              <div className={styles.dateRangePicker}>
-                <input
-                  type="date"
-                  className={styles.dateInput}
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  placeholder="开始日期"
-                />
-                <span className={styles.dateSeparator}>→</span>
-                <input
-                  type="date"
-                  className={styles.dateInput}
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  placeholder="结束日期"
-                />
-              </div>
-            )}
             {activeTab === 0 ? renderTransportList() : activeTab > 0 ? (
               <div className={styles.tabContent}>{TABS[activeTab]} 内容</div>
             ) : null}
