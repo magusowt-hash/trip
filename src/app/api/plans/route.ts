@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, items = [], activeTab = 0 } = body;
+    const { name, items = [], activeTab = 0, startDate, endDate } = body;
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
 
     // Insert plan
     const result = await db.execute(
-      `INSERT INTO plans (user_id, name, active_tab, created_at, updated_at) VALUES (1, '${name}', ${activeTab}, NOW(), NOW())`
+      `INSERT INTO plans (user_id, name, active_tab, start_date, end_date, created_at, updated_at) VALUES (1, '${name}', ${activeTab}, ${startDate ? `'${startDate}'` : 'NULL'}, ${endDate ? `'${endDate}'` : 'NULL'}, NOW(), NOW())`
     );
 
     // Get the inserted plan id
