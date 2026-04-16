@@ -29,6 +29,17 @@ export default function PlanPage() {
   );
 }
 
+function formatDateRange(start: string, end: string): string {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  const formatDate = (d: Date) => {
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    return `${m.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+  };
+  return `${formatDate(startDate)} → ${formatDate(endDate)}`;
+}
+
 function PlanDraftPanel() {
   return (
     <section className={styles.draftCol} aria-label="制定计划">
@@ -47,7 +58,7 @@ function PlanTimelinePanel({
   const [showModal, setShowModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<{ id: number; name: string; items: any[] } | null>(null);
-  const [userPlans, setUserPlans] = useState<{ id: number; name: string }[]>([]);
+  const [userPlans, setUserPlans] = useState<{ id: number; name: string; start_date?: string; end_date?: string }[]>([]);
   const [editingPlan, setEditingPlan] = useState<{ id: number; name: string; items: any[] } | null>(null);
 
   useEffect(() => {
@@ -86,7 +97,12 @@ function PlanTimelinePanel({
         ) : (
           userPlans.map((plan) => (
             <div key={plan.id} className={styles.planRow} onClick={() => handleViewPlan(plan)}>
-              <p className={styles.planTitle}>{plan.name}</p>
+              <p className={styles.planTitle}>
+                {plan.name}
+                {plan.start_date && plan.end_date && (
+                  <span className={styles.dateLine}> ({formatDateRange(plan.start_date, plan.end_date)})</span>
+                )}
+              </p>
             </div>
           ))
         )}
