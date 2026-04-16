@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
-    const { id, name, items = [], activeTab = 0 } = body;
+    const { id, name, items = [], activeTab = 0, startDate, endDate } = body;
 
     if (!id || !name) {
       return NextResponse.json({ error: 'ID and name are required' }, { status: 400 });
@@ -70,7 +70,7 @@ export async function PUT(req: NextRequest) {
 
     // Update plan
     await db.execute(
-      `UPDATE plans SET name = '${name}', active_tab = ${activeTab}, updated_at = NOW() WHERE id = ${id}`
+      `UPDATE plans SET name = '${name}', active_tab = ${activeTab}, start_date = ${startDate ? `'${startDate}'` : 'NULL'}, end_date = ${endDate ? `'${endDate}'` : 'NULL'}, updated_at = NOW() WHERE id = ${id}`
     );
 
     // Delete existing transport items
