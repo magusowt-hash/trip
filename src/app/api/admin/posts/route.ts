@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { posts, users, comments, favorites } from '@/db/schema';
-import { eq, desc, sql, and, or, isNotNull } from 'drizzle-orm';
+import { posts, users } from '@/db/schema';
+import { eq, desc, sql } from 'drizzle-orm';
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,8 +10,9 @@ export async function GET(request: NextRequest) {
     const pageSize = 10;
     const offset = (page - 1) * pageSize;
     const statusParam = searchParams.get('status');
+    const allowedStatuses = ['normal', 'blocked', 'deleted'];
     let whereCondition = undefined;
-    if (statusParam && statusParam !== 'all') {
+    if (statusParam && statusParam !== 'all' && allowedStatuses.includes(statusParam)) {
       whereCondition = eq(posts.status, statusParam);
     }
 
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
       .limit(pageSize)
       .offset(offset);
 
-    const countResult = await db.select({ count: sql<number>`count(*)` }).from(posts);
+    const countResult = await db.select({ count: sql<number>`count(*)` }).from(posts).where(whereCondition);
     const total = Number(countResult[0]?.count || 0);
 
     return NextResponse.json({ list, total });
@@ -55,25 +56,29 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: '缺少帖子ID' }, { status: 400 });
     }
 
+    if (!action) {
+      return NextResponse.json({ error: '缺少操作类型' }, { status: 400 });
+    }
+
     const postId = parseInt(id);
 
     if (action === 'block') {
       await db.update(posts)
-        .set({ status: 'blocked', updatedAt: new Date() })
+        .set({ status: 'blocked', updatedAt: sql`NOW()` })
         .where(eq(posts.id, postId));
       return NextResponse.json({ success: true, message: '已屏蔽' });
     }
 
     if (action === 'restore') {
       await db.update(posts)
-        .set({ status: 'normal', updatedAt: new Date() })
+        .set({ status: 'normal', updatedAt: sql`NOW()` })
         .where(eq(posts.id, postId));
       return NextResponse.json({ success: true, message: '已恢复' });
     }
 
     if (action === 'soft-delete') {
       await db.update(posts)
-        .set({ status: 'deleted', updatedAt: new Date() })
+        .set({ status: 'deleted', updatedAt: sql`NOW()` })
         .where(eq(posts.id, postId));
       return NextResponse.json({ success: true, message: '已删除' });
     }
