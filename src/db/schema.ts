@@ -124,6 +124,7 @@ export const plans = mysqlTable(
     id: serial('id').primaryKey(),
     userId: int('user_id').notNull(),
     name: varchar('name', { length: 120 }).notNull(),
+    status: varchar('status', { length: 16 }).default('active'),
     activeTab: int('active_tab').default(0),
     startDate: date('start_date'),
     endDate: date('end_date'),

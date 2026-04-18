@@ -1,19 +1,30 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import { db } from '@/db';
 import { plans } from '@/db/schema';
 
 export async function GET(req: NextRequest) {
   try {
-    const userPlans = await db.select({
+    const url = new URL(req.url);
+    const status = url.searchParams.get('status');
+
+    const query = db.select({
       id: plans.id,
       name: plans.name,
+      status: plans.status,
       startDate: plans.startDate,
       endDate: plans.endDate,
       createdAt: plans.createdAt,
       updatedAt: plans.updatedAt,
-    }).from(plans).orderBy(desc(plans.updatedAt));
+    }).from(plans);
+
+    if (status) {
+      const result = query.where(eq(plans.status, status)).orderBy(desc(plans.updatedAt));
+      return NextResponse.json({ plans: result }, { status: 200 });
+    }
+
+    const userPlans = query.orderBy(desc(plans.updatedAt));
     return NextResponse.json({ plans: userPlans }, { status: 200 });
   } catch (error) {
     console.error('GET /api/plans error:', error);
@@ -92,6 +103,55 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ success: true, message: 'Plan updated' }, { status: 200 });
   } catch (error) {
     console.error('PUT /api/plans error:', error);
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const url = new URL(req.url);
+    const id = url.searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+    }
+
+    await db.execute(
+      `UPDATE plans SET status = 'deleted', updated_at = NOW() WHERE id = ${id}`
+    );
+
+    return NextResponse.json({ success: true, message: 'Plan deleted' }, { status: 200 });
+  } catch (error) {
+    console.error('DELETE /api/plans error:', error);
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { id, action } = body;
+
+    if (!id || !action) {
+      return NextResponse.json({ error: 'ID and action are required' }, { status: 400 });
+    }
+
+    if (action === 'soft-delete') {
+      await db.execute(
+        `UPDATE plans SET status = 'deleted', updated_at = NOW() WHERE id = ${id}`
+      );
+      return NextResponse.json({ success: true, message: 'Plan soft deleted' }, { status: 200 });
+    }
+
+    if (action === 'permanent-delete') {
+      await db.execute(`DELETE FROM transport_items WHERE plan_id = ${id}`);
+      await db.execute(`DELETE FROM plans WHERE id = ${id}`);
+      return NextResponse.json({ success: true, message: 'Plan permanently deleted' }, { status: 200 });
+    }
+
+    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+  } catch (error) {
+    console.error('PATCH /api/plans error:', error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
