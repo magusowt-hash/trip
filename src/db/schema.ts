@@ -30,6 +30,7 @@ export const posts = mysqlTable(
     content: text('content'),
     coverImageUrl: text('cover_image_url'),
     privacy: varchar('privacy', { length: 16 }).default('public'),
+    status: varchar('status', { length: 16 }).default('normal'),
     topic: varchar('topic', { length: 64 }),
     commentsCnt: int('comments_cnt').default(0),
     favoritesCnt: int('favorites_cnt').default(0),
@@ -61,6 +62,7 @@ export const comments = mysqlTable(
     userId: int('user_id').notNull(),
     content: text('content').notNull(),
     parentId: int('parent_id'),
+    status: varchar('status', { length: 16 }).default('normal'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
 );
