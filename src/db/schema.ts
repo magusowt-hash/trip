@@ -62,6 +62,7 @@ export const comments = mysqlTable(
     userId: int('user_id').notNull(),
     content: text('content').notNull(),
     parentId: int('parent_id'),
+    status: varchar('status', { length: 16 }).default('normal'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
 );
