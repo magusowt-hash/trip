@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { posts, users } from '@/db/schema';
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql, inArray } from 'drizzle-orm';
 
 export async function GET(request: NextRequest) {
   try {
@@ -99,6 +99,17 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
+    const ids = searchParams.get('ids');
+
+    if (ids) {
+      // Batch delete
+      const idArray = ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+      if (idArray.length === 0) {
+        return NextResponse.json({ error: '无效的ID列表' }, { status: 400 });
+      }
+      await db.delete(posts).where(inArray(posts.id, idArray));
+      return NextResponse.json({ success: true, message: `已删除 ${idArray.length} 条记录` });
+    }
 
     if (!id) {
       return NextResponse.json({ error: '缺少帖子ID' }, { status: 400 });

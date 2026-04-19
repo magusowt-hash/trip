@@ -17,10 +17,11 @@ export async function middleware(req: NextRequest) {
     return redirectToLogin(req);
   }
 
-  // 公开：登录/注册页 & 所有 API（包含 /api/auth/*） & Next 内部资源 & 常见静态文件
+  // 公开：登录/注册页 & 管理后台 & 所有 API（包含 /api/admin/*） & Next 内部资源 & 常见静态文件
   if (
     pathname === '/login' ||
     pathname === '/register' ||
+    pathname.startsWith('/management') ||
     pathname.startsWith('/api/') ||
     pathname.startsWith('/_next/') ||
     pathname === '/favicon.ico' ||

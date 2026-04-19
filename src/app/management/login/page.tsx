@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAdminAuth } from './layout';
+import { useAdminAuth } from '../layout';
 
 export default function LoginPage() {
   const [key, setKey] = useState('');

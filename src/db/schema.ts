@@ -169,3 +169,21 @@ export const transportItemsRelations = relations(transportItems, ({ one }) => ({
     references: [plans.id],
   }),
 }));
+
+// Admin keys table
+export const adminKeys = mysqlTable(
+  'admin_keys',
+  {
+    id: serial('id').primaryKey(),
+    keyHash: varchar('key_hash', { length: 255 }).notNull(),
+    name: varchar('name', { length: 64 }).notNull(),
+    isMaster: tinyint('is_master').default(0),
+    isActive: tinyint('is_active').default(1),
+    expiresAt: timestamp('expires_at'),
+    lastUsedAt: timestamp('last_used_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    keyHashIdx: uniqueIndex('admin_keys_key_hash_idx').on(t.keyHash),
+  }),
+);
