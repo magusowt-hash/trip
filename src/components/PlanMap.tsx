@@ -28,7 +28,7 @@ declare global {
   }
 }
 
-const AMAP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
+const AMAP_KEY = '64138cb3827187cd053ccbb9eaa18fa2';
 const AMAP_SECURITY_CODE = 'efc009ad907da44e5b727c1f890050fc';
 
 export default function PlanMap({
@@ -60,6 +60,8 @@ export default function PlanMap({
             });
             mapInstanceRef.current = map;
 
+            const IP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
+
             window.AMap.plugin(['AMap.Geolocation', 'AMap.Scale'], function () {
               const scale = new window.AMap.Scale({
                 position: 'LB',
@@ -67,6 +69,7 @@ export default function PlanMap({
               map.addControl(scale);
 
               const geolocation = new window.AMap.Geolocation({
+                key: IP_KEY,
                 enableHighAccuracy: true,
                 timeout: 10000,
                 showButton: true,
