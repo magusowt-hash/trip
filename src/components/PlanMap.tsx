@@ -60,28 +60,32 @@ export default function PlanMap({
             });
             mapInstanceRef.current = map;
 
-            if (navigator.geolocation) {
-              navigator.geolocation.getCurrentPosition(
-                (position) => {
-                  const { longitude, latitude } = position.coords;
-                  map.setCenter([longitude, latitude]);
-                  map.setZoom(12);
-                  const userMarker = new window.AMap.Marker({
-                    position: new window.AMap.LngLat(longitude, latitude),
-                    title: '我的位置',
-                    icon: new window.AMap.Icon({
-                      size: new window.AMap.Size(24, 24),
-                      image: '//a.amap.com/jsapi_demos/static/demo-center/icons/poi-marker-default.png',
-                      imageSize: new window.AMap.Size(24, 24),
-                    }),
-                  });
-                  map.add(userMarker);
-                },
-                (err) => {
-                  console.log('Geolocation error:', err);
-                }
-              );
-            }
+            const geolocation = new window.AMap.Geolocation({
+              enableHighAccuracy: true,
+              timeout: 10000,
+              showButton: false,
+              showMarker: false,
+              showCircle: false,
+            });
+            geolocation.getCurrentPosition((status: string, result: any) => {
+              if (status === 'complete' && result.info === 'SUCCESS') {
+                const { position } = result;
+                map.setCenter([position.lng, position.lat]);
+                map.setZoom(12);
+                const userMarker = new window.AMap.Marker({
+                  position: new window.AMap.LngLat(position.lng, position.lat),
+                  title: '我的位置',
+                  icon: new window.AMap.Icon({
+                    size: new window.AMap.Size(24, 24),
+                    image: '//a.amap.com/jsapi_demos/static/demo-center/icons/poi-marker-default.png',
+                    imageSize: new window.AMap.Size(24, 24),
+                  }),
+                });
+                map.add(userMarker);
+              } else {
+                console.log('Geolocation error:', result);
+              }
+            });
 
             setLoaded(true);
             onMapLoad?.(map);
