@@ -28,7 +28,8 @@ declare global {
   }
 }
 
-const AMAP_KEY = 'efc009ad907da44e5b727c1f890050fc';
+const AMAP_KEY = '64138cb3827187cd053ccbb9eaa18fa2';
+const AMAP_SECURITY_CODE = 'efc009ad907da44e5b727c1f890050fc';
 
 export default function PlanMap({
   markers = [],
@@ -82,6 +83,7 @@ export default function PlanMap({
           const AMap = await window.AMapLoader.load({
             key: AMAP_KEY,
             version: '2.0',
+            securityJsCode: AMAP_SECURITY_CODE,
           });
           window.AMap = AMap;
           initMap();
@@ -95,7 +97,7 @@ export default function PlanMap({
       if (existingLoader) {
         existingLoader.addEventListener('load', () => {
           if (window.AMapLoader) {
-            window.AMapLoader.load({ key: AMAP_KEY, version: '2.0' })
+            window.AMapLoader.load({ key: AMAP_KEY, version: '2.0', securityJsCode: AMAP_SECURITY_CODE })
               .then((AMap: any) => {
                 window.AMap = AMap;
                 initMap();
@@ -114,7 +116,7 @@ export default function PlanMap({
       };
       script.onload = () => {
         if (window.AMapLoader) {
-          window.AMapLoader.load({ key: AMAP_KEY, version: '2.0' })
+          window.AMapLoader.load({ key: AMAP_KEY, version: '2.0', securityJsCode: AMAP_SECURITY_CODE })
             .then((AMap: any) => {
               window.AMap = AMap;
               initMap();
