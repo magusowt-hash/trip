@@ -18,11 +18,17 @@ export interface PlanMapProps {
 declare global {
   interface Window {
     AMap: any;
-    AMapUI: any;
+    AMapLoader: {
+      load: (options: {
+        key: string;
+        version?: string;
+        securityJsCode?: string;
+      }) => Promise<any>;
+    };
   }
 }
 
-const AMAP_KEY = '0733c564f9c057d7c34d61bf35655e2a';
+const AMAP_KEY = 'efc009ad907da44e5b727c1f890050fc';
 
 export default function PlanMap({
   markers = [],
@@ -38,37 +44,85 @@ export default function PlanMap({
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
+    const initMap = () => {
+      if (!mapRef.current || mapInstanceRef.current) return;
+
+      const checkSize = () => {
+        if (mapRef.current && mapRef.current.offsetWidth > 0 && mapRef.current.offsetHeight > 0) {
+          if (window.AMap) {
+            const map = new window.AMap.Map(mapRef.current, {
+              zoom: 10,
+              center: [116.397428, 39.90923],
+              mapStyle: 'amap://styles/normal',
+              viewMode: '2D',
+              resizeEnable: true,
+            });
+            mapInstanceRef.current = map;
+            setLoaded(true);
+            onMapLoad?.(map);
+          } else {
+            setTimeout(checkSize, 100);
+          }
+        } else {
+          setTimeout(checkSize, 100);
+        }
+      };
+
+      checkSize();
+    };
+
     const loadMap = async () => {
       if (window.AMap) {
         initMap();
         return;
       }
 
+      if (window.AMapLoader) {
+        try {
+          const AMap = await window.AMapLoader.load({
+            key: AMAP_KEY,
+            version: '2.0',
+          });
+          window.AMap = AMap;
+          initMap();
+        } catch (e) {
+          console.error('AMapLoader error:', e);
+        }
+        return;
+      }
+
+      const existingLoader = document.querySelector('script[src*="webapi.amap.com/loader"]');
+      if (existingLoader) {
+        existingLoader.addEventListener('load', () => {
+          if (window.AMapLoader) {
+            window.AMapLoader.load({ key: AMAP_KEY, version: '2.0' })
+              .then((AMap: any) => {
+                window.AMap = AMap;
+                initMap();
+              })
+              .catch((e: any) => console.error(e));
+          }
+        });
+        return;
+      }
+
       const script = document.createElement('script');
-      script.src = `https://webapi.amap.com/maps?v=2.0&key=${AMAP_KEY}`;
+      script.src = 'https://webapi.amap.com/loader.js';
       script.async = true;
+      script.onerror = () => {
+        console.error('Failed to load AMap loader');
+      };
       script.onload = () => {
-        initMap();
+        if (window.AMapLoader) {
+          window.AMapLoader.load({ key: AMAP_KEY, version: '2.0' })
+            .then((AMap: any) => {
+              window.AMap = AMap;
+              initMap();
+            })
+            .catch((e: any) => console.error(e));
+        }
       };
       document.head.appendChild(script);
-    };
-
-    const initMap = () => {
-      if (!mapRef.current || mapInstanceRef.current) return;
-
-      const map = new window.AMap.Map(mapRef.current, {
-        zoom: 10,
-        center: [116.397428, 39.90923],
-        mapStyle: 'amap://styles/normal',
-        viewMode: '2D',
-      });
-
-      mapInstanceRef.current = map;
-
-      map.on('complete', () => {
-        setLoaded(true);
-        onMapLoad?.(map);
-      });
     };
 
     loadMap();
@@ -140,7 +194,6 @@ export default function PlanMap({
       style={{
         width: '100%',
         height: '100%',
-        minHeight: '360px',
         borderRadius: '12px',
         overflow: 'hidden',
       }}
