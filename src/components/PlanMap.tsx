@@ -60,6 +60,14 @@ export default function PlanMap({
             });
             mapInstanceRef.current = map;
 
+            window.AMap.plugin(['AMap.ToolBar', 'AMap.Geolocation'], function () {
+              const toolbar = new window.AMap.ToolBar({
+                position: 'RT',
+                showLocationButton: true,
+              });
+              map.addControl(toolbar);
+            });
+
             const geolocation = new window.AMap.Geolocation({
               enableHighAccuracy: true,
               timeout: 10000,
