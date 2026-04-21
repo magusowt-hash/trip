@@ -58,7 +58,7 @@ export default function PlanMap({
               viewMode: '2D',
               resizeEnable: true,
             });
-mapInstanceRef.current = map;
+            mapInstanceRef.current = map;
 
             window.AMap.plugin(['AMap.Geolocation', 'AMap.Scale'], function () {
               const scale = new window.AMap.Scale({
@@ -87,19 +87,6 @@ mapInstanceRef.current = map;
               window.AMap.event.addListener(geolocation, 'error', function (err: any) {
                 console.log('Geolocation error:', err);
               });
-            });
-              map.addControl(scale);
-
-              const geolocation = new window.AMap.Geolocation({
-                key: IP_KEY,
-                enableHighAccuracy: true,
-                timeout: 10000,
-                showButton: true,
-                showMarker: true,
-                showCircle: true,
-                buttonPosition: 'LT',
-              });
-              map.addControl(geolocation);
             });
 
             setLoaded(true);
@@ -141,7 +128,7 @@ mapInstanceRef.current = map;
       if (existingLoader) {
         existingLoader.addEventListener('load', () => {
           if (window.AMapLoader) {
-            window.AMapLoader.load({ key: AMAP_KEY, version: '2.0', securityJsCode: AMAP_SECURITY_CODE, plugins: ['AMap.Geolocation'] })
+            window.AMapLoader.load({ key: AMAP_KEY, version: '2.0', securityJsCode: AMAP_SECURITY_CODE, plugins: ['AMap.Geolocation', 'AMap.Scale'] })
               .then((AMap: any) => {
                 window.AMap = AMap;
                 initMap();
@@ -160,7 +147,7 @@ mapInstanceRef.current = map;
       };
       script.onload = () => {
         if (window.AMapLoader) {
-          window.AMapLoader.load({ key: AMAP_KEY, version: '2.0', securityJsCode: AMAP_SECURITY_CODE, plugins: ['AMap.Geolocation'] })
+          window.AMapLoader.load({ key: AMAP_KEY, version: '2.0', securityJsCode: AMAP_SECURITY_CODE, plugins: ['AMap.Geolocation', 'AMap.Scale'] })
             .then((AMap: any) => {
               window.AMap = AMap;
               initMap();
