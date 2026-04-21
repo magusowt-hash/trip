@@ -58,14 +58,36 @@ export default function PlanMap({
               viewMode: '2D',
               resizeEnable: true,
             });
-            mapInstanceRef.current = map;
-
-            const IP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
+mapInstanceRef.current = map;
 
             window.AMap.plugin(['AMap.Geolocation', 'AMap.Scale'], function () {
               const scale = new window.AMap.Scale({
                 position: 'LB',
               });
+              map.addControl(scale);
+
+              const geolocation = new window.AMap.Geolocation({
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0,
+                convert: true,
+                showButton: true,
+                buttonPosition: 'LB',
+                showMarker: true,
+                showCircle: true,
+                panToLocation: true,
+                zoomToAccuracy: true,
+              });
+              map.addControl(geolocation);
+              geolocation.getCurrentPosition();
+
+              window.AMap.event.addListener(geolocation, 'complete', function (result: any) {
+                console.log('Geolocation complete:', result);
+              });
+              window.AMap.event.addListener(geolocation, 'error', function (err: any) {
+                console.log('Geolocation error:', err);
+              });
+            });
               map.addControl(scale);
 
               const geolocation = new window.AMap.Geolocation({
