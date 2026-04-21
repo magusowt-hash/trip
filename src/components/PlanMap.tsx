@@ -112,6 +112,7 @@ export default function PlanMap({
             key: AMAP_KEY,
             version: '2.0',
             securityJsCode: AMAP_SECURITY_CODE,
+            plugins: ['AMap.Geolocation'],
           });
           window.AMap = AMap;
           initMap();
@@ -125,7 +126,7 @@ export default function PlanMap({
       if (existingLoader) {
         existingLoader.addEventListener('load', () => {
           if (window.AMapLoader) {
-            window.AMapLoader.load({ key: AMAP_KEY, version: '2.0', securityJsCode: AMAP_SECURITY_CODE })
+            window.AMapLoader.load({ key: AMAP_KEY, version: '2.0', securityJsCode: AMAP_SECURITY_CODE, plugins: ['AMap.Geolocation'] })
               .then((AMap: any) => {
                 window.AMap = AMap;
                 initMap();
@@ -144,7 +145,7 @@ export default function PlanMap({
       };
       script.onload = () => {
         if (window.AMapLoader) {
-          window.AMapLoader.load({ key: AMAP_KEY, version: '2.0', securityJsCode: AMAP_SECURITY_CODE })
+          window.AMapLoader.load({ key: AMAP_KEY, version: '2.0', securityJsCode: AMAP_SECURITY_CODE, plugins: ['AMap.Geolocation'] })
             .then((AMap: any) => {
               window.AMap = AMap;
               initMap();
