@@ -80,7 +80,7 @@ export default function ListsPage() {
             <h2 className={styles.listTitle}>榜单推荐</h2>
           </div>
           
-          <div className={styles.listScroll} ref={scrollRef}>
+          <div className={styles.listScroll}>
             {lists.map(list => (
               <div 
                 key={list.id}
