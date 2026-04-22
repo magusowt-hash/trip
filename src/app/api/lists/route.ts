@@ -14,6 +14,14 @@ export async function GET(request: NextRequest) {
       .where(eq(lists.status, 1))
       .orderBy(desc(lists.id));
 
+    const formattedLists = listsData.map(l => ({
+      id: l.id,
+      name: l.name,
+      cover_image: l.coverImage,
+      lng: l.lng,
+      lat: l.lat,
+    }));
+
     let items: any[] = [];
     if (listId) {
       items = await db
@@ -21,9 +29,20 @@ export async function GET(request: NextRequest) {
         .from(listItems)
         .where(eq(listItems.listId, parseInt(listId)))
         .orderBy(listItems.orderNum, desc(listItems.id));
+      
+      items = items.map(item => ({
+        id: item.id,
+        list_id: item.listId,
+        title: item.title,
+        cover_image: item.coverImage,
+        description: item.description,
+        lng: item.lng,
+        lat: item.lat,
+        address: item.address,
+      }));
     }
 
-    return NextResponse.json({ lists: listsData, items });
+    return NextResponse.json({ lists: formattedLists, items });
   } catch (error: any) {
     console.error('Lists GET error:', error);
     return NextResponse.json({ error: '获取榜单失败: ' + error?.message }, { status: 500 });
