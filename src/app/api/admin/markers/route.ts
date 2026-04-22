@@ -105,17 +105,22 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-// 地理编码 API
 export async function PATCH(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { address } = body;
+    const { searchParams } = new URL(request.url);
+    const address = searchParams.get('address') || '';
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {}
 
-    if (!address) {
+    const addr = address || (body as any).address;
+
+    if (!addr) {
       return NextResponse.json({ error: '地址不能为空' }, { status: 400 });
     }
 
-    const url = `https://restapi.amap.com/v3/place/text?key=${AMAP_KEY}&keywords=${encodeURIComponent(address)}&types=&city=&offset=1`;
+    const url = `https://restapi.amap.com/v3/place/text?key=${AMAP_KEY}&keywords=${encodeURIComponent(addr)}&types=&city=&offset=1`;
     const response = await fetch(url);
     const data = await response.json();
 
