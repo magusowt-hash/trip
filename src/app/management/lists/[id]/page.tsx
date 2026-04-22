@@ -86,28 +86,31 @@ export default function ListDetailPage() {
     const ctx = canvas.getContext('2d');
     const img = new Image();
     img.onload = async () => {
-      const aspect = 16 / 9;
       canvas.width = 1280;
       canvas.height = 720;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       
       const imgAspect = img.width / img.height;
-      let sw = img.width, sh = img.height;
-      if (imgAspect > aspect) {
-        sh = sw / aspect;
+      const targetAspect = 16 / 9;
+      let dx = 0, dy = 0, dw = canvas.width, dh = canvas.height;
+      
+      if (imgAspect > targetAspect) {
+        dh = canvas.height;
+        dw = dh * imgAspect;
+        dx = (canvas.width - dw) / 2;
       } else {
-        sw = sh * aspect;
+        dw = canvas.width;
+        dh = dw / imgAspect;
+        dy = (canvas.height - dh) / 2;
       }
       
-      const sx = (img.width - sw) / 2;
-      const sy = (img.height - sh) / 2;
+      const scaledW = dw * cropPos.scale;
+      const scaledH = dh * cropPos.scale;
+      const tx = (canvas.width - scaledW) / 2 + cropPos.x;
+      const ty = (canvas.height - scaledH) / 2 + cropPos.y;
       
-      ctx.save();
-      ctx.translate(canvas.width / 2, canvas.height / 2);
-      ctx.scale(cropPos.scale, cropPos.scale);
-      ctx.translate(-canvas.width / 2, -canvas.height / 2);
-      ctx.translate(cropPos.x, cropPos.y);
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-      ctx.restore();
+      ctx.drawImage(img, tx, ty, scaledW, scaledH);
 
       canvas.toBlob(async (blob) => {
         if (!blob) {
