@@ -195,10 +195,16 @@ export default function PlanMap({
     let infoWindow: any = null;
 
     markers.forEach((marker) => {
-const amapMarker = new window.AMap.Marker({
+const markerContent = `
+        <div style="position:relative;width:25px;height:34px;">
+          <img src="//a.amap.com/jsapi_demos/static/demo-center/icons/poi-marker-red.png" style="width:100%;height:100%;">
+        </div>
+      `;
+
+      const amapMarker = new window.AMap.Marker({
         position: new window.AMap.LngLat(marker.position[0], marker.position[1]),
-        icon: '//webapi.amap.com/theme/v1.3/markers/location.png',
-        offset: new window.AMap.Pixel(-11, -31),
+        content: markerContent,
+        offset: new window.AMap.Pixel(-13, -30),
         title: marker.title || '',
       });
 
