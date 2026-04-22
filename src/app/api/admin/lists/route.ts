@@ -18,8 +18,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: '获取榜单列表失败: ' + error?.message }, { status: 500 });
   }
 }
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
