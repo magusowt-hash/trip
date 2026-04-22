@@ -50,7 +50,7 @@ export default function ListDetailPage() {
         setList(data.list[0]);
         setBasicForm({
           name: data.list[0].name || '',
-          cover_image: data.list[0].cover_image || '',
+          cover_image: data.list[0].coverImage || '',
           description: data.list[0].description || '',
           lng: data.list[0].lng || '',
           lat: data.list[0].lat || ''
