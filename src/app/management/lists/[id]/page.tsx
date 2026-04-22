@@ -20,7 +20,7 @@ export default function ListDetailPage() {
     cover_image: '',
   });
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
-  const [itemForms, setItemForms] = useState<Record<number, any>>({});
+  const [itemForms, setItemForms] = useState<Record<number, { title: string; cover_image: string; description: string; lng: string; lat: string }>>({});
 
   useEffect(() => {
     if (listId && token) {
@@ -139,7 +139,6 @@ export default function ListDetailPage() {
       title: item.title,
       cover_image: item.cover_image,
       description: item.description,
-      address: item.address,
       lng: item.lng,
       lat: item.lat,
     } }));
@@ -192,8 +191,7 @@ export default function ListDetailPage() {
                   </div>
                   <div className="item-fields">
                     <input value={itemForms[item.id].title} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], title: e.target.value }}))} placeholder="标题" />
-                    <input value={itemForms[item.id].description || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], description: e.target.value }}))} placeholder="描述" />
-                    <input value={itemForms[item.id].address || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], address: e.target.value }}))} placeholder="地址" />
+                    <textarea value={itemForms[item.id].description || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], description: e.target.value }}))} placeholder="描述（地点介绍）" rows={2} />
                     <div className="coords">
                       <input value={itemForms[item.id].lng || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], lng: e.target.value }}))} placeholder="经度" />
                       <input value={itemForms[item.id].lat || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], lat: e.target.value }}))} placeholder="纬度" />
@@ -211,8 +209,7 @@ export default function ListDetailPage() {
                   </div>
                   <div className="item-main">
                     <div className="item-title">{item.title}</div>
-                    <div className="item-desc">{item.description || '-'}</div>
-                    <div className="item-address">{item.address || '-'}</div>
+                    <div className="item-desc">{item.description || '无描述'}</div>
                   </div>
                   <button className="del-btn" onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}>×</button>
                 </div>
@@ -248,9 +245,8 @@ export default function ListDetailPage() {
         .item-thumb { width: 60px; height: 60px; background: #f3f4f6; border-radius: 6px; background-size: cover; background-position: center; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
         .item-thumb span { font-size: 11px; color: #9ca3af; }
         .item-main { flex: 1; min-width: 0; }
-        .item-title { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
-        .item-desc { font-size: 12px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .item-address { font-size: 11px; color: #9ca3af; }
+        .item-title { font-size: 14px; font-weight: 600; }
+        .item-desc { font-size: 12px; color: #6b7280; margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .del-btn { width: 24px; height: 24px; background: #fee2e2; color: #ef4444; border: none; border-radius: 50%; cursor: pointer; font-size: 16px; flex-shrink: 0; }
         
         .item-edit { display: flex; gap: 12px; padding: 12px; background: #f9fafb; }

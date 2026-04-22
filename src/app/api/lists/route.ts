@@ -38,7 +38,6 @@ export async function GET(request: NextRequest) {
         description: item.description,
         lng: item.lng,
         lat: item.lat,
-        address: item.address,
       }));
     }
 
