@@ -125,7 +125,11 @@ export default function ListDetailPage() {
         formData.append('file', blob, 'cover.jpg');
 
         try {
-          const res = await fetch('/api/upload', { method: 'POST', body: formData });
+          const res = await fetch('/api/upload', { 
+            method: 'POST', 
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+          });
           const data = await res.json();
           if (data.url) {
             if (cropFile.type === 'list') {
@@ -133,6 +137,8 @@ export default function ListDetailPage() {
             } else if (cropFile.itemId) {
               setItemForms(prev => ({ ...prev, [cropFile.itemId]: { ...prev[cropFile.itemId], cover_image: data.url } }));
             }
+          } else if (data.error) {
+            alert(data.error);
           }
         } catch (e) {
           alert('上传失败');
