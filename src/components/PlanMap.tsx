@@ -197,14 +197,8 @@ export default function PlanMap({
     markers.forEach((marker) => {
 const amapMarker = new window.AMap.Marker({
         position: new window.AMap.LngLat(marker.position[0], marker.position[1]),
-        icon: new window.AMap.Icon({
-          type: 'image',
-          size: new window.AMap.Size(32, 32),
-          image: '//vdata.amap.com/theme/default/3.2.32/marker.png',
-          imageSize: new window.AMap.Size(32, 32),
-          imageOffset: new window.AMap.Pixel(0, 0),
-        }),
-        offset: new window.AMap.Pixel(-16, -32),
+        icon: '//webapi.amap.com/theme/v1.3/markers/location.png',
+        offset: new window.AMap.Pixel(-11, -31),
         title: marker.title || '',
       });
 
