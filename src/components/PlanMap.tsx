@@ -112,14 +112,6 @@ export default function PlanMap({
                 zoomToAccuracy: true,
               });
               map.addControl(geolocation);
-              geolocation.getCurrentPosition();
-
-              window.AMap.event.addListener(geolocation, 'complete', function (result: any) {
-                console.log('Geolocation complete:', result);
-              });
-              window.AMap.event.addListener(geolocation, 'error', function (err: any) {
-                console.log('Geolocation error:', err);
-              });
             });
 
             setLoaded(true);
