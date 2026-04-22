@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import PlanMap from '@/components/PlanMap';
 import styles from './lists-page.module.css';
 
@@ -29,7 +29,6 @@ export default function ListsPage() {
   const [items, setItems] = useState<ListItem[]>([]);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
   const [mapMarkers, setMapMarkers] = useState<{ position: [number, number]; title: string; address?: string; description?: string }[]>([]);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch('/api/lists')
@@ -103,7 +102,9 @@ export default function ListsPage() {
           <div className={styles.itemList}>
             {items.map(item => (
               <div key={item.id} className={styles.itemCard}>
-                <div className={styles.itemOrder}>{item.order_num}</div>
+                {item.cover_image && (
+                  <div className={styles.itemCover} style={{ backgroundImage: `url(${item.cover_image})` }} />
+                )}
                 <div className={styles.itemInfo}>
                   <h3 className={styles.itemTitle}>{item.title}</h3>
                   {item.description && <p className={styles.itemDesc}>{item.description}</p>}
