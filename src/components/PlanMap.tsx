@@ -200,10 +200,39 @@ export default function PlanMap({
 
     map.clearMap();
 
+    let infoWindow: any = null;
+
     markers.forEach((marker) => {
+      const markerContent = `
+        <div class="custom-marker" data-id="${marker.id}" data-title="${marker.title}" data-address="${marker.address || ''}" data-desc="${marker.description || ''}">
+          <img src="https://a.amap.com/jsapi_demos/static/demo-center/icons/dir-via-marker.png">
+        </div>
+      `;
+
       const amapMarker = new window.AMap.Marker({
         position: new window.AMap.LngLat(marker.position[0], marker.position[1]),
+        content: markerContent,
+        offset: new window.AMap.Pixel(-13, -30),
         title: marker.title || '',
+      });
+
+      amapMarker.on('click', () => {
+        if (infoWindow) {
+          infoWindow.close();
+        }
+        const content = `
+          <div class="marker-info-window">
+            <h3>${marker.title}</h3>
+            ${marker.address ? `<p class="address">${marker.address}</p>` : ''}
+            ${marker.description ? `<p class="desc">${marker.description}</p>` : ''}
+            <button class="detail-btn" data-id="${marker.id}">查看详情</button>
+          </div>
+        `;
+        infoWindow = new window.AMap.InfoWindow({
+          content,
+          offset: new window.AMap.Pixel(0, -30),
+        });
+        infoWindow.open(map, amapMarker.getPosition());
       });
 
       if (onMarkerClick) {
@@ -255,14 +284,62 @@ export default function PlanMap({
   }, [overlays, loaded]);
 
   return (
-    <div
-      ref={mapRef}
-      style={{
-        width: '100%',
-        height: '100%',
-        borderRadius: '12px',
-        overflow: 'hidden',
-      }}
-    />
+    <>
+      <div
+        ref={mapRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          borderRadius: '12px',
+          overflow: 'hidden',
+        }}
+      />
+      <style>{`
+        .custom-marker {
+          position: relative;
+          width: 25px;
+          height: 34px;
+          cursor: pointer;
+        }
+        .custom-marker img {
+          width: 100%;
+          height: 100%;
+        }
+        .marker-info-window {
+          padding: 12px;
+          max-width: 280px;
+        }
+        .marker-info-window h3 {
+          margin: 0 0 8px;
+          font-size: 16px;
+          font-weight: 600;
+        }
+        .marker-info-window .address {
+          margin: 0 0 4px;
+          font-size: 12px;
+          color: #666;
+        }
+        .marker-info-window .desc {
+          margin: 0 0 8px;
+          font-size: 13px;
+          color: #333;
+        }
+        .marker-info-window .detail-btn {
+          padding: 6px 16px;
+          background: #3b82f6;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 13px;
+        }
+        .marker-info-window .detail-btn:hover {
+          background: #2563eb;
+        }
+        .amap-info-content {
+          padding: 12px;
+        }
+      `}</style>
+    </>
   );
 }
