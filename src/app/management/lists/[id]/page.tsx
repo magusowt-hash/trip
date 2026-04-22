@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAdminAuth } from '../../layout';
+import CsvImport from './import/CsvImport';
 
 export default function ListDetailPage() {
   const router = useRouter();
@@ -26,6 +27,7 @@ export default function ListDetailPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [cropping, setCropping] = useState(false);
+  const [showCsvImport, setShowCsvImport] = useState(false);
 
   useEffect(() => {
     if (listId && token) {
@@ -272,7 +274,10 @@ export default function ListDetailPage() {
       <div className="items-section">
         <div className="section-header">
           <h2>数据 ({items.length})</h2>
-          <button className="add-btn" onClick={handleAddItem}>+ 添加</button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="import-btn" onClick={() => setShowCsvImport(true)}>CSV导入</button>
+            <button className="add-btn" onClick={handleAddItem}>+ 添加</button>
+          </div>
         </div>
         <div className="items-list">
           {items.map(item => (
@@ -331,6 +336,7 @@ export default function ListDetailPage() {
         .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
         .section-header h2 { margin: 0; font-size: 16px; }
         .add-btn { padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; }
+        .import-btn { padding: 8px 16px; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; }
         
         .items-list { display: flex; flex-direction: column; gap: 8px; }
         .item-row { border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
@@ -401,6 +407,7 @@ export default function ListDetailPage() {
           </div>
         </div>
       )}
+      {showCsvImport && <CsvImport onClose={() => { setShowCsvImport(false); loadData(); }} />}
     </div>
   );
 }
