@@ -90,6 +90,23 @@ export default function ListDetailPage() {
     setUploading(false);
   };
 
+  const handlePasteCoords = async (itemId: number) => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const match = text.match(/^([^,]+),([^,]+)$/);
+      if (match) {
+        setItemForms(prev => ({
+          ...prev,
+          [itemId]: { ...prev[itemId], lng: match[1].trim(), lat: match[2].trim() }
+        }));
+      } else {
+        alert('请复制逗号分隔的坐标，如: 116.397,39.916');
+      }
+    } catch (e) {
+      alert('读取剪贴板失败');
+    }
+  };
+
   const handleSaveItem = async (itemId: number) => {
     const form = itemForms[itemId];
     if (!form?.title) {
@@ -193,6 +210,7 @@ export default function ListDetailPage() {
                     <input value={itemForms[item.id].title} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], title: e.target.value }}))} placeholder="标题" />
                     <textarea value={itemForms[item.id].description || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], description: e.target.value }}))} placeholder="描述（地点介绍）" rows={2} />
                     <div className="coords">
+                      <button type="button" className="paste-btn" onClick={() => handlePasteCoords(item.id)}>粘贴坐标</button>
                       <input value={itemForms[item.id].lng || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], lng: e.target.value }}))} placeholder="经度" />
                       <input value={itemForms[item.id].lat || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], lat: e.target.value }}))} placeholder="纬度" />
                     </div>
@@ -253,9 +271,11 @@ export default function ListDetailPage() {
         .item-cover-edit { width: 80px; height: 80px; background: #e5e7eb; border-radius: 8px; position: relative; overflow: hidden; background-size: cover; flex-shrink: 0; }
         .item-cover-edit input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
         .item-fields { flex: 1; display: flex; flex-direction: column; gap: 6px; }
-        .item-fields input { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
-        .item-fields .coords { display: flex; gap: 8px; }
+        .item-fields input, .item-fields textarea { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+        .item-fields textarea { resize: vertical; min-height: 50px; }
+        .item-fields .coords { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         .item-fields .coords input { width: 80px; }
+        .paste-btn { padding: 6px 10px; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; font-size: 12px; }
         .item-edit-btns { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
         .item-edit-btns button { padding: 6px 12px; border: 1px solid #d1d5db; background: white; border-radius: 6px; cursor: pointer; font-size: 12px; }
         .item-edit-btns button.primary { background: #3b82f6; color: white; border: none; }
