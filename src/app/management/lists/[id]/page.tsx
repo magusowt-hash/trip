@@ -4,8 +4,6 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAdminAuth } from '../../layout';
 
-const AMAP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
-
 export default function ListDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -20,20 +18,9 @@ export default function ListDetailPage() {
   const [basicForm, setBasicForm] = useState({
     name: '',
     cover_image: '',
-    description: '',
-    lng: '',
-    lat: ''
   });
-  const [itemForm, setItemForm] = useState({
-    title: '',
-    cover_image: '',
-    description: '',
-    address: '',
-    lng: '',
-    lat: ''
-  });
-  const [editingItem, setEditingItem] = useState<any>(null);
-  const [showItemModal, setShowItemModal] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<number | null>(null);
+  const [itemForms, setItemForms] = useState<Record<number, any>>({});
 
   useEffect(() => {
     if (listId && token) {
@@ -51,9 +38,6 @@ export default function ListDetailPage() {
         setBasicForm({
           name: data.list[0].name || '',
           cover_image: data.list[0].coverImage || '',
-          description: data.list[0].description || '',
-          lng: data.list[0].lng || '',
-          lat: data.list[0].lat || ''
         });
       }
 
@@ -82,29 +66,7 @@ export default function ListDetailPage() {
     setSaving(false);
   };
 
-  const handleGeocode = async () => {
-    const address = basicForm.description || basicForm.name;
-    if (!address) {
-      alert('请填写描述用于获取坐标');
-      return;
-    }
-    try {
-      const res = await fetch(`${window.location.origin}/api/admin/lists?address=${encodeURIComponent(address)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        method: 'PATCH',
-      });
-      const data = await res.json();
-      if (data.success && data.lng) {
-        setBasicForm(prev => ({ ...prev, lng: data.lng, lat: data.lat }));
-      } else {
-        alert(data.error || '未找到坐标');
-      }
-    } catch (e: any) {
-      alert('获取坐标失败: ' + e.message);
-    }
-  };
-
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'list' | 'item') => {
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'list' | 'item', itemId?: number) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -113,17 +75,13 @@ export default function ListDetailPage() {
     formData.append('file', file);
 
     try {
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
       const data = await res.json();
       if (data.url) {
-        const url = data.url;
         if (type === 'list') {
-          setBasicForm(prev => ({ ...prev, cover_image: url }));
-        } else {
-          setItemForm(prev => ({ ...prev, cover_image: url }));
+          setBasicForm(prev => ({ ...prev, cover_image: data.url }));
+        } else if (itemId) {
+          setItemForms(prev => ({ ...prev, [itemId]: { ...prev[itemId], cover_image: data.url } }));
         }
       }
     } catch (e) {
@@ -132,29 +90,37 @@ export default function ListDetailPage() {
     setUploading(false);
   };
 
-  const handleSaveItem = async () => {
-    if (!itemForm.title) {
+  const handleSaveItem = async (itemId: number) => {
+    const form = itemForms[itemId];
+    if (!form?.title) {
       alert('请输入标题');
       return;
     }
     try {
-      const method = editingItem ? 'PUT' : 'POST';
-      const url = editingItem ? `/api/admin/list_items?id=${editingItem.id}` : '/api/admin/list_items';
-      const body: any = { ...itemForm, list_id: listId };
-      if (editingItem) delete body.list_id;
-
-      await fetch(url, {
-        method,
+      await fetch(`/api/admin/list_items?id=${itemId}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(body),
+        body: JSON.stringify(form),
       });
-
-      setShowItemModal(false);
-      setEditingItem(null);
-      setItemForm({ title: '', cover_image: '', description: '', address: '', lng: '', lat: '' });
+      setEditingItemId(null);
       loadData();
     } catch (e) {
       alert('保存失败');
+    }
+  };
+
+  const handleAddItem = async () => {
+    const title = prompt('请输入标题');
+    if (!title) return;
+    try {
+      await fetch('/api/admin/list_items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ list_id: listId, title }),
+      });
+      loadData();
+    } catch (e) {
+      alert('添加失败');
     }
   };
 
@@ -167,44 +133,20 @@ export default function ListDetailPage() {
     loadData();
   };
 
-  const handleEditItem = (item: any) => {
-    setEditingItem(item);
-    setItemForm({
-      title: item.title || '',
-      cover_image: item.cover_image || '',
-      description: item.description || '',
-      address: item.address || '',
-      lng: item.lng || '',
-      lat: item.lat || ''
-    });
-    setShowItemModal(true);
+  const startEdit = (item: any) => {
+    setEditingItemId(item.id);
+    setItemForms(prev => ({ ...prev, [item.id]: {
+      title: item.title,
+      cover_image: item.cover_image,
+      description: item.description,
+      address: item.address,
+      lng: item.lng,
+      lat: item.lat,
+    } }));
   };
 
-  const handleGeocodeItem = async (item: any) => {
-    const address = item.address || item.title;
-    if (!address) {
-      alert('请先填写地址');
-      return;
-    }
-    try {
-      const res = await fetch(`${window.location.origin}/api/admin/list_items?address=${encodeURIComponent(address)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        method: 'PATCH',
-      });
-      const data = await res.json();
-      if (data.success && data.lng) {
-        await fetch(`/api/admin/list_items?id=${item.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ lng: data.lng, lat: data.lat }),
-        });
-        loadData();
-      } else {
-        alert(data.error || '未找到');
-      }
-    } catch (e) {
-      alert('失败');
-    }
+  const cancelEdit = () => {
+    setEditingItemId(null);
   };
 
   if (loading) {
@@ -214,148 +156,114 @@ export default function ListDetailPage() {
   return (
     <div className="page">
       <div className="header">
-        <button className="back-btn" onClick={() => router.push('/management/lists')}>← 返回榜单列表</button>
-        <h1>{list?.name || '榜单详情'}</h1>
+        <button className="back-btn" onClick={() => router.push('/management/lists')}>← 返回</button>
       </div>
 
-      <div className="section">
-        <h2>榜单信息</h2>
-        <div className="cover-preview" style={{ backgroundImage: basicForm.cover_image ? `url(${basicForm.cover_image})` : undefined }}>
-          {!basicForm.cover_image && <span>点击上传封面</span>}
+      <div className="list-header">
+        <div className="cover-box" style={{ backgroundImage: basicForm.cover_image ? `url(${basicForm.cover_image})` : undefined }}>
+          {!basicForm.cover_image && <span>封面</span>}
           <input type="file" accept="image/*" onChange={(e) => handleUpload(e, 'list')} disabled={uploading} />
         </div>
-        <div className="form">
-          <div className="field">
-            <label>榜单名称 *</label>
-            <input value={basicForm.name} onChange={e => setBasicForm({...basicForm, name: e.target.value})} />
-          </div>
-          <div className="field">
-            <label>描述（用于获取坐标）</label>
-            <textarea value={basicForm.description} onChange={e => setBasicForm({...basicForm, description: e.target.value})} />
-          </div>
-          <div className="field-row">
-            <div className="field">
-              <label>经度</label>
-              <input value={basicForm.lng} onChange={e => setBasicForm({...basicForm, lng: e.target.value})} />
-            </div>
-            <div className="field">
-              <label>纬度</label>
-              <input value={basicForm.lat} onChange={e => setBasicForm({...basicForm, lat: e.target.value})} />
-            </div>
-          </div>
-          <div className="btns">
-            <button onClick={handleGeocode}>获取坐标</button>
-            <button className="primary" onClick={handleSaveBasic} disabled={saving}>{saving ? '保存中...' : '保存'}</button>
-          </div>
+        <div className="list-info">
+          <input 
+            className="name-input" 
+            value={basicForm.name} 
+            onChange={e => setBasicForm({...basicForm, name: e.target.value})}
+            placeholder="榜单名称"
+          />
+          <button className="save-btn" onClick={handleSaveBasic} disabled={saving}>
+            {saving ? '保存中' : '保存'}
+          </button>
         </div>
       </div>
 
-      <div className="section">
+      <div className="items-section">
         <div className="section-header">
-          <h2>数据列表 ({items.length})</h2>
-          <button className="add-btn" onClick={() => { setEditingItem(null); setItemForm({ title: '', cover_image: '', description: '', address: '', lng: '', lat: '' }); setShowItemModal(true); }}>+ 添加</button>
+          <h2>数据 ({items.length})</h2>
+          <button className="add-btn" onClick={handleAddItem}>+ 添加</button>
         </div>
-        <div className="items-grid">
+        <div className="items-list">
           {items.map(item => (
-            <div key={item.id} className="item-card">
-              <div className="item-cover" style={{ backgroundImage: item.cover_image ? `url(${item.cover_image})` : undefined }}>
-                {!item.cover_image && <span>无图</span>}
-              </div>
-              <div className="item-info">
-                <div className="item-title">{item.title}</div>
-              </div>
-              <div className="item-actions">
-                <button onClick={() => handleEditItem(item)}>编辑</button>
-                <button onClick={() => handleGeocodeItem(item)}>坐标</button>
-                <button className="danger" onClick={() => handleDeleteItem(item.id)}>删除</button>
-              </div>
+            <div key={item.id} className="item-row">
+              {editingItemId === item.id ? (
+                <div className="item-edit">
+                  <div className="item-cover-edit" style={{ backgroundImage: itemForms[item.id]?.cover_image ? `url(${itemForms[item.id].cover_image})` : undefined }}>
+                    <input type="file" accept="image/*" onChange={(e) => handleUpload(e, 'item', item.id)} disabled={uploading} />
+                  </div>
+                  <div className="item-fields">
+                    <input value={itemForms[item.id].title} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], title: e.target.value }}))} placeholder="标题" />
+                    <input value={itemForms[item.id].description || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], description: e.target.value }}))} placeholder="描述" />
+                    <input value={itemForms[item.id].address || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], address: e.target.value }}))} placeholder="地址" />
+                    <div className="coords">
+                      <input value={itemForms[item.id].lng || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], lng: e.target.value }}))} placeholder="经度" />
+                      <input value={itemForms[item.id].lat || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], lat: e.target.value }}))} placeholder="纬度" />
+                    </div>
+                  </div>
+                  <div className="item-edit-btns">
+                    <button onClick={cancelEdit}>取消</button>
+                    <button className="primary" onClick={() => handleSaveItem(item.id)}>保存</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="item-display" onClick={() => startEdit(item)}>
+                  <div className="item-thumb" style={{ backgroundImage: item.cover_image ? `url(${item.cover_image})` : undefined }}>
+                    {!item.cover_image && <span>图</span>}
+                  </div>
+                  <div className="item-main">
+                    <div className="item-title">{item.title}</div>
+                    <div className="item-desc">{item.description || '-'}</div>
+                    <div className="item-address">{item.address || '-'}</div>
+                  </div>
+                  <button className="del-btn" onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}>×</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
       </div>
 
-      {showItemModal && (
-        <div className="modal" onClick={() => setShowItemModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h3>{editingItem ? '编辑数据' : '添加数据'}</h3>
-            <div className="form">
-              <div className="cover-upload" style={{ backgroundImage: itemForm.cover_image ? `url(${itemForm.cover_image})` : undefined }}>
-                <span>点击上传图片</span>
-                <input type="file" accept="image/*" onChange={(e) => handleUpload(e, 'item')} disabled={uploading} />
-              </div>
-              <div className="field">
-                <label>标题 *</label>
-                <input value={itemForm.title} onChange={e => setItemForm({...itemForm, title: e.target.value})} />
-              </div>
-              <div className="field">
-                <label>描述</label>
-                <textarea value={itemForm.description} onChange={e => setItemForm({...itemForm, description: e.target.value})} />
-              </div>
-              <div className="field">
-                <label>地址</label>
-                <input value={itemForm.address} onChange={e => setItemForm({...itemForm, address: e.target.value})} />
-              </div>
-              <div className="field-row">
-                <div className="field">
-                  <label>经度</label>
-                  <input value={itemForm.lng} onChange={e => setItemForm({...itemForm, lng: e.target.value})} />
-                </div>
-                <div className="field">
-                  <label>纬度</label>
-                  <input value={itemForm.lat} onChange={e => setItemForm({...itemForm, lat: e.target.value})} />
-                </div>
-              </div>
-              <div className="btns">
-                <button onClick={() => setShowItemModal(false)}>取消</button>
-                <button className="primary" onClick={handleSaveItem}>保存</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       <style>{`
-        .page { padding: 20px; max-width: 900px; margin: 0 auto; }
-        .header { margin-bottom: 20px; }
-        .back-btn { background: none; border: none; color: #3b82f6; cursor: pointer; margin-bottom: 8px; }
-        .header h1 { margin: 0; font-size: 20px; }
-        .section { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .section h2 { margin: 0 0 16px; font-size: 16px; }
-        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .page { padding: 20px; max-width: 800px; margin: 0 auto; }
+        .header { margin-bottom: 16px; }
+        .back-btn { background: none; border: none; color: #3b82f6; cursor: pointer; }
+        
+        .list-header { display: flex; gap: 16px; margin-bottom: 24px; }
+        .cover-box { width: 200px; height: 130px; background: #f3f4f6; border-radius: 12px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; background-size: cover; background-position: center; flex-shrink: 0; }
+        .cover-box span { color: #9ca3af; font-size: 14px; }
+        .cover-box input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+        
+        .list-info { flex: 1; display: flex; flex-direction: column; gap: 12px; justify-content: center; }
+        .name-input { font-size: 20px; font-weight: 600; padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 8px; }
+        .save-btn { padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; align-self: flex-start; }
+        
+        .items-section { background: white; border-radius: 12px; padding: 16px; }
+        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .section-header h2 { margin: 0; font-size: 16px; }
         .add-btn { padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; }
-
-        .cover-preview { height: 180px; background: #f3f4f6; border-radius: 8px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; background-size: cover; background-position: center; }
-        .cover-preview span { color: #9ca3af; }
-        .cover-preview input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-
-        .form { display: flex; flex-direction: column; gap: 12px; }
-        .field { display: flex; flex-direction: column; gap: 4px; }
-        .field label { font-size: 13px; font-weight: 500; }
-        .field input, .field textarea { padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
-        .field textarea { min-height: 60px; }
-        .field-row { display: flex; gap: 12px; }
-        .field-row .field { flex: 1; }
-        .btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
-        .btns button { padding: 8px 16px; border: 1px solid #d1d5db; background: white; border-radius: 6px; cursor: pointer; }
-        .btns button.primary { background: #3b82f6; color: white; border: none; }
-
-        .items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-        .item-card { background: #f9fafb; border-radius: 8px; overflow: hidden; }
-        .item-cover { height: 100px; background: #e5e7eb; background-size: cover; background-position: center; }
-        .item-cover span { display: flex; align-items: center; justify-content: center; height: 100%; color: #9ca3af; font-size: 12px; }
-        .item-info { padding: 8px; }
-        .item-title { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .item-actions { display: flex; border-top: 1px solid #e5e7eb; }
-        .item-actions button { flex: 1; padding: 6px; font-size: 11px; border: none; background: white; cursor: pointer; }
-        .item-actions button.danger { color: #ef4444; }
-
-        .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-        .modal-content { background: white; border-radius: 12px; padding: 20px; width: 90%; max-width: 420px; max-height: 90vh; overflow: auto; }
-        .modal-content h3 { margin: 0 0 16px; font-size: 16px; }
-        .cover-upload { height: 120px; background: #f3f4f6; border-radius: 8px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; background-size: cover; }
-        .cover-upload span { color: #9ca3af; font-size: 13px; }
-        .cover-upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-
+        
+        .items-list { display: flex; flex-direction: column; gap: 8px; }
+        .item-row { border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+        
+        .item-display { display: flex; gap: 12px; padding: 10px; align-items: center; cursor: pointer; }
+        .item-thumb { width: 60px; height: 60px; background: #f3f4f6; border-radius: 6px; background-size: cover; background-position: center; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+        .item-thumb span { font-size: 11px; color: #9ca3af; }
+        .item-main { flex: 1; min-width: 0; }
+        .item-title { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+        .item-desc { font-size: 12px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .item-address { font-size: 11px; color: #9ca3af; }
+        .del-btn { width: 24px; height: 24px; background: #fee2e2; color: #ef4444; border: none; border-radius: 50%; cursor: pointer; font-size: 16px; flex-shrink: 0; }
+        
+        .item-edit { display: flex; gap: 12px; padding: 12px; background: #f9fafb; }
+        .item-cover-edit { width: 80px; height: 80px; background: #e5e7eb; border-radius: 8px; position: relative; overflow: hidden; background-size: cover; flex-shrink: 0; }
+        .item-cover-edit input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+        .item-fields { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+        .item-fields input { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+        .item-fields .coords { display: flex; gap: 8px; }
+        .item-fields .coords input { width: 80px; }
+        .item-edit-btns { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+        .item-edit-btns button { padding: 6px 12px; border: 1px solid #d1d5db; background: white; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .item-edit-btns button.primary { background: #3b82f6; color: white; border: none; }
+        
         .loading { text-align: center; padding: 40px; color: #6b7280; }
       `}</style>
     </div>
