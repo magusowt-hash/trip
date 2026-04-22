@@ -21,6 +21,9 @@ export default function ListDetailPage() {
   });
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [itemForms, setItemForms] = useState<Record<number, { title: string; cover_image: string; description: string; lng: string; lat: string }>>({});
+  const [cropFile, setCropFile] = useState<{ file: File; type: 'list' | 'item'; itemId?: number } | null>(null);
+  const [cropPos, setCropPos] = useState({ x: 0, y: 0, scale: 1 });
+  const [cropping, setCropping] = useState(false);
 
   useEffect(() => {
     if (listId && token) {
@@ -66,28 +69,63 @@ export default function ListDetailPage() {
     setSaving(false);
   };
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'list' | 'item', itemId?: number) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'list' | 'item', itemId?: number) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setCropFile({ file, type, itemId });
+  };
 
+  const handleCropSave = async () => {
+    if (!cropFile) return;
+    setCropping(true);
     setUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
 
-    try {
-      const res = await fetch('/api/upload', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (data.url) {
-        if (type === 'list') {
-          setBasicForm(prev => ({ ...prev, cover_image: data.url }));
-        } else if (itemId) {
-          setItemForms(prev => ({ ...prev, [itemId]: { ...prev[itemId], cover_image: data.url } }));
-        }
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.onload = async () => {
+      const aspect = 16 / 9;
+      let sw = img.width, sh = img.height;
+      if (sw / sh > aspect) {
+        sw = sh * aspect;
+      } else {
+        sh = sw / aspect;
       }
-    } catch (e) {
-      alert('上传失败');
-    }
-    setUploading(false);
+      const dx = (img.width - sw) / 2;
+      const dy = (img.height - sh) / 2;
+      canvas.width = 1280;
+      canvas.height = 720;
+      ctx.drawImage(img, dx, dy, sw, sh, 0, 0, 1280, 720);
+
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          alert('裁切失败');
+          setUploading(false);
+          setCropping(false);
+          return;
+        }
+        const formData = new FormData();
+        formData.append('file', blob, 'cover.jpg');
+
+        try {
+          const res = await fetch('/api/upload', { method: 'POST', body: formData });
+          const data = await res.json();
+          if (data.url) {
+            if (cropFile.type === 'list') {
+              setBasicForm(prev => ({ ...prev, cover_image: data.url }));
+            } else if (cropFile.itemId) {
+              setItemForms(prev => ({ ...prev, [cropFile.itemId]: { ...prev[cropFile.itemId], cover_image: data.url } }));
+            }
+          }
+        } catch (e) {
+          alert('上传失败');
+        }
+        setCropFile(null);
+        setUploading(false);
+        setCropping(false);
+      }, 'image/jpeg', 0.9);
+    };
+    img.src = URL.createObjectURL(cropFile.file);
   };
 
   const handlePasteCoords = async (itemId: number) => {
@@ -176,7 +214,7 @@ export default function ListDetailPage() {
       <div className="list-header">
         <div className="cover-box" style={{ backgroundImage: basicForm.cover_image ? `url(${basicForm.cover_image})` : undefined }}>
           {!basicForm.cover_image && <span>封面</span>}
-          <input type="file" accept="image/*" onChange={(e) => handleUpload(e, 'list')} disabled={uploading} />
+          <input type="file" accept="image/*" onChange={(e) => handleFileSelect(e, 'list')} disabled={uploading} />
         </div>
         <div className="list-info">
           <input 
@@ -202,7 +240,7 @@ export default function ListDetailPage() {
               {editingItemId === item.id ? (
                 <div className="item-edit">
                   <div className="item-cover-edit" style={{ backgroundImage: itemForms[item.id]?.cover_image ? `url(${itemForms[item.id].cover_image})` : undefined }}>
-                    <input type="file" accept="image/*" onChange={(e) => handleUpload(e, 'item', item.id)} disabled={uploading} />
+                    <input type="file" accept="image/*" onChange={(e) => handleFileSelect(e, 'item', item.id)} disabled={uploading} />
                   </div>
                   <div className="item-fields">
                     <input value={itemForms[item.id].title} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], title: e.target.value }}))} placeholder="标题" />
@@ -279,7 +317,32 @@ export default function ListDetailPage() {
         .item-edit-btns button.primary { background: #3b82f6; color: white; border: none; }
         
         .loading { text-align: center; padding: 40px; color: #6b7280; }
+        
+        .crop-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 2000; }
+        .crop-box { background: white; border-radius: 12px; padding: 16px; width: 90%; max-width: 500px; }
+        .crop-preview { width: 100%; aspect-ratio: 16/9; background: #f3f4f6; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
+        .crop-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+        .crop-btns { display: flex; gap: 8px; justify-content: flex-end; }
+        .crop-btns button { padding: 8px 16px; border-radius: 6px; cursor: pointer; border: 1px solid #d1d5db; background: white; }
+        .crop-btns button.primary { background: #3b82f6; color: white; border: none; }
       `}</style>
+
+      {cropFile && (
+        <div className="crop-overlay">
+          <div className="crop-box">
+            <h3 style={{ margin: '0 0 12px' }}>裁切封面 (16:9)</h3>
+            <div className="crop-preview">
+              <img src={URL.createObjectURL(cropFile.file)} alt="预览" />
+            </div>
+            <div className="crop-btns">
+              <button onClick={() => setCropFile(null)}>取消</button>
+              <button className="primary" onClick={handleCropSave} disabled={cropping}>
+                {cropping ? '处理中...' : '裁切并上传'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
