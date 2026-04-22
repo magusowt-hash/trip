@@ -7,11 +7,15 @@ const AMAP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
 
 export async function GET(request: NextRequest) {
   try {
-    const list = await db
-      .select()
-      .from(lists)
-      .orderBy(desc(lists.id));
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
 
+    if (id) {
+      const list = await db.select().from(lists).where(eq(lists.id, parseInt(id)));
+      return NextResponse.json({ list });
+    }
+
+    const list = await db.select().from(lists).orderBy(desc(lists.id));
     return NextResponse.json({ list });
   } catch (error: any) {
     console.error('Lists GET error:', error);
