@@ -28,6 +28,7 @@ export default function ListDetailPage() {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [cropping, setCropping] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     if (listId && token) {
@@ -37,6 +38,7 @@ export default function ListDetailPage() {
 
   const loadData = async () => {
     setLoading(true);
+    setSelectedItems(new Set());
     try {
       const res = await fetch(`/api/admin/lists?id=${listId}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
@@ -234,6 +236,42 @@ export default function ListDetailPage() {
     loadData();
   };
 
+  const toggleSelect = (id: number) => {
+    setSelectedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedItems.size === items.length) {
+      setSelectedItems(new Set());
+    } else {
+      setSelectedItems(new Set(items.map(i => i.id)));
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedItems.size === 0) return;
+    if (!window.confirm(`确定删除选中的 ${selectedItems.size} 项？`)) return;
+    
+    const promises = Array.from(selectedItems).map(id =>
+      fetch(`/api/admin/list_items?id=${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    );
+    
+    await Promise.all(promises);
+    setSelectedItems(new Set());
+    loadData();
+  };
+
   const startEdit = (item: any) => {
     setEditingItemId(item.id);
     setItemForms(prev => ({ ...prev, [item.id]: {
@@ -280,8 +318,17 @@ export default function ListDetailPage() {
       <div className="items-section">
         <div className="section-header">
           <h2>数据 ({items.length})</h2>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {items.length > 0 && (
+              <label style={{ fontSize: '13px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                <input type="checkbox" checked={selectedItems.size === items.length && items.length > 0} onChange={toggleSelectAll} />
+                全选
+              </label>
+            )}
             <button className="import-btn" onClick={() => setShowCsvImport(true)}>CSV导入</button>
+            {selectedItems.size > 0 && (
+              <button className="batch-del-btn" onClick={handleBatchDelete}>删除({selectedItems.size})</button>
+            )}
             <button className="add-btn" onClick={handleAddItem}>+ 添加</button>
           </div>
         </div>
@@ -309,6 +356,13 @@ export default function ListDetailPage() {
                 </div>
               ) : (
                 <div className="item-display" onClick={() => startEdit(item)}>
+                  <input 
+                    type="checkbox" 
+                    className="item-check"
+                    checked={selectedItems.has(item.id)}
+                    onChange={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
                   <div className="item-order">{item.orderNum}</div>
                   <div className="item-thumb" style={{ backgroundImage: item.cover_image ? `url(${item.cover_image})` : undefined }}>
                     {!item.cover_image && <span>图</span>}
@@ -349,6 +403,7 @@ export default function ListDetailPage() {
         .item-row { border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
         
         .item-display { display: flex; gap: 12px; padding: 10px; align-items: center; cursor: pointer; }
+        .item-check { width: 18px; height: 18px; cursor: pointer; }
         .item-order { width: 24px; height: 24px; background: #3b82f6; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
         .item-thumb { width: 60px; height: 60px; background: #f3f4f6; border-radius: 6px; background-size: cover; background-position: center; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
         .item-thumb span { font-size: 11px; color: #9ca3af; }
@@ -356,6 +411,8 @@ export default function ListDetailPage() {
         .item-title { font-size: 14px; font-weight: 600; }
         .item-desc { font-size: 12px; color: #6b7280; margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .del-btn { width: 24px; height: 24px; background: #fee2e2; color: #ef4444; border: none; border-radius: 50%; cursor: pointer; font-size: 16px; flex-shrink: 0; }
+        .del-btn:hover { background: #fecaca; }
+        .batch-del-btn { padding: 8px 16px; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
         
         .item-edit { display: flex; gap: 12px; padding: 12px; background: #f9fafb; }
         .item-cover-edit { width: 80px; height: 80px; background: #e5e7eb; border-radius: 8px; position: relative; overflow: hidden; background-size: cover; flex-shrink: 0; }
