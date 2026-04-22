@@ -54,7 +54,8 @@ export default function CsvImport({ onClose }: { onClose: () => void }) {
         <div className="body">
           <div className="format">
             <h3>CSV格式：</h3>
-            <code>title,description,cover_image,lng,lat,address,order_num</code>
+            <code>标题,描述,坐标,地址</code>
+            <p className="note">坐标格式：经度,纬度 如：116.397058,39.916520</p>
           </div>
           
           <input 
@@ -93,6 +94,7 @@ export default function CsvImport({ onClose }: { onClose: () => void }) {
         .format { margin-bottom: 16px; padding: 12px; background: #f9fafb; border-radius: 8px; }
         .format h3 { margin: 0 0 8px; font-size: 14px; }
         .format code { font-size: 12px; color: #6b7280; font-family: monospace; }
+        .format .note { font-size: 11px; color: #9ca3af; margin-top: 8px; }
         
         .file-btn { width: 100%; padding: 12px; border: 1px dashed #d1d5db; border-radius: 8px; background: #f9fafb; cursor: pointer; text-align: center; }
         

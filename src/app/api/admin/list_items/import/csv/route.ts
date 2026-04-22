@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { listItems } from '@/db/schema';
+import { eq, desc } from 'drizzle-orm';
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,32 +26,43 @@ export async function POST(request: NextRequest) {
     }
 
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    const titleIdx = headers.indexOf('title');
-    const descIdx = headers.indexOf('description');
-    const coverIdx = headers.indexOf('cover_image');
-    const lngIdx = headers.indexOf('lng');
-    const latIdx = headers.indexOf('lat');
-    const addrIdx = headers.indexOf('address');
-    const orderIdx = headers.indexOf('order_num');
+    const titleIdx = headers.findIndex(h => h === '标题' || h === 'title');
+    const descIdx = headers.findIndex(h => h === '描述' || h === 'description');
+    const coordIdx = headers.findIndex(h => h === '坐标' || h === 'coord' || h === 'location');
+    const addrIdx = headers.findIndex(h => h === '地址' || h === 'address');
 
     if (titleIdx === -1) {
       return NextResponse.json({ error: '必须包含title列' }, { status: 400 });
     }
+
+    const lastItem = await db
+      .select({ orderNum: listItems.orderNum })
+      .from(listItems)
+      .where(eq(listItems.listId, parseInt(listId)))
+      .orderBy(desc(listItems.orderNum))
+      .limit(1);
+    let orderNum = (lastItem[0]?.orderNum || 0) + 1;
 
     const results = [];
     for (let i = 1; i < lines.length; i++) {
       const values = parseCSVLine(lines[i]);
       if (!values[titleIdx]) continue;
 
+      let lng = null, lat = null;
+      if (coordIdx !== -1 && values[coordIdx]) {
+        const parts = values[coordIdx].split(',');
+        lng = parts[0]?.trim() || null;
+        lat = parts[1]?.trim() || null;
+      }
+
       const result = await db.insert(listItems).values({
         listId: parseInt(listId),
         title: values[titleIdx] || '',
         description: descIdx !== -1 ? values[descIdx] || null : null,
-        coverImage: coverIdx !== -1 ? values[coverIdx] || null : null,
-        lng: lngIdx !== -1 ? values[lngIdx] || null : null,
-        lat: latIdx !== -1 ? values[latIdx] || null : null,
+        lng: lng,
+        lat: lat,
         address: addrIdx !== -1 ? values[addrIdx] || null : null,
-        orderNum: orderIdx !== -1 ? parseInt(values[orderIdx]) || 0 : 0,
+        orderNum: orderNum++,
         status: 1,
       });
       results.push(result[0].insertId);
@@ -81,7 +93,7 @@ function parseCSVLine(line: string): string[] {
   }
   result.push(current.trim());
   
-  while (result.length < 10) {
+  while (result.length < 5) {
     result.push('');
   }
   
