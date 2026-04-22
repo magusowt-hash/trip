@@ -23,6 +23,8 @@ export default function ListDetailPage() {
   const [itemForms, setItemForms] = useState<Record<number, { title: string; cover_image: string; description: string; lng: string; lat: string }>>({});
   const [cropFile, setCropFile] = useState<{ file: File; type: 'list' | 'item'; itemId?: number } | null>(null);
   const [cropPos, setCropPos] = useState({ x: 0, y: 0, scale: 1 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [cropping, setCropping] = useState(false);
 
   useEffect(() => {
@@ -85,17 +87,27 @@ export default function ListDetailPage() {
     const img = new Image();
     img.onload = async () => {
       const aspect = 16 / 9;
-      let sw = img.width, sh = img.height;
-      if (sw / sh > aspect) {
-        sw = sh * aspect;
-      } else {
-        sh = sw / aspect;
-      }
-      const dx = (img.width - sw) / 2;
-      const dy = (img.height - sh) / 2;
       canvas.width = 1280;
       canvas.height = 720;
-      ctx.drawImage(img, dx, dy, sw, sh, 0, 0, 1280, 720);
+      
+      const imgAspect = img.width / img.height;
+      let sw = img.width, sh = img.height;
+      if (imgAspect > aspect) {
+        sh = sw / aspect;
+      } else {
+        sw = sh * aspect;
+      }
+      
+      const sx = (img.width - sw) / 2;
+      const sy = (img.height - sh) / 2;
+      
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.scale(cropPos.scale, cropPos.scale);
+      ctx.translate(-canvas.width / 2, -canvas.height / 2);
+      ctx.translate(cropPos.x, cropPos.y);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
 
       canvas.toBlob(async (blob) => {
         if (!blob) {
@@ -121,11 +133,32 @@ export default function ListDetailPage() {
           alert('上传失败');
         }
         setCropFile(null);
+        setCropPos({ x: 0, y: 0, scale: 1 });
         setUploading(false);
         setCropping(false);
       }, 'image/jpeg', 0.9);
     };
     img.src = URL.createObjectURL(cropFile.file);
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setCropPos(prev => ({ ...prev, scale: Math.min(Math.max(prev.scale * delta, 0.5), 3) }));
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - cropPos.x, y: e.clientY - cropPos.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    setCropPos(prev => ({ ...prev, x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }));
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
   };
 
   const handlePasteCoords = async (itemId: number) => {
@@ -320,7 +353,7 @@ export default function ListDetailPage() {
         
         .crop-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 2000; }
         .crop-box { background: white; border-radius: 12px; padding: 16px; width: 90%; max-width: 500px; }
-        .crop-preview { width: 100%; aspect-ratio: 16/9; background: #f3f4f6; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
+        .crop-preview { width: 100%; aspect-ratio: 16/9; background: #f3f4f6; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; }
         .crop-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
         .crop-btns { display: flex; gap: 8px; justify-content: flex-end; }
         .crop-btns button { padding: 8px 16px; border-radius: 6px; cursor: pointer; border: 1px solid #d1d5db; background: white; }
@@ -331,8 +364,26 @@ export default function ListDetailPage() {
         <div className="crop-overlay">
           <div className="crop-box">
             <h3 style={{ margin: '0 0 12px' }}>裁切封面 (16:9)</h3>
-            <div className="crop-preview">
-              <img src={URL.createObjectURL(cropFile.file)} alt="预览" />
+            <div className="crop-preview" style={{ overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab' }}>
+              <img 
+                src={URL.createObjectURL(cropFile.file)} 
+                alt="预览" 
+                style={{ 
+                  transform: `translate(${cropPos.x}px, ${cropPos.y}px) scale(${cropPos.scale})`,
+                  transformOrigin: 'center',
+                  maxWidth: 'none',
+                  height: '100%',
+                  objectFit: 'contain'
+                }}
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+              />
+            </div>
+            <div className="crop-hint" style={{ fontSize: '12px', color: '#6b7280', textAlign: 'center', marginBottom: '8px' }}>
+              滚轮缩放 · 拖动移动
             </div>
             <div className="crop-btns">
               <button onClick={() => setCropFile(null)}>取消</button>
