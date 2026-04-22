@@ -21,7 +21,12 @@ export async function GET(request: NextRequest) {
       .where(whereCondition)
       .orderBy(listItems.orderNum, desc(listItems.id));
 
-    return NextResponse.json({ list });
+    const formatted = list.map(item => ({
+      ...item,
+      cover_image: item.coverImage,
+    }));
+
+    return NextResponse.json({ list: formatted });
   } catch (error: any) {
     console.error('ListItems GET error:', error);
     return NextResponse.json({ error: '获取榜单项失败: ' + error?.message }, { status: 500 });
