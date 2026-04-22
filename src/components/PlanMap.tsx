@@ -195,16 +195,16 @@ export default function PlanMap({
     let infoWindow: any = null;
 
     markers.forEach((marker) => {
-      const markerContent = `
-        <div class="custom-marker" data-id="${marker.id}" data-title="${marker.title}" data-address="${marker.address || ''}" data-desc="${marker.description || ''}">
-          <img src="https://a.amap.com/jsapi_demos/static/demo-center/icons/dir-via-marker.png">
-        </div>
-      `;
-
-      const amapMarker = new window.AMap.Marker({
+const amapMarker = new window.AMap.Marker({
         position: new window.AMap.LngLat(marker.position[0], marker.position[1]),
-        content: markerContent,
-        offset: new window.AMap.Pixel(-13, -30),
+        icon: new window.AMap.Icon({
+          type: 'image',
+          size: new window.AMap.Size(32, 32),
+          image: '//vdata.amap.com/theme/default/3.2.32/marker.png',
+          imageSize: new window.AMap.Size(32, 32),
+          imageOffset: new window.AMap.Pixel(0, 0),
+        }),
+        offset: new window.AMap.Pixel(-16, -32),
         title: marker.title || '',
       });
 
@@ -222,7 +222,7 @@ export default function PlanMap({
         `;
         infoWindow = new window.AMap.InfoWindow({
           content,
-          offset: new window.AMap.Pixel(0, -30),
+          offset: new window.AMap.Pixel(0, -32),
         });
         infoWindow.open(map, amapMarker.getPosition());
       });
