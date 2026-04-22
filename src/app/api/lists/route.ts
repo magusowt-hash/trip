@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
         description: item.description,
         lng: item.lng,
         lat: item.lat,
+        order_num: item.orderNum,
       }));
     }
 

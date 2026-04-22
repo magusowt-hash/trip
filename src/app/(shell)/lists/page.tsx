@@ -13,6 +13,7 @@ interface ListItem {
   lng: string | null;
   lat: string | null;
   address: string | null;
+  order_num: number;
 }
 
 interface List {
@@ -102,13 +103,10 @@ export default function ListsPage() {
           <div className={styles.itemList}>
             {items.map(item => (
               <div key={item.id} className={styles.itemCard}>
-                {item.cover_image && (
-                  <div className={styles.itemCover} style={{ backgroundImage: `url(${item.cover_image})` }} />
-                )}
+                <div className={styles.itemOrder}>{item.order_num}</div>
                 <div className={styles.itemInfo}>
                   <h3 className={styles.itemTitle}>{item.title}</h3>
                   {item.description && <p className={styles.itemDesc}>{item.description}</p>}
-                  {item.address && <p className={styles.itemAddress}>{item.address}</p>}
                 </div>
               </div>
             ))}

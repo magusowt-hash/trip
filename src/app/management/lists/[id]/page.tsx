@@ -303,6 +303,7 @@ export default function ListDetailPage() {
                 </div>
               ) : (
                 <div className="item-display" onClick={() => startEdit(item)}>
+                  <div className="item-order">{item.orderNum}</div>
                   <div className="item-thumb" style={{ backgroundImage: item.cover_image ? `url(${item.cover_image})` : undefined }}>
                     {!item.cover_image && <span>图</span>}
                   </div>
@@ -342,6 +343,7 @@ export default function ListDetailPage() {
         .item-row { border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
         
         .item-display { display: flex; gap: 12px; padding: 10px; align-items: center; cursor: pointer; }
+        .item-order { width: 24px; height: 24px; background: #3b82f6; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
         .item-thumb { width: 60px; height: 60px; background: #f3f4f6; border-radius: 6px; background-size: cover; background-position: center; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
         .item-thumb span { font-size: 11px; color: #9ca3af; }
         .item-main { flex: 1; min-width: 0; }
