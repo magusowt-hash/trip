@@ -203,3 +203,35 @@ export const markers = mysqlTable(
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
 );
+
+// NEW: Lists table (榜单)
+export const lists = mysqlTable(
+  'lists',
+  {
+    id: serial('id').primaryKey(),
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
+    status: tinyint('status').default(1),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+);
+
+// NEW: List items table (榜单项)
+export const listItems = mysqlTable(
+  'list_items',
+  {
+    id: serial('id').primaryKey(),
+    listId: int('list_id').notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    coverImage: text('cover_image'),
+    description: text('description'),
+    lng: varchar('lng', { length: 20 }),
+    lat: varchar('lat', { length: 20 }),
+    address: varchar('address', { length: 500 }),
+    orderNum: int('order_num').default(0),
+    status: tinyint('status').default(1),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+);

@@ -1,0 +1,138 @@
+.root {
+  width: 100%;
+  max-width: 100%;
+  height: min(calc(100vh - var(--shell-header-offset, 88px) - 32px), 880px);
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  background: transparent;
+  overflow: hidden;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  column-gap: clamp(16px, 2.5vw, 28px);
+  row-gap: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  align-items: stretch;
+  box-sizing: border-box;
+  background: transparent;
+}
+
+.mapCol {
+  min-width: 0;
+  padding: var(--space-16) 0 var(--space-20) 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: transparent;
+  overflow: hidden;
+}
+
+.listCol {
+  min-width: 0;
+  background: transparent;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-16) 12px var(--space-20) 0;
+  box-sizing: border-box;
+  min-height: 0;
+}
+
+.listHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-14);
+}
+
+.listTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.listSelect {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: white;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.itemList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.itemCard {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+}
+
+.itemCard:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.itemCard.selected {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.itemCover {
+  width: 100px;
+  height: 70px;
+  background-size: cover;
+  background-position: center;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.itemInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.itemTitle {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.itemDesc {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemAddress {
+  margin: 0;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.empty {
+  text-align: center;
+  color: #9ca3af;
+  padding: 40px 0;
+}
