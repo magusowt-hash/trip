@@ -30,7 +30,6 @@ export const posts = mysqlTable(
     content: text('content'),
     coverImageUrl: text('cover_image_url'),
     privacy: varchar('privacy', { length: 16 }).default('public'),
-    status: varchar('status', { length: 16 }).default('normal'),
     topic: varchar('topic', { length: 64 }),
     commentsCnt: int('comments_cnt').default(0),
     favoritesCnt: int('favorites_cnt').default(0),
@@ -186,4 +185,21 @@ export const adminKeys = mysqlTable(
   (t) => ({
     keyHashIdx: uniqueIndex('admin_keys_key_hash_idx').on(t.keyHash),
   }),
+);
+
+// NEW: Markers table (POI)
+export const markers = mysqlTable(
+  'markers',
+  {
+    id: serial('id').primaryKey(),
+    name: varchar('name', { length: 255 }).notNull(),
+    lng: varchar('lng', { length: 20 }),
+    lat: varchar('lat', { length: 20 }),
+    address: varchar('address', { length: 500 }),
+    description: text('description'),
+    type: varchar('type', { length: 32 }).default('other'),
+    status: tinyint('status').default(1),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
 );

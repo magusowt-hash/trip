@@ -3,8 +3,12 @@
 import { useEffect, useRef, useState } from 'react';
 
 export interface MapMarker {
+  id?: number;
   position: [number, number];
   title?: string;
+  address?: string;
+  description?: string;
+  type?: string;
 }
 
 export interface PlanMapProps {
@@ -13,6 +17,7 @@ export interface PlanMapProps {
   overlays?: any[];
   onMarkerClick?: (marker: MapMarker) => void;
   onMapLoad?: (map: any) => void;
+  autoLoadMarkers?: boolean;
 }
 
 declare global {
@@ -32,15 +37,43 @@ const AMAP_KEY = '64138cb3827187cd053ccbb9eaa18fa2';
 const AMAP_SECURITY_CODE = 'efc009ad907da44e5b727c1f890050fc';
 
 export default function PlanMap({
-  markers = [],
+  markers: initialMarkers = [],
   routes = [],
   overlays = [],
   onMarkerClick,
   onMapLoad,
+  autoLoadMarkers = false,
 }: PlanMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const [loaded, setLoaded] = useState(false);
+  const [dbMarkers, setDbMarkers] = useState<any[]>([]);
+  const markers = [...initialMarkers, ...dbMarkers];
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (autoLoadMarkers && loaded) {
+      fetch('/api/markers?status=1')
+        .then(res => res.json())
+        .then(data => {
+          if (data.markers) {
+            const validMarkers = data.markers
+              .filter((m: any) => m.lng && m.lat)
+              .map((m: any) => ({
+                id: m.id,
+                position: [parseFloat(m.lng), parseFloat(m.lat)] as [number, number],
+                title: m.name,
+                address: m.address,
+                description: m.description,
+                type: m.type,
+              }));
+            setDbMarkers(validMarkers);
+          }
+        })
+        .catch(err => console.error('Load markers error:', err));
+    }
+  }, [autoLoadMarkers, loaded]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -183,7 +216,7 @@ export default function PlanMap({
     if (markers.length > 1) {
       map.setFitView();
     }
-  }, [markers, loaded, onMarkerClick]);
+  }, [markers, loaded, onMarkerClick, dbMarkers]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
