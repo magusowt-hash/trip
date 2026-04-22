@@ -29,6 +29,9 @@ const navItems = [
   { path: '/management/comments', icon: '💬', label: '评论' },
   { path: '/management/plans', icon: '✈️', label: '计划' },
   { path: '/management/keys', icon: '🔑', label: '密钥' },
+  { path: '/management/markers', icon: '📍', label: '标记点' },
+  { path: '/management/lists', icon: '🏆', label: '榜单' },
+  { path: '/management/list_items', icon: '📋', label: '榜单项' },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

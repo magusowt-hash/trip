@@ -46,9 +46,6 @@
 }
 
 .listHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: var(--space-14);
 }
 
@@ -59,13 +56,53 @@
   color: var(--color-text);
 }
 
-.listSelect {
+.listTabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.listTab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
   background: white;
-  font-size: 14px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   cursor: pointer;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+}
+
+.listTab:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.listTab.active {
+  border-color: #3b82f6;
+}
+
+.listCover {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background-size: cover;
+  background-position: center;
+  background-color: #f3f4f6;
+}
+
+.listName {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.itemCount {
+  font-size: 13px;
+  color: #9ca3af;
+  margin-bottom: 12px;
 }
 
 .itemList {
@@ -77,30 +114,19 @@
 .itemCard {
   display: flex;
   gap: 12px;
-  padding: 12px;
+  padding: 10px;
   background: white;
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  cursor: pointer;
-  transition: all 0.2s;
-  border: 2px solid transparent;
-}
-
-.itemCard:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.itemCard.selected {
-  border-color: #3b82f6;
-  background: #eff6ff;
 }
 
 .itemCover {
-  width: 100px;
-  height: 70px;
+  width: 80px;
+  height: 60px;
+  border-radius: 6px;
   background-size: cover;
   background-position: center;
-  border-radius: 6px;
+  background-color: #f3f4f6;
   flex-shrink: 0;
 }
 
@@ -110,15 +136,15 @@
 }
 
 .itemTitle {
-  margin: 0 0 4px;
-  font-size: 15px;
+  margin: 0 0 2px;
+  font-size: 14px;
   font-weight: 600;
   color: #1f2937;
 }
 
 .itemDesc {
-  margin: 0 0 4px;
-  font-size: 13px;
+  margin: 0 0 2px;
+  font-size: 12px;
   color: #6b7280;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -127,12 +153,6 @@
 
 .itemAddress {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
   color: #9ca3af;
-}
-
-.empty {
-  text-align: center;
-  color: #9ca3af;
-  padding: 40px 0;
 }

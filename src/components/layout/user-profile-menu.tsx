@@ -15,7 +15,7 @@ export const USER_MENU_GROUPS: {
 }[] = [
   {
     title: '旅行相关',
-    items: [{ label: '我的行程' }, { label: '我的攻略' }, { label: '我的收藏' }],
+    items: [{ label: '我的行程' }, { label: '我的攻略' }],
   },
   {
     title: '账号相关',

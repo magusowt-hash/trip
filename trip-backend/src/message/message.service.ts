@@ -100,7 +100,7 @@ export class MessageService {
         receiverId: Number(row.receiver_id),
         content: row.content,
         isRead: row.is_read,
-        createdAt: row.created_at,
+        createdAt: new Date(row.created_at),
       },
       unreadCount: Number(row.unread_count),
     }));

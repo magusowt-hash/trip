@@ -12,8 +12,7 @@ import { Message } from './message/message.entity';
 import { Post, PostImage } from './post/post.entity';
 import { parseWantsSsl } from './database-url.util';
 import { TestModule } from './test/test.module';
-import { PostModule } from './post/post.module';
-import { UploadModule } from './upload/upload.module';
+
 
 @Module({
   imports: [
@@ -79,8 +78,7 @@ import { UploadModule } from './upload/upload.module';
     FriendModule,
     MessageModule,
     ChatModule,
-    PostModule,
-    UploadModule,
+    
     TestModule,
   ],
 })

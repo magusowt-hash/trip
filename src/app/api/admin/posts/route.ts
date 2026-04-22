@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     const allowedStatuses = ['normal', 'blocked', 'deleted'];
     let whereCondition = undefined;
     if (statusParam && statusParam !== 'all' && allowedStatuses.includes(statusParam)) {
-      whereCondition = eq(posts.status, statusParam);
+      whereCondition = eq(posts.privacy, statusParam === 'private' ? 'private' : 'public');
     }
 
     const list = await db
@@ -23,7 +23,6 @@ export async function GET(request: NextRequest) {
         title: posts.title,
         content: posts.content,
         privacy: posts.privacy,
-        status: posts.status,
         topic: posts.topic,
         createdAt: posts.createdAt,
         userNickname: users.nickname,

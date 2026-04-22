@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const status = url.searchParams.get('status');
 
-    const query = db.select({
+    let query = db.select({
       id: plans.id,
       name: plans.name,
       status: plans.status,
@@ -17,14 +17,13 @@ export async function GET(req: NextRequest) {
       endDate: plans.endDate,
       createdAt: plans.createdAt,
       updatedAt: plans.updatedAt,
-    }).from(plans);
+    }).from(plans).orderBy(desc(plans.updatedAt));
 
     if (status) {
-      const result = query.where(eq(plans.status, status)).orderBy(desc(plans.updatedAt));
-      return NextResponse.json({ plans: result }, { status: 200 });
+      query = query.where(eq(plans.status, status));
     }
 
-    const userPlans = query.orderBy(desc(plans.updatedAt));
+    const userPlans = await query;
     return NextResponse.json({ plans: userPlans }, { status: 200 });
   } catch (error) {
     console.error('GET /api/plans error:', error);

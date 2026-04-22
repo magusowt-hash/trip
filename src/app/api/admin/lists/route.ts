@@ -3,6 +3,8 @@ import { db } from '@/db';
 import { lists } from '@/db/schema';
 import { eq, desc, sql } from 'drizzle-orm';
 
+const AMAP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
+
 export async function GET(request: NextRequest) {
   try {
     const list = await db
@@ -15,6 +17,7 @@ export async function GET(request: NextRequest) {
     console.error('Lists GET error:', error);
     return NextResponse.json({ error: '获取榜单列表失败: ' + error?.message }, { status: 500 });
   }
+}
 }
 
 export async function POST(request: NextRequest) {
@@ -76,5 +79,40 @@ export async function DELETE(request: NextRequest) {
   } catch (error: any) {
     console.error('Lists DELETE error:', error);
     return NextResponse.json({ error: '删除榜单失败: ' + error?.message }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const address = searchParams.get('address') || '';
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {}
+
+    const addr = address || (body as any).address;
+
+    if (!addr) {
+      return NextResponse.json({ error: '地址不能为空' }, { status: 400 });
+    }
+
+    const url = `https://restapi.amap.com/v3/place/text?key=${AMAP_KEY}&keywords=${encodeURIComponent(addr)}&types=&city=&offset=1`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status === '1' && data.pois && data.pois.length > 0) {
+      const poi = data.pois[0];
+      return NextResponse.json({
+        success: true,
+        lng: poi.location.split(',')[0],
+        lat: poi.location.split(',')[1],
+      });
+    }
+
+    return NextResponse.json({ error: '未找到该地址' }, { status: 404 });
+  } catch (error: any) {
+    console.error('Geocode error:', error);
+    return NextResponse.json({ error: '地理编码失败: ' + error?.message }, { status: 500 });
   }
 }

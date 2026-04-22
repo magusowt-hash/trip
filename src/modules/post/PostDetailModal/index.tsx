@@ -33,6 +33,7 @@ export function PostDetailModal({
   const [loadingComments, setLoadingComments] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [localFavorites, setLocalFavorites] = useState(favorites);
+  const [favorited, setFavorited] = useState(false);
   const [localComments, setLocalComments] = useState(commentCount);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const prevOverflowRef = useRef<string | null>(null);
@@ -206,6 +207,7 @@ export function PostDetailModal({
       }
       const data = await res.json();
       setLocalFavorites(data.favoritesCnt);
+      setFavorited(data.favorited);
     } catch {
       alert('操作失败');
     }
@@ -274,6 +276,7 @@ export function PostDetailModal({
           avatar={avatar}
           comments={localComments}
           favorites={localFavorites}
+          favorited={favorited}
           createdAt={createdAt}
           onClose={onClose}
           commentList={commentList}

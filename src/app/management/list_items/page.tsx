@@ -3,13 +3,12 @@
 import { useState, useEffect } from 'react';
 import { useAdminAuth } from '../layout';
 
-const AMAP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
-
 export default function ListItemsPage() {
   const [lists, setLists] = useState<any[]>([]);
+  const [currentListId, setCurrentListId] = useState<number>(0);
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
   const [formData, setFormData] = useState({ title: '', cover_image: '', description: '', address: '', lng: '', lat: '' });
   const { token } = useAdminAuth();
@@ -20,25 +19,27 @@ export default function ListItemsPage() {
       .then(data => {
         if (data.list && data.list.length > 0) {
           setLists(data.list);
-          loadItems(data.list[0].id);
+          setCurrentListId(data.list[0].id);
         }
       });
   }, [token]);
 
-  const loadItems = (listId: number) => {
-    setLoading(true);
-    fetch(`/api/admin/list_items?list_id=${listId}`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(res => res.json())
-      .then(data => {
-        setItems(data.list || []);
-        setLoading(false);
-      });
-  };
+  useEffect(() => {
+    if (currentListId) {
+      setLoading(true);
+      fetch(`/api/admin/list_items?list_id=${currentListId}`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(data => {
+          setItems(data.list || []);
+          setLoading(false);
+        });
+    }
+  }, [currentListId, token]);
 
   const handleGeocode = async (item: any) => {
     const address = item.address || item.title;
     if (!address) {
-      alert('请先填写地址');
+      alert('请先填写地址或标题');
       return;
     }
     try {
@@ -53,7 +54,7 @@ export default function ListItemsPage() {
           method: 'PUT',
           body: JSON.stringify({ lng: data.lng, lat: data.lat }),
         });
-        loadItems(lists.find((l: any) => l.id === item.list_id)?.id || lists[0].id);
+        setItems(prev => prev.map(i => i.id === item.id ? { ...i, lng: data.lng, lat: data.lat } : i));
       } else {
         alert(data.error || '未找到坐标');
       }
@@ -68,7 +69,7 @@ export default function ListItemsPage() {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     });
-    loadItems(lists[0].id);
+    setItems(prev => prev.filter(i => i.id !== id));
   };
 
   const handleSubmit = async () => {
@@ -78,7 +79,7 @@ export default function ListItemsPage() {
     }
     const method = editItem ? 'PUT' : 'POST';
     const url = editItem ? `/api/admin/list_items?id=${editItem.id}` : '/api/admin/list_items';
-    const body: any = { ...formData, list_id: lists[0].id, status: 1 };
+    const body: any = { ...formData, list_id: currentListId };
     if (editItem) delete body.list_id;
 
     await fetch(url, {
@@ -86,16 +87,18 @@ export default function ListItemsPage() {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(body),
     });
-    setShowAddModal(false);
+    setShowModal(false);
     setEditItem(null);
     setFormData({ title: '', cover_image: '', description: '', address: '', lng: '', lat: '' });
-    loadItems(lists[0].id);
+    const res = await fetch(`/api/admin/list_items?list_id=${currentListId}`, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    setItems(data.list || []);
   };
 
   const openAdd = () => {
     setEditItem(null);
     setFormData({ title: '', cover_image: '', description: '', address: '', lng: '', lat: '' });
-    setShowAddModal(true);
+    setShowModal(true);
   };
 
   const openEdit = (item: any) => {
@@ -108,16 +111,26 @@ export default function ListItemsPage() {
       lng: item.lng || '',
       lat: item.lat || '',
     });
-    setShowAddModal(true);
+    setShowModal(true);
   };
 
   return (
     <div className="page">
       <div className="header">
-        <h1>榜单管理 - {lists[0]?.name || '数据'}</h1>
+        <div className="tabs">
+          {lists.map(list => (
+            <button 
+              key={list.id}
+              className={`tab ${currentListId === list.id ? 'active' : ''}`}
+              onClick={() => setCurrentListId(list.id)}
+            >
+              {list.name}
+            </button>
+          ))}
+        </div>
         <button className="add-btn" onClick={openAdd}>+ 添加</button>
       </div>
-      
+
       {loading ? (
         <div className="loading">加载中...</div>
       ) : items.length === 0 ? (
@@ -150,45 +163,29 @@ export default function ListItemsPage() {
         </div>
       )}
 
-      {showAddModal && (
-        <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
+      {showModal && (
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{editItem ? '编辑' : '添加'}数据</h2>
-              <button onClick={() => setShowAddModal(false)}>×</button>
+              <button onClick={() => setShowModal(false)}>×</button>
             </div>
             <div className="modal-body">
               <div className="form-field">
                 <label>图片URL *</label>
-                <input 
-                  type="text" 
-                  value={formData.cover_image} 
-                  onChange={e => setFormData({...formData, cover_image: e.target.value})}
-                  placeholder="https://..."
-                />
+                <input type="text" value={formData.cover_image} onChange={e => setFormData({...formData, cover_image: e.target.value})} placeholder="https://..." />
               </div>
               <div className="form-field">
                 <label>标题 *</label>
-                <input 
-                  type="text" 
-                  value={formData.title} 
-                  onChange={e => setFormData({...formData, title: e.target.value})}
-                />
+                <input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} />
               </div>
               <div className="form-field">
                 <label>描述</label>
-                <textarea 
-                  value={formData.description} 
-                  onChange={e => setFormData({...formData, description: e.target.value})}
-                />
+                <textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
               </div>
               <div className="form-field">
                 <label>地址</label>
-                <input 
-                  type="text" 
-                  value={formData.address} 
-                  onChange={e => setFormData({...formData, address: e.target.value})}
-                />
+                <input type="text" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
               </div>
               <div className="form-row">
                 <div className="form-field">
@@ -202,7 +199,7 @@ export default function ListItemsPage() {
               </div>
             </div>
             <div className="modal-footer">
-              <button onClick={() => setShowAddModal(false)}>取消</button>
+              <button onClick={() => setShowModal(false)}>取消</button>
               <button className="primary" onClick={handleSubmit}>保存</button>
             </div>
           </div>
@@ -211,30 +208,29 @@ export default function ListItemsPage() {
 
       <style>{`
         .page { padding: 20px; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .header h1 { margin: 0; font-size: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+        .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+        .tab { padding: 8px 16px; border: 1px solid #d1d5db; background: white; border-radius: 4px; cursor: pointer; }
+        .tab.active { background: #3b82f6; color: white; border-color: #3b82f6; }
         .add-btn { padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; }
         .loading, .empty { text-align: center; padding: 60px; color: #6b7280; }
         .empty button { margin-top: 12px; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; }
         
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
         .card { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .card-cover { height: 160px; background-size: cover; background-position: center; background-color: #f3f4f6; position: relative; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .card-cover { height: 140px; background-size: cover; background-position: center; background-color: #f3f4f6; position: relative; display: flex; align-items: center; justify-content: center; }
         .card-cover .placeholder { color: #9ca3af; font-size: 14px; }
-        .card-cover .coord-badge { position: absolute; top: 8px; right: 8px; background: #10b981; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; }
-        
-        .card-body { padding: 12px; }
-        .card-title { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
-        .card-desc { margin: 0; font-size: 13px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        
+        .card-cover .coord-badge { position: absolute; top: 8px; right: 8px; background: #10b981; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+        .card-body { padding: 10px; }
+        .card-title { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+        .card-desc { margin: 0; font-size: 12px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .card-actions { display: flex; border-top: 1px solid #f3f4f6; }
-        .card-actions button { flex: 1; padding: 10px; font-size: 13px; border: none; background: white; cursor: pointer; border-right: 1px solid #f3f4f6; }
+        .card-actions button { flex: 1; padding: 8px; font-size: 12px; border: none; background: white; cursor: pointer; border-right: 1px solid #f3f4f6; }
         .card-actions button:last-child { border-right: none; }
-        .card-actions button:hover { background: #f9fafb; }
         .card-actions button.danger { color: #ef4444; }
         
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-        .modal { background: white; border-radius: 12px; width: 90%; max-width: 480px; max-height: 90vh; overflow: auto; }
+        .modal { background: white; border-radius: 12px; width: 90%; max-width: 450px; max-height: 90vh; overflow: auto; }
         .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid #e5e7eb; }
         .modal-header h2 { margin: 0; font-size: 18px; }
         .modal-header button { background: none; border: none; font-size: 24px; cursor: pointer; color: #6b7280; }
