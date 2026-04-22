@@ -186,11 +186,15 @@ export default function ListDetailPage() {
       return;
     }
     try {
-      await fetch(`/api/admin/list_items?id=${itemId}`, {
+      const res = await fetch(`/api/admin/list_items?id=${itemId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(form),
       });
+      const data = await res.json();
+      if (data.error) {
+        alert(data.error);
+      }
       setEditingItemId(null);
       loadData();
     } catch (e) {

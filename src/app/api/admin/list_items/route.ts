@@ -71,7 +71,11 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: '缺少ID' }, { status: 400 });
     }
 
-    const updateData: any = { ...body, updatedAt: new Date() };
+    const { cover_image, ...rest } = body;
+    const updateData: any = { ...rest, updatedAt: new Date() };
+    if (cover_image !== undefined) {
+      updateData.coverImage = cover_image;
+    }
     delete updateData.id;
 
     await db.update(listItems).set(updateData).where(eq(listItems.id, parseInt(id)));
