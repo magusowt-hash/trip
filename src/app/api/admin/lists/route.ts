@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, description, status } = body;
+    const { name, cover_image, description, lng, lat, status } = body;
 
     if (!name) {
       return NextResponse.json({ error: '名称不能为空' }, { status: 400 });
@@ -33,7 +33,10 @@ export async function POST(request: NextRequest) {
 
     const result = await db.insert(lists).values({
       name,
+      coverImage: cover_image || null,
       description: description || null,
+      lng: lng || null,
+      lat: lat || null,
       status: status !== undefined ? status : 1,
     });
 
@@ -54,7 +57,11 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: '缺少ID' }, { status: 400 });
     }
 
-    const updateData: any = { ...body, updatedAt: new Date() };
+    const { cover_image, ...rest } = body;
+    const updateData: any = { ...rest, updatedAt: new Date() };
+    if (cover_image !== undefined) {
+      updateData.coverImage = cover_image;
+    }
     delete updateData.id;
 
     await db.update(lists).set(updateData).where(eq(lists.id, parseInt(id)));

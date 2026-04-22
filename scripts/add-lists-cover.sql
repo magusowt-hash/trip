@@ -1,0 +1,3 @@
+ALTER TABLE lists ADD COLUMN cover_image TEXT AFTER name;
+ALTER TABLE lists ADD COLUMN lng VARCHAR(20) AFTER cover_image;
+ALTER TABLE lists ADD COLUMN lat VARCHAR(20) AFTER lng;

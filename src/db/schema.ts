@@ -210,7 +210,10 @@ export const lists = mysqlTable(
   {
     id: serial('id').primaryKey(),
     name: varchar('name', { length: 255 }).notNull(),
+    coverImage: text('cover_image'),
     description: text('description'),
+    lng: varchar('lng', { length: 20 }),
+    lat: varchar('lat', { length: 20 }),
     status: tinyint('status').default(1),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
