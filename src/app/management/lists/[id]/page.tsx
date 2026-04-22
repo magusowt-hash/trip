@@ -91,8 +91,8 @@ export default function ListDetailPage() {
   };
 
   const handlePasteCoords = async (itemId: number) => {
-    try {
-      const text = await navigator.clipboard.readText();
+    const text = prompt('请粘贴坐标（逗号分隔，如: 116.397,39.916）');
+    if (text) {
       const match = text.match(/^([^,]+),([^,]+)$/);
       if (match) {
         setItemForms(prev => ({
@@ -100,10 +100,8 @@ export default function ListDetailPage() {
           [itemId]: { ...prev[itemId], lng: match[1].trim(), lat: match[2].trim() }
         }));
       } else {
-        alert('请复制逗号分隔的坐标，如: 116.397,39.916');
+        alert('格式错误，请输入逗号分隔的坐标');
       }
-    } catch (e) {
-      alert('读取剪贴板失败');
     }
   };
 
