@@ -28,7 +28,7 @@ export default function LoginPage() {
       if (data.success) {
         localStorage.setItem('admin_token', data.token);
         setAuthenticated(data.token);
-        router.push('/management');
+        router.push('/management/markers');
       } else {
         setError(data.error || '登录失败');
       }
