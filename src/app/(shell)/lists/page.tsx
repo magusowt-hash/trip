@@ -27,6 +27,7 @@ export default function ListsPage() {
   const [lists, setLists] = useState<List[]>([]);
   const [items, setItems] = useState<ListItem[]>([]);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
+  const [currentCoverIndex, setCurrentCoverIndex] = useState(0);
   const [mapMarkers, setMapMarkers] = useState<{ position: [number, number]; title: string; address?: string; description?: string }[]>([]);
 
   useEffect(() => {
@@ -49,6 +50,7 @@ export default function ListsPage() {
         .then(data => {
           if (data.items) {
             setItems(data.items);
+            setCurrentCoverIndex(0);
           }
         });
     }
@@ -65,6 +67,26 @@ export default function ListsPage() {
       }));
     setMapMarkers(markers);
   }, [items]);
+
+  const coverImages = items.filter(item => item.cover_image).map(item => item.cover_image as string);
+  const currentCover = coverImages[currentCoverIndex] || lists.find(l => l.id === selectedListId)?.cover_image;
+  const hasMultiple = coverImages.length > 1;
+
+  const goPrev = () => {
+    if (currentCoverIndex > 0) {
+      setCurrentCoverIndex(currentCoverIndex - 1);
+    } else {
+      setCurrentCoverIndex(coverImages.length - 1);
+    }
+  };
+
+  const goNext = () => {
+    if (currentCoverIndex < coverImages.length - 1) {
+      setCurrentCoverIndex(currentCoverIndex + 1);
+    } else {
+      setCurrentCoverIndex(0);
+    }
+  };
 
   return (
     <div className={styles.root}>
@@ -83,13 +105,28 @@ export default function ListsPage() {
                 className={`${styles.listTab} ${selectedListId === list.id ? styles.active : ''}`}
                 onClick={() => setSelectedListId(list.id)}
               >
-                {list.cover_image && (
-                  <div className={styles.listCover} style={{ backgroundImage: `url(${list.cover_image})` }} />
-                )}
                 <span className={styles.listName}>{list.name}</span>
               </div>
             ))}
           </div>
+          
+          {coverImages.length > 0 && (
+            <div className={styles.cover}>
+              <div 
+                className={styles.coverInner}
+                style={{ backgroundImage: `url(${currentCover})` }}
+              >
+                {hasMultiple && (
+                  <>
+                    <button className={styles.coverPrev} onClick={goPrev}>‹</button>
+                    <button className={styles.coverNext} onClick={goNext}>›</button>
+                    <div className={styles.coverCount}>{currentCoverIndex + 1}/{coverImages.length}</div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className={styles.itemCount}>共 {items.length} 项</div>
           <div className={styles.itemList}>
             {items.map(item => (

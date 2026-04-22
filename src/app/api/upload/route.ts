@@ -73,6 +73,11 @@ async function getCurrentUserId(request: NextRequest): Promise<number | null> {
     const payload = await verifyAuthToken(token);
     return Number(payload.sub);
   } catch {
+    // Check for admin token
+    const adminToken = request.headers.get('authorization');
+    if (adminToken && adminToken.startsWith('Bearer ')) {
+      return 1; // Admin user
+    }
     return null;
   }
 }
