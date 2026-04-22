@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { useAdminAuth } from '../layout';
+import { useAdminAuth } from '../../layout';
 
 const AMAP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
 
