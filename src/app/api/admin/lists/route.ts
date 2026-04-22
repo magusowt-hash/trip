@@ -12,11 +12,13 @@ export async function GET(request: NextRequest) {
 
     if (id) {
       const list = await db.select().from(lists).where(eq(lists.id, parseInt(id)));
-      return NextResponse.json({ list });
+      const formatted = list.map(l => ({ ...l, cover_image: l.coverImage }));
+      return NextResponse.json({ list: formatted });
     }
 
     const list = await db.select().from(lists).orderBy(desc(lists.id));
-    return NextResponse.json({ list });
+    const formatted = list.map(l => ({ ...l, cover_image: l.coverImage }));
+    return NextResponse.json({ list: formatted });
   } catch (error: any) {
     console.error('Lists GET error:', error);
     return NextResponse.json({ error: '获取榜单列表失败: ' + error?.message }, { status: 500 });
