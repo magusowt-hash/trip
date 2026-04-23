@@ -78,7 +78,7 @@
 
 .listCard {
   flex-shrink: 0;
-  width: 120px;
+  width: 100px;
   cursor: pointer;
   scroll-snap-align: start;
 }
@@ -88,8 +88,8 @@
 }
 
 .listCover {
-  width: 120px;
-  height: 80px;
+  width: 100px;
+  height: 65px;
   background: #f3f4f6;
   background-size: cover;
   background-position: center;
