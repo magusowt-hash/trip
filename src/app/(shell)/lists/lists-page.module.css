@@ -10,6 +10,10 @@
   overflow: hidden;
 }
 
+:global(.explore-layout--flush) {
+  padding-right: 0 !important;
+}
+
 .split {
   display: grid;
   grid-template-columns: minmax(0, 4fr) minmax(0, 1fr);
