@@ -4,7 +4,7 @@
   height: min(calc(100vh - var(--shell-header-offset, 88px) - 32px), 880px);
   min-height: 0;
   margin: 0;
-  padding: 0 var(--space-16) 0 0;
+  padding: 0;
   box-sizing: border-box;
   background: transparent;
   overflow: hidden;
@@ -12,8 +12,21 @@
 
 .split {
   display: grid;
-  grid-template-columns: minmax(0, 4fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 3.5fr) minmax(0, 1fr);
   column-gap: 0;
+  row-gap: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  align-items: stretch;
+  box-sizing: border-box;
+  background: transparent;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+  column-gap: var(--space-12);
   row-gap: 0;
   width: 100%;
   height: 100%;
@@ -40,7 +53,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding: var(--space-16) 0 var(--space-20) 0;
+  padding: var(--space-16) 0 var(--space-20) var(--space-12);
   box-sizing: border-box;
   min-height: 0;
 }
