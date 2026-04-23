@@ -76,10 +76,6 @@ export default function ListsPage() {
           <PlanMap markers={mapMarkers} autoLoadMarkers={false} />
         </div>
         <div className={styles.listCol}>
-          <div className={styles.listHeader}>
-            <h2 className={styles.listTitle}>榜单推荐</h2>
-          </div>
-          
           <div className={styles.listScroll}>
             {lists.map(list => (
               <div 
