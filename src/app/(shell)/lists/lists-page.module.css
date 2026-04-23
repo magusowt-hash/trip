@@ -40,7 +40,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding: var(--space-16) var(--space-16) var(--space-20) 0;
+  padding: var(--space-16) 0 var(--space-20) var(--space-16);
   box-sizing: border-box;
   min-height: 0;
 }
