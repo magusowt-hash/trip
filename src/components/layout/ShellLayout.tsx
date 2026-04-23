@@ -16,7 +16,9 @@ export function ShellLayout({ children }: { children: ReactNode }) {
     pathname === '/plan' ||
     pathname.startsWith('/plan/') ||
     pathname === '/messages' ||
-    pathname.startsWith('/messages/');
+    pathname.startsWith('/messages/') ||
+    pathname === '/lists' ||
+    pathname.startsWith('/lists/');
 
   return (
     <ExploreFeedProvider>
