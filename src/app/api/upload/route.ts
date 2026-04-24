@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
+import { writeFile, mkdir, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { getGlobalPosts } from '@/lib/shared-data';
@@ -160,5 +160,34 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('POST /api/upload error:', error);
     return NextResponse.json({ error: '上传失败', message: String(error) }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { url } = body;
+
+    if (!url) {
+      return NextResponse.json({ error: '缺少 url 参数' }, { status: 400 });
+    }
+
+    const filename = url.replace('/uploads/', '');
+    const filepath = join(UPLOAD_DIR, filename);
+
+    if (existsSync(filepath)) {
+      await unlink(filepath);
+    }
+
+    const thumbFilename = filename.replace(/(\.[^.]+)$/, '_thumb$1');
+    const thumbPath = join(UPLOAD_DIR, thumbFilename);
+    if (existsSync(thumbPath)) {
+      await unlink(thumbPath);
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('DELETE /api/upload error:', error);
+    return NextResponse.json({ error: '删除失败', message: String(error) }, { status: 500 });
   }
 }
