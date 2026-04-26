@@ -1,4 +1,4 @@
-import { mysqlTable, serial, varchar, timestamp, uniqueIndex, tinyint, date, text, int } from 'drizzle-orm/mysql-core';
+import { mysqlTable, serial, varchar, timestamp, uniqueIndex, tinyint, date, text, int, json, index } from 'drizzle-orm/mysql-core';
 import { relations } from 'drizzle-orm';
 
 export const users = mysqlTable(
@@ -12,12 +12,13 @@ export const users = mysqlTable(
     gender: tinyint('gender').default(0),
     birthday: date('birthday'),
     region: varchar('region', { length: 128 }),
+    favoriteLists: json('favorite_lists'),
+    visitedPlaces: json('visited_places'),
+    ratings: json('ratings'),
+    status: varchar('status', { length: 16 }).default('normal'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
-  (t) => ({
-    phoneUnique: uniqueIndex('users_phone_unique').on(t.phone),
-  }),
 );
 
 // NEW: Posts table
@@ -33,6 +34,7 @@ export const posts = mysqlTable(
     topic: varchar('topic', { length: 64 }),
     commentsCnt: int('comments_cnt').default(0),
     favoritesCnt: int('favorites_cnt').default(0),
+    status: varchar('status', { length: 16 }).default('normal'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -197,11 +199,29 @@ export const markers = mysqlTable(
     lat: varchar('lat', { length: 20 }),
     address: varchar('address', { length: 500 }),
     description: text('description'),
+    coverImage: text('cover_image'),
     type: varchar('type', { length: 32 }).default('other'),
     status: tinyint('status').default(1),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
+);
+
+// Marker images (multiple images per marker)
+export const markerImages = mysqlTable(
+  'marker_images',
+  {
+    id: serial('id').primaryKey(),
+    markerId: int('marker_id').notNull(),
+    url: text('url').notNull(),
+    thumbnailUrl: text('thumbnail_url'),
+    caption: text('caption'),
+    sortOrder: int('sort_order').default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    markerIdIdx: index('marker_images_marker_id_idx').on(t.markerId),
+  }),
 );
 
 // NEW: Lists table (榜单)
@@ -212,6 +232,8 @@ export const lists = mysqlTable(
     name: varchar('name', { length: 255 }).notNull(),
     coverImage: text('cover_image'),
     description: text('description'),
+    position: int('position'), // 位置：在榜单中的排序位置
+    intro: text('intro'), // 简介：榜单的介绍文字
     lng: varchar('lng', { length: 20 }),
     lat: varchar('lat', { length: 20 }),
     status: tinyint('status').default(1),
@@ -220,7 +242,56 @@ export const lists = mysqlTable(
   },
 );
 
-// NEW: List items table (榜单项)
+// List group images (multiple images per list)
+export const listImages = mysqlTable(
+  'list_images',
+  {
+    id: serial('id').primaryKey(),
+    listId: int('list_id').notNull(),
+    url: text('url').notNull(),
+    thumbnailUrl: text('thumbnail_url'),
+    caption: text('caption'),
+    sortOrder: int('sort_order').default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    listIdIdx: index('list_images_list_id_idx').on(t.listId),
+  }),
+);
+
+// Embed access logs
+export const embedAccessLogs = mysqlTable(
+  'embed_access_logs',
+  {
+    id: serial('id').primaryKey(),
+    ip: varchar('ip', { length: 45 }).notNull(),
+    action: varchar('action', { length: 32 }).notNull(),
+    listId: int('list_id'),
+    itemId: int('item_id'),
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+);
+
+// Ratings table
+export const ratings = mysqlTable(
+  'ratings',
+  {
+    id: serial('id').primaryKey(),
+    userId: int('user_id').notNull(),
+    targetType: varchar('target_type', { length: 32 }).notNull(),
+    targetId: int('target_id').notNull(),
+    rating: tinyint('rating').notNull(),
+    comment: text('comment'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    uniqueUserTarget: uniqueIndex('ratings_user_target_unique').on(t.userId, t.targetType, t.targetId),
+  })
+);
+
+// List items table (榜单项)
 export const listItems = mysqlTable(
   'list_items',
   {
@@ -229,6 +300,8 @@ export const listItems = mysqlTable(
     title: varchar('title', { length: 255 }).notNull(),
     coverImage: text('cover_image'),
     description: text('description'),
+    intro: text('intro'),
+    imageUrl: text('image_url'),
     lng: varchar('lng', { length: 20 }),
     lat: varchar('lat', { length: 20 }),
     address: varchar('address', { length: 500 }),
