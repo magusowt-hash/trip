@@ -122,11 +122,17 @@ export async function GET(request: NextRequest) {
 
       list = favoriteLists.map((u, idx) => {
         const visits: any[] = ((list[idx].visitedPlaces as any[]) || []) as any[];
-        const visitedPlaces = visits.map((v: any) => ({
-          listItemId: v.listItemId,
-          addedAt: v.addedAt,
-          title: itemTitleMap.get(v.listItemId) || null,
-        }));
+        const visitedPlaces = visits.map((v: any) => {
+          const itemId = v.listItemId;
+          const ratingInfo = userRatings.find(r => r.targetType === 'list_item' && r.targetId === itemId);
+          return {
+            listItemId: itemId,
+            addedAt: v.addedAt,
+            title: itemTitleMap.get(itemId) || null,
+            rating: ratingInfo?.rating || 0,
+            comment: ratingInfo?.comment || null,
+          };
+        });
         return { ...u, visitedPlaces };
        });
       } else {

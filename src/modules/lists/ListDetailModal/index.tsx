@@ -258,6 +258,14 @@ export function ListDetailModal({
   };
 
   const handleVisitedClick = () => {
+    if (localVisited) {
+      setLocalVisited(false);
+      setLocalRating(0);
+      setLocalComment('');
+      onVisitedClick?.();
+      onRatingChange?.(0, '');
+      return;
+    }
     setTempRating(localRating);
     setTempComment(localComment || '');
     setShowRatingModal(true);

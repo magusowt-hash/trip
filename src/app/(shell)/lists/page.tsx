@@ -232,6 +232,13 @@ export default function ListsPage() {
     }
     setVisitedItemIds(newVisited);
 
+    // If canceling visited, also delete rating
+    if (wasVisited) {
+      const newRatings = new Map(ratings);
+      newRatings.delete(itemId);
+      setRatings(newRatings);
+    }
+
     try {
       const res = await fetch('/api/user/lists', {
         method: 'PATCH',
@@ -264,6 +271,18 @@ export default function ListsPage() {
         else rollback.delete(itemId);
         return rollback;
       });
+    }
+
+    // Delete rating when canceling visited
+    if (wasVisited) {
+      try {
+        await fetch('/api/ratings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ targetType: 'list_item', targetId: itemId, rating: 0, comment: '' }),
+        });
+      } catch {}
     }
   };
 

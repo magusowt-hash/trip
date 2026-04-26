@@ -160,6 +160,10 @@ export default function UserDetailPage() {
           <div key={i} style={{ padding: 12, background: '#f9fafb', borderRadius: 8, fontSize: 14 }}>
             <div><strong>{v.title || '未知地点'}</strong> <span style={{ color: '#9ca3af', fontSize: 12 }}>(ID: {v.listItemId})</span></div>
             <div style={{ color: '#6b7280', fontSize: 12 }}>访问时间: {v.addedAt ? new Date(v.addedAt).toLocaleString('zh-CN') : '-'}</div>
+            <div style={{ marginTop: 4 }}>
+              评分: {v.rating ? <span>{'★'.repeat(v.rating / 2)}{'☆'.repeat(5 - v.rating / 2)} ({v.rating})</span> : <span style={{ color: '#9ca3af' }}>未评分</span>}
+            </div>
+            {v.comment && <div style={{ color: '#374151', marginTop: 4 }}>评价: {v.comment}</div>}
           </div>
         ))}
       </div>
