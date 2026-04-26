@@ -11,6 +11,8 @@ interface ListItem {
   title: string;
   cover_image: string | null;
   description: string | null;
+  intro: string | null;
+  image_url: string | null;
   lng: string | null;
   lat: string | null;
   address: string | null;
@@ -115,6 +117,8 @@ export default function ListsPage() {
         title: item.title,
         address: item.address || undefined,
         description: item.description || undefined,
+        intro: item.intro || undefined,
+        image_url: item.image_url || undefined,
       }));
     setMapMarkers(markers);
   }, [items]);
@@ -320,7 +324,17 @@ export default function ListsPage() {
         <ListDetailModal
           open={!!modalItem}
           onClose={() => setModalItem(null)}
-          item={modalItem}
+          item={{
+            id: modalItem.id,
+            title: modalItem.title,
+            coverImage: modalItem.cover_image,
+            description: modalItem.description,
+            intro: modalItem.intro,
+            image_url: modalItem.image_url,
+            lng: modalItem.lng,
+            lat: modalItem.lat,
+            address: modalItem.address,
+          }}
           favorited={favoriteItemIds.has(modalItem.id)}
           visited={visitedItemIds.has(modalItem.id)}
           rating={ratings.get(modalItem.id)?.rating || 0}
