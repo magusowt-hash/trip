@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAdminAuth } from './layout';
+import { useAdminAuth } from './admin-auth';
 
 interface Column {
   key: string;
@@ -16,7 +16,7 @@ interface BatchAction {
   confirmMessage?: string;
 }
 
-interface FormField {
+export interface FormField {
   key: string;
   label: string;
   type: 'text' | 'textarea' | 'select' | 'number';

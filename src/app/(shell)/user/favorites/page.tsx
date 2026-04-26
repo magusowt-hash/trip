@@ -6,7 +6,7 @@ import { useUserProfile } from '@/hooks/useUserProfile';
 import { useFeedColumnCount } from '@/hooks/useFeedColumnCount';
 import { useUserFavorites } from '@/hooks/useUserFavorites';
 import { PostCard } from '@/modules/post';
-import '../explore/explore-feed.css';
+import '../../explore/explore-feed.css';
 import styles from '../page.module.css';
 
 export default function UserFavoritesPage() {

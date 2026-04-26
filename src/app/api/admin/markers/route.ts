@@ -1,11 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { markers as markersTable } from '@/db/schema';
-import { eq, desc, sql } from 'drizzle-orm';
+import { markers as markersTable, markerImages as markerImagesTable } from '@/db/schema';
+import { eq, desc, sql, and } from 'drizzle-orm';
+import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
 
 const AMAP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
 
+function verifyAdminToken(req: NextRequest): NextResponse | null {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  try {
+    const decoded = Buffer.from(token, 'base64').toString();
+    const [, timestamp] = decoded.split(':');
+    if (!timestamp) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+    const age = Date.now() - parseInt(timestamp);
+    if (age > 7 * 24 * 60 * 60 * 1000) {
+      return NextResponse.json({ error: 'Token expired' }, { status: 401 });
+    }
+  } catch {
+    return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+  }
+  return null;
+}
+
 export async function GET(request: NextRequest) {
+  const authError = verifyAdminToken(request);
+  if (authError) return authError;
+  
   try {
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');

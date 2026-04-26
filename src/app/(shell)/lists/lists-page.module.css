@@ -1,10 +1,9 @@
 .root {
-  width: 100%;
-  max-width: 100%;
+  width: calc(100% - var(--space-16));
   height: min(calc(100vh - var(--shell-header-offset, 88px) - 32px), 880px);
   min-height: 0;
-  margin: 0;
   padding: 0;
+  margin-left: 0;
   box-sizing: border-box;
   background: transparent;
   overflow: hidden;
@@ -12,7 +11,7 @@
 
 .split {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 2.8fr) minmax(0, 1.2fr);
   column-gap: var(--space-12);
   row-gap: 0;
   width: 100%;
@@ -44,6 +43,22 @@
   box-sizing: border-box;
   min-height: 0;
 }
+.listCol::-webkit-scrollbar {
+  width: 4px;
+}
+.listCol:hover::-webkit-scrollbar {
+  width: 8px;
+}
+.listCol::-webkit-scrollbar-track {
+  background: transparent;
+}
+.listCol::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+.listCol:hover::-webkit-scrollbar-thumb {
+  background: #9ca3af;
+}
 
 .listScroll {
   display: flex;
@@ -57,7 +72,7 @@
 
 .listCard {
   flex-shrink: 0;
-  width: 100px;
+  width: 140px;
   cursor: pointer;
   scroll-snap-align: start;
 }
@@ -67,8 +82,8 @@
 }
 
 .listCover {
-  width: 100px;
-  height: 65px;
+  width: 140px;
+  height: 105px;
   background: #f3f4f6;
   background-size: cover;
   background-position: center;
@@ -106,16 +121,29 @@
   background: white;
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  align-items: center;
+  min-height: 166px;
 }
 
 .itemCover {
-  width: 90px;
-  height: 68px;
-  border-radius: 6px;
+  width: 150px;
+  height: 150px;
+  border-radius: 8px;
   background-size: cover;
   background-position: center;
   background-color: #f3f4f6;
   flex-shrink: 0;
+}
+
+.itemCard {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  align-items: center;
+  min-height: 166px;
 }
 
 .itemInfo {
@@ -134,12 +162,34 @@
 }
 
 .itemDesc {
-  margin: 0;
-  font-size: 11px;
-  color: #6b7280;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+   margin: 0;
+   font-size: 11px;
+   color: #6b7280;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   display: -webkit-box;
+   -webkit-line-clamp: 2;
+   -webkit-box-orient: vertical;
+}
+
+/* List detail section */
+.listDetail {
+   padding: 12px 0;
+   border-bottom: 1px solid #f3f4f6;
+   margin-bottom: 12px;
+}
+.listPosition {
+   display: inline-block;
+   background: #3b82f6;
+   color: white;
+   padding: 2px 8px;
+   border-radius: 12px;
+   font-size: 13px;
+   font-weight: 500;
+   margin-bottom: 8px;
+}
+.listIntro {
+   color: #6b7280;
+   font-size: 14px;
+   line-height: 1.5;
 }

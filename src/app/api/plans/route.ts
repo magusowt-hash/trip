@@ -9,7 +9,8 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const status = url.searchParams.get('status');
 
-    let query = db.select({
+    const where = status ? eq(plans.status, status) : undefined;
+    const userPlans = await db.select({
       id: plans.id,
       name: plans.name,
       status: plans.status,
@@ -17,13 +18,7 @@ export async function GET(req: NextRequest) {
       endDate: plans.endDate,
       createdAt: plans.createdAt,
       updatedAt: plans.updatedAt,
-    }).from(plans).orderBy(desc(plans.updatedAt));
-
-    if (status) {
-      query = query.where(eq(plans.status, status));
-    }
-
-    const userPlans = await query;
+    }).from(plans).where(where).orderBy(desc(plans.updatedAt));
     return NextResponse.json({ plans: userPlans }, { status: 200 });
   } catch (error) {
     console.error('GET /api/plans error:', error);

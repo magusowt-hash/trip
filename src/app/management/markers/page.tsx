@@ -1,10 +1,19 @@
 'use client';
 
-import { AdminTable } from '../AdminTable';
+import { AdminTable, type FormField } from '../AdminTable';
 import { useState } from 'react';
 
 export default function MarkersPage() {
   const columns = [
+    { 
+      key: 'coverImage',
+      label: '封面图',
+      render: (row: any) => row.coverImage ? (
+        <img src={row.coverImage} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
+      ) : (
+        <span style={{ color: '#9ca3af' }}>无</span>
+      )
+    },
     { key: 'id', label: 'ID' },
     { key: 'name', label: '名称' },
     { key: 'lng', label: '经度' },
@@ -31,15 +40,16 @@ export default function MarkersPage() {
   ];
 
   const formFields = [
-    { key: 'name', label: '名称', type: 'text', required: true },
-    { key: 'lng', label: '经度', type: 'text', placeholder: '如：116.397428' },
-    { key: 'lat', label: '纬度', type: 'text', placeholder: '如：39.90923' },
-    { key: 'address', label: '地址', type: 'text' },
-    { key: 'description', label: '描述', type: 'textarea' },
+    { key: 'name', label: '名称', type: 'text' as const, required: true },
+    { key: 'lng', label: '经度', type: 'text' as const, placeholder: '如：116.397428' },
+    { key: 'lat', label: '纬度', type: 'text' as const, placeholder: '如：39.90923' },
+    { key: 'address', label: '地址', type: 'text' as const },
+    { key: 'description', label: '描述', type: 'textarea' as const },
+    { key: 'coverImage', label: '封面图', type: 'text' as const, placeholder: '图片URL' },
     { 
       key: 'type', 
       label: '类型', 
-      type: 'select',
+      type: 'select' as const,
       options: [
         { value: 'spot', label: '景点' },
         { value: 'hotel', label: '酒店' },
@@ -47,7 +57,7 @@ export default function MarkersPage() {
         { value: 'other', label: '其他' },
       ]
     },
-  ];
+  ] as const satisfies FormField[];
 
   return (
     <AdminTable

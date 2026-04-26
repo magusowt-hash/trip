@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAdminAuth } from '../layout';
+import { useAdminAuth } from '../admin-auth';
 
 export default function LoginPage() {
   const [key, setKey] = useState('');
@@ -26,7 +26,6 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (data.success) {
-        localStorage.setItem('admin_token', data.token);
         setAuthenticated(data.token);
         router.push('/management/markers');
       } else {

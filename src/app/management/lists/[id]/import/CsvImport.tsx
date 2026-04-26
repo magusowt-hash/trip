@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useAdminAuth } from '../../../layout';
+import { useAdminAuth } from '../../../admin-auth';
 
 export default function CsvImport({ onClose }: { onClose: () => void }) {
   const router = useRouter();

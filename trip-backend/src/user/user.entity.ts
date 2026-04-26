@@ -33,6 +33,18 @@ export class User {
   @Column({ name: 'region', type: 'varchar', length: 128, nullable: true })
   region: string | null;
 
+  @Column({ name: 'favorite_lists', type: 'json', nullable: true })
+  favoriteLists: object | null;
+
+  @Column({ name: 'visited_places', type: 'json', nullable: true })
+  visitedPlaces: object | null;
+
+  @Column({ name: 'ratings', type: 'json', nullable: true })
+  ratings: object | null;
+
+  @Column({ name: 'status', type: 'varchar', length: 16, default: 'normal' })
+  status: string;
+
   @CreateDateColumn({ name: 'created_at', type: 'datetime' })
   createdAt: Date;
 

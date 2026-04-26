@@ -2,8 +2,33 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { posts, users } from '@/db/schema';
 import { eq, desc, sql, inArray } from 'drizzle-orm';
+import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
+
+function verifyAdminToken(req: NextRequest): NextResponse | null {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  try {
+    const decoded = Buffer.from(token, 'base64').toString();
+    const [, timestamp] = decoded.split(':');
+    if (!timestamp) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+    const age = Date.now() - parseInt(timestamp);
+    if (age > 7 * 24 * 60 * 60 * 1000) {
+      return NextResponse.json({ error: 'Token expired' }, { status: 401 });
+    }
+  } catch {
+    return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+  }
+  return null;
+}
 
 export async function GET(request: NextRequest) {
+  const authError = verifyAdminToken(request);
+  if (authError) return authError;
+  
   try {
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
@@ -13,7 +38,7 @@ export async function GET(request: NextRequest) {
     const allowedStatuses = ['normal', 'blocked', 'deleted'];
     let whereCondition = undefined;
     if (statusParam && statusParam !== 'all' && allowedStatuses.includes(statusParam)) {
-      whereCondition = eq(posts.privacy, statusParam === 'private' ? 'private' : 'public');
+      whereCondition = eq(posts.status, statusParam);
     }
 
     const list = await db
@@ -46,6 +71,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const authError = verifyAdminToken(request);
+  if (authError) return authError;
+  
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

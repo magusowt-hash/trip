@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAdminAuth } from '../layout';
+import { useAdminAuth } from '../admin-auth';
 
 export default function ListItemsPage() {
   const [lists, setLists] = useState<any[]>([]);

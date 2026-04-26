@@ -1,11 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
 import { db } from '@/db';
-import { lists } from '@/db/schema';
-import { eq, desc, sql } from 'drizzle-orm';
+import { lists, listImages } from '@/db/schema';
+import { eq, desc, sql, and } from 'drizzle-orm';
+
+function verifyAdminToken(req: NextRequest): NextResponse | null {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  try {
+    const decoded = Buffer.from(token, 'base64').toString();
+    const [, timestamp] = decoded.split(':');
+    if (!timestamp) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+    const age = Date.now() - parseInt(timestamp);
+    if (age > 7 * 24 * 60 * 60 * 1000) {
+      return NextResponse.json({ error: 'Token expired' }, { status: 401 });
+    }
+  } catch {
+    return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+  }
+  return null;
+}
 
 const AMAP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
 
 export async function GET(request: NextRequest) {
+  const authError = verifyAdminToken(request);
+  if (authError) return authError;
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -25,6 +49,8 @@ export async function GET(request: NextRequest) {
   }
 }
 export async function POST(request: NextRequest) {
+  const authError = verifyAdminToken(request);
+  if (authError) return authError;
   try {
     const body = await request.json();
     const { name, cover_image, description, lng, lat, status } = body;
@@ -50,6 +76,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
+  const authError = verifyAdminToken(request);
+  if (authError) return authError;
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -76,6 +104,8 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const authError = verifyAdminToken(request);
+  if (authError) return authError;
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -94,6 +124,8 @@ export async function DELETE(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const authError = verifyAdminToken(request);
+  if (authError) return authError;
   try {
     const { searchParams } = new URL(request.url);
     const address = searchParams.get('address') || '';

@@ -106,8 +106,8 @@ function mapConversationMessage(message: ChatMessage, currentUserId: number): Me
 
 function mapChatItem(chat: {
   userId?: number;
-  nickname?: string;
-  avatar?: string;
+  nickname?: string | null;
+  avatar?: string | null;
   unreadCount?: number;
   lastMessage?: { content?: string; createdAt?: string };
 }): InboxItem | null {

@@ -1,8 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
 import { db } from '@/db';
 import { adminKeys } from '@/db/schema';
 import { eq, desc, sql } from 'drizzle-orm';
 import crypto from 'crypto';
+
+function verifyAdminToken(req: NextRequest): NextResponse | null {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  try {
+    const decoded = Buffer.from(token, 'base64').toString();
+    const [, timestamp] = decoded.split(':');
+    if (!timestamp) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+    const age = Date.now() - parseInt(timestamp);
+    if (age > 7 * 24 * 60 * 60 * 1000) {
+      return NextResponse.json({ error: 'Token expired' }, { status: 401 });
+    }
+  } catch {
+    return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+  }
+  return null;
+}
 
 function generateKey(): string {
   return crypto.randomBytes(32).toString('hex');
@@ -13,6 +35,8 @@ function hashKey(key: string): string {
 }
 
 export async function GET(request: NextRequest) {
+  const authError = verifyAdminToken(request);
+  if (authError) return authError;
   try {
     const list = await db
       .select()
@@ -27,6 +51,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const authError = verifyAdminToken(request);
+  if (authError) return authError;
   try {
     const { name, expiresDays } = await request.json();
 
@@ -47,7 +73,7 @@ export async function POST(request: NextRequest) {
         name,
         expiresAt,
       })
-      .returning();
+      .$returningId();
 
     return NextResponse.json({ success: true, key, id: result[0].id });
   } catch (error: any) {

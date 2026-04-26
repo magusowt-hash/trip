@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useAdminAuth } from '../../layout';
+import { useAdminAuth } from '../../../admin-auth';
 
 export default function ImportPage() {
   const router = useRouter();

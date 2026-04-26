@@ -10,18 +10,15 @@ import { verifyAuthToken } from '@/server/auth/jwt';
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // 本地先跑前端时，可能只部署了后端/数据库，前端未配置 AUTH_JWT_SECRET。
-  // 使用默认值而非跳过保护
-  const jwtSecret = process.env.AUTH_JWT_SECRET;
-  if (!jwtSecret) {
-    return redirectToLogin(req);
-  }
-
   // 公开：登录/注册页 & 管理后台 & 所有 API（包含 /api/admin/*） & Next 内部资源 & 常见静态文件
   if (
     pathname === '/login' ||
     pathname === '/register' ||
     pathname.startsWith('/management') ||
+    pathname.startsWith('/lists') ||
+    pathname.startsWith('/lists-embed') ||
+    pathname.startsWith('/user') ||
+    pathname.startsWith('/uploads') ||
     pathname.startsWith('/api/') ||
     pathname.startsWith('/_next/') ||
     pathname === '/favicon.ico' ||
@@ -29,6 +26,11 @@ export async function middleware(req: NextRequest) {
     pathname === '/sitemap.xml'
   ) {
     return NextResponse.next();
+  }
+
+  const jwtSecret = process.env.AUTH_JWT_SECRET;
+  if (!jwtSecret) {
+    return redirectToLogin(req);
   }
 
   const token = getAuthTokenFromRequest(req);

@@ -591,6 +591,22 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     setTransportList(transportList.filter((t) => t.id !== id));
   };
 
+  const handleEdit = (id: number, field: 'from' | 'to' | 'note') => {
+    setEditingId(id);
+    setEditField(field);
+  };
+
+  const handleBlur = () => {
+    setEditingId(null);
+    setEditField(null);
+  };
+
+  const toggleNoteExpand = (id: number) => {
+    setTransportList(
+      transportList.map((t) => (t.id === id ? { ...t, noteExpanded: !t.noteExpanded } : t))
+    );
+  };
+
 const handleUpdate = (id: number, field: 'from' | 'to' | 'note' | 'startDate' | 'endDate', value: string) => {
     setTransportList(
       transportList.map((t) => (t.id === id ? { ...t, [field]: value } : t))

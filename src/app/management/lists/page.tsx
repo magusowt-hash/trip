@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAdminAuth } from '../layout';
+import { useAdminAuth } from '../admin-auth';
 
 export default function ListsPage() {
   const router = useRouter();

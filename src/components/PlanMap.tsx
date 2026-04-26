@@ -15,6 +15,7 @@ export interface PlanMapProps {
   markers?: MapMarker[];
   routes?: any[];
   overlays?: any[];
+  focusPosition?: [number, number] | null;
   onMarkerClick?: (marker: MapMarker) => void;
   onMapLoad?: (map: any) => void;
   autoLoadMarkers?: boolean;
@@ -28,6 +29,7 @@ declare global {
         key: string;
         version?: string;
         securityJsCode?: string;
+        plugins?: string[];
       }) => Promise<any>;
     };
   }
@@ -40,40 +42,16 @@ export default function PlanMap({
   markers: initialMarkers = [],
   routes = [],
   overlays = [],
+  focusPosition = null,
   onMarkerClick,
   onMapLoad,
   autoLoadMarkers = false,
 }: PlanMapProps) {
-  const mapRef = useRef<HTMLDivElement>(null);
+const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const [loaded, setLoaded] = useState(false);
   const [dbMarkers, setDbMarkers] = useState<any[]>([]);
   const markers = [...initialMarkers, ...dbMarkers];
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    if (autoLoadMarkers && loaded) {
-      fetch('/api/markers?status=1')
-        .then(res => res.json())
-        .then(data => {
-          if (data.markers) {
-            const validMarkers = data.markers
-              .filter((m: any) => m.lng && m.lat)
-              .map((m: any) => ({
-                id: m.id,
-                position: [parseFloat(m.lng), parseFloat(m.lat)] as [number, number],
-                title: m.name,
-                address: m.address,
-                description: m.description,
-                type: m.type,
-              }));
-            setDbMarkers(validMarkers);
-          }
-        })
-        .catch(err => console.error('Load markers error:', err));
-    }
-  }, [autoLoadMarkers, loaded]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -243,6 +221,9 @@ const markerContent = `
     const map = mapInstanceRef.current;
     if (!map || !loaded) return;
 
+    const routesLayer = map.getAllOverlays('polyline');
+    routesLayer.forEach((p: any) => map.remove(p));
+
     routes.forEach((route) => {
       const path = route.path.map(
         (pos: [number, number]) => new window.AMap.LngLat(pos[0], pos[1])
@@ -255,6 +236,12 @@ const markerContent = `
       map.add(polyline);
     });
   }, [routes, loaded]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !loaded || !focusPosition) return;
+    map.setZoomAndCenter(8, focusPosition, false);
+  }, [focusPosition, loaded]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;

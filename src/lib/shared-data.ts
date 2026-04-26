@@ -37,6 +37,16 @@ interface CommentRecord {
   createdAt: Date;
 }
 
+interface EmbedAccessLog {
+  id: number;
+  ip: string;
+  action: string;
+  listId: number | null;
+  itemId: number | null;
+  userAgent: string;
+  createdAt: Date;
+}
+
 const DEFAULT_POSTS: PostRecord[] = [];
 const DEFAULT_IMAGES: ImageRecord[] = [];
 const DEFAULT_COMMENTS: CommentRecord[] = [];
@@ -47,19 +57,17 @@ export function getGlobalPosts() {
     __SHARED_IMAGES?: ImageRecord[];
     __SHARED_UPLOADS?: UploadedFile[];
     __SHARED_COMMENTS?: CommentRecord[];
+    __SHARED_EMBED_LOGS?: EmbedAccessLog[];
   };
-  
+
   if (!g.__SHARED_POSTS) {
     g.__SHARED_POSTS = [...DEFAULT_POSTS];
     g.__SHARED_IMAGES = [...DEFAULT_IMAGES];
     g.__SHARED_UPLOADS = [];
     g.__SHARED_COMMENTS = [...DEFAULT_COMMENTS];
+    g.__SHARED_EMBED_LOGS = [];
   }
-  
-  if (!g.__SHARED_COMMENTS) {
-    g.__SHARED_COMMENTS = [];
-  }
-  
+
   return {
     posts: g.__SHARED_POSTS,
     images: g.__SHARED_IMAGES || [],
@@ -68,4 +76,14 @@ export function getGlobalPosts() {
   };
 }
 
-export type { PostRecord, ImageRecord, UploadedFile, CommentRecord };
+export function getEmbedAccessLogs() {
+  const g = global as unknown as {
+    __SHARED_EMBED_LOGS?: EmbedAccessLog[];
+  };
+  if (!g.__SHARED_EMBED_LOGS) {
+    g.__SHARED_EMBED_LOGS = [];
+  }
+  return g.__SHARED_EMBED_LOGS;
+}
+
+export type { PostRecord, ImageRecord, UploadedFile, CommentRecord, EmbedAccessLog };

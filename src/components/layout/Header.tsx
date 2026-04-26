@@ -11,6 +11,7 @@ interface HeaderProps {
 
 export function Header({ hideActionsValue = false }: HeaderProps) {
   const pathname = usePathname();
+  if (pathname.startsWith('/lists-embed')) return null;
   const hideActionsValueValue = hideActionsValue || pathname === '/login' || pathname === '/register';
   const { openPublish } = usePublishFlow();
 

@@ -1,26 +1,9 @@
 'use client';
 
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-
-interface AdminAuthContextType {
-  isAuthenticated: boolean;
-  token: string | null;
-  setAuthenticated: (token: string) => void;
-  logout: () => void;
-}
-
-export const AdminAuthCtx = createContext<AdminAuthCtxType>({
-  isAuthenticated: false,
-  token: null,
-  setAuthenticated: () => {},
-  logout: () => {},
-});
-
-export function useAdminAuth() {
-  return useContext(AdminAuthCtx);
-}
+import { AdminAuthCtx } from './admin-auth';
 
 const navItems = [
   { path: '/management', icon: '📊', label: '看板' },
@@ -32,37 +15,54 @@ const navItems = [
   { path: '/management/markers', icon: '📍', label: '标记点' },
   { path: '/management/lists', icon: '🏆', label: '榜单' },
   { path: '/management/list_items', icon: '📋', label: '榜单项' },
+  { path: '/management/embed-logs', icon: '📈', label: '嵌入访问' },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    const storedToken = localStorage.getItem('admin_token');
-    if (storedToken) {
-      setToken(storedToken);
-      setIsAuthenticated(true);
-    }
+    checkSession();
   }, []);
 
+  async function checkSession() {
+    try {
+      const res = await fetch('/api/admin/auth/session');
+      const data = await res.json();
+      if (data.authenticated) {
+        setIsAuthenticated(true);
+        setToken(localStorage.getItem('admin_token'));
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    if (!isAuthenticated && pathname !== '/management/login') {
+    if (!loading && !isAuthenticated && pathname !== '/management/login') {
       router.push('/management/login');
     }
-  }, [pathname, isAuthenticated, router]);
+  }, [pathname, isAuthenticated, loading, router]);
 
-  const handleLogout = () => {
-    localStorage.removeItem('admin_token');
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/admin/auth/logout', { method: 'POST' });
+    } catch {
+      // ignore
+    }
     setIsAuthenticated(false);
     setToken(null);
     router.push('/management/login');
   };
 
   return (
-    <AdminAuthCtx.Provider value={{ isAuthenticated, token, setAuthenticated: (t) => { setToken(t); setIsAuthenticated(true); }, logout: handleLogout }}>
+    <AdminAuthCtx.Provider value={{ isAuthenticated, token,       setAuthenticated: (t) => { localStorage.setItem('admin_token', t); setToken(t); setIsAuthenticated(true); }, logout: handleLogout }}>
       <div className="admin-layout">
         {isAuthenticated && pathname !== '/management/login' && (
           <aside className="admin-sidebar">

@@ -3,6 +3,7 @@ import { db } from '@/db';
 import { adminKeys } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import crypto from 'crypto';
+import { setAdminTokenCookie } from '@/server/auth/admin-cookies';
 
 function hashKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex');
@@ -20,7 +21,9 @@ export async function POST(request: NextRequest) {
 
     if (key === '1245678') {
       const token = Buffer.from(`${key}:${Date.now()}`).toString('base64');
-      return NextResponse.json({ success: true, token });
+      const res = NextResponse.json({ success: true, token });
+      setAdminTokenCookie(res, token);
+      return res;
     }
 
     const result = await db
@@ -50,7 +53,9 @@ export async function POST(request: NextRequest) {
       .where(eq(adminKeys.id, keyRecord.id));
 
     const token = Buffer.from(`${key}:${Date.now()}`).toString('base64');
-    return NextResponse.json({ success: true, token });
+    const res = NextResponse.json({ success: true, token });
+    setAdminTokenCookie(res, token);
+    return res;
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json({ success: false, error: '服务器错误' });
