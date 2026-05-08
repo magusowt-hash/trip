@@ -2262,6 +2262,11 @@
 .amountBubble:hover .bubbleCat,
 .bubbleCat:hover { opacity: 1; }
 
+.amountBubble:has(.bubbleFieldInput),
+.amountBubble:has(.bubbleFieldTextarea) {
+  z-index: 10;
+}
+
 .bubbleNote {
   position: absolute;
   top: 100%;

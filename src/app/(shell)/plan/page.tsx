@@ -1052,18 +1052,18 @@ const handleUpdate = (id: number, field: 'from' | 'to' | 'note' | 'startDate' | 
                 style={{ borderColor: color, left: pos.x - BUBBLE_REAL_W / 2, top: pos.y - BUBBLE_REAL_H / 2 }}
               >
                 {isEditThis && editingField?.field === 'amount' ? (
-                  <input className={styles.bubbleFieldInput} type="number" value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={handleFieldEditSave} onKeyDown={(e) => e.key === 'Enter' && handleFieldEditSave()} autoFocus />
+                  <input className={styles.bubbleFieldInput} type="number" value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={handleFieldEditSave} onKeyDown={(e) => { if (e.key === 'Enter') handleFieldEditSave(); if (e.key === 'Escape') setEditingField(null); }} onFocus={(e) => e.target.select()} autoFocus />
                 ) : (
                   <div className={styles.bubbleAmount} onDoubleClick={(e) => handleFieldEditStart(item.id, 'amount', e)}>{currency}{item.amount}</div>
                 )}
                 <div className={styles.bubbleCat} onDoubleClick={(e) => handleFieldEditStart(item.id, 'name', e)}>
                   {isEditThis && editingField?.field === 'name' ? (
-                    <input className={styles.bubbleFieldInput} value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={handleFieldEditSave} onKeyDown={(e) => e.key === 'Enter' && handleFieldEditSave()} autoFocus />
+                    <input className={styles.bubbleFieldInput} value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={handleFieldEditSave} onKeyDown={(e) => { if (e.key === 'Enter') handleFieldEditSave(); if (e.key === 'Escape') setEditingField(null); }} onFocus={(e) => e.target.select()} autoFocus />
                   ) : item.name}
                 </div>
                 <div className={styles.bubbleNote} onDoubleClick={(e) => handleFieldEditStart(item.id, 'note', e)}>
                   {isEditThis && editingField?.field === 'note' ? (
-                    <textarea className={styles.bubbleFieldTextarea} value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={handleFieldEditSave} rows={1} autoFocus />
+                    <textarea className={styles.bubbleFieldTextarea} value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={handleFieldEditSave} onKeyDown={(e) => { if (e.key === 'Escape') setEditingField(null); }} onFocus={(e) => e.target.select()} rows={1} autoFocus />
                   ) : (item.note || '')}
                 </div>
                 <div className={styles.bubbleHoverActions}>
