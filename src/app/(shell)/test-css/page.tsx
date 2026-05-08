@@ -17,15 +17,16 @@ const COLORS = ['#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#22c55e', '#6b7280'
 export default function TestCssPage() {
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [w, setW] = useState(700);
-  const [h, setH] = useState(350);
+  const [h, setH] = useState(400);
   const [safeW, setSafeW] = useState(260);
   const [safeH, setSafeH] = useState(110);
   const [pad, setPad] = useState(6);
 
-  const safeMarginX = safeW / 2 + BUBBLE_REAL_W / 2;
-  const safeMarginY = safeH / 2 + BUBBLE_REAL_H / 2;
-  const CELL_W = BUBBLE_REAL_W;
-  const CELL_H = BUBBLE_REAL_H;
+  // 与主页面一致: CELL_W = BUBBLE_W + GAP
+  const safeMarginX = safeW / 2 + BUBBLE_W / 2;
+  const safeMarginY = safeH / 2 + BUBBLE_H / 2;
+  const CELL_W = BUBBLE_W + GAP;
+  const CELL_H = BUBBLE_H + GAP;
   const cols = Math.floor((w - pad * 2) / CELL_W);
   const rows = Math.floor((h - pad * 2) / CELL_H);
   const areaCx = w / 2, areaCy = h / 2;
