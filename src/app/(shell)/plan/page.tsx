@@ -533,10 +533,8 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   const tryPlaceBubble = (existing: Record<number, { x: number; y: number }>, w: number, h: number): { x: number; y: number } | null => {
     const safeW = 260, safeH = 110;
     const pad = 10;
-    const CELL_W = Math.round(BUBBLE_REAL_W * 1.15);
-    const CELL_H = Math.round(BUBBLE_REAL_H * 1.15);
-    const maxOffX = (CELL_W - BUBBLE_REAL_W) / 2;
-    const maxOffY = (CELL_H - BUBBLE_REAL_H) / 2;
+    const CELL_W = BUBBLE_REAL_W + GAP;
+    const CELL_H = BUBBLE_REAL_H + GAP;
     const startX = pad;
     const startY = pad;
     const cols = Math.floor((w - pad * 2) / CELL_W);
@@ -563,8 +561,8 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     if (freeCells.length === 0) return null;
 
     const cell = freeCells[Math.floor(Math.random() * freeCells.length)];
-    const offX = (Math.random() - 0.5) * maxOffX * 2;
-    const offY = (Math.random() - 0.5) * maxOffY * 2;
+    const offX = (Math.random() - 0.5) * (CELL_W - BUBBLE_REAL_W);
+    const offY = (Math.random() - 0.5) * (CELL_H - BUBBLE_REAL_H);
     return { x: cell.cx + offX, y: cell.cy + offY };
   };
 
