@@ -530,34 +530,71 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     setShowCustomInput(false);
   };
 
-  const tryPlaceBubble = (existing: Record<number, { x: number; y: number }>, w: number, h: number): { x: number; y: number } | null => {
+  const tryPlaceBubble = (existing: Record<number, { x: number; y: number }>, w: number, h: number, amount: number): { x: number; y: number } | null => {
     const safeW = 260, safeH = 110;
     const cx = w / 2, cy = h / 2;
     const pad = 10;
+    const CELL_W = BUBBLE_W + GAP;
+    const CELL_H = BUBBLE_H + GAP;
+    const needCells = amount >= 10000 ? 2 : 1;
+    const startX = pad;
+    const startY = pad;
+    const cols = Math.floor((w - pad * 2) / CELL_W);
+    const rows = Math.floor((h - pad * 2) / CELL_H);
     const ids = Object.keys(existing).map(Number);
-    for (let i = 0; i < 2000; i++) {
-      const x = BUBBLE_REAL_W / 2 + pad + Math.random() * (w - BUBBLE_REAL_W - pad * 2);
-      const y = BUBBLE_REAL_H / 2 + pad + Math.random() * (h - BUBBLE_REAL_H - pad * 2);
-      if (Math.abs(x - cx) < safeW / 2 + BUBBLE_REAL_W / 2 && Math.abs(y - cy) < safeH / 2 + BUBBLE_REAL_H / 2) continue;
-      let ok = true;
-      for (const id of ids) {
-        const p = existing[id];
-        if (!p) continue;
-        if (Math.abs(x - p.x) < BUBBLE_W + GAP && Math.abs(y - p.y) < BUBBLE_H + GAP) { ok = false; break; }
+
+    const freeCells: { col: number; row: number }[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cellCx = startX + c * CELL_W + CELL_W / 2;
+        const cellCy = startY + r * CELL_H + CELL_H / 2;
+        if (Math.abs(cellCx - cx) < safeW / 2 + BUBBLE_REAL_W / 2 && Math.abs(cellCy - cy) < safeH / 2 + BUBBLE_REAL_H / 2) continue;
+        let occupied = false;
+        for (const id of ids) {
+          const p = existing[id];
+          if (!p) continue;
+          if (Math.abs(cellCx - p.x) < CELL_W && Math.abs(cellCy - p.y) < CELL_H) { occupied = true; break; }
+        }
+        if (!occupied) freeCells.push({ col: c, row: r });
       }
-      if (ok) return { x, y };
     }
-    return null;
+
+    if (freeCells.length === 0) return null;
+
+    if (needCells === 1) {
+      const cell = freeCells[Math.floor(Math.random() * freeCells.length)];
+      const baseX = startX + cell.col * CELL_W + CELL_W / 2;
+      const baseY = startY + cell.row * CELL_H + CELL_H / 2;
+      const offX = (Math.random() - 0.5) * CELL_W * 0.3;
+      const offY = (Math.random() - 0.5) * CELL_H * 0.3;
+      return { x: baseX + offX, y: baseY + offY };
+    }
+
+    const pairs: { col: number; row: number }[] = [];
+    for (const cell of freeCells) {
+      if (freeCells.some(c => c.row === cell.row && c.col === cell.col + 1)) {
+        pairs.push(cell);
+      }
+    }
+    if (pairs.length === 0) return null;
+    const pair = pairs[Math.floor(Math.random() * pairs.length)];
+    const baseX = startX + pair.col * CELL_W + CELL_W;
+    const baseY = startY + pair.row * CELL_H + CELL_H / 2;
+    const offX = (Math.random() - 0.5) * CELL_W * 0.2;
+    const offY = (Math.random() - 0.5) * CELL_H * 0.3;
+    return { x: baseX + offX, y: baseY + offY };
   };
 
   const handleBudgetAdd = () => {
     const name = selectedCategory;
     const amount = parseInt(budgetAmount);
     if (!name || !amount || amount <= 0) return;
+    if (amount > 99999999) return;
+    if (getTotalAmount() + amount > 99999999) return;
     const area = bubbleAreaRef.current;
     const w = area?.clientWidth || 400;
     const h = area?.clientHeight || 300;
-    const pos = tryPlaceBubble(currentPagePositions, w, h);
+    const pos = tryPlaceBubble(currentPagePositions, w, h, amount);
     const id = Date.now();
     if (pos) {
       setPages(prev => {
