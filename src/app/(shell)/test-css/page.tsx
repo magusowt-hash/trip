@@ -25,10 +25,10 @@ export default function TestCssPage() {
   const [pad, setPad] = useState(6);
   const [gapEnabled, setGapEnabled] = useState(true);
 
-  const safeMarginX = safeW / 2 + BUBBLE_W / 2;
-  const safeMarginY = safeH / 2 + BUBBLE_H / 2;
-  const CELL_W = BUBBLE_W;
-  const CELL_H = BUBBLE_H;
+  const safeMarginX = safeW / 2 + BUBBLE_REAL_W / 2;
+  const safeMarginY = safeH / 2 + BUBBLE_REAL_H / 2;
+  const CELL_W = BUBBLE_REAL_W;
+  const CELL_H = BUBBLE_REAL_H;
   const cols = Math.floor((w - pad * 2) / CELL_W);
   const rows = Math.floor((h - pad * 2) / CELL_H);
   const areaCx = w / 2, areaCy = h / 2;
