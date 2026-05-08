@@ -610,12 +610,15 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   };
 
   const handleBudgetNoteOpen = (itemId: number, e: React.MouseEvent) => {
-    const el = (e.target as HTMLElement).closest('.budget-note-btn') as HTMLElement;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
+    const area = bubbleAreaRef.current;
+    if (!area) return;
+    const areaRect = area.getBoundingClientRect();
+    const targetRect = (e.target as HTMLElement).getBoundingClientRect();
+    const top = targetRect.bottom - areaRect.top + area.scrollTop + 6;
+    const left = targetRect.left + targetRect.width / 2 - areaRect.left + area.scrollLeft;
     const item = budgetList.find(b => b.id === itemId);
     setBudgetNoteText(item?.note || '');
-    setBudgetNotePos({ top: rect.bottom + 6, left: rect.left + rect.width / 2 });
+    setBudgetNotePos({ top, left });
     setBudgetNoteId(itemId);
   };
 
