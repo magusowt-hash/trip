@@ -518,7 +518,7 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     ...customCategories.map((name, i) => ({ name, color: CUSTOM_CAT_COLORS[i % CUSTOM_CAT_COLORS.length] })),
   ];
 
-  const BUBBLE_W = 62, BUBBLE_H = 46, BUBBLE_REAL_W = 98, BUBBLE_REAL_H = 66, GAP = 8;
+  const BUBBLE_W = 62, BUBBLE_H = 46, BUBBLE_REAL_W = 98, BUBBLE_REAL_H = 66, GAP = 6;
   const currentPagePositions = pages[currentPage] || {};
 
   const handleCategorySelect = (cat: string) => {
@@ -531,11 +531,11 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   };
 
   const tryPlaceBubble = (existing: Record<number, { x: number; y: number }>, w: number, h: number): { x: number; y: number } | null => {
-    const safeW = 180, safeH = 100;
+    const safeW = 150, safeH = 80;
     const cx = w / 2, cy = h / 2;
     const pad = 10;
     const ids = Object.keys(existing).map(Number);
-    for (let i = 0; i < 600; i++) {
+    for (let i = 0; i < 2000; i++) {
       const x = BUBBLE_REAL_W / 2 + pad + Math.random() * (w - BUBBLE_REAL_W - pad * 2);
       const y = BUBBLE_REAL_H / 2 + pad + Math.random() * (h - BUBBLE_REAL_H - pad * 2);
       if (Math.abs(x - cx) < safeW / 2 + BUBBLE_REAL_W / 2 && Math.abs(y - cy) < safeH / 2 + BUBBLE_REAL_H / 2) continue;
@@ -543,7 +543,7 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
       for (const id of ids) {
         const p = existing[id];
         if (!p) continue;
-        if (Math.abs(x - p.x) < BUBBLE_REAL_W + GAP && Math.abs(y - p.y) < BUBBLE_REAL_H + GAP) { ok = false; break; }
+        if (Math.abs(x - p.x) < BUBBLE_W + GAP && Math.abs(y - p.y) < BUBBLE_H + GAP) { ok = false; break; }
       }
       if (ok) return { x, y };
     }
