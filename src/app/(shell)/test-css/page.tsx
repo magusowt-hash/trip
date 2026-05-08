@@ -44,7 +44,8 @@ export default function TestCssPage() {
         for (const id of Object.keys(existing).map(Number)) {
           const p = existing[id];
           if (!p) continue;
-          if (Math.abs(cx - p.x) < CELL_W && Math.abs(cy - p.y) < CELL_H) { occupied = true; break; }
+          // 使用 CELL_W/2 作为碰撞阈值，避免偏移导致过度占用
+          if (Math.abs(cx - p.x) < CELL_W / 2 && Math.abs(cy - p.y) < CELL_H / 2) { occupied = true; break; }
         }
         if (!occupied) free.push({ cx, cy });
       }
