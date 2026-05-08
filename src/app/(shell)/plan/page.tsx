@@ -518,7 +518,7 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     ...customCategories.map((name, i) => ({ name, color: CUSTOM_CAT_COLORS[i % CUSTOM_CAT_COLORS.length] })),
   ];
 
-  const BUBBLE_W = 62, BUBBLE_H = 46, BUBBLE_REAL_W = 98, BUBBLE_REAL_H = 66, GAP = 6;
+  const BUBBLE_W = 62, BUBBLE_H = 46, BUBBLE_REAL_W = 108, BUBBLE_REAL_H = 66, GAP = 6;
   const currentPagePositions = pages[currentPage] || {};
 
   const handleCategorySelect = (cat: string) => {
@@ -530,12 +530,11 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     setShowCustomInput(false);
   };
 
-  const tryPlaceBubble = (existing: Record<number, { x: number; y: number }>, w: number, h: number, amount: number): { x: number; y: number } | null => {
+  const tryPlaceBubble = (existing: Record<number, { x: number; y: number }>, w: number, h: number): { x: number; y: number } | null => {
     const safeW = 260, safeH = 110;
     const pad = 10;
-    const CELL_W = BUBBLE_REAL_W + GAP * 2;
-    const CELL_H = BUBBLE_REAL_H + GAP * 2;
-    const needCells = amount >= 10000 ? 2 : 1;
+    const CELL_W = BUBBLE_REAL_W + GAP;
+    const CELL_H = BUBBLE_REAL_H + GAP;
     const startX = pad;
     const startY = pad;
     const cols = Math.floor((w - pad * 2) / CELL_W);
@@ -543,61 +542,40 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     const ids = Object.keys(existing).map(Number);
     const areaCx = w / 2, areaCy = h / 2;
 
-    interface GridCell { col: number; row: number; cx: number; cy: number; idx: number }
-    const allCells: GridCell[] = [];
+    const freeCells: { col: number; row: number; cx: number; cy: number }[] = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const cx = startX + c * CELL_W + CELL_W / 2;
         const cy = startY + r * CELL_H + CELL_H / 2;
         if (Math.abs(cx - areaCx) < safeW / 2 + BUBBLE_REAL_W / 2 && Math.abs(cy - areaCy) < safeH / 2 + BUBBLE_REAL_H / 2) continue;
-        allCells.push({ col: c, row: r, cx, cy, idx: r * cols + c });
+        let occupied = false;
+        for (const id of ids) {
+          const p = existing[id];
+          if (!p) continue;
+          if (Math.abs(cx - p.x) < CELL_W && Math.abs(cy - p.y) < CELL_H) { occupied = true; break; }
+        }
+        if (!occupied) freeCells.push({ col: c, row: r, cx, cy });
       }
     }
 
-    const cellOccupied = (cell: GridCell): boolean => {
-      for (const id of ids) {
-        const p = existing[id];
-        if (!p) continue;
-        if (Math.abs(cell.cx - p.x) < CELL_W / 2 + BUBBLE_REAL_W / 2 && Math.abs(cell.cy - p.y) < CELL_H / 2 + BUBBLE_REAL_H / 2) return true;
-      }
-      return false;
-    };
-
-    const freeCells = allCells.filter(c => !cellOccupied(c));
     if (freeCells.length === 0) return null;
 
-    if (needCells === 1) {
-      const cell = freeCells[Math.floor(Math.random() * freeCells.length)];
-      const offX = (Math.random() - 0.5) * CELL_W * 0.2;
-      const offY = (Math.random() - 0.5) * CELL_H * 0.2;
-      return { x: cell.cx + offX, y: cell.cy + offY };
-    }
-
-    const pairs: GridCell[] = [];
-    for (const cell of freeCells) {
-      if (freeCells.some(c => c.row === cell.row && c.col === cell.col + 1)) {
-        pairs.push(cell);
-      }
-    }
-    if (pairs.length === 0) return null;
-    const pair = pairs[Math.floor(Math.random() * pairs.length)];
-    const midX = (pair.cx + startX + (pair.col + 1) * CELL_W + CELL_W / 2) / 2;
-    const midY = pair.cy;
-    const offX = (Math.random() - 0.5) * CELL_W * 0.15;
-    const offY = (Math.random() - 0.5) * CELL_H * 0.2;
-    return { x: midX + offX, y: midY + offY };
+    const cell = freeCells[Math.floor(Math.random() * freeCells.length)];
+    const offX = (Math.random() - 0.5) * CELL_W * 0.25;
+    const offY = (Math.random() - 0.5) * CELL_H * 0.25;
+    return { x: cell.cx + offX, y: cell.cy + offY };
   };
 
   const handleBudgetAdd = () => {
     const name = selectedCategory;
     const amount = parseInt(budgetAmount);
     if (!name || !amount || amount <= 0) return;
-    if (amount > 99999999) return;
-    if (getTotalAmount() + amount > 99999999) return;
+    if (amount > 999999) return;
+    if (getTotalAmount() + amount > 999999) return;
     const area = bubbleAreaRef.current;
     const w = area?.clientWidth || 400;
     const h = area?.clientHeight || 300;
-    const pos = tryPlaceBubble(currentPagePositions, w, h, amount);
+    const pos = tryPlaceBubble(currentPagePositions, w, h);
     const id = Date.now();
     if (pos) {
       setPages(prev => {
