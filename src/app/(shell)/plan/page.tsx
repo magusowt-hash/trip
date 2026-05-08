@@ -924,6 +924,51 @@ const handleUpdate = (id: number, field: 'from' | 'to' | 'note' | 'startDate' | 
             onClick={() => setBudgetViewMode('list')}
           >列表</button>
         </div>
+          {pages.length > 1 && (
+            <div className={styles.budgetPageNav}>
+              <button
+                type="button"
+                className={styles.pageNavArrow}
+                disabled={currentPage === 0}
+                onClick={() => setCurrentPage(currentPage - 1)}
+              >◀</button>
+              {editingPageName ? (
+                <input
+                  className={styles.pageNavNameInput}
+                  value={pageNames[currentPage] ?? String(currentPage + 1)}
+                  onChange={(e) => {
+                    setPageNames(pageNames.map((n, i) => i === currentPage ? e.target.value : n));
+                  }}
+                  onBlur={() => setEditingPageName(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') setEditingPageName(false);
+                    if (e.key === 'Escape') setEditingPageName(false);
+                  }}
+                  autoFocus
+                />
+              ) : (
+                <span
+                  className={styles.pageNavName}
+                  onClick={() => setEditingPageName(true)}
+                >第{pageNames[currentPage] ?? currentPage + 1}页</span>
+              )}
+              <button
+                type="button"
+                className={styles.pageNavArrow}
+                disabled={currentPage >= pages.length - 1}
+                onClick={() => setCurrentPage(currentPage + 1)}
+              >▶</button>
+              <button
+                type="button"
+                className={styles.pageNavAdd}
+                onClick={() => {
+                  setPages(prev => [...prev, {}]);
+                  setPageNames(prev => [...prev, String(prev.length + 1)]);
+                  setCurrentPage(pages.length);
+                }}
+              >＋</button>
+            </div>
+          )}
         <div className={styles.budgetTopRight}>
           <select
             className={styles.currencySelect}
@@ -970,18 +1015,7 @@ const handleUpdate = (id: number, field: 'from' | 'to' | 'note' | 'startDate' | 
 
       {budgetViewMode === 'bubble' ? (
         <div className={styles.bubbleArea} ref={bubbleAreaRef}>
-          {pages.length > 1 && (
-            <div className={styles.pageTabs}>
-              {pages.map((_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  className={`${styles.pageTab} ${i === currentPage ? styles.pageTabActive : ''}`}
-                  onClick={() => setCurrentPage(i)}
-                >{i + 1}</button>
-              ))}
-            </div>
-          )}
+
           <div className={styles.totalAmount}>{currency}{getTotalAmount()}</div>
           {budgetList.filter(b => currentPagePositions[b.id]).map((item) => {
             const cat = allCategories.find(c => c.name === item.name);
