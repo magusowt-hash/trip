@@ -532,20 +532,22 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
 
   const tryPlaceBubble = (existing: Record<number, { x: number; y: number }>, w: number, h: number): { x: number; y: number } | null => {
     const safeW = 260, safeH = 110;
-    const pad = 10;
+    const pad = 6;
     const CELL_W = BUBBLE_W + GAP;
     const CELL_H = BUBBLE_H + GAP;
     const cols = Math.floor((w - pad * 2) / CELL_W);
     const rows = Math.floor((h - pad * 2) / CELL_H);
     const ids = Object.keys(existing).map(Number);
     const areaCx = w / 2, areaCy = h / 2;
+    const safeMarginX = safeW / 2 + BUBBLE_W / 2;
+    const safeMarginY = safeH / 2 + BUBBLE_H / 2;
 
     const free: { cx: number; cy: number }[] = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const cx = pad + c * CELL_W + CELL_W / 2;
         const cy = pad + r * CELL_H + CELL_H / 2;
-        if (Math.abs(cx - areaCx) < safeW / 2 + BUBBLE_W / 2 && Math.abs(cy - areaCy) < safeH / 2 + BUBBLE_H / 2) continue;
+        if (Math.abs(cx - areaCx) < safeMarginX && Math.abs(cy - areaCy) < safeMarginY) continue;
         let occupied = false;
         for (const id of ids) {
           const p = existing[id];
@@ -558,7 +560,7 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
 
     if (free.length === 0) return null;
 
-    const cell = free[0];
+    const cell = free[Math.floor(Math.random() * free.length)];
     const offX = (Math.random() - 0.5) * GAP;
     const offY = (Math.random() - 0.5) * GAP;
     return { x: cell.cx + offX, y: cell.cy + offY };
