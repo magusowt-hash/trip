@@ -27,8 +27,8 @@ export default function TestCssPage() {
 
   const safeMarginX = safeW / 2 + BUBBLE_W / 2;
   const safeMarginY = safeH / 2 + BUBBLE_H / 2;
-  const CELL_W = BUBBLE_W + GAP;
-  const CELL_H = BUBBLE_H + GAP;
+  const CELL_W = BUBBLE_W;
+  const CELL_H = BUBBLE_H;
   const cols = Math.floor((w - pad * 2) / CELL_W);
   const rows = Math.floor((h - pad * 2) / CELL_H);
   const areaCx = w / 2, areaCy = h / 2;
@@ -93,47 +93,59 @@ export default function TestCssPage() {
     }
   }
 
+  const totalCells = gridCells.filter(g => !g.gap && !g.safe).length;
+  const usedCells = bubbles.length;
+  const canFit = totalCells - usedCells;
+
   return (
     <div style={{ padding: 20, fontFamily: 'system-ui, sans-serif' }}>
       <h1>CSS 气泡布局测试</h1>
       
-      <div style={{ display: 'flex', gap: 20, marginBottom: 20, flexWrap: 'wrap' }}>
-        <label>宽: <input type="number" value={w} onChange={e => setW(+e.target.value)} style={{ width: 60 }} /></label>
-        <label>高: <input type="number" value={h} onChange={e => setH(+e.target.value)} style={{ width: 60 }} /></label>
+      <div style={{ display: 'flex', gap: 20, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+        <label>区域宽: <input type="number" value={w} onChange={e => setW(+e.target.value)} style={{ width: 60 }} /></label>
+        <label>区域高: <input type="number" value={h} onChange={e => setH(+e.target.value)} style={{ width: 60 }} /></label>
         <label>安全区宽: <input type="number" value={safeW} onChange={e => setSafeW(+e.target.value)} style={{ width: 60 }} /></label>
         <label>安全区高: <input type="number" value={safeH} onChange={e => setSafeH(+e.target.value)} style={{ width: 60 }} /></label>
         <label>边距: <input type="number" value={pad} onChange={e => setPad(+e.target.value)} style={{ width: 60 }} /></label>
-        <label><input type="checkbox" checked={gapEnabled} onChange={e => setGapEnabled(e.target.checked)} /> 显示间隙</label>
-        <button onClick={addBubble} style={{ padding: '6px 16px', background: '#007aff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>添加气泡</button>
-        <button onClick={clearBubbles} style={{ padding: '6px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>清空</button>
+        <label><input type="checkbox" checked={gapEnabled} onChange={e => setGapEnabled(e.target.checked)} /> 间隙模式</label>
       </div>
 
-      <div style={{ marginBottom: 10 }}>
-        网格: {cols}×{rows} = {cols * rows} 格 | 可用: {gridCells.filter(g => !g.gap && !g.safe).length} | 已添加: {bubbles.length}
+      <div style={{ marginBottom: 10, fontSize: 14 }}>
+        <strong>网格:</strong> {cols}列 × {rows}行 = {cols * rows} 格 | 
+        <strong> 可用:</strong> {totalCells} | 
+        <strong> 已放:</strong> {usedCells} | 
+        <strong> 可继续:</strong> {canFit}
       </div>
 
-      <div style={{ position: 'relative', width: w, height: h, background: '#f5f5f5', border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
-        {gridCells.map((cell, i) => (
-          <div
-            key={i}
-            style={{
-              position: 'absolute',
-              left: cell.x - CELL_W / 2,
-              top: cell.y - CELL_H / 2,
-              width: CELL_W,
-              height: CELL_H,
-              background: cell.safe ? 'rgba(255,0,0,0.1)' : cell.gap ? 'rgba(0,0,0,0.05)' : 'rgba(0,0,0,0.03)',
-              border: cell.safe ? '1px dashed red' : cell.gap ? '1px dashed #999' : '1px solid #eee',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 8,
-              color: '#999',
-            }}
-          >
-            {cell.c},{cell.r}
-          </div>
-        ))}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+        <button onClick={addBubble} style={{ padding: '8px 20px', background: '#007aff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>添加气泡</button>
+        <button onClick={clearBubbles} style={{ padding: '8px 20px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>清空</button>
+        <button onClick={() => setBubbles([])} style={{ padding: '8px 20px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>填满所有</button>
+      </div>
+
+      <div style={{ position: 'relative', width: w, height: h, background: '#fafafa', border: '2px solid #333', borderRadius: 8, overflow: 'hidden' }}>
+        {gridCells.map((cell, i) => {
+          const hasBubble = bubbles.some(b => Math.abs(b.x - cell.x) < CELL_W / 2 && Math.abs(b.y - cell.y) < CELL_H / 2);
+          return (
+            <div
+              key={i}
+              style={{
+                position: 'absolute',
+                left: cell.x - CELL_W / 2,
+                top: cell.y - CELL_H / 2,
+                width: CELL_W,
+                height: CELL_H,
+                background: hasBubble ? 'transparent' : cell.safe ? 'rgba(255,0,0,0.15)' : cell.gap ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.05)',
+                border: cell.safe ? '1px dashed rgba(255,0,0,0.5)' : cell.gap ? '1px dashed rgba(0,0,0,0.2)' : '1px solid rgba(0,0,0,0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 9,
+                color: '#666',
+              }}
+            />
+          );
+        })}
 
         {bubbles.map(bubble => (
           <div
@@ -151,14 +163,21 @@ export default function TestCssPage() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: 15,
+              fontSize: 13,
               fontWeight: 600,
               color: '#1d1d1f',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
             }}
           >
             <div>¥{bubble.amount.toLocaleString()}</div>
           </div>
         ))}
+      </div>
+
+      <div style={{ marginTop: 15, fontSize: 12, color: '#666' }}>
+        <p>气泡尺寸: {BUBBLE_W}×{BUBBLE_H} (内容) / {BUBBLE_REAL_W}×{BUBBLE_REAL_H} (视觉含 padding)</p>
+        <p>格尺寸: {CELL_W}×{CELL_H} (正好容纳一个气泡内容)</p>
+        <p>间隙: ±{GAP}px 随机偏移</p>
       </div>
     </div>
   );
