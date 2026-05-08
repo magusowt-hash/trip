@@ -84,6 +84,9 @@ export default function TestCssPage() {
   const totalCells = gridCells.filter(g => !g.safe).length;
   const usedCells = bubbles.length;
   const canFit = totalCells - usedCells;
+  const freeCellsCount = totalCells - usedCells;
+
+  console.log('Grid:', cols, 'x', rows, '=', cols*rows, '| Safe:', gridCells.filter(g => g.safe).length, '| Free:', freeCellsCount);
 
   return (
     <div style={{ padding: 20, fontFamily: 'system-ui, sans-serif' }}>
@@ -97,11 +100,17 @@ export default function TestCssPage() {
         <label>边距: <input type="number" value={pad} onChange={e => setPad(+e.target.value)} style={{ width: 60 }} /></label>
       </div>
 
-      <div style={{ marginBottom: 10, fontSize: 14 }}>
-        <strong>网格:</strong> {cols}列 × {rows}行 = {cols * rows} 格 | 
-        <strong> 可用:</strong> {totalCells} | 
-        <strong> 已放:</strong> {usedCells} | 
-        <strong> 可继续:</strong> {canFit}
+      <div style={{ marginBottom: 10, fontSize: 14, background: '#f0f0f0', padding: 10, borderRadius: 4 }}>
+        <div>区域: {w}×{h} | 格子: {cols}×{rows} = {cols*rows}</div>
+        <div>格子尺寸: {CELL_W}×{CELL_H} | 边距: {pad}</div>
+        <div>安全区: {safeW}×{safeH} | 边界: safeMarginX={safeMarginX}, safeMarginY={safeMarginY}</div>
+        <div style={{ color: usedCells > freeCellsCount ? 'red' : 'green' }}>
+          <strong>总格:</strong> {cols*rows} | 
+          <strong> 安全区:</strong> {gridCells.filter(g => g.safe).length} | 
+          <strong> 可用:</strong> {totalCells} | 
+          <strong> 已放:</strong> {usedCells} | 
+          <strong> 可继续:</strong> {canFit}
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
