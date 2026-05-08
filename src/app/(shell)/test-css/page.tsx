@@ -19,7 +19,7 @@ export default function TestCssPage() {
   const [w, setW] = useState(700);
   const [h, setH] = useState(400);
   const [safeW, setSafeW] = useState(260);
-  const [safeH, setSafeH] = useState(110);
+  const [safeH, setSafeH] = useState(77);
   const [pad, setPad] = useState(6);
 
   // 与主页面一致: CELL_W = BUBBLE_W + GAP

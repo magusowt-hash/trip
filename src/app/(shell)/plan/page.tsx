@@ -531,7 +531,7 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   };
 
   const tryPlaceBubble = (existing: Record<number, { x: number; y: number }>, w: number, h: number): { x: number; y: number } | null => {
-    const safeW = 260, safeH = 110;
+    const safeW = 260, safeH = 77;
     const pad = 6;
     const CELL_W = BUBBLE_W + GAP;
     const CELL_H = BUBBLE_H + GAP;
