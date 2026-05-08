@@ -48,6 +48,11 @@ export async function GET(request: NextRequest) {
     const formatted = list.map(item => ({
       ...item,
       cover_image: item.coverImage,
+      transport_plane: item.transportPlane,
+      transport_train: item.transportTrain,
+      transport_bus: item.transportBus,
+      rating_type: item.ratingType,
+      custom_rating: item.customRating,
     }));
 
     return NextResponse.json({ list: formatted });
@@ -99,7 +104,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: '缺少ID' }, { status: 400 });
     }
 
-    const { cover_image, intro, image_url, ...rest } = body;
+    const { cover_image, intro, image_url, transport_plane, transport_train, transport_bus, rating_type, custom_rating, ...rest } = body;
     const updateData: any = { ...rest, updatedAt: new Date() };
     if (cover_image !== undefined) {
       updateData.coverImage = cover_image;
@@ -109,6 +114,21 @@ export async function PUT(request: NextRequest) {
     }
     if (image_url !== undefined) {
       updateData.imageUrl = image_url;
+    }
+    if (transport_plane !== undefined) {
+      updateData.transportPlane = transport_plane || null;
+    }
+    if (transport_train !== undefined) {
+      updateData.transportTrain = transport_train || null;
+    }
+    if (transport_bus !== undefined) {
+      updateData.transportBus = transport_bus || null;
+    }
+    if (rating_type !== undefined) {
+      updateData.ratingType = rating_type;
+    }
+    if (custom_rating !== undefined) {
+      updateData.customRating = custom_rating || null;
     }
     delete updateData.id;
 

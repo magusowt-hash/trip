@@ -30,9 +30,9 @@ export default function TestCssPage() {
   const rows = Math.floor((h - pad * 2) / CELL_H);
   const areaCx = w / 2, areaCy = h / 2;
 
-  const addBubble = () => {
+  const findFreeCell = (existingBubbles: Bubble[]) => {
     const existing: Record<number, { x: number; y: number }> = {};
-    bubbles.forEach(b => { existing[b.id] = { x: b.x, y: b.y }; });
+    existingBubbles.forEach(b => { existing[b.id] = { x: b.x, y: b.y }; });
 
     const free: { cx: number; cy: number }[] = [];
     for (let r = 0; r < rows; r++) {
@@ -50,13 +50,16 @@ export default function TestCssPage() {
       }
     }
 
-    if (free.length === 0) {
+    if (free.length === 0) return null;
+    return free[Math.floor(Math.random() * free.length)];
+  };
+
+  const addOne = () => {
+    const cell = findFreeCell(bubbles);
+    if (!cell) {
       alert('网格已满！');
       return;
     }
-
-    // 随机选择而非顺序选择
-    const cell = free[Math.floor(Math.random() * free.length)];
     const offX = (Math.random() - 0.5) * GAP;
     const offY = (Math.random() - 0.5) * GAP;
     const newBubble: Bubble = {
@@ -67,6 +70,24 @@ export default function TestCssPage() {
       color: COLORS[bubbles.length % COLORS.length],
     };
     setBubbles([...bubbles, newBubble]);
+  };
+
+  const fillAll = () => {
+    const newBubbles: Bubble[] = [...bubbles];
+    let cell = findFreeCell(newBubbles);
+    while (cell) {
+      const offX = (Math.random() - 0.5) * GAP;
+      const offY = (Math.random() - 0.5) * GAP;
+      newBubbles.push({
+        id: Date.now() + newBubbles.length,
+        x: cell.cx + offX,
+        y: cell.cy + offY,
+        amount: Math.floor(Math.random() * 999999) + 1000,
+        color: COLORS[newBubbles.length % COLORS.length],
+      });
+      cell = findFreeCell(newBubbles);
+    }
+    setBubbles(newBubbles);
   };
 
   const clearBubbles = () => setBubbles([]);
@@ -114,7 +135,8 @@ export default function TestCssPage() {
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-        <button onClick={addBubble} style={{ padding: '8px 20px', background: '#007aff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>添加气泡</button>
+        <button onClick={addOne} style={{ padding: '8px 20px', background: '#007aff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>添加一个</button>
+        <button onClick={fillAll} style={{ padding: '8px 20px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>填满所有</button>
         <button onClick={clearBubbles} style={{ padding: '8px 20px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}>清空</button>
       </div>
 

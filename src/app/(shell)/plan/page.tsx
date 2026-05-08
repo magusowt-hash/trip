@@ -599,6 +599,39 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     setBudgetNote('');
   };
 
+  const handleBudgetFillAll = () => {
+    const name = selectedCategory;
+    const amount = parseInt(budgetAmount);
+    if (!name || !amount || amount <= 0) return;
+    if (amount > 999999) return;
+    const area = bubbleAreaRef.current;
+    const w = area?.clientWidth || 400;
+    const h = area?.clientHeight || 300;
+
+    const newItems: { id: number; name: string; amount: number; note?: string }[] = [];
+    const newPositions: Record<number, { x: number; y: number }> = {};
+
+    let pos = tryPlaceBubble({ ...currentPagePositions, ...newPositions }, w, h);
+    let id = Date.now();
+    while (pos && getTotalAmount() + amount <= 999999) {
+      newItems.push({ id, name, amount, note: budgetNote.trim() || undefined });
+      newPositions[id] = pos;
+      id++;
+      pos = tryPlaceBubble({ ...currentPagePositions, ...newPositions }, w, h);
+    }
+
+    if (newItems.length > 0) {
+      setPages(prev => {
+        const copy = [...prev];
+        copy[currentPage] = { ...copy[currentPage], ...newPositions };
+        return copy;
+      });
+      setBudgetList([...budgetList, ...newItems]);
+      setBudgetAmount('');
+      setBudgetNote('');
+    }
+  };
+
   const handleBudgetDelete = (id: number) => {
     setBudgetList(budgetList.filter(b => b.id !== id));
     setPages(prev => {
@@ -1184,6 +1217,7 @@ const handleUpdate = (id: number, field: 'from' | 'to' | 'note' | 'startDate' | 
               onKeyDown={(e) => e.key === 'Enter' && handleBudgetAdd()}
             />
             <button type="button" className={styles.budgetAddBtn} onClick={handleBudgetAdd}>添加</button>
+            <button type="button" className={styles.budgetAddBtn} onClick={handleBudgetFillAll} style={{ background: '#22c55e' }}>填满所有</button>
           </div>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAdminAuth } from '../../admin-auth';
 import CsvImport from './import/CsvImport';
+import BatchImport from './BatchImport';
 
 export default function ListDetailPage() {
   const router = useRouter();
@@ -20,7 +21,6 @@ export default function ListDetailPage() {
     name: '',
     cover_image: '',
     position: 0,
-    intro: '',
   });
   const [listImages, setListImages] = useState<any[]>([]);
   const [listBatchUploading, setListBatchUploading] = useState(false);
@@ -32,13 +32,15 @@ export default function ListDetailPage() {
   }>>([]);
   const [listBatchResults, setListBatchResults] = useState<{ success: number; failed: number } | null>(null);
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
-  const [itemForms, setItemForms] = useState<Record<number, { title: string; cover_image: string; description: string; lng: string; lat: string; intro: string; image_url: string }>>({});
+  const [itemForms, setItemForms] = useState<Record<number, { title: string; cover_image: string; description: string; intro: string; lng: string; lat: string; address: string; image_urls: string[]; transport_plane: string; transport_train: string; transport_bus: string; rating_type: string; custom_rating: string }>>({});
+  const [itemRatings, setItemRatings] = useState<Record<number, { average: number; count: number }>>({});
   const [cropFile, setCropFile] = useState<{ file: File; type: 'list' | 'item'; itemId?: number } | null>(null);
   const [cropPos, setCropPos] = useState({ x: 0, y: 0, scale: 1 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [cropping, setCropping] = useState(false);
 const [showCsvImport, setShowCsvImport] = useState(false);
+  const [batchImportType, setBatchImportType] = useState<string | null>(null);
 const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
 const [showBatchUpload, setShowBatchUpload] = useState(false);
 const [batchFiles, setBatchFiles] = useState<File[]>([]);
@@ -66,19 +68,41 @@ const [batchResults, setBatchResults] = useState<{ success: number; failed: numb
        if (data.list && data.list[0]) {
          const item = data.list[0];
          setList(item);
-         setBasicForm({
-           name: item.name || '',
-           cover_image: item.coverImage || '',
-           position: item.position ?? 0,
-           intro: item.intro || '',
-         });
+setBasicForm({
+            name: item.name || '',
+            cover_image: item.coverImage || '',
+            position: item.position ?? 0,
+          });
        }
 
-       const itemsRes = await fetch(`/api/admin/list_items?list_id=${listId}`, { headers: { Authorization: `Bearer ${token}` } });
-       const itemsData = await itemsRes.json();
-       setItems(itemsData.list || []);
+const itemsRes = await fetch(`/api/admin/list_items?list_id=${listId}`, { headers: { Authorization: `Bearer ${token}` } });
+        const itemsData = await itemsRes.json();
+        setItems(itemsData.list || []);
 
-       // Fetch list images
+        // Fetch ratings for items
+        if (itemsData.list && itemsData.list.length > 0) {
+          const itemIds = itemsData.list.map((i: any) => i.id).join(',');
+          fetch(`/api/ratings?averageOnly=true&targetType=list_item&targetId=${itemIds}`)
+            .then(r => r.json())
+            .then(ratingData => {
+              if (ratingData.averages) {
+                const converted: Record<number, { average: number; count: number }> = {};
+                Object.keys(ratingData.averages).forEach(key => {
+                  converted[Number(key)] = ratingData.averages[key];
+                });
+                setItemRatings(converted);
+              } else if (ratingData.average !== undefined) {
+                const newRatings: Record<number, { average: number; count: number }> = {};
+                itemsData.list.forEach((i: any) => {
+                  newRatings[i.id] = { average: ratingData.average, count: ratingData.count };
+                });
+                setItemRatings(newRatings);
+              }
+            })
+            .catch(() => {});
+        }
+
+        // Fetch list images
        const imagesRes = await fetch(`/api/admin/list_images?list_id=${listId}`, { headers: { Authorization: `Bearer ${token}` } });
        const imagesData = await imagesRes.json();
        setListImages(imagesData.list || []);
@@ -227,10 +251,25 @@ const [batchResults, setBatchResults] = useState<{ success: number; failed: numb
       return;
     }
     try {
+      const payload = {
+        title: form.title,
+        cover_image: form.cover_image,
+        description: form.description,
+        lng: form.lng,
+        lat: form.lat,
+        address: form.address,
+        intro: form.intro,
+        image_url: form.image_urls?.filter(Boolean).join(',') || '',
+        transport_plane: form.transport_plane || '',
+        transport_train: form.transport_train || '',
+        transport_bus: form.transport_bus || '',
+        rating_type: form.rating_type || 'system',
+        custom_rating: form.custom_rating || '',
+      };
       const res = await fetch(`/api/admin/list_items?id=${itemId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data.error) {
@@ -489,8 +528,14 @@ const [batchResults, setBatchResults] = useState<{ success: number; failed: numb
       description: item.description,
       lng: item.lng,
       lat: item.lat,
+      address: item.address || '',
       intro: item.intro || '',
-      image_url: item.image_url || '',
+      image_urls: item.image_url ? item.image_url.split(',').filter(Boolean).map((s: string) => s.trim()) : [''],
+      transport_plane: item.transport_plane || '',
+      transport_train: item.transport_train || '',
+      transport_bus: item.transport_bus || '',
+      rating_type: item.rating_type || 'system',
+      custom_rating: item.custom_rating || '',
     } }));
   };
 
@@ -508,151 +553,30 @@ const [batchResults, setBatchResults] = useState<{ success: number; failed: numb
         <button className="back-btn" onClick={() => router.push('/management/lists')}>← 返回</button>
       </div>
 
-       <div className="list-header">
-         <div className="cover-box" style={{ backgroundImage: basicForm.cover_image ? `url(${basicForm.cover_image})` : undefined }}>
-           {!basicForm.cover_image && <span>封面</span>}
-           <input type="file" accept="image/*" onChange={(e) => handleFileSelect(e, 'list')} disabled={uploading} />
-         </div>
-         <div className="list-info">
-           <input 
-             className="name-input" 
-             value={basicForm.name} 
-             onChange={e => setBasicForm({...basicForm, name: e.target.value})}
-             placeholder="榜单名称"
-           />
-           <input
-             className="name-input"
-             value={basicForm.position}
-             onChange={e => setBasicForm({...basicForm, position: parseInt(e.target.value) || 0})}
-             placeholder="位置（数字）"
-           />
-           <textarea
-             className="name-input"
-             value={basicForm.intro}
-             onChange={e => setBasicForm({...basicForm, intro: e.target.value})}
-             placeholder="简介"
-             rows={2}
-           />
-           <button className="save-btn" onClick={handleSaveBasic} disabled={saving}>
-             {saving ? '保存中' : '保存'}
-           </button>
-         </div>
-       </div>
+<div className="list-header">
+          <div className="cover-box" style={{ backgroundImage: basicForm.cover_image ? `url(${basicForm.cover_image})` : undefined }}>
+            <input type="file" accept="image/*" onChange={(e) => handleFileSelect(e, 'list')} disabled={uploading} />
+          </div>
+          <div className="list-info">
+            <input 
+              className="name-input" 
+              value={basicForm.name} 
+              onChange={e => setBasicForm({...basicForm, name: e.target.value})}
+              placeholder="榜单名称"
+            />
+            <input
+              className="name-input"
+              value={basicForm.position}
+              onChange={e => setBasicForm({...basicForm, position: parseInt(e.target.value) || 0})}
+              placeholder="位置（数字）"
+            />
+            <button className="save-btn" onClick={handleSaveBasic} disabled={saving}>
+              {saving ? '保存中' : '保存'}
+            </button>
+          </div>
+        </div>
 
-       {/* List images upload and display */}
-       <div className="list-images-section">
-         <div className="section-header">
-           <h2>榜单图片（可多张）</h2>
-           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-             <button className="batch-upload-btn" onClick={() => document.getElementById('list-batch-upload-input')?.click()}>
-               批量上传图片
-             </button>
-             <input
-               id="list-batch-upload-input"
-               type="file"
-               accept="image/*"
-               multiple
-               style={{ display: 'none' }}
-               onChange={handleListBatchFileSelect}
-             />
-             {listBatchMatches.length > 0 && (
-               <button className="batch-del-btn" onClick={handleListBatchDelete}>清空批量</button>
-             )}
-           </div>
-         </div>
-         {listImages.length > 0 ? (
-           <div className="images-list" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
-             {listImages.map((img, idx) => (
-               <div key={img.id} style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                 <img 
-                   src={img.url} 
-                   alt="" 
-                   style={{ width: 120, height: 120, objectFit: 'cover', borderRadius: 8 }} 
-                 />
-                 {img.caption && (
-                   <div style={{ marginTop: 4, fontSize: 12, color: '#6b7280', textAlign: 'center' }}>
-                     {img.caption}
-                   </div>
-                 )}
-                 <button 
-                   onClick={() => handleDeleteListImage(img.id)} 
-                   style={{ 
-                     position: 'absolute', 
-                     top: 4, 
-                     right: 4, 
-                     background: '#ef4444', 
-                     color: 'white', 
-                     border: 'none', 
-                     borderRadius: '12px', 
-                     padding: '2px 6px', 
-                     fontSize: '12px', 
-                     cursor: 'pointer' 
-                   }}
-                 >
-                   ×
-                 </button>
-               </div>
-             ))}
-           </div>
-         ) : (
-           <div style={{ textAlign: 'center', color: '#9ca3af', padding: '20px' }}>暂无图片</div>
-         )}
-         {listBatchMatches.length > 0 && (
-           <div className="batch-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
-             <div className="batch-modal" style={{ background: 'white', borderRadius: '12px', padding: '20px', width: '90%', maxWidth: '520px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-               <h3 style={{ margin: '0 0 12px', fontSize: '16px' }}>批量上传图片</h3>
-               {listBatchMatches.length > 0 && (
-                 <div className="batch-info" style={{ fontSize: '13px', color: '#6b7280', marginBottom: '12px' }}>
-                   共 {listBatchFiles.length} 张，待上传 {listBatchMatches.filter(m => !m.skipped).length} 张，跳过 {listBatchMatches.filter(m => m.skipped).length} 张
-                 </div>
-               )}
-               <div className="batch-list" style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
-                 {listBatchMatches.map((match, index) => (
-                   <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '8px', borderRadius: '6px', background: match.skipped ? '#fef2f2' : '#fff7ed', border: '1px solid', borderColor: match.skipped ? '#fecaca' : '#fed7aa' }}>
-                     <img src={match.previewUrl} alt="" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '4px' }} />
-                     <div style={{ flex: 1, minWidth: 0 }}>
-                       <div style={{ fontSize: '13px', fontWeight: '500' }}>{match.file.name}</div>
-                       {match.skipped ? (
-                         <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#6b7280', flexShrink: 0 }}>
-                           <input type="checkbox" checked={match.skipped} onChange={() => toggleListBatchSkip(index)} />
-                           跳过
-                         </label>
-                       ) : (
-                         <span style={{ fontSize: '11px', color: '#22c55e', flexShrink: 0 }}>待上传</span>
-                       )}
-                     </div>
-                   </div>
-                 ))}
-               </div>
-               {listBatchResults ? (
-                 <div style={{ textAlign: 'center', padding: '16px', background: listBatchResults.failed > 0 ? '#fef2f2' : '#f0fdf4', borderRadius: '8px', marginBottom: '8px' }}>
-                   <div style={{ fontSize: '14px', fontWeight: '600' }}>完成</div>
-                   <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
-                     成功 {listBatchResults.success} 张，失败 {listBatchResults.failed} 张
-                   </div>
-                 </div>
-               ) : null}
-               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                 <button
-                   onClick={() => { setListBatchUploading(false); setListBatchFiles([]); setListBatchMatches([]); setListBatchResults(null); }}
-                   style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #d1d5db', background: 'white', cursor: 'pointer' }}
-                 >
-                   取消
-                 </button>
-                 <button
-                   onClick={handleListBatchUpload}
-                   disabled={listBatchUploading || listBatchMatches.filter(m => !m.skipped).length === 0}
-                   style={{ padding: '8px 16px', borderRadius: '6px', background: listBatchUploading || listBatchMatches.filter(m => !m.skipped).length === 0 ? '#9ca3af' : '#3b82f6', color: 'white', border: 'none', cursor: listBatchUploading || listBatchMatches.filter(m => !m.skipped).length === 0 ? 'not-allowed' : 'pointer' }}
-                 >
-                   {listBatchUploading ? '上传中...' : `确认上传 (${listBatchMatches.filter(m => !m.skipped).length})`}
-                 </button>
-               </div>
-             </div>
-           </div>
-         )}
-       </div>
-
-       <div className="items-section">
+        <div className="items-section">
         <div className="section-header">
           <h2>数据 ({items.length})</h2>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -674,6 +598,15 @@ const [batchResults, setBatchResults] = useState<{ success: number; failed: numb
               onChange={handleBatchFileSelect}
             />
             <button className="import-btn" onClick={() => setShowCsvImport(true)}>CSV导入</button>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+              <button className="import-btn" onClick={() => setBatchImportType('address')} style={{ background: '#f0fdf4', border: '1px solid #86efac', color: '#166534' }}>批量地址</button>
+              <button className="import-btn" onClick={() => setBatchImportType('intro')} style={{ background: '#eff6ff', border: '1px solid #93c5fd', color: '#1e40af' }}>批量简介</button>
+              <button className="import-btn" onClick={() => setBatchImportType('image_url')} style={{ background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e' }}>批量图片</button>
+              <button className="import-btn" onClick={() => setBatchImportType('transport')} style={{ background: '#fdf2f8', border: '1px solid #f9a8d4', color: '#9d174d' }}>批量交通</button>
+              <button className="import-btn" onClick={() => setBatchImportType('rating')} style={{ background: '#f3e8ff', border: '1px solid #c4b5fd', color: '#6b21a8' }}>批量评分</button>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {selectedItems.size > 0 && (
               <button className="batch-del-btn" onClick={handleBatchDelete}>删除({selectedItems.size})</button>
             )}
@@ -690,24 +623,90 @@ const [batchResults, setBatchResults] = useState<{ success: number; failed: numb
                   </div>
                   <div className="item-fields">
                     <input value={itemForms[item.id].title} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], title: e.target.value }}))} placeholder="标题" />
-                    <textarea value={itemForms[item.id].description || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], description: e.target.value }}))} placeholder="描述（地点介绍）" rows={2} />
+                    <textarea value={itemForms[item.id].description || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], description: e.target.value }}))} placeholder="描述" rows={2} />
+                    <input value={itemForms[item.id]?.address || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], address: e.target.value }}))} placeholder="地址" style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, marginTop: 6 }} />
                     <textarea value={itemForms[item.id]?.intro || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], intro: e.target.value }}))} placeholder="简介" rows={2} />
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: 6 }}>
-                      <input 
-                        value={itemForms[item.id]?.image_url || ''} 
-                        onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], image_url: e.target.value }}))} 
-                        placeholder="网络图片URL" 
-                        style={{ flex: 1, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} 
-                      />
-                      {itemForms[item.id]?.image_url && (
-                        <img src={itemForms[item.id].image_url} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
-                      )}
+                    <div style={{ marginTop: 6 }}>
+                      <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 6 }}>网络图片</div>
+                      {itemForms[item.id]?.image_urls?.map((url, idx) => (
+                        <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                          <input 
+                            value={url} 
+                            onChange={e => {
+                              const newUrls = [...itemForms[item.id].image_urls];
+                              newUrls[idx] = e.target.value;
+                              setItemForms(p => ({ ...p, [item.id]: {...p[item.id], image_urls: newUrls }}));
+                            }} 
+                            placeholder="图片URL" 
+                            style={{ flex: 1, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} 
+                          />
+                          {url && <img src={url} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />}
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const newUrls = itemForms[item.id].image_urls.filter((_, i) => i !== idx);
+                              setItemForms(p => ({ ...p, [item.id]: {...p[item.id], image_urls: newUrls.length ? newUrls : [''] }}));
+                            }}
+                            style={{ padding: '6px 10px', border: '1px solid #ef4444', background: '#fef2f2', color: '#ef4444', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}
+                          >×</button>
+                        </div>
+                      ))}
+                      <button 
+                        type="button"
+                        onClick={() => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], image_urls: [...p[item.id].image_urls, ''] }}))}
+                        style={{ padding: '6px 12px', border: '1px solid #3b82f6', background: '#eff6ff', color: '#3b82f6', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}
+                      >+ 添加图片</button>
                     </div>
                     <div className="coords">
                       <button type="button" className="paste-btn" onClick={() => handlePasteCoords(item.id)}>粘贴坐标</button>
                       <input value={itemForms[item.id].lng || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], lng: e.target.value }}))} placeholder="经度" />
                       <input value={itemForms[item.id].lat || ''} onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], lat: e.target.value }}))} placeholder="纬度" />
                     </div>
+                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <textarea 
+                        value={itemForms[item.id].transport_plane || ''} 
+                        onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], transport_plane: e.target.value }}))} 
+                        placeholder="✈️ 飞机（多个用逗号分隔）" 
+                        rows={2}
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} 
+                      />
+                      <textarea 
+                        value={itemForms[item.id].transport_train || ''} 
+                        onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], transport_train: e.target.value }}))} 
+                        placeholder="🚄 火车（多个用逗号分隔）" 
+                        rows={2}
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} 
+                      />
+                      <textarea 
+                        value={itemForms[item.id].transport_bus || ''} 
+                        onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], transport_bus: e.target.value }}))} 
+                        placeholder="🚌 大巴（多个用逗号分隔）" 
+                        rows={2}
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} 
+                      />
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 6 }}>评分类型</div>
+                      <select 
+                        value={itemForms[item.id].rating_type || 'system'} 
+                        onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], rating_type: e.target.value }}))} 
+                        style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, width: '100%' }}
+                      >
+                        <option value="system">系统评分</option>
+                        <option value="custom">自定义评分</option>
+                      </select>
+                    </div>
+                    {itemForms[item.id].rating_type === 'custom' && (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 6 }}>自定义评分内容</div>
+                        <input 
+                          value={itemForms[item.id].custom_rating || ''} 
+                          onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], custom_rating: e.target.value }}))} 
+                          placeholder="如：5A级景区 / 必去榜 / 网红地" 
+                          style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} 
+                        />
+                      </div>
+                    )}
                   </div>
                   <div className="item-edit-btns">
                     <button onClick={cancelEdit}>取消</button>
@@ -730,6 +729,11 @@ const [batchResults, setBatchResults] = useState<{ success: number; failed: numb
                   <div className="item-main">
                     <div className="item-title">{item.title}</div>
                     <div className="item-desc">{item.description || '无描述'}</div>
+                    {itemRatings[item.id]?.count > 0 && (
+                      <div style={{ fontSize: 12, color: '#f59e0b', marginTop: 4 }}>
+                        评分: {itemRatings[item.id].average.toFixed(1)} ({itemRatings[item.id].count}人)
+                      </div>
+                    )}
                   </div>
                   <button className="del-btn" onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}>×</button>
                 </div>
@@ -865,6 +869,7 @@ const [batchResults, setBatchResults] = useState<{ success: number; failed: numb
         </div>
       )}
       {showCsvImport && <CsvImport onClose={() => { setShowCsvImport(false); loadData(); }} />}
+      {batchImportType && <BatchImport type={batchImportType} onClose={() => { setBatchImportType(null); loadData(); }} />}
       {showBatchUpload && (
         <div className="batch-overlay">
           <div className="batch-modal">

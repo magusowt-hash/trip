@@ -1,0 +1,17 @@
+.transportPopover {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+
+.transportPopover::-webkit-scrollbar {
+  width: 2px;
+}
+
+.transportPopover::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.transportPopover::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 2px;
+}

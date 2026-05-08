@@ -13,9 +13,15 @@ interface ListItem {
   description: string | null;
   intro: string | null;
   image_url: string | null;
+  image_urls?: string[];
   lng: string | null;
   lat: string | null;
   address: string | null;
+  transport_plane?: string | null;
+  transport_train?: string | null;
+  transport_bus?: string | null;
+  rating_type?: string | null;
+  custom_rating?: string | null;
   order_num: number;
 }
 
@@ -39,6 +45,7 @@ export default function ListsPage() {
   const [favoriteItemIds, setFavoriteItemIds] = useState<Set<number>>(new Set());
   const [visitedItemIds, setVisitedItemIds] = useState<Set<number>>(new Set());
   const [ratings, setRatings] = useState<Map<number, { rating: number; comment: string }>>(new Map());
+  const [averageRatings, setAverageRatings] = useState<Map<number, { average: number; count: number }>>(new Map());
   const itemListRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
 
@@ -102,11 +109,42 @@ export default function ListsPage() {
         .then(res => res.json())
         .then(data => {
           if (data.items) {
-            setItems(data.items);
+            const transformed = data.items.map((item: ListItem) => ({
+              ...item,
+              image_urls: item.image_url ? item.image_url.split(',').filter(Boolean).map((s: string) => s.trim()) : [],
+            }));
+            setItems(transformed);
           }
         });
     }
   }, [selectedListId]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    const itemIds = items.map(i => i.id).join(',');
+    fetch(`/api/ratings?averageOnly=true&targetType=list_item&targetId=${itemIds}`)
+      .then(res => res.json())
+      .then(data => {
+        const newAverages = new Map<number, { average: number; count: number }>();
+        if (data.averages && Object.keys(data.averages).length > 0) {
+          items.forEach(item => {
+            const avgData = data.averages[String(item.id)];
+            newAverages.set(item.id, { 
+              average: avgData?.average || 0, 
+              count: avgData?.count || 0 
+            });
+          });
+        } else if (data.average !== undefined) {
+          items.forEach(item => {
+            newAverages.set(item.id, { average: data.average || 0, count: data.count || 0 });
+          });
+        }
+        if (newAverages.size > 0) {
+          setAverageRatings(newAverages);
+        }
+      })
+      .catch(() => {});
+  }, [items]);
 
   useEffect(() => {
     const markers = items
@@ -119,12 +157,14 @@ export default function ListsPage() {
         description: item.description || undefined,
         intro: item.intro || undefined,
         image_url: item.image_url || undefined,
+        transport_plane: item.transport_plane || undefined,
+        transport_train: item.transport_train || undefined,
+        transport_bus: item.transport_bus || undefined,
       }));
     setMapMarkers(markers);
   }, [items]);
 
   const handleListItemClick = (item: ListItem) => {
-    setModalItem(item);
     if (item.lng && item.lat) {
       const lng = parseFloat(item.lng);
       const lat = parseFloat(item.lat);
@@ -135,12 +175,41 @@ export default function ListsPage() {
     }
   };
 
+  const handleItemDetailClick = (item: ListItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setModalItem(item);
+    fetch(`/api/ratings?averageOnly=true&targetType=list_item&targetId=${item.id}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.average !== undefined) {
+          setAverageRatings(prev => {
+            const newMap = new Map(prev);
+            newMap.set(item.id, { average: data.average || 0, count: data.count || 0 });
+            return newMap;
+          });
+        }
+      })
+      .catch(() => {});
+  };
+
   const handleMapMarkerClick = (marker: { id?: number; position: [number, number] }) => {
     if (marker.id) {
       setFocusPosition(null);
       const item = items.find(i => i.id === marker.id);
       if (item) {
         setModalItem(item);
+        fetch(`/api/ratings?averageOnly=true&targetType=list_item&targetId=${item.id}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.average !== undefined) {
+              setAverageRatings(prev => {
+                const newMap = new Map(prev);
+                newMap.set(item.id, { average: data.average || 0, count: data.count || 0 });
+                return newMap;
+              });
+            }
+          })
+          .catch(() => {});
         return;
       }
       const el = document.querySelector(`[data-item-id="${marker.id}"]`);
@@ -232,11 +301,22 @@ export default function ListsPage() {
     }
     setVisitedItemIds(newVisited);
 
-    // If canceling visited, also delete rating
+    // If canceling visited, also delete rating from database
     if (wasVisited) {
       const newRatings = new Map(ratings);
       newRatings.delete(itemId);
       setRatings(newRatings);
+
+      try {
+        await fetch('/api/ratings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ targetType: 'list_item', targetId: itemId, rating: 0 }),
+        });
+      } catch (e) {
+        console.error('Failed to delete rating:', e);
+      }
     }
 
     try {
@@ -323,19 +403,26 @@ export default function ListsPage() {
      )}
 
      <div className={styles.itemCount}>共 {items.length} 项</div>
-     <div className={styles.itemList} ref={itemListRef}>
-       {items.map(item => (
-         <div key={item.id} className={styles.itemCard} data-item-id={item.id} onClick={() => handleListItemClick(item)}>
-           {item.cover_image && (
-             <div className={styles.itemCover} style={{ backgroundImage: `url(${item.cover_image})` }} />
-           )}
-           <div className={styles.itemInfo}>
-             <h3 className={styles.itemTitle}>{item.title}</h3>
-             {item.description && <p className={styles.itemDesc}>{item.description}</p>}
-           </div>
-         </div>
-       ))}
-     </div>
+<div className={styles.itemList} ref={itemListRef}>
+        {items.map(item => (
+          <div key={item.id} className={styles.itemCard} data-item-id={item.id} onClick={() => handleListItemClick(item)}>
+            {item.cover_image && (
+              <div className={styles.itemCover} style={{ backgroundImage: `url(${item.cover_image})` }} />
+            )}
+            <div className={styles.itemInfo}>
+              <h3 className={styles.itemTitle}>{item.title}</h3>
+              {item.description && <p className={styles.itemDesc}>{item.description}</p>}
+            </div>
+            <div className={styles.itemArrow} onClick={(e) => handleItemDetailClick(item, e)}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="3" cy="8" r="1.5" fill="#9ca3af"/>
+                <circle cx="8" cy="8" r="1.5" fill="#9ca3af"/>
+                <circle cx="13" cy="8" r="1.5" fill="#9ca3af"/>
+              </svg>
+            </div>
+          </div>
+        ))}
+      </div>
    </div>
       </div>
 
@@ -350,14 +437,22 @@ export default function ListsPage() {
             description: modalItem.description,
             intro: modalItem.intro,
             image_url: modalItem.image_url,
+            image_urls: modalItem.image_urls,
             lng: modalItem.lng,
             lat: modalItem.lat,
             address: modalItem.address,
+            transport_plane: modalItem.transport_plane,
+            transport_train: modalItem.transport_train,
+            transport_bus: modalItem.transport_bus,
+            rating_type: modalItem.rating_type,
+            custom_rating: modalItem.custom_rating,
           }}
           favorited={favoriteItemIds.has(modalItem.id)}
           visited={visitedItemIds.has(modalItem.id)}
           rating={ratings.get(modalItem.id)?.rating || 0}
           comment={ratings.get(modalItem.id)?.comment || ''}
+          averageRating={averageRatings.get(modalItem.id)?.average || 0}
+          ratingCount={averageRatings.get(modalItem.id)?.count || 0}
           onFavoriteClick={() => handleFavorite(modalItem.id)}
           onVisitedClick={() => handleVisited(modalItem.id)}
           onRatingChange={(rating, comment) => handleRatingChange(modalItem.id, rating, comment)}
