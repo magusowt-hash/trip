@@ -2060,8 +2060,19 @@
   z-index: 1;
 }
 
+.amountBubble::before {
+  content: '';
+  position: absolute;
+  top: -24px;
+  bottom: -24px;
+  left: -8px;
+  right: -8px;
+  z-index: -1;
+}
+
 .amountBubble:hover {
   transform: scale(1.05);
+  z-index: 5;
 }
 
 .bubbleHoverActions {
@@ -2080,8 +2091,8 @@
 
 .bubbleDelBtn {
   position: absolute;
-  top: 0;
-  right: -8px;
+  top: -6px;
+  right: -6px;
   width: 22px;
   height: 22px;
   border-radius: 50%;
