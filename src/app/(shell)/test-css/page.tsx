@@ -62,8 +62,8 @@ export default function TestCssPage() {
       alert('网格已满！');
       return;
     }
-    const offX = (Math.random() - 0.5) * GAP;
-    const offY = (Math.random() - 0.5) * GAP;
+    const offX = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_W * 0.15);
+    const offY = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_H * 0.15);
     const newBubble: Bubble = {
       id: Date.now(),
       x: cell.cx + offX,

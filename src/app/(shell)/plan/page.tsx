@@ -568,8 +568,8 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     if (free.length === 0) return null;
 
     const cell = free[Math.floor(Math.random() * free.length)];
-    const offX = (Math.random() - 0.5) * GAP;
-    const offY = (Math.random() - 0.5) * GAP;
+    const offX = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_W * 0.15);
+    const offY = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_H * 0.15);
     return { x: cell.cx + offX, y: cell.cy + offY };
   };
 
