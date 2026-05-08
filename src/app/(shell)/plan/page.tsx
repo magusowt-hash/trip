@@ -535,18 +535,16 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     const pad = 10;
     const CELL_W = BUBBLE_W + GAP;
     const CELL_H = BUBBLE_H + GAP;
-    const startX = pad;
-    const startY = pad;
     const cols = Math.floor((w - pad * 2) / CELL_W);
     const rows = Math.floor((h - pad * 2) / CELL_H);
     const ids = Object.keys(existing).map(Number);
     const areaCx = w / 2, areaCy = h / 2;
 
-    const freeCells: { col: number; row: number; cx: number; cy: number }[] = [];
+    const free: { cx: number; cy: number }[] = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const cx = startX + c * CELL_W + CELL_W / 2;
-        const cy = startY + r * CELL_H + CELL_H / 2;
+        const cx = pad + c * CELL_W + CELL_W / 2;
+        const cy = pad + r * CELL_H + CELL_H / 2;
         if (Math.abs(cx - areaCx) < safeW / 2 + BUBBLE_W / 2 && Math.abs(cy - areaCy) < safeH / 2 + BUBBLE_H / 2) continue;
         let occupied = false;
         for (const id of ids) {
@@ -554,15 +552,15 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
           if (!p) continue;
           if (Math.abs(cx - p.x) < CELL_W && Math.abs(cy - p.y) < CELL_H) { occupied = true; break; }
         }
-        if (!occupied) freeCells.push({ col: c, row: r, cx, cy });
+        if (!occupied) free.push({ cx, cy });
       }
     }
 
-    if (freeCells.length === 0) return null;
+    if (free.length === 0) return null;
 
-    const cell = freeCells[Math.floor(Math.random() * freeCells.length)];
-    const offX = (Math.random() - 0.5) * (CELL_W - BUBBLE_W);
-    const offY = (Math.random() - 0.5) * (CELL_H - BUBBLE_H);
+    const cell = free[Math.floor(Math.random() * free.length)];
+    const offX = (Math.random() - 0.5) * GAP;
+    const offY = (Math.random() - 0.5) * GAP;
     return { x: cell.cx + offX, y: cell.cy + offY };
   };
 
