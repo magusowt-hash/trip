@@ -531,7 +531,7 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   };
 
   const tryPlaceBubble = (existing: Record<number, { x: number; y: number }>, w: number, h: number): { x: number; y: number } | null => {
-    const safeW = 150, safeH = 80;
+    const safeW = 200, safeH = 110;
     const cx = w / 2, cy = h / 2;
     const pad = 10;
     const ids = Object.keys(existing).map(Number);
