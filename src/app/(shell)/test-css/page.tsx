@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-const BUBBLE_W = 62, BUBBLE_H = 46, BUBBLE_REAL_W = 108, BUBBLE_REAL_H = 66, GAP = 6;
+const BUBBLE_W = 62, BUBBLE_H = 46, BUBBLE_REAL_W = 60, BUBBLE_REAL_H = 36, GAP = 6;
 
 interface Bubble {
   id: number;
