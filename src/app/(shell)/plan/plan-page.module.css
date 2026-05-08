@@ -2098,35 +2098,7 @@
   pointer-events: none;
 }
 
-.pageTab {
-  width: 28px;
-  height: 28px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 50%;
-  background: #fff;
-  color: #9ca3af;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-}
 
-.pageTab:hover {
-  border-color: #93c5fd;
-  color: #3b82f6;
-}
-
-.pageTabActive {
-  background: #007aff;
-  border-color: #007aff;
-  color: #fff;
-}
-
-/* remove old grid */
-.bubbleGrid { display: none; }
 
 .amountBubble {
   position: absolute;
