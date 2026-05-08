@@ -542,16 +542,9 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     const safeMarginX = safeW / 2 + BUBBLE_W / 2;
     const safeMarginY = safeH / 2 + BUBBLE_H / 2;
 
-    const isGap = (c: number, r: number): boolean => {
-      if (c % 4 === 3 || c % 5 === 4) return true;
-      if (r % 3 === 2) return true;
-      return false;
-    };
-
     const free: { cx: number; cy: number }[] = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        if (isGap(c, r)) continue;
         const cx = pad + c * CELL_W + CELL_W / 2;
         const cy = pad + r * CELL_H + CELL_H / 2;
         if (Math.abs(cx - areaCx) < safeMarginX && Math.abs(cy - areaCy) < safeMarginY) continue;
@@ -559,7 +552,7 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
         for (const id of ids) {
           const p = existing[id];
           if (!p) continue;
-          if (Math.abs(cx - p.x) < CELL_W && Math.abs(cy - p.y) < CELL_H) { occupied = true; break; }
+          if (Math.abs(cx - p.x) < CELL_W / 2 && Math.abs(cy - p.y) < CELL_H / 2) { occupied = true; break; }
         }
         if (!occupied) free.push({ cx, cy });
       }

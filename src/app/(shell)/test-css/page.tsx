@@ -78,8 +78,8 @@ export default function TestCssPage() {
     const newBubbles: Bubble[] = [...bubbles];
     let cell = findFreeCell(newBubbles);
     while (cell) {
-      const offX = (Math.random() - 0.5) * GAP;
-      const offY = (Math.random() - 0.5) * GAP;
+      const offX = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_W * 0.15);
+      const offY = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_H * 0.15);
       newBubbles.push({
         id: Date.now() + newBubbles.length,
         x: cell.cx + offX,
