@@ -29,6 +29,8 @@ interface ItineraryItem {
 
 const PACK_CATEGORIES = ['通用类', '境外旅行', '徒步旅行', '登山/爬山', '海边旅行'];
 const PACK_TEMPLATES = ['身份证', '手机', '充电器', '充电宝', '护照', '钱包', '换洗衣物', '洗漱用品'];
+const CUSTOM_CAT_COLORS = ['#f43f5e', '#14b8a6', '#a855f7', '#eab308'];
+const CURRENCIES = ['¥', '$', '€', '£', '₩', '฿'];
 
 interface PackingItem {
   id: number;
@@ -485,7 +487,6 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   );
   const [budgetList, setBudgetList] = useState<BudgetItem[]>([]);
   const [budgetViewMode, setBudgetViewMode] = useState<'bubble' | 'list'>('bubble');
-  const [budgetName, setBudgetName] = useState('');
   const [budgetAmount, setBudgetAmount] = useState('');
   const [budgetNote, setBudgetNote] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -494,16 +495,15 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [currency, setCurrency] = useState('¥');
   const [pages, setPages] = useState<Record<number, { x: number; y: number }>[]>([{}]);
+  const [pageNames, setPageNames] = useState<string[]>(['1']);
   const [currentPage, setCurrentPage] = useState(0);
+  const [editingPageName, setEditingPageName] = useState(false);
   const [budgetNoteId, setBudgetNoteId] = useState<number | null>(null);
   const [budgetNoteText, setBudgetNoteText] = useState('');
   const [budgetNotePos, setBudgetNotePos] = useState<{ top: number; left: number } | null>(null);
   const [editingField, setEditingField] = useState<{ id: number; field: 'name' | 'amount' | 'note' } | null>(null);
   const [editValue, setEditValue] = useState('');
   const bubbleAreaRef = useRef<HTMLDivElement>(null);
-  const CUSTOM_CAT_COLORS = ['#f43f5e', '#14b8a6', '#a855f7', '#eab308'];
-  const CURRENCIES = ['¥', '$', '€', '£', '₩', '฿'];
-
   const CATEGORY_PRESETS = [
     { name: '酒店', color: '#f59e0b' },
     { name: '交通', color: '#3b82f6' },
@@ -524,7 +524,6 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   const handleCategorySelect = (cat: string) => {
     if (selectedCategory === cat) {
       setSelectedCategory('');
-      setBudgetName('');
       return;
     }
     setSelectedCategory(cat);
@@ -552,7 +551,7 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   };
 
   const handleBudgetAdd = () => {
-    const name = budgetName.trim() || selectedCategory;
+    const name = selectedCategory;
     const amount = parseInt(budgetAmount);
     if (!name || !amount || amount <= 0) return;
     const area = bubbleAreaRef.current;
