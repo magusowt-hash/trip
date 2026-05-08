@@ -55,8 +55,8 @@ export default function TestCssPage() {
       return;
     }
 
-    free.sort((a, b) => a.cx - b.cx || a.cy - b.cy);
-    const cell = free[0];
+    // 随机选择而非顺序选择
+    const cell = free[Math.floor(Math.random() * free.length)];
     const offX = (Math.random() - 0.5) * GAP;
     const offY = (Math.random() - 0.5) * GAP;
     const newBubble: Bubble = {
