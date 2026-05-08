@@ -16,8 +16,8 @@ const COLORS = ['#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#22c55e', '#6b7280'
 
 export default function TestCssPage() {
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
-  const [w, setW] = useState(700);
-  const [h, setH] = useState(400);
+  const [w, setW] = useState(490);
+  const [h, setH] = useState(280);
   const [safeW, setSafeW] = useState(260);
   const [safeH, setSafeH] = useState(110);
   const [pad, setPad] = useState(6);
