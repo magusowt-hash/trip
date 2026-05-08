@@ -577,11 +577,31 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   const handleBudgetDelete = (id: number) => {
     setBudgetList(budgetList.filter(b => b.id !== id));
     setPages(prev => {
-      const copy = prev.map(p => { const n = { ...p }; delete n[id]; return n; });
-      return copy.filter((p, i) => i === 0 || Object.keys(p).length > 0);
+      const copy = prev.map(p => {
+        const n = { ...p };
+        delete n[id];
+        return n;
+      });
+      const filtered = copy.filter((p, i) => i === 0 || Object.keys(p).length > 0);
+      const removedCount = copy.length - filtered.length;
+      if (removedCount > 0) {
+        setPageNames(pns => {
+          const newNames = [...pns];
+          for (let i = copy.length - 1; i >= 0; i--) {
+            if (i > 0 && Object.keys(copy[i]).length === 0) {
+              newNames.splice(i, 1);
+            }
+          }
+          return newNames.length > 0 ? newNames : ['1'];
+        });
+        if (currentPage >= filtered.length) {
+          setCurrentPage(Math.max(0, filtered.length - 1));
+        }
+      }
+      return filtered;
     });
-    if (currentPagePositions[id] && Object.keys(currentPagePositions).length === 1) {
-      setCurrentPage(Math.max(0, currentPage - 1));
+    if (currentPagePositions[id] && Object.keys(currentPagePositions).length === 1 && currentPage > 0) {
+      setCurrentPage(currentPage - 1);
     }
   };
 
