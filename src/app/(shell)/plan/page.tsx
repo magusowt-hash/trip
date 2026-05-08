@@ -518,7 +518,7 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     ...customCategories.map((name, i) => ({ name, color: CUSTOM_CAT_COLORS[i % CUSTOM_CAT_COLORS.length] })),
   ];
 
-  const BUBBLE_W = 62, BUBBLE_H = 46, BUBBLE_REAL_W = 60, BUBBLE_REAL_H = 36, GAP = 6;
+  const BUBBLE_W = 90, BUBBLE_H = 70, BUBBLE_REAL_W = 70, BUBBLE_REAL_H = 56, GAP = 7;
   const currentPagePositions = pages[currentPage] || {};
 
   const handleCategorySelect = (cat: string) => {
