@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { DEMO_EXISTING_PLANS, formatPlanDateLine, groupPlansByYearMonth } from './planData';
 import PlanMap from '@/components/PlanMap';
 import styles from './plan-page.module.css';
@@ -34,16 +35,17 @@ interface PackingItem {
   name: string;
 }
 
-const BUDGET_COLORS = ['#81c784', '#3d5afe', '#e68933', '#f0d06b', '#8ee4d1', '#d85c9b', '#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4'];
+interface PackingCategory {
+  id: number;
+  name: string;
+  templates: string[];
+}
 
 interface BudgetItem {
   id: number;
-  category: string;
+  name: string;
   amount: number;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
+  note?: string;
 }
 
 interface ImportedPost {
@@ -98,17 +100,6 @@ function PlanTimelinePanel({
   const [selectedPlan, setSelectedPlan] = useState<{ id: number; name: string; items: any[]; startDate?: string; endDate?: string } | null>(null);
   const [userPlans, setUserPlans] = useState<{ id: number; name: string; start_date?: string; end_date?: string }[]>([]);
   const [editingPlan, setEditingPlan] = useState<{ id: number; name: string; items: any[] } | null>(null);
-
-  useEffect(() => {
-    fetch('/api/plans')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.plans) {
-          setUserPlans(data.plans);
-        }
-      })
-      .catch((err) => console.error('Failed to fetch plans:', err));
-  }, []);
 
   const handleViewPlan = (plan: { id: number; name: string; start_date?: string; end_date?: string }) => {
     fetch(`/api/plans/${plan.id}`)
@@ -224,8 +215,10 @@ function PlanViewModal({ plan, onClose, onEdit }: PlanViewModalProps) {
 
 function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id: number; name: string; items: any[]; startDate?: string; endDate?: string } | null }) {
   const [activeTab, setActiveTab] = useState<number>(0);
+  const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+
   const [transportList, setTransportList] = useState<TransportItem[]>([
-    { id: 1, from: '', to: '', note: '', noteExpanded: false, startDate: '', endDate: '' },
+    { id: 1, from: '', to: '', note: '', noteExpanded: false, startDate: todayStr, endDate: todayStr },
   ]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editField, setEditField] = useState<'from' | 'to' | 'note' | null>(null);
@@ -238,12 +231,18 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   ]);
   const [packingList, setPackingList] = useState<PackingItem[]>([]);
   const [packingInput, setPackingInput] = useState<string>('');
+  const [packingCategories, setPackingCategories] = useState<PackingCategory[]>([]);
+  const [packingLoaded, setPackingLoaded] = useState(false);
+  const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
   const [importedPosts, setImportedPosts] = useState<ImportedPost[]>([]);
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [guidePage, setGuidePage] = useState(1);
   const [favoritePosts, setFavoritePosts] = useState<any[]>([]);
   const [favoritesLoading, setFavoritesLoading] = useState(false);
   const [fetchedFavorites, setFetchedFavorites] = useState(false);
+  const [notePopoverItemId, setNotePopoverItemId] = useState<number | null>(null);
+  const [notePopoverText, setNotePopoverText] = useState('');
+  const [notePopoverPos, setNotePopoverPos] = useState<{ top: number; left: number } | null>(null);
 
   const fetchFavoritePosts = async () => {
     setFavoritesLoading(true);
@@ -319,43 +318,47 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
               className={`${styles.itineraryLeftCard} ${item.expanded ? styles.itineraryLeftCardActive : ''}`}
               onClick={() => toggleExpand(item.id)}
             >
-              {idx > 0 && <div className={styles.itineraryConnector}>
-                <span className={styles.itineraryFirstChar}>
-                  {itineraryList[idx - 1].title.charAt(0) || '上'}
-                </span>
-              </div>}
-              <div className={styles.itineraryLeftHeader}>
+              <div className={styles.itineraryActionsWrap}>
                 <div
-                  className={styles.itineraryDot}
+                  className={styles.itineraryTag}
                   style={{ backgroundColor: item.importance === 'red' ? '#ef4444' : item.importance === 'yellow' ? '#eab308' : '#22c55e' }}
                   onClick={(e) => { e.stopPropagation(); toggleImportance(item.id); }}
                 />
-                <span className={styles.itineraryLeftTitle}>{item.title || '自定义文本1'}</span>
+                <div className={styles.itineraryActions}>
+                  <button type="button" className={`${styles.itineraryActionBtn} ${styles.itineraryDelBtn}`} onClick={(e) => { e.stopPropagation(); handleItineraryDelete(item.id); }} style={{ visibility: itineraryList.length > 1 ? 'visible' : 'hidden' }}>−</button>
+                  <button type="button" className={`${styles.itineraryActionBtn} ${styles.itineraryAddBtn}`} onClick={(e) => { e.stopPropagation(); handleItineraryAdd(); }}>+</button>
+                </div>
+              </div>
+              <div className={styles.itineraryLeftHeader}>
+                <span
+                  className={styles.itineraryLeftTitle}
+                  style={{ color: item.title ? '#1d1d1f' : undefined }}
+                >{item.title || '标题'}</span>
               </div>
               <input
                 className={styles.itineraryTimeInput}
+                style={{ color: item.time ? '#1d1d1f' : undefined }}
                 value={item.time}
                 onChange={(e) => { e.stopPropagation(); handleItineraryUpdate(item.id, 'time', e.target.value); }}
-                placeholder="自定义文本2"
+                placeholder="时间"
               />
-              <div className={styles.itineraryActions}>
-                {itineraryList.length > 1 && (
-                  <button type="button" onClick={(e) => { e.stopPropagation(); handleItineraryDelete(item.id); }}>删除</button>
-                )}
-                <button type="button" onClick={(e) => { e.stopPropagation(); handleItineraryAdd(); }}>添加</button>
-              </div>
             </div>
           ))}
         </div>
         <div className={styles.itineraryRightPanel}>
           {activeItem ? (
             <>
-              <div className={styles.itineraryNoteHeader}>{activeItem.title || '自定义文本1'}</div>
+              <input
+                className={styles.itineraryNoteHeader}
+                value={activeItem.title}
+                onChange={(e) => handleItineraryUpdate(activeItem.id, 'title', e.target.value)}
+                placeholder="标题"
+              />
               <textarea
                 className={styles.itineraryNoteFull}
                 value={activeItem.note}
                 onChange={(e) => handleItineraryUpdate(activeItem.id, 'note', e.target.value)}
-                placeholder="便签内容输入区域"
+                placeholder="详细行程……"
               />
             </>
           ) : (
@@ -384,19 +387,31 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     setPackingList([...packingList, { id: newId, name }]);
   };
 
+  useEffect(() => {
+    if (activeTab === 2 && !packingLoaded) {
+      fetch('/api/packing')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.categories) setPackingCategories(data.categories);
+        })
+        .catch(() => {})
+        .finally(() => setPackingLoaded(true));
+    }
+  }, [activeTab, packingLoaded]);
+
   const renderPackingList = () => (
     <div className={styles.packingSplit}>
       <div className={styles.packingLeft}>
         <div className={styles.packingItems}>
           {packingList.map(item => (
             <div key={item.id} className={styles.packingItem}>
-              <span>{item.name}</span>
+              <span className={styles.packingItemName}>{item.name}</span>
               <button type="button" className={styles.packingDelBtn} onClick={() => handlePackingDelete(item.id)}>×</button>
             </div>
           ))}
         </div>
         <div className={styles.packingBottom}>
-          <div className={styles.packingCircleBtn} />
+          <div className={styles.packingCircleBtn}>+</div>
           <input
             type="text"
             className={styles.packingInput}
@@ -409,86 +424,207 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
         </div>
       </div>
       <div className={styles.packingRight}>
-        <div className={styles.packingListBox}>
-          <div className={styles.packingListTitle}>旅行分类</div>
-          {PACK_CATEGORIES.map(cat => (
-            <div key={cat} className={styles.packingListItem}>{cat}</div>
-          ))}
-        </div>
-        <div className={styles.packingListBox}>
-          <div className={styles.packingListTitle}>物品列表</div>
-          {PACK_TEMPLATES.map(item => (
-            <div
-              key={item}
-              className={styles.packingListItem}
-              onClick={() => handlePackingTemplate(item)}
-            >{item}</div>
-          ))}
-        </div>
+        {packingCategories.length > 0 ? (
+          <>
+            <div className={styles.packingListBox}>
+              <div className={styles.packingListTitle}>旅行分类</div>
+              {packingCategories.map(cat => (
+                <div
+                  key={cat.id}
+                  className={styles.packingListItem}
+                  onClick={() => setActiveCategoryId(activeCategoryId === cat.id ? null : cat.id)}
+                  style={activeCategoryId === cat.id ? { background: '#eff6ff', borderColor: '#93c5fd', color: '#3b82f6' } : {}}
+                >{cat.name}</div>
+              ))}
+            </div>
+            <div className={styles.packingListBox}>
+              <div className={styles.packingListTitle}>
+                {activeCategoryId ? packingCategories.find(c => c.id === activeCategoryId)?.name || '物品列表' : '物品列表'}
+              </div>
+              {(activeCategoryId ? packingCategories.find(c => c.id === activeCategoryId)?.templates || [] : []).map(item => (
+                <div
+                  key={item}
+                  className={styles.packingListItem}
+                  onClick={() => handlePackingTemplate(item)}
+                >{item}</div>
+              ))}
+              {!activeCategoryId && packingCategories.flatMap(c => c.templates).map(item => (
+                <div
+                  key={item}
+                  className={styles.packingListItem}
+                  onClick={() => handlePackingTemplate(item)}
+                >{item}</div>
+              ))}
+              {activeCategoryId && packingCategories.find(c => c.id === activeCategoryId)?.templates.length === 0 && (
+                <div style={{ color: '#c7c9cc', fontSize: 12, padding: 8 }}>暂无物品</div>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={styles.packingListBox}>
+              <div className={styles.packingListTitle}>旅行分类</div>
+              {PACK_CATEGORIES.map(cat => (
+                <div key={cat} className={styles.packingListItem}>{cat}</div>
+              ))}
+            </div>
+            <div className={styles.packingListBox}>
+              <div className={styles.packingListTitle}>物品列表</div>
+              {PACK_TEMPLATES.map(item => (
+                <div
+                  key={item}
+                  className={styles.packingListItem}
+                  onClick={() => handlePackingTemplate(item)}
+                >{item}</div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
   const [budgetList, setBudgetList] = useState<BudgetItem[]>([]);
-  const [budgetInput, setBudgetInput] = useState<Record<string, string>>({});
+  const [budgetViewMode, setBudgetViewMode] = useState<'bubble' | 'list'>('bubble');
+  const [budgetName, setBudgetName] = useState('');
+  const [budgetAmount, setBudgetAmount] = useState('');
+  const [budgetNote, setBudgetNote] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [customCategoryName, setCustomCategoryName] = useState('');
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [currency, setCurrency] = useState('¥');
+  const [pages, setPages] = useState<Record<number, { x: number; y: number }>[]>([{}]);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [budgetNoteId, setBudgetNoteId] = useState<number | null>(null);
+  const [budgetNoteText, setBudgetNoteText] = useState('');
+  const [budgetNotePos, setBudgetNotePos] = useState<{ top: number; left: number } | null>(null);
+  const [editingField, setEditingField] = useState<{ id: number; field: 'name' | 'amount' | 'note' } | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const bubbleAreaRef = useRef<HTMLDivElement>(null);
+  const CUSTOM_CAT_COLORS = ['#f43f5e', '#14b8a6', '#a855f7', '#eab308'];
+  const CURRENCIES = ['¥', '$', '€', '£', '₩', '฿'];
 
-  const generatePosition = (existingBubbles: BudgetItem[]) => {
-    const containerWidth = 1200;
-    const containerHeight = 350;
-    const width = 70 + Math.random() * 30;
-    const height = 35 + Math.random() * 15;
+  const CATEGORY_PRESETS = [
+    { name: '酒店', color: '#f59e0b' },
+    { name: '交通', color: '#3b82f6' },
+    { name: '门票', color: '#8b5cf6' },
+    { name: '购物', color: '#ec4899' },
+    { name: '饮食', color: '#22c55e' },
+    { name: '杂项', color: '#6b7280' },
+  ];
 
-    let attempts = 0;
-    const maxAttempts = 300;
-    let x = 0, y = 0;
-    let valid = false;
+  const allCategories = [
+    ...CATEGORY_PRESETS,
+    ...customCategories.map((name, i) => ({ name, color: CUSTOM_CAT_COLORS[i % CUSTOM_CAT_COLORS.length] })),
+  ];
 
-    while (!valid && attempts < maxAttempts) {
-      x = width / 2 + 20 + Math.random() * (containerWidth - width - 40);
-      y = height / 2 + 20 + Math.random() * (containerHeight - height - 40);
+  const BUBBLE_W = 62, BUBBLE_H = 46, BUBBLE_REAL_W = 98, BUBBLE_REAL_H = 66, GAP = 8;
+  const currentPagePositions = pages[currentPage] || {};
 
-      valid = true;
-      for (const b of existingBubbles) {
-        if (b.x !== undefined && b.y !== undefined) {
-          const dx = Math.abs(x - b.x);
-          const dy = Math.abs(y - b.y);
-          const minX = (width + (b.width || 70)) / 2 + 12;
-          const minY = (height + (b.height || 35)) / 2 + 12;
-          if (dx < minX && dy < minY) {
-            valid = false;
-            break;
-          }
-        }
-      }
-      attempts++;
+  const handleCategorySelect = (cat: string) => {
+    if (selectedCategory === cat) {
+      setSelectedCategory('');
+      setBudgetName('');
+      return;
     }
-
-    if (!valid) {
-      x = containerWidth / 2;
-      y = containerHeight / 2;
-    }
-
-    return { x, y, width, height };
+    setSelectedCategory(cat);
+    setShowCustomInput(false);
   };
 
-  const handleBudgetAdd = (categoryKey: string) => {
-    const amount = parseInt(budgetInput[categoryKey] || '0');
-    if (!amount || amount <= 0) return;
-    if (budgetList.length >= 50) return;
+  const tryPlaceBubble = (existing: Record<number, { x: number; y: number }>, w: number, h: number): { x: number; y: number } | null => {
+    const safeW = 180, safeH = 100;
+    const cx = w / 2, cy = h / 2;
+    const pad = 10;
+    const ids = Object.keys(existing).map(Number);
+    for (let i = 0; i < 600; i++) {
+      const x = BUBBLE_REAL_W / 2 + pad + Math.random() * (w - BUBBLE_REAL_W - pad * 2);
+      const y = BUBBLE_REAL_H / 2 + pad + Math.random() * (h - BUBBLE_REAL_H - pad * 2);
+      if (Math.abs(x - cx) < safeW / 2 + BUBBLE_REAL_W / 2 && Math.abs(y - cy) < safeH / 2 + BUBBLE_REAL_H / 2) continue;
+      let ok = true;
+      for (const id of ids) {
+        const p = existing[id];
+        if (!p) continue;
+        if (Math.abs(x - p.x) < BUBBLE_REAL_W + GAP && Math.abs(y - p.y) < BUBBLE_REAL_H + GAP) { ok = false; break; }
+      }
+      if (ok) return { x, y };
+    }
+    return null;
+  };
 
-    const existingBubbles = budgetList;
-    const pos = generatePosition(existingBubbles);
-
-    setBudgetList([...budgetList, {
-      id: Date.now(),
-      category: categoryKey,
-      amount,
-      ...pos,
-    }]);
-    setBudgetInput({ ...budgetInput, [categoryKey]: '' });
+  const handleBudgetAdd = () => {
+    const name = budgetName.trim() || selectedCategory;
+    const amount = parseInt(budgetAmount);
+    if (!name || !amount || amount <= 0) return;
+    const area = bubbleAreaRef.current;
+    const w = area?.clientWidth || 400;
+    const h = area?.clientHeight || 300;
+    const pos = tryPlaceBubble(currentPagePositions, w, h);
+    const id = Date.now();
+    if (pos) {
+      setPages(prev => {
+        const copy = [...prev];
+        copy[currentPage] = { ...copy[currentPage], [id]: pos };
+        return copy;
+      });
+    } else {
+      setPages(prev => [...prev, { [id]: { x: w / 4 + Math.random() * w / 2, y: h / 4 + Math.random() * h / 2 } }]);
+      setCurrentPage(pages.length);
+    }
+    setBudgetList([...budgetList, { id, name, amount, note: budgetNote.trim() || undefined }]);
+    setBudgetAmount('');
+    setBudgetNote('');
   };
 
   const handleBudgetDelete = (id: number) => {
     setBudgetList(budgetList.filter(b => b.id !== id));
+    setPages(prev => {
+      const copy = prev.map(p => { const n = { ...p }; delete n[id]; return n; });
+      return copy.filter((p, i) => i === 0 || Object.keys(p).length > 0);
+    });
+    if (currentPagePositions[id] && Object.keys(currentPagePositions).length === 1) {
+      setCurrentPage(Math.max(0, currentPage - 1));
+    }
+  };
+
+  const getTotalAmount = () => {
+    return budgetList.reduce((sum, item) => sum + item.amount, 0);
+  };
+
+  const handleBudgetNoteOpen = (itemId: number, e: React.MouseEvent) => {
+    const el = (e.target as HTMLElement).closest('.budget-note-btn') as HTMLElement;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const item = budgetList.find(b => b.id === itemId);
+    setBudgetNoteText(item?.note || '');
+    setBudgetNotePos({ top: rect.bottom + 6, left: rect.left + rect.width / 2 });
+    setBudgetNoteId(itemId);
+  };
+
+  const handleFieldEditStart = (id: number, field: 'name' | 'amount' | 'note', e: React.MouseEvent) => {
+    e.stopPropagation();
+    const item = budgetList.find(b => b.id === id);
+    if (!item) return;
+    setEditingField({ id, field });
+    setEditValue(field === 'amount' ? String(item.amount) : (item[field] || ''));
+  };
+
+  const handleFieldEditSave = () => {
+    if (!editingField) return;
+    const { id, field } = editingField;
+    setBudgetList(budgetList.map(b => {
+      if (b.id !== id) return b;
+      if (field === 'amount') return { ...b, amount: parseInt(editValue) || 0 };
+      return { ...b, [field]: editValue };
+    }));
+    setEditingField(null);
+  };
+
+  const handleBudgetNoteSave = () => {
+    if (budgetNoteId !== null) {
+      setBudgetList(budgetList.map(b => b.id === budgetNoteId ? { ...b, note: budgetNoteText } : b));
+    }
+    setBudgetNoteId(null);
+    setBudgetNotePos(null);
   };
 
   const isEditing = !!editPlan;
@@ -562,16 +698,17 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   const planNameRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleAdd = (currentTo?: string) => {
+  const handleAdd = (currentTo?: string, currentEndDate?: string) => {
     const newId = Math.max(...transportList.map((t) => t.id), 0) + 1;
+    const inheritDate = currentEndDate || getToday();
     const newItem: TransportItem = {
       id: newId,
       from: currentTo || '',
       to: '',
       note: '',
       noteExpanded: false,
-      startDate: '',
-      endDate: '',
+      startDate: inheritDate,
+      endDate: inheritDate,
     };
     setTransportList([...transportList, newItem]);
   };
@@ -601,20 +738,70 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     setEditField(null);
   };
 
-  const toggleNoteExpand = (id: number) => {
-    setTransportList(
-      transportList.map((t) => (t.id === id ? { ...t, noteExpanded: !t.noteExpanded } : t))
-    );
-  };
-
 const handleUpdate = (id: number, field: 'from' | 'to' | 'note' | 'startDate' | 'endDate', value: string) => {
     setTransportList(
       transportList.map((t) => (t.id === id ? { ...t, [field]: value } : t))
     );
   };
 
-  const getTotalAmount = () => {
-    return budgetList.reduce((sum, item) => sum + item.amount, 0);
+  const handleNotePopoverOpen = (itemId: number, e: React.MouseEvent) => {
+    const btn = (e.target as HTMLElement).closest('button');
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const item = transportList.find(t => t.id === itemId);
+    setNotePopoverText(item?.note || '');
+    setNotePopoverPos({ top: rect.bottom + 8, left: rect.left + rect.width / 2 });
+    setNotePopoverItemId(itemId);
+  };
+
+  const handleNotePopoverClose = () => {
+    setNotePopoverItemId(null);
+    setNotePopoverPos(null);
+  };
+
+  const handleNotePopoverSave = () => {
+    if (notePopoverItemId !== null) {
+      setTransportList(
+        transportList.map((t) => (t.id === notePopoverItemId ? { ...t, note: notePopoverText } : t))
+      );
+    }
+    handleNotePopoverClose();
+  };
+
+  const handleNoteLineDelete = (itemId: number, lineIndex: number) => {
+    setTransportList(
+      transportList.map((t) => {
+        if (t.id !== itemId || !t.note) return t;
+        const lines = t.note.split('\n');
+        lines.splice(lineIndex, 1);
+        return { ...t, note: lines.join('\n') };
+      })
+    );
+  };
+
+  const getToday = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const stepDate = (itemId: number, field: 'startDate' | 'endDate', delta: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const item = transportList.find(t => t.id === itemId);
+    const otherField = field === 'startDate' ? 'endDate' : 'startDate';
+    const current = item?.[field] || getToday();
+    const other = item?.[otherField] || getToday();
+    const d = new Date(current);
+    d.setDate(d.getDate() + delta);
+    const newDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (field === 'startDate' && newDate > other) return;
+    if (field === 'endDate' && newDate < other) return;
+    handleUpdate(itemId, field, newDate);
+  };
+
+  const formatDateShort = (dateStr?: string) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
   };
 
   const handleOpenGuideModal = () => {
@@ -725,150 +912,349 @@ const handleUpdate = (id: number, field: 'from' | 'to' | 'note' | 'startDate' | 
 
   const renderBudgetList = () => (
     <div className={styles.budgetContainer}>
-      <div className={styles.bubbleArea}>
-        <div className={styles.totalAmount}>{getTotalAmount()}</div>
-        {budgetList.map((item, idx) => (
-          <div
-            key={item.id}
-            className={styles.amountBubble}
-            style={{
-              left: (item.x || 0) - (item.width || 80) / 2,
-              top: (item.y || 0) - (item.height || 40) / 2,
-              width: item.width || 80,
-              height: item.height || 40,
-              borderTopColor: BUDGET_COLORS[idx % BUDGET_COLORS.length],
-            }}
+      <div className={styles.budgetHeader}>
+        <div className={styles.budgetModeToggle}>
+          <button
+            type="button"
+            className={`${styles.budgetModeBtn} ${budgetViewMode === 'bubble' ? styles.budgetModeActive : ''}`}
+            onClick={() => setBudgetViewMode('bubble')}
+          >气泡</button>
+          <button
+            type="button"
+            className={`${styles.budgetModeBtn} ${budgetViewMode === 'list' ? styles.budgetModeActive : ''}`}
+            onClick={() => setBudgetViewMode('list')}
+          >列表</button>
+        </div>
+        <div className={styles.budgetTopRight}>
+          <select
+            className={styles.currencySelect}
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
           >
-            <span>{item.amount}</span>
-            <button type="button" className={styles.bubbleDelBtn} onClick={() => handleBudgetDelete(item.id)}>×</button>
-          </div>
-        ))}
-      </div>
-      <div className={styles.budgetInputArea}>
-        <div className={styles.budgetInputGroup}>
-          {[0, 1, 2, 3, 4, 5].map(i => (
-            <div key={i} className={styles.inputCell}>
+            {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <div className={styles.budgetCustomWrap}>
+          {showCustomInput ? (
+            <div className={styles.budgetCustomInput}>
               <input
                 type="text"
-                className={styles.amountInputMini}
-                value={budgetInput[`cat${i}`] || ''}
-                onChange={(e) => setBudgetInput({ ...budgetInput, [`cat${i}`]: e.target.value })}
-                placeholder="金额"
+                className={styles.budgetCustomName}
+                value={customCategoryName}
+                onChange={(e) => setCustomCategoryName(e.target.value)}
+                placeholder="新分类名"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && customCategoryName.trim()) {
+                    setCustomCategories([...customCategories, customCategoryName.trim()]);
+                    setCustomCategoryName('');
+                    setShowCustomInput(false);
+                  }
+                }}
               />
-              <button type="button" className={styles.confirmBtn} onClick={() => handleBudgetAdd(`cat${i}`)}>添加</button>
+              <button
+                type="button"
+                className={styles.budgetCustomConfirm}
+                onClick={() => {
+                  if (customCategoryName.trim()) {
+                    setCustomCategories([...customCategories, customCategoryName.trim()]);
+                    setCustomCategoryName('');
+                    setShowCustomInput(false);
+                  }
+                }}
+              >✓</button>
             </div>
-          ))}
+          ) : (
+            <button type="button" className={styles.budgetCustomBtn} onClick={() => setShowCustomInput(true)}>+ 自定义</button>
+          )}
+        </div>
         </div>
       </div>
-    </div>
+
+      {budgetViewMode === 'bubble' ? (
+        <div className={styles.bubbleArea} ref={bubbleAreaRef}>
+          {pages.length > 1 && (
+            <div className={styles.pageTabs}>
+              {pages.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className={`${styles.pageTab} ${i === currentPage ? styles.pageTabActive : ''}`}
+                  onClick={() => setCurrentPage(i)}
+                >{i + 1}</button>
+              ))}
+            </div>
+          )}
+          <div className={styles.totalAmount}>{currency}{getTotalAmount()}</div>
+          {budgetList.filter(b => currentPagePositions[b.id]).map((item) => {
+            const cat = allCategories.find(c => c.name === item.name);
+            const color = cat ? cat.color : '#9ca3af';
+            const pos = currentPagePositions[item.id];
+            const isEditThis = editingField?.id === item.id;
+            return (
+              <div
+                key={item.id}
+                className={styles.amountBubble}
+                style={{ borderColor: color, left: pos.x - BUBBLE_REAL_W / 2, top: pos.y - BUBBLE_REAL_H / 2 }}
+              >
+                {isEditThis && editingField?.field === 'amount' ? (
+                  <input className={styles.bubbleFieldInput} type="number" value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={handleFieldEditSave} onKeyDown={(e) => e.key === 'Enter' && handleFieldEditSave()} autoFocus />
+                ) : (
+                  <div className={styles.bubbleAmount} onDoubleClick={(e) => handleFieldEditStart(item.id, 'amount', e)}>{currency}{item.amount}</div>
+                )}
+                <div className={styles.bubbleCat} onDoubleClick={(e) => handleFieldEditStart(item.id, 'name', e)}>
+                  {isEditThis && editingField?.field === 'name' ? (
+                    <input className={styles.bubbleFieldInput} value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={handleFieldEditSave} onKeyDown={(e) => e.key === 'Enter' && handleFieldEditSave()} autoFocus />
+                  ) : item.name}
+                </div>
+                <div className={styles.bubbleNote} onDoubleClick={(e) => handleFieldEditStart(item.id, 'note', e)}>
+                  {isEditThis && editingField?.field === 'note' ? (
+                    <textarea className={styles.bubbleFieldTextarea} value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={handleFieldEditSave} rows={1} autoFocus />
+                  ) : (item.note || '')}
+                </div>
+                <div className={styles.bubbleHoverActions}>
+                  <button type="button" className={styles.bubbleDelBtn} onClick={(e) => { e.stopPropagation(); handleBudgetDelete(item.id); }}>×</button>
+                </div>
+              </div>
+            );
+          })}
+          {Object.keys(currentPagePositions).length === 0 && (
+            <div className={styles.budgetEmpty}></div>
+          )}
+        </div>
+      ) : (
+        <div className={styles.budgetListWrap}>
+          <div className={styles.budgetListHeader}>
+            <span>分类</span>
+            <span>金额</span>
+            <span>备注</span>
+            <span></span>
+          </div>
+          {budgetList.map((item) => {
+            const cat = allCategories.find(c => c.name === item.name);
+            const color = cat ? cat.color : '#9ca3af';
+            return (
+              <div key={item.id} className={styles.budgetListRow}>
+                <span className={styles.budgetListName} style={{ color }}>● {item.name}</span>
+                <input
+                  type="number"
+                  className={styles.budgetListAmountInput}
+                  value={item.amount}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value) || 0;
+                    setBudgetList(budgetList.map(b => b.id === item.id ? { ...b, amount: v } : b));
+                  }}
+                />
+                <input
+                  type="text"
+                  className={styles.budgetListNoteInput}
+                  value={item.note || ''}
+                  onChange={(e) => setBudgetList(budgetList.map(b => b.id === item.id ? { ...b, note: e.target.value } : b))}
+                  placeholder="备注"
+                />
+                <button type="button" className={styles.budgetListDel} onClick={() => handleBudgetDelete(item.id)}>×</button>
+              </div>
+            );
+          })}
+          {budgetList.length > 0 && (
+            <div className={styles.budgetListTotal}>
+              <span>合计</span>
+              <span>{currency}{getTotalAmount()}</span>
+              <span></span>
+              <span></span>
+            </div>
+          )}
+          {budgetList.length === 0 && (
+            <div className={styles.budgetEmpty}>暂无数据</div>
+          )}
+        </div>
+      )}
+
+      <div className={styles.budgetBottom}>
+        <div className={styles.budgetCatLeft}>
+          {allCategories.map(cat => (
+            <button
+              key={cat.name}
+              type="button"
+              className={styles.budgetCatBtn}
+              style={{
+                borderColor: selectedCategory === cat.name ? cat.color : 'rgba(0,0,0,0.06)',
+                color: selectedCategory === cat.name ? cat.color : '#6b7280',
+                background: selectedCategory === cat.name ? `${cat.color}10` : '#fff',
+              }}
+              onClick={() => handleCategorySelect(cat.name)}
+            >{cat.name}</button>
+          ))}
+        </div>
+        <div className={styles.budgetInputGroup}>
+            <input
+              type="number"
+              className={styles.budgetAmountInput}
+              value={budgetAmount}
+              onChange={(e) => setBudgetAmount(e.target.value)}
+              placeholder="金额"
+              style={selectedCategory ? { borderColor: allCategories.find(c => c.name === selectedCategory)?.color } : {}}
+              onKeyDown={(e) => e.key === 'Enter' && handleBudgetAdd()}
+            />
+            <input
+              type="text"
+              className={styles.budgetNoteInput}
+              value={budgetNote}
+              onChange={(e) => setBudgetNote(e.target.value)}
+              placeholder="备注"
+              onKeyDown={(e) => e.key === 'Enter' && handleBudgetAdd()}
+            />
+            <button type="button" className={styles.budgetAddBtn} onClick={handleBudgetAdd}>添加</button>
+          </div>
+        </div>
+      </div>
   );
 
-  const renderTransportList = () => (
+  const renderTransportList = () => {
+    const stripeColors = ['#93c5fd', '#c4b5fd', '#5eead4', '#fde68a'];
+    const isAnyEditing = editingId !== null;
+    return (
     <div className={styles.transportList}>
-      {transportList.map((item) => (
-        <div key={item.id} className={styles.transportRow}>
-          <span
-            className={styles.transportItem}
-            onClick={() => handleEdit(item.id, 'from')}
-          >
-            {editingId === item.id && editField === 'from' ? (
-              <input
-                ref={inputRef}
-                className={styles.transportInput}
-                value={item.from}
-                onChange={(e) => handleUpdate(item.id, 'from', e.target.value)}
-                onBlur={handleBlur}
-                placeholder="起点"
-              />
-            ) : (
-              <span className={item.from ? styles.filled : styles.placeholder}>
-                {item.from || '起点'}
-              </span>
-            )}
-          </span>
-          <div className={styles.arrowContainer}>
+      {transportList.map((item, idx) => (
+        <div
+          key={item.id}
+          className={`${styles.transportRow} ${isAnyEditing && editingId === item.id ? styles.transportRowEditing : ''}`}
+          style={{ borderLeftColor: stripeColors[idx % stripeColors.length] }}
+        >
+          <div className={styles.transportMainRow}>
             <span
-              className={`${styles.transportNoteBubble} ${item.note ? styles.hasContent : ''} ${item.noteExpanded ? styles.noteExpanded : ''}`}
-              onClick={() => {
-                if (item.note.length > 8) {
-                  toggleNoteExpand(item.id);
-                } else {
-                  handleEdit(item.id, 'note');
-                }
-              }}
+              className={`${styles.transportItem} ${editingId === item.id && editField === 'from' ? styles.transportItemEditing : styles.transportItemEditable}`}
+              onClick={() => handleEdit(item.id, 'from')}
             >
-              {editingId === item.id && editField === 'note' ? (
+              <div className={styles.transportDateWrap} onClick={(e) => e.stopPropagation()}>
+                <div className={`${styles.transportDateStepper} ${styles.transportDateStepUp}`}>
+                  <button type="button" className={styles.transportDateStepBtn} onClick={(e) => stepDate(item.id, 'startDate', 1, e)}>+</button>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
+                  <span className={styles.transportDateInline}>
+                    {formatDateShort(item.startDate)}
+                  </span>
+                  <input
+                    type="date"
+                    className={styles.transportDateHidden}
+                    value={item.startDate || getToday()}
+                    onChange={(e) => handleUpdate(item.id, 'startDate', e.target.value)}
+                  />
+                </label>
+                <div className={`${styles.transportDateStepper} ${styles.transportDateStepDown}`}>
+                  <button type="button" className={styles.transportDateStepBtn} onClick={(e) => stepDate(item.id, 'startDate', -1, e)}>−</button>
+                </div>
+              </div>
+              {editingId === item.id && editField === 'from' ? (
                 <input
                   ref={inputRef}
                   className={styles.transportInput}
-                  value={item.note}
-                  onChange={(e) => handleUpdate(item.id, 'note', e.target.value)}
+                  value={item.from}
+                  onChange={(e) => handleUpdate(item.id, 'from', e.target.value)}
                   onBlur={handleBlur}
-                  placeholder="备注"
+                  placeholder="起点"
+                  style={{ flex: 1, minWidth: 0 }}
                 />
               ) : (
-                <span className={item.note ? styles.filled : styles.placeholder}>
-                  {item.note ? (item.note.length > 8 && !item.noteExpanded ? item.note.slice(0, 8) + '...' : item.note) : '备注'}
+                <span className={`${styles.transportItemText} ${item.from ? styles.filled : styles.placeholder}`}>
+                  {item.from || '起点'}
                 </span>
               )}
             </span>
-            <div className={styles.arrowLine}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+            <div className={styles.transportArrowCol}>
+              <div className={styles.arrowLine}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
             </div>
+            <span
+              className={`${styles.transportItem} ${editingId === item.id && editField === 'to' ? styles.transportItemEditing : styles.transportItemEditable}`}
+              onClick={() => handleEdit(item.id, 'to')}
+            >
+              {editingId === item.id && editField === 'to' ? (
+                <input
+                  ref={inputRef}
+                  className={styles.transportInput}
+                  value={item.to}
+                  onChange={(e) => handleUpdate(item.id, 'to', e.target.value)}
+                  onBlur={handleBlur}
+                  placeholder="终点"
+                  style={{ flex: 1, minWidth: 0 }}
+                />
+              ) : (
+                <span className={`${styles.transportItemText} ${item.to ? styles.filled : styles.placeholder}`}>
+                  {item.to || '终点'}
+                </span>
+              )}
+              <div className={styles.transportDateWrap} onClick={(e) => e.stopPropagation()}>
+                <div className={`${styles.transportDateStepper} ${styles.transportDateStepUp}`}>
+                  <button type="button" className={styles.transportDateStepBtn} onClick={(e) => stepDate(item.id, 'endDate', 1, e)}>+</button>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
+                  <span className={styles.transportDateInline}>
+                    {formatDateShort(item.endDate)}
+                  </span>
+                  <input
+                    type="date"
+                    className={styles.transportDateHidden}
+                    value={item.endDate || getToday()}
+                    onChange={(e) => handleUpdate(item.id, 'endDate', e.target.value)}
+                  />
+                </label>
+                <div className={`${styles.transportDateStepper} ${styles.transportDateStepDown}`}>
+                  <button type="button" className={styles.transportDateStepBtn} onClick={(e) => stepDate(item.id, 'endDate', -1, e)}>−</button>
+                </div>
+              </div>
+            </span>
+            <button
+              type="button"
+              className={styles.transportAdd}
+              onClick={() => handleAdd(item.to, item.endDate)}
+              title="添加下一段"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              className={`${styles.transportNoteBtn} ${item.note ? styles.transportNoteBtnHasNote : ''}`}
+              onClick={(e) => handleNotePopoverOpen(item.id, e)}
+              title={item.note || '添加备注'}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className={styles.transportDelete}
+              tabIndex={0}
+              onClick={() => handleDelete(item.id)}
+              title="删除"
+            >
+              −
+            </button>
           </div>
-          <span
-            className={styles.transportItem}
-            onClick={() => handleEdit(item.id, 'to')}
-          >
-            {editingId === item.id && editField === 'to' ? (
-              <input
-                ref={inputRef}
-                className={styles.transportInput}
-                value={item.to}
-                onChange={(e) => handleUpdate(item.id, 'to', e.target.value)}
-                onBlur={handleBlur}
-                placeholder="终点"
-              />
-            ) : (
-              <span className={item.to ? styles.filled : styles.placeholder}>
-                {item.to || '终点'}
-              </span>
-            )}
-          </span>
-          <input
-            type="date"
-            className={styles.transportDateInput}
-            value={item.startDate || ''}
-            onChange={(e) => handleUpdate(item.id, 'startDate', e.target.value)}
-          />
-          <span style={{ color: '#9ca3af', fontSize: '12px' }}>→</span>
-          <input
-            type="date"
-            className={styles.transportDateInput}
-            value={item.endDate || ''}
-            onChange={(e) => handleUpdate(item.id, 'endDate', e.target.value)}
-          />
-          <button
-            type="button"
-            className={styles.transportAdd}
-            onClick={() => handleAdd(item.to)}
-          >
-            +
-          </button>
-          <button
-            type="button"
-            className={styles.transportDelete}
-            tabIndex={0}
-            onClick={() => handleDelete(item.id)}
-          >
-            −
-          </button>
+          {item.note && (
+            <div className={styles.transportNoteDisplay}>
+              {item.note.split('\n').map((line, li) => (
+                <div key={li} className={styles.transportNoteLine}>
+                  <span className={styles.transportNoteLineText}>{line}</span>
+                  <button
+                    type="button"
+                    className={styles.transportNoteLineDel}
+                    onClick={() => handleNoteLineDelete(item.id, li)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </div>
   );
+};
 
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
@@ -954,6 +1340,48 @@ const handleUpdate = (id: number, field: 'from' | 'to' | 'note' | 'startDate' | 
           </div>
         </div>
       </div>
+      {notePopoverItemId !== null && notePopoverPos && (
+        <div
+          className={styles.transportNotePopover}
+          style={{
+            top: notePopoverPos.top,
+            left: notePopoverPos.left,
+            transform: 'translateX(-50%)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <textarea
+            className={styles.transportNotePopoverTextarea}
+            value={notePopoverText}
+            onChange={(e) => setNotePopoverText(e.target.value)}
+            placeholder="输入备注..."
+            autoFocus
+          />
+          <div className={styles.transportNotePopoverActions}>
+            <button type="button" className={styles.transportNotePopoverCancel} onClick={handleNotePopoverClose}>取消</button>
+            <button type="button" className={styles.transportNotePopoverSave} onClick={handleNotePopoverSave}>保存</button>
+          </div>
+        </div>
+      )}
+      {budgetNoteId !== null && budgetNotePos && (
+        <div
+          className={styles.transportNotePopover}
+          style={{ top: budgetNotePos.top, left: budgetNotePos.left, transform: 'translateX(-50%)' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <textarea
+            className={styles.transportNotePopoverTextarea}
+            value={budgetNoteText}
+            onChange={(e) => setBudgetNoteText(e.target.value)}
+            placeholder="备注..."
+            autoFocus
+          />
+          <div className={styles.transportNotePopoverActions}>
+            <button type="button" className={styles.transportNotePopoverCancel} onClick={() => { setBudgetNoteId(null); setBudgetNotePos(null); }}>取消</button>
+            <button type="button" className={styles.transportNotePopoverSave} onClick={handleBudgetNoteSave}>保存</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1992,8 +1992,7 @@
   border-radius: 14px;
   min-height: 200px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
 }
 
 .totalAmount {
