@@ -532,45 +532,48 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
 
   const tryPlaceBubble = (existing: Record<number, { x: number; y: number }>, w: number, h: number, amount: number): { x: number; y: number } | null => {
     const safeW = 260, safeH = 110;
-    const cx = w / 2, cy = h / 2;
     const pad = 10;
-    const CELL_W = BUBBLE_W + GAP;
-    const CELL_H = BUBBLE_H + GAP;
+    const CELL_W = BUBBLE_REAL_W + GAP * 2;
+    const CELL_H = BUBBLE_REAL_H + GAP * 2;
     const needCells = amount >= 10000 ? 2 : 1;
     const startX = pad;
     const startY = pad;
     const cols = Math.floor((w - pad * 2) / CELL_W);
     const rows = Math.floor((h - pad * 2) / CELL_H);
     const ids = Object.keys(existing).map(Number);
+    const areaCx = w / 2, areaCy = h / 2;
 
-    const freeCells: { col: number; row: number }[] = [];
+    interface GridCell { col: number; row: number; cx: number; cy: number; idx: number }
+    const allCells: GridCell[] = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const cellCx = startX + c * CELL_W + CELL_W / 2;
-        const cellCy = startY + r * CELL_H + CELL_H / 2;
-        if (Math.abs(cellCx - cx) < safeW / 2 + BUBBLE_REAL_W / 2 && Math.abs(cellCy - cy) < safeH / 2 + BUBBLE_REAL_H / 2) continue;
-        let occupied = false;
-        for (const id of ids) {
-          const p = existing[id];
-          if (!p) continue;
-          if (Math.abs(cellCx - p.x) < CELL_W && Math.abs(cellCy - p.y) < CELL_H) { occupied = true; break; }
-        }
-        if (!occupied) freeCells.push({ col: c, row: r });
+        const cx = startX + c * CELL_W + CELL_W / 2;
+        const cy = startY + r * CELL_H + CELL_H / 2;
+        if (Math.abs(cx - areaCx) < safeW / 2 + BUBBLE_REAL_W / 2 && Math.abs(cy - areaCy) < safeH / 2 + BUBBLE_REAL_H / 2) continue;
+        allCells.push({ col: c, row: r, cx, cy, idx: r * cols + c });
       }
     }
 
+    const cellOccupied = (cell: GridCell): boolean => {
+      for (const id of ids) {
+        const p = existing[id];
+        if (!p) continue;
+        if (Math.abs(cell.cx - p.x) < CELL_W / 2 + BUBBLE_REAL_W / 2 && Math.abs(cell.cy - p.y) < CELL_H / 2 + BUBBLE_REAL_H / 2) return true;
+      }
+      return false;
+    };
+
+    const freeCells = allCells.filter(c => !cellOccupied(c));
     if (freeCells.length === 0) return null;
 
     if (needCells === 1) {
       const cell = freeCells[Math.floor(Math.random() * freeCells.length)];
-      const baseX = startX + cell.col * CELL_W + CELL_W / 2;
-      const baseY = startY + cell.row * CELL_H + CELL_H / 2;
-      const offX = (Math.random() - 0.5) * CELL_W * 0.3;
-      const offY = (Math.random() - 0.5) * CELL_H * 0.3;
-      return { x: baseX + offX, y: baseY + offY };
+      const offX = (Math.random() - 0.5) * CELL_W * 0.2;
+      const offY = (Math.random() - 0.5) * CELL_H * 0.2;
+      return { x: cell.cx + offX, y: cell.cy + offY };
     }
 
-    const pairs: { col: number; row: number }[] = [];
+    const pairs: GridCell[] = [];
     for (const cell of freeCells) {
       if (freeCells.some(c => c.row === cell.row && c.col === cell.col + 1)) {
         pairs.push(cell);
@@ -578,11 +581,11 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     }
     if (pairs.length === 0) return null;
     const pair = pairs[Math.floor(Math.random() * pairs.length)];
-    const baseX = startX + pair.col * CELL_W + CELL_W;
-    const baseY = startY + pair.row * CELL_H + CELL_H / 2;
-    const offX = (Math.random() - 0.5) * CELL_W * 0.2;
-    const offY = (Math.random() - 0.5) * CELL_H * 0.3;
-    return { x: baseX + offX, y: baseY + offY };
+    const midX = (pair.cx + startX + (pair.col + 1) * CELL_W + CELL_W / 2) / 2;
+    const midY = pair.cy;
+    const offX = (Math.random() - 0.5) * CELL_W * 0.15;
+    const offY = (Math.random() - 0.5) * CELL_H * 0.2;
+    return { x: midX + offX, y: midY + offY };
   };
 
   const handleBudgetAdd = () => {
