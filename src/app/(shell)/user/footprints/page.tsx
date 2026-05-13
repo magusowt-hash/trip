@@ -40,6 +40,10 @@ export default function UserFootprintsPage() {
   const [addToGroupOpen, setAddToGroupOpen] = useState(false);
   const [targetItem, setTargetItem] = useState<FootprintItem | null>(null);
 
+  // Batch selection
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [batchAddToGroupOpen, setBatchAddToGroupOpen] = useState(false);
+
   useEffect(() => {
     loadGroups();
   }, []);
@@ -47,6 +51,7 @@ export default function UserFootprintsPage() {
   useEffect(() => {
     if (selectedGroupId) {
       loadItems(selectedGroupId);
+      setSelectedIds(new Set());
     } else {
       setItems([]);
     }
@@ -187,6 +192,73 @@ export default function UserFootprintsPage() {
     }
   }
 
+  // Batch operations
+
+  function handleSelectAll() {
+    if (items.length === 0) return;
+    if (selectedIds.size === items.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(items.map(it => it.listItemId)));
+    }
+  }
+
+  function handleToggleSelect(listItemId: number) {
+    const next = new Set(selectedIds);
+    if (next.has(listItemId)) {
+      next.delete(listItemId);
+    } else {
+      next.add(listItemId);
+    }
+    setSelectedIds(next);
+  }
+
+  async function handleBatchRemove() {
+    if (!selectedGroupId || selectedIds.size === 0) return;
+    if (!confirm(`确定从本组移除选中的 ${selectedIds.size} 个地点？`)) return;
+    const ids = Array.from(selectedIds);
+    let success = true;
+    for (const listItemId of ids) {
+      try {
+        await fetch(
+          `/api/footprints/groups/${selectedGroupId}/items?item_id=${listItemId}`,
+          { method: 'DELETE', credentials: 'include' },
+        );
+      } catch {
+        success = false;
+      }
+    }
+    setSelectedIds(new Set());
+    await loadItems(selectedGroupId);
+    await loadGroups();
+    if (!success) alert('部分移除失败');
+  }
+
+  async function handleBatchAddToGroup(targetGroupId: number) {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    let failed = 0;
+    for (const listItemId of ids) {
+      try {
+        const res = await fetch(`/api/footprints/groups/${targetGroupId}/items`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ list_item_id: listItemId }),
+        });
+        if (!res.ok) failed++;
+      } catch {
+        failed++;
+      }
+    }
+    setBatchAddToGroupOpen(false);
+    setSelectedIds(new Set());
+    await loadGroups();
+    if (failed > 0) {
+      alert(`${failed} 个地点添加失败（可能已存在）`);
+    }
+  }
+
   function handleContextMenu(e: React.MouseEvent, item: FootprintItem) {
     e.preventDefault();
     setContextMenu({ item, x: e.clientX, y: e.clientY });
@@ -205,7 +277,7 @@ export default function UserFootprintsPage() {
   const selectedGroup = groups.find(g => g.id === selectedGroupId);
 
   return (
-    <div style={{ padding: 16 }}>
+    <div style={{ padding: 16, paddingBottom: selectedIds.size > 0 ? 80 : 16 }}>
       <h1 style={{ margin: '0 0 16px', fontSize: 20, fontWeight: 600 }}>我的足迹</h1>
 
       {/* Group tabs */}
@@ -345,7 +417,25 @@ export default function UserFootprintsPage() {
               </button>
             </div>
           )}
-          <div style={{ fontSize: 12, color: '#9ca3af' }}>共 {items.length} 个地点</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12, color: '#9ca3af' }}>共 {items.length} 个地点</span>
+            {items.length > 0 && selectedIds.size === 0 && (
+              <button
+                onClick={handleSelectAll}
+                style={{ fontSize: 12, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                选择多个
+              </button>
+            )}
+            {selectedIds.size > 0 && (
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                style={{ fontSize: 12, color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                取消选择
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -359,12 +449,38 @@ export default function UserFootprintsPage() {
               display: 'flex',
               gap: 12,
               padding: 12,
-              background: '#fff',
+              background: selectedIds.has(item.listItemId) ? '#eff6ff' : '#fff',
               borderRadius: 8,
               boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
               position: 'relative',
+              border: selectedIds.has(item.listItemId) ? '2px solid #3b82f6' : '2px solid transparent',
             }}
           >
+            {/* Checkbox */}
+            <div
+              onClick={e => { e.stopPropagation(); handleToggleSelect(item.listItemId); }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 22,
+                height: 22,
+                borderRadius: 4,
+                border: selectedIds.has(item.listItemId) ? '2px solid #3b82f6' : '2px solid #d1d5db',
+                background: selectedIds.has(item.listItemId) ? '#3b82f6' : '#fff',
+                cursor: 'pointer',
+                flexShrink: 0,
+                marginTop: 4,
+                transition: 'all 0.15s',
+              }}
+            >
+              {selectedIds.has(item.listItemId) && (
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+            </div>
+
             {item.coverImage && (
               <div
                 style={{
@@ -436,6 +552,46 @@ export default function UserFootprintsPage() {
         )}
       </div>
 
+      {/* Batch action bar */}
+      {selectedIds.size > 0 && (
+        <div style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 200,
+          right: 0,
+          background: '#fff',
+          borderTop: '1px solid #e5e7eb',
+          padding: '12px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          zIndex: 500,
+          boxShadow: '0 -2px 8px rgba(0,0,0,0.06)',
+        }}>
+          <span style={{ fontSize: 14, color: '#374151', fontWeight: 500, flex: 1 }}>
+            已选 {selectedIds.size} 项
+          </span>
+          <button
+            onClick={handleSelectAll}
+            style={{ padding: '6px 16px', fontSize: 13, background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+          >
+            {selectedIds.size === items.length ? '取消全选' : '全选'}
+          </button>
+          <button
+            onClick={() => setBatchAddToGroupOpen(true)}
+            style={{ padding: '6px 16px', fontSize: 13, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+          >
+            添加到其他组
+          </button>
+          <button
+            onClick={handleBatchRemove}
+            style={{ padding: '6px 16px', fontSize: 13, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+          >
+            从本组移除
+          </button>
+        </div>
+      )}
+
       {/* Context menu */}
       {contextMenu && (
         <div
@@ -466,7 +622,7 @@ export default function UserFootprintsPage() {
         </div>
       )}
 
-      {/* Add to group modal */}
+      {/* Single item add-to-group modal */}
       {addToGroupOpen && targetItem && (
         <div
           onClick={() => { setAddToGroupOpen(false); setTargetItem(null); }}
@@ -529,6 +685,77 @@ export default function UserFootprintsPage() {
             </div>
             <button
               onClick={() => { setAddToGroupOpen(false); setTargetItem(null); }}
+              style={{ display: 'block', width: '100%', padding: 8, fontSize: 13, border: 'none', background: '#f3f4f6', borderRadius: 8, cursor: 'pointer', color: '#6b7280' }}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Batch add-to-group modal */}
+      {batchAddToGroupOpen && (
+        <div
+          onClick={() => setBatchAddToGroupOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'white',
+              borderRadius: 12,
+              padding: 20,
+              width: 320,
+              maxHeight: '60vh',
+              overflowY: 'auto',
+            }}
+          >
+            <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 16px', color: '#1f2937' }}>
+              批量添加到分类组 ({selectedIds.size} 项)
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+              {groups
+                .filter(g => g.id !== selectedGroupId)
+                .map(g => (
+                  <button
+                    key={g.id}
+                    onClick={() => handleBatchAddToGroup(g.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '10px 14px',
+                      fontSize: 13,
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 8,
+                      background: 'white',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      color: '#374151',
+                    }}
+                  >
+                    {g.name}
+                    {g.isDefault === 1 && (
+                      <span style={{ fontSize: 10, background: '#f3f4f6', padding: '1px 4px', borderRadius: 4 }}>
+                        默认
+                      </span>
+                    )}
+                  </button>
+                ))}
+              {groups.filter(g => g.id !== selectedGroupId).length === 0 && (
+                <p style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center' }}>暂无其他分类组</p>
+              )}
+            </div>
+            <button
+              onClick={() => setBatchAddToGroupOpen(false)}
               style={{ display: 'block', width: '100%', padding: 8, fontSize: 13, border: 'none', background: '#f3f4f6', borderRadius: 8, cursor: 'pointer', color: '#6b7280' }}
             >
               取消
