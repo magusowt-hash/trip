@@ -353,6 +353,23 @@ export default function ListsPage() {
       });
     }
 
+    // Sync to footprint default group
+    try {
+      if (!wasVisited) {
+        await fetch('/api/footprints/default/items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ list_item_id: itemId }),
+        });
+      } else {
+        await fetch(`/api/footprints/default/items?list_item_id=${itemId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+      }
+    } catch {}
+
     // Delete rating when canceling visited
     if (wasVisited) {
       try {
