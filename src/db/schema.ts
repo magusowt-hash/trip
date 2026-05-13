@@ -13,7 +13,6 @@ export const users = mysqlTable(
     birthday: date('birthday'),
     region: varchar('region', { length: 128 }),
     favoriteLists: json('favorite_lists'),
-    visitedPlaces: json('visited_places'),
     ratings: json('ratings'),
     status: varchar('status', { length: 16 }).default('normal'),
     createdAt: timestamp('created_at').notNull().defaultNow(),

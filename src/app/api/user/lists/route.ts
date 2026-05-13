@@ -20,7 +20,6 @@ interface RatingRecord {
 
 interface UserListsBody {
   favoriteLists?: ListRecord[];
-  visitedPlaces?: ListRecord[];
   ratings?: RatingRecord[];
 }
 
@@ -28,25 +27,24 @@ export async function GET(req: NextRequest) {
   try {
     const token = getAuthTokenFromRequest(req);
     if (!token) {
-      return NextResponse.json({ favoriteLists: [], visitedPlaces: [], ratings: [] }, { status: 200 });
+      return NextResponse.json({ favoriteLists: [], ratings: [] }, { status: 200 });
     }
 
     let payload: AuthJwtPayload;
     try {
       payload = await verifyAuthToken(token);
     } catch {
-      return NextResponse.json({ favoriteLists: [], visitedPlaces: [], ratings: [] }, { status: 200 });
+      return NextResponse.json({ favoriteLists: [], ratings: [] }, { status: 200 });
     }
     
     const userId = Number(payload.sub);
     if (!Number.isFinite(userId)) {
-      return NextResponse.json({ favoriteLists: [], visitedPlaces: [], ratings: [] }, { status: 200 });
+      return NextResponse.json({ favoriteLists: [], ratings: [] }, { status: 200 });
     }
 
     const found = await db
       .select({
         favoriteLists: users.favoriteLists,
-        visitedPlaces: users.visitedPlaces,
         ratings: users.ratings,
       })
       .from(users)
@@ -60,7 +58,6 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       favoriteLists: user.favoriteLists || [],
-      visitedPlaces: user.visitedPlaces || [],
       ratings: user.ratings || [],
     }, { status: 200 });
   } catch {
@@ -93,9 +90,6 @@ export async function PATCH(req: NextRequest) {
     if (body.favoriteLists !== undefined) {
       updateData.favoriteLists = body.favoriteLists;
     }
-    if (body.visitedPlaces !== undefined) {
-      updateData.visitedPlaces = body.visitedPlaces;
-    }
     if (body.ratings !== undefined) {
       updateData.ratings = body.ratings;
     }
@@ -109,7 +103,6 @@ export async function PATCH(req: NextRequest) {
     const updated = await db
       .select({
         favoriteLists: users.favoriteLists,
-        visitedPlaces: users.visitedPlaces,
         ratings: users.ratings,
       })
       .from(users)
@@ -122,7 +115,6 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json({
       favoriteLists: updated[0].favoriteLists || [],
-      visitedPlaces: updated[0].visitedPlaces || [],
       ratings: updated[0].ratings || [],
     }, { status: 200 });
   } catch (err) {

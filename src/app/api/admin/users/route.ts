@@ -64,7 +64,6 @@ export async function GET(request: NextRequest) {
         gender: users.gender,
         region: users.region,
         favoriteLists: users.favoriteLists,
-        visitedPlaces: users.visitedPlaces,
         ratings: users.ratings,
         status: users.status,
         createdAt: users.createdAt,
@@ -91,9 +90,7 @@ export async function GET(request: NextRequest) {
       const user = list[0];
       if (user) {
         const favs: any[] = (user.favoriteLists || []) as any[];
-        const visits: any[] = (user.visitedPlaces || []) as any[];
         for (const f of favs) if (f.listItemId) listItemIds.add(f.listItemId);
-        for (const v of visits) if (v.listItemId) listItemIds.add(v.listItemId);
       }
 
       const itemTitleMap = new Map<number, string>();
@@ -120,22 +117,8 @@ export async function GET(request: NextRequest) {
         return { ...u, favoriteLists: favsWithTitle, ratingDetails };
       });
 
-      list = favoriteLists.map((u, idx) => {
-        const visits: any[] = ((list[idx].visitedPlaces as any[]) || []) as any[];
-        const visitedPlaces = visits.map((v: any) => {
-          const itemId = v.listItemId;
-          const ratingInfo = userRatings.find(r => r.targetType === 'list_item' && r.targetId === itemId);
-          return {
-            listItemId: itemId,
-            addedAt: v.addedAt,
-            title: itemTitleMap.get(itemId) || null,
-            rating: ratingInfo?.rating || 0,
-            comment: ratingInfo?.comment || null,
-          };
-        });
-        return { ...u, visitedPlaces };
-       });
-      } else {
+      list = favoriteLists;
+    } else {
         const allRatings = await db.select({ uid: ratings.userId }).from(ratings);
         const ratingCountMap = new Map<number, number>();
         for (const r of allRatings) {
@@ -144,8 +127,7 @@ export async function GET(request: NextRequest) {
         list = list.map(u => ({ 
           ...u, 
           ratingsCnt: ratingCountMap.get(u.id) || 0,
-          favoritesCnt: Array.isArray(u.favoriteLists) ? u.favoriteLists.length : 0,
-          visitedCnt: Array.isArray(u.visitedPlaces) ? u.visitedPlaces.length : 0
+          favoritesCnt: Array.isArray(u.favoriteLists) ? u.favoriteLists.length : 0
         }));
       }
 

@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/db';
-import { footprintGroups, footprintGroupItems, users } from '@/db/schema';
+import { footprintGroups, footprintGroupItems } from '@/db/schema';
 import { authenticateFootprintRequest } from '../../_auth';
 
 async function ensureDefaultGroup(userId: number): Promise<number> {
@@ -56,28 +56,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const [user] = await db
-      .select({ visitedPlaces: users.visitedPlaces })
-      .from(users)
-      .where(eq(users.id, auth.userId));
-
-    const visited = Array.isArray(user?.visitedPlaces)
-      ? user.visitedPlaces
-      : [];
-    const idx = visited.findIndex(
-      (v: any) => v.listItemId === list_item_id,
-    );
-    if (idx < 0) {
-      visited.push({
-        listItemId: list_item_id,
-        addedAt: new Date().toISOString(),
-      });
-      await db
-        .update(users)
-        .set({ visitedPlaces: visited })
-        .where(eq(users.id, auth.userId));
-    }
-
     return NextResponse.json({ success: true, group_id: groupId }, { status: 200 });
   } catch (err) {
     console.error('POST /api/footprints/default/items error:', err);
@@ -122,22 +100,6 @@ export async function DELETE(req: NextRequest) {
           ),
         );
     }
-
-    const [user] = await db
-      .select({ visitedPlaces: users.visitedPlaces })
-      .from(users)
-      .where(eq(users.id, auth.userId));
-
-    const visited = Array.isArray(user?.visitedPlaces)
-      ? user.visitedPlaces
-      : [];
-    const filtered = visited.filter(
-      (v: any) => v.listItemId !== listItemId,
-    );
-    await db
-      .update(users)
-      .set({ visitedPlaces: filtered })
-      .where(eq(users.id, auth.userId));
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {
