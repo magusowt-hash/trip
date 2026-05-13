@@ -38,6 +38,8 @@ export async function GET(
         lng: listItems.lng,
         lat: listItems.lat,
         address: listItems.address,
+        cloudCover: footprintGroupItems.cloudCover,
+        cloudFolder: footprintGroupItems.cloudFolder,
         listId: listItems.listId,
         listName: lists.name,
       })
