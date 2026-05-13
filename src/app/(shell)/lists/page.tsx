@@ -346,6 +346,18 @@ export default function ListsPage() {
       }
     } catch {}
 
+      // Try to fetch cloud cover
+      if (!wasVisited) {
+        try {
+          await fetch('/api/alist/cover', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ list_item_id: itemId }),
+          });
+        } catch {}
+      }
+
     // Delete rating when canceling visited
     if (wasVisited) {
       try {
