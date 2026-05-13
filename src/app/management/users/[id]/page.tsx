@@ -12,7 +12,7 @@ interface UserData {
   gender: number;
   region: string | null;
   favoriteLists: any[];
-  visitedPlaces: any[];
+
   ratings: any[];
   createdAt: string;
 }
@@ -150,22 +150,12 @@ export default function UserDetailPage() {
   };
 
   const renderVisited = () => {
-    const visited = user.visitedPlaces || [];
-    if (visited.length === 0) {
-      return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>暂无足迹</div>;
-    }
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {visited.map((v: any, i: number) => (
-          <div key={i} style={{ padding: 12, background: '#f9fafb', borderRadius: 8, fontSize: 14 }}>
-            <div><strong>{v.title || '未知地点'}</strong> <span style={{ color: '#9ca3af', fontSize: 12 }}>(ID: {v.listItemId})</span></div>
-            <div style={{ color: '#6b7280', fontSize: 12 }}>访问时间: {v.addedAt ? new Date(v.addedAt).toLocaleString('zh-CN') : '-'}</div>
-            <div style={{ marginTop: 4 }}>
-              评分: {v.rating ? <span>{'★'.repeat(v.rating / 2)}{'☆'.repeat(5 - v.rating / 2)} ({v.rating})</span> : <span style={{ color: '#9ca3af' }}>未评分</span>}
-            </div>
-            {v.comment && <div style={{ color: '#374151', marginTop: 4 }}>评价: {v.comment}</div>}
-          </div>
-        ))}
+      <div style={{ padding: 16, textAlign: 'center', color: '#9ca3af' }}>
+        <p>足迹已迁移到分类组系统</p>
+        <a href="/management/footprints" style={{ color: '#3b82f6' }}>
+          前往足迹分组管理
+        </a>
       </div>
     );
   };

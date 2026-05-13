@@ -62,10 +62,6 @@ export default function ListsPage() {
           const ids = new Set<number>(data.favoriteLists.map((l: { listItemId: number }) => l.listItemId));
           setFavoriteItemIds(ids);
         }
-        if (data.visitedPlaces) {
-          const ids = new Set<number>(data.visitedPlaces.map((l: { listItemId: number }) => l.listItemId));
-          setVisitedItemIds(ids);
-        }
       })
       .catch(() => {});
     fetch('/api/ratings', { credentials: 'include' })
@@ -78,6 +74,20 @@ export default function ListsPage() {
               .map((r: any) => [r.targetId, { rating: r.rating, comment: r.comment || '' }] as [number, { rating: number; comment: string }])
           );
           setRatings(map);
+        }
+      })
+      .catch(() => {});
+    fetch('/api/footprints/groups', { credentials: 'include' })
+      .then(res => res.json())
+      .then(data => {
+        const defaultGroup = (data.groups || []).find((g: any) => g.isDefault === 1);
+        if (defaultGroup) {
+          fetch(`/api/footprints/groups/${defaultGroup.id}/items`, { credentials: 'include' })
+            .then(res => res.json())
+            .then(data => {
+              const ids = new Set<number>((data.items || []).map((i: any) => i.listItemId));
+              setVisitedItemIds(ids);
+            });
         }
       })
       .catch(() => {});
@@ -317,40 +327,6 @@ export default function ListsPage() {
       } catch (e) {
         console.error('Failed to delete rating:', e);
       }
-    }
-
-    try {
-      const res = await fetch('/api/user/lists', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ visitedPlaces: Array.from(newVisited).map(id => ({ listItemId: id, addedAt: new Date().toISOString() })) }),
-      });
-      if (res.status === 401 || res.status === 403) {
-        setVisitedItemIds(prev => {
-          const rollback = new Set(prev);
-          if (wasVisited) rollback.add(itemId);
-          else rollback.delete(itemId);
-          return rollback;
-        });
-        alert('请先登录后再标记足迹');
-        return;
-      }
-      if (!res.ok) {
-        setVisitedItemIds(prev => {
-          const rollback = new Set(prev);
-          if (wasVisited) rollback.add(itemId);
-          else rollback.delete(itemId);
-          return rollback;
-        });
-      }
-    } catch {
-      setVisitedItemIds(prev => {
-        const rollback = new Set(prev);
-        if (wasVisited) rollback.add(itemId);
-        else rollback.delete(itemId);
-        return rollback;
-      });
     }
 
     // Sync to footprint default group
