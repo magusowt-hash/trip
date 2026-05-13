@@ -311,3 +311,36 @@ export const listItems = mysqlTable(
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
 );
+
+// Packing categories table (行李清单分类)
+export const packingCategories = mysqlTable(
+  'packing_categories',
+  {
+    id: serial('id').primaryKey(),
+    name: varchar('name', { length: 64 }).notNull(),
+    orderNum: int('order_num').default(0),
+    status: tinyint('status').default(1),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+);
+
+// Packing templates table (行李清单物品模板)
+export const packingTemplates = mysqlTable(
+  'packing_templates',
+  {
+    id: serial('id').primaryKey(),
+    categoryId: int('category_id').notNull(),
+    name: varchar('name', { length: 64 }).notNull(),
+    orderNum: int('order_num').default(0),
+    status: tinyint('status').default(1),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    categoryIdIdx: index('packing_templates_category_id_idx').on(t.categoryId),
+  }),
+);
+
+// Footprints classification
+export { footprintGroups, footprintGroupItems } from './schema.footprints';
