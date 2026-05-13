@@ -1,0 +1,36 @@
+.root { height: min(calc(100vh - var(--shell-header-offset, 88px) - 32px), 880px); display: flex; flex-direction: column; padding: 16px; overflow: hidden; }
+.topBar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-shrink: 0; }
+.backBtn { padding: 6px 12px; font-size: 13px; background: #f3f4f6; border: none; border-radius: 6px; cursor: pointer; color: #374151; }
+.backBtn:hover { background: #e5e7eb; }
+.topTitle { flex: 1; font-size: 18px; font-weight: 600; margin: 0; }
+.viewSwitcher { display: flex; gap: 4px; }
+.viewBtn { padding: 6px 10px; font-size: 16px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; cursor: pointer; }
+.viewBtn:hover { background: #f3f4f6; }
+.viewBtnActive { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+
+.loading, .empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 15px; }
+
+.grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; align-content: start; }
+.gridItem { cursor: pointer; aspect-ratio: 1; overflow: hidden; border-radius: 8px; background: #f3f4f6; }
+.gridItem img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s; }
+.gridItem:hover img { transform: scale(1.05); }
+
+.list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.listItem { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 6px; cursor: pointer; }
+.listItem:hover { background: #f9fafb; }
+.listItem img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+.listInfo { flex: 1; min-width: 0; }
+.listName { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listMeta { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+
+.waterfall { flex: 1; overflow-y: auto; column-count: 3; column-gap: 8px; }
+.waterfallItem { break-inside: avoid; margin-bottom: 8px; border-radius: 8px; overflow: hidden; cursor: pointer; background: #f3f4f6; }
+.waterfallItem img { width: 100%; display: block; object-fit: cover; min-height: 120px; }
+
+.lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 3000; display: flex; align-items: center; justify-content: center; }
+.lightbox img { max-width: 90vw; max-height: 85vh; object-fit: contain; }
+.lbPrev, .lbNext { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.15); border: none; color: #fff; font-size: 40px; width: 56px; height: 56px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.lbPrev:hover, .lbNext:hover { background: rgba(255,255,255,0.3); }
+.lbPrev { left: 20px; }
+.lbNext { right: 20px; }
+.lbCounter { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); color: #fff; font-size: 14px; background: rgba(0,0,0,0.5); padding: 4px 14px; border-radius: 12px; }
