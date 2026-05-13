@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import PlanMap, { type MapMarker } from '@/components/PlanMap';
+import styles from './footprints.module.css';
 
 interface FootprintGroup {
   id: number;
@@ -44,6 +46,15 @@ export default function UserFootprintsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [batchAddToGroupOpen, setBatchAddToGroupOpen] = useState(false);
 
+  // Map
+  const mapInstanceRef = useRef<any>(null);
+  const [markers, setMarkers] = useState<MapMarker[]>([]);
+  const [focusPosition, setFocusPosition] = useState<[number, number] | null>(null);
+
+  const handleMapReady = (map: any) => {
+    mapInstanceRef.current = map;
+  };
+
   useEffect(() => {
     loadGroups();
   }, []);
@@ -56,6 +67,20 @@ export default function UserFootprintsPage() {
       setItems([]);
     }
   }, [selectedGroupId]);
+
+  // Derive markers from items
+  useEffect(() => {
+    const newMarkers: MapMarker[] = items
+      .filter(it => it.lng && it.lat)
+      .map(it => ({
+        id: it.listItemId,
+        position: [parseFloat(it.lng!), parseFloat(it.lat!)] as [number, number],
+        title: it.title,
+        address: it.address || undefined,
+        description: it.description || undefined,
+      }));
+    setMarkers(newMarkers);
+  }, [items]);
 
   async function loadGroups() {
     try {
@@ -192,8 +217,26 @@ export default function UserFootprintsPage() {
     }
   }
 
-  // Batch operations
+  // Map marker click
+  function handleMapMarkerClick(marker: MapMarker) {
+    if (marker.position) {
+      setFocusPosition(marker.position);
+    }
+  }
 
+  // Item click -> focus map
+  function handleItemClick(item: FootprintItem) {
+    if (item.lng && item.lat) {
+      const lng = parseFloat(item.lng);
+      const lat = parseFloat(item.lat);
+      setFocusPosition([lng, lat]);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.setZoomAndCenter(12, [lng, lat], true);
+      }
+    }
+  }
+
+  // Batch operations
   function handleSelectAll() {
     if (items.length === 0) return;
     if (selectedIds.size === items.length) {
@@ -277,316 +320,150 @@ export default function UserFootprintsPage() {
   const selectedGroup = groups.find(g => g.id === selectedGroupId);
 
   return (
-    <div style={{ padding: 16, paddingBottom: selectedIds.size > 0 ? 80 : 16 }}>
-      <h1 style={{ margin: '0 0 16px', fontSize: 20, fontWeight: 600 }}>我的足迹</h1>
-
-      {/* Group tabs */}
-      <div style={{
-        display: 'flex',
-        gap: 6,
-        overflowX: 'auto',
-        paddingBottom: 8,
-        marginBottom: 12,
-        flexWrap: 'wrap',
-      }}>
-        {groups.map(group => (
-          <div
-            key={group.id}
-            onClick={() => setSelectedGroupId(group.id)}
-            style={{
-              flexShrink: 0,
-              padding: '6px 12px',
-              fontSize: 12,
-              borderRadius: 16,
-              background: selectedGroupId === group.id ? '#3b82f6' : '#f3f4f6',
-              color: selectedGroupId === group.id ? '#fff' : '#374151',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              transition: 'all 0.15s',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
-            {group.name}
-            {group.isDefault === 1 && (
-              <span style={{
-                fontSize: 10,
-                background: 'rgba(255,255,255,0.3)',
-                padding: '1px 4px',
-                borderRadius: 4,
-              }}>默认</span>
-            )}
-          </div>
-        ))}
-        <div
-          onClick={() => setShowNewGroupInput(true)}
-          style={{
-            flexShrink: 0,
-            padding: '6px 12px',
-            fontSize: 12,
-            borderRadius: 16,
-            background: 'transparent',
-            color: '#6b7280',
-            border: '1px dashed #d1d5db',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          ＋新建
-        </div>
-      </div>
-
-      {/* New group input */}
-      {showNewGroupInput && (
-        <div style={{ display: 'flex', gap: 6, marginBottom: 12, alignItems: 'center' }}>
-          <input
-            placeholder="输入分类组名称"
-            value={newGroupName}
-            onChange={e => setNewGroupName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleCreateGroup()}
-            autoFocus
-            style={{
-              flex: 1,
-              padding: '6px 10px',
-              fontSize: 12,
-              border: '1px solid #d1d5db',
-              borderRadius: 6,
-              outline: 'none',
-            }}
+    <div className={styles.root}>
+      <div className={styles.split}>
+        <div className={styles.mapCol}>
+          <PlanMap
+            markers={markers}
+            focusPosition={focusPosition}
+            onMarkerClick={handleMapMarkerClick}
+            onMapLoad={handleMapReady}
+            autoLoadMarkers={false}
           />
-          <button
-            onClick={handleCreateGroup}
-            style={{ padding: '4px 12px', fontSize: 12, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
-          >
-            确定
-          </button>
-          <button
-            onClick={() => { setShowNewGroupInput(false); setNewGroupName(''); }}
-            style={{ padding: '4px 12px', fontSize: 12, background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: 6, cursor: 'pointer' }}
-          >
-            取消
-          </button>
         </div>
-      )}
 
-      {/* Selected group header */}
-      {selectedGroup && (
-        <div style={{ padding: '8px 0', borderBottom: '1px solid #f3f4f6', marginBottom: 12 }}>
-          {editingGroupId === selectedGroup.id ? (
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
-              <input
-                value={editGroupName}
-                onChange={e => setEditGroupName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleRenameGroup(selectedGroup.id)}
-                autoFocus
-                style={{ flex: 1, padding: '4px 8px', fontSize: 14, border: '1px solid #d1d5db', borderRadius: 6, outline: 'none' }}
-              />
-              <button onClick={() => handleRenameGroup(selectedGroup.id)} style={{ padding: '4px 10px', fontSize: 12, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
-                保存
-              </button>
-              <button onClick={() => setEditingGroupId(null)} style={{ padding: '4px 10px', fontSize: 12, background: '#f3f4f6', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
-                取消
-              </button>
+        <div className={styles.rightCol}>
+          <h1 className={styles.title}>我的足迹</h1>
+
+          {/* Group tabs */}
+          <div className={styles.groupTabs}>
+            {groups.map(group => (
+              <div
+                key={group.id}
+                onClick={() => setSelectedGroupId(group.id)}
+                className={`${styles.groupTab} ${selectedGroupId === group.id ? styles.groupTabActive : ''}`}
+              >
+                {group.name}
+                {group.isDefault === 1 && <span className={styles.defaultBadge}>默认</span>}
+              </div>
+            ))}
+            <div className={styles.groupTabAdd} onClick={() => setShowNewGroupInput(true)}>
+              ＋新建
             </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <span style={{ fontSize: 16, fontWeight: 600, color: '#1f2937', flex: 1 }}>{selectedGroup.name}</span>
-              <button
-                onClick={() => { setEditingGroupId(selectedGroup.id); setEditGroupName(selectedGroup.name); }}
-                title="重命名"
-                style={{ padding: '2px 6px', fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', borderRadius: 4 }}
-              >
-                ✏️
-              </button>
-              {selectedGroup.isDefault !== 1 && (
-                <button
-                  onClick={() => handleSetDefault(selectedGroup.id)}
-                  title="设为默认"
-                  style={{ padding: '2px 6px', fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', borderRadius: 4 }}
-                >
-                  ⭐
-                </button>
-              )}
-              <button
-                onClick={() => handleDeleteGroup(selectedGroup.id)}
-                title="删除"
-                style={{ padding: '2px 6px', fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', borderRadius: 4 }}
-              >
-                🗑
-              </button>
+          </div>
+
+          {/* New group input */}
+          {showNewGroupInput && (
+            <div className={styles.newGroupRow}>
+              <input
+                className={styles.newGroupInput}
+                placeholder="输入分类组名称"
+                value={newGroupName}
+                onChange={e => setNewGroupName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleCreateGroup()}
+                autoFocus
+              />
+              <button className={styles.btnPrimary} onClick={handleCreateGroup}>确定</button>
+              <button className={styles.btnCancel} onClick={() => { setShowNewGroupInput(false); setNewGroupName(''); }}>取消</button>
             </div>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12, color: '#9ca3af' }}>共 {items.length} 个地点</span>
-            {items.length > 0 && selectedIds.size === 0 && (
-              <button
-                onClick={handleSelectAll}
-                style={{ fontSize: 12, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer' }}
+
+          {/* Selected group header */}
+          {selectedGroup && (
+            <div className={styles.groupHeader}>
+              {editingGroupId === selectedGroup.id ? (
+                <div className={styles.editRow}>
+                  <input
+                    className={styles.editInput}
+                    value={editGroupName}
+                    onChange={e => setEditGroupName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleRenameGroup(selectedGroup.id)}
+                    autoFocus
+                  />
+                  <button className={styles.btnPrimary} onClick={() => handleRenameGroup(selectedGroup.id)}>保存</button>
+                  <button className={styles.btnCancel} onClick={() => setEditingGroupId(null)}>取消</button>
+                </div>
+              ) : (
+                <div className={styles.groupTitleRow}>
+                  <span className={styles.groupTitle}>{selectedGroup.name}</span>
+                  <button className={styles.groupIconBtn} onClick={() => { setEditingGroupId(selectedGroup.id); setEditGroupName(selectedGroup.name); }} title="重命名">✏️</button>
+                  {selectedGroup.isDefault !== 1 && (
+                    <button className={styles.groupIconBtn} onClick={() => handleSetDefault(selectedGroup.id)} title="设为默认">⭐</button>
+                  )}
+                  <button className={styles.groupIconDanger} onClick={() => handleDeleteGroup(selectedGroup.id)} title="删除">🗑</button>
+                </div>
+              )}
+              <div className={styles.headerRow}>
+                <span className={styles.itemCount}>共 {items.length} 个地点</span>
+                {items.length > 0 && selectedIds.size === 0 && (
+                  <button className={styles.linkBtn} onClick={handleSelectAll}>选择多个</button>
+                )}
+                {selectedIds.size > 0 && (
+                  <button className={styles.linkBtnMuted} onClick={() => setSelectedIds(new Set())}>取消选择</button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Item list */}
+          <div className={styles.itemList}>
+            {items.map(item => (
+              <div
+                key={item.id}
+                className={`${styles.itemCard} ${selectedIds.has(item.listItemId) ? styles.itemCardSelected : ''}`}
+                onClick={() => handleItemClick(item)}
+                onContextMenu={e => handleContextMenu(e, item)}
               >
-                选择多个
-              </button>
+                {/* Checkbox */}
+                <div
+                  className={`${styles.checkbox} ${selectedIds.has(item.listItemId) ? styles.checkboxChecked : ''}`}
+                  onClick={e => { e.stopPropagation(); handleToggleSelect(item.listItemId); }}
+                >
+                  {selectedIds.has(item.listItemId) && (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </div>
+
+                {item.coverImage && (
+                  <div className={styles.itemCover} style={{ backgroundImage: `url(${item.coverImage})` }} />
+                )}
+                <div className={styles.itemInfo}>
+                  <h3 className={styles.itemTitle}>{item.title}</h3>
+                  {item.address && <p className={styles.itemAddress}>{item.address}</p>}
+                  {item.listName && <span className={styles.itemBadge}>{item.listName}</span>}
+                </div>
+                <button className={styles.itemMenuBtn} onClick={e => { e.stopPropagation(); handleContextMenu(e, item); }}>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <circle cx="3" cy="8" r="1.5" fill="#9ca3af" />
+                    <circle cx="8" cy="8" r="1.5" fill="#9ca3af" />
+                    <circle cx="13" cy="8" r="1.5" fill="#9ca3af" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+            {items.length === 0 && selectedGroup && (
+              <p className={styles.emptyHint}>暂无地点，在榜单中点击已去即可添加</p>
             )}
-            {selectedIds.size > 0 && (
-              <button
-                onClick={() => setSelectedIds(new Set())}
-                style={{ fontSize: 12, color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}
-              >
-                取消选择
-              </button>
+            {!selectedGroup && groups.length === 0 && (
+              <p className={styles.emptyHint}>暂无分类组，点击上方"+ 新建"创建</p>
             )}
           </div>
         </div>
-      )}
-
-      {/* Item list */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {items.map(item => (
-          <div
-            key={item.id}
-            onContextMenu={e => handleContextMenu(e, item)}
-            style={{
-              display: 'flex',
-              gap: 12,
-              padding: 12,
-              background: selectedIds.has(item.listItemId) ? '#eff6ff' : '#fff',
-              borderRadius: 8,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-              position: 'relative',
-              border: selectedIds.has(item.listItemId) ? '2px solid #3b82f6' : '2px solid transparent',
-            }}
-          >
-            {/* Checkbox */}
-            <div
-              onClick={e => { e.stopPropagation(); handleToggleSelect(item.listItemId); }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 22,
-                height: 22,
-                borderRadius: 4,
-                border: selectedIds.has(item.listItemId) ? '2px solid #3b82f6' : '2px solid #d1d5db',
-                background: selectedIds.has(item.listItemId) ? '#3b82f6' : '#fff',
-                cursor: 'pointer',
-                flexShrink: 0,
-                marginTop: 4,
-                transition: 'all 0.15s',
-              }}
-            >
-              {selectedIds.has(item.listItemId) && (
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              )}
-            </div>
-
-            {item.coverImage && (
-              <div
-                style={{
-                  width: 80,
-                  height: 80,
-                  borderRadius: 8,
-                  background: `url(${item.coverImage}) center/cover`,
-                  flexShrink: 0,
-                  backgroundColor: '#f3f4f6',
-                }}
-              />
-            )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <h3 style={{
-                margin: '0 0 4px',
-                fontSize: 15,
-                fontWeight: 500,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}>
-                {item.title}
-              </h3>
-              {item.address && (
-                <p style={{ margin: '0 0 4px', fontSize: 12, color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {item.address}
-                </p>
-              )}
-              {item.listName && (
-                <span style={{ fontSize: 10, color: '#3b82f6', background: '#eff6ff', padding: '1px 6px', borderRadius: 4 }}>
-                  {item.listName}
-                </span>
-              )}
-            </div>
-            <button
-              onClick={e => { e.stopPropagation(); handleContextMenu(e, item); }}
-              style={{
-                position: 'absolute',
-                bottom: 8,
-                right: 8,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 28,
-                height: 28,
-                cursor: 'pointer',
-                borderRadius: '50%',
-                border: 'none',
-                background: 'none',
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <circle cx="3" cy="8" r="1.5" fill="#9ca3af" />
-                <circle cx="8" cy="8" r="1.5" fill="#9ca3af" />
-                <circle cx="13" cy="8" r="1.5" fill="#9ca3af" />
-              </svg>
-            </button>
-          </div>
-        ))}
-        {items.length === 0 && selectedGroup && (
-          <p style={{ textAlign: 'center', padding: 24, color: '#9ca3af', fontSize: 13 }}>
-            暂无地点，在榜单中点击已去即可添加
-          </p>
-        )}
-        {!selectedGroup && groups.length === 0 && (
-          <p style={{ textAlign: 'center', padding: 24, color: '#9ca3af', fontSize: 13 }}>
-            暂无分类组，点击上方"+ 新建"创建
-          </p>
-        )}
       </div>
 
       {/* Batch action bar */}
       {selectedIds.size > 0 && (
-        <div style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 200,
-          right: 0,
-          background: '#fff',
-          borderTop: '1px solid #e5e7eb',
-          padding: '12px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          zIndex: 500,
-          boxShadow: '0 -2px 8px rgba(0,0,0,0.06)',
-        }}>
-          <span style={{ fontSize: 14, color: '#374151', fontWeight: 500, flex: 1 }}>
-            已选 {selectedIds.size} 项
-          </span>
-          <button
-            onClick={handleSelectAll}
-            style={{ padding: '6px 16px', fontSize: 13, background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: 6, cursor: 'pointer' }}
-          >
+        <div className={styles.batchBar}>
+          <span className={styles.batchLabel}>已选 {selectedIds.size} 项</span>
+          <button className={styles.batchBtn} onClick={handleSelectAll}>
             {selectedIds.size === items.length ? '取消全选' : '全选'}
           </button>
-          <button
-            onClick={() => setBatchAddToGroupOpen(true)}
-            style={{ padding: '6px 16px', fontSize: 13, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
-          >
+          <button className={styles.batchBtnPrimary} onClick={() => setBatchAddToGroupOpen(true)}>
             添加到其他组
           </button>
-          <button
-            onClick={handleBatchRemove}
-            style={{ padding: '6px 16px', fontSize: 13, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
-          >
+          <button className={styles.batchBtnDanger} onClick={handleBatchRemove}>
             从本组移除
           </button>
         </div>
@@ -594,29 +471,11 @@ export default function UserFootprintsPage() {
 
       {/* Context menu */}
       {contextMenu && (
-        <div
-          style={{
-            position: 'fixed',
-            zIndex: 1000,
-            left: contextMenu.x,
-            top: contextMenu.y,
-            background: 'white',
-            borderRadius: 8,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            overflow: 'hidden',
-            minWidth: 140,
-          }}
-        >
-          <button
-            onClick={() => { setTargetItem(contextMenu.item); setAddToGroupOpen(true); setContextMenu(null); }}
-            style={{ display: 'block', width: '100%', padding: '10px 16px', fontSize: 13, textAlign: 'left', border: 'none', background: 'none', cursor: 'pointer', color: '#374151' }}
-          >
+        <div className={styles.contextMenu} style={{ left: contextMenu.x, top: contextMenu.y }}>
+          <button className={styles.contextItem} onClick={() => { setTargetItem(contextMenu.item); setAddToGroupOpen(true); setContextMenu(null); }}>
             添加到其他组
           </button>
-          <button
-            onClick={() => { handleRemoveItem(contextMenu.item); setContextMenu(null); }}
-            style={{ display: 'block', width: '100%', padding: '10px 16px', fontSize: 13, textAlign: 'left', border: 'none', background: 'none', cursor: 'pointer', color: '#ef4444' }}
-          >
+          <button className={styles.contextItemDanger} onClick={() => { handleRemoveItem(contextMenu.item); setContextMenu(null); }}>
             从本组移除
           </button>
         </div>
@@ -624,142 +483,42 @@ export default function UserFootprintsPage() {
 
       {/* Single item add-to-group modal */}
       {addToGroupOpen && targetItem && (
-        <div
-          onClick={() => { setAddToGroupOpen(false); setTargetItem(null); }}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 2000,
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: 'white',
-              borderRadius: 12,
-              padding: 20,
-              width: 320,
-              maxHeight: '60vh',
-              overflowY: 'auto',
-            }}
-          >
-            <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 16px', color: '#1f2937' }}>
-              添加到分类组: {targetItem.title}
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-              {groups
-                .filter(g => g.id !== selectedGroupId)
-                .map(g => (
-                  <button
-                    key={g.id}
-                    onClick={() => handleAddToGroup(targetItem, g.id)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '10px 14px',
-                      fontSize: 13,
-                      border: '1px solid #e5e7eb',
-                      borderRadius: 8,
-                      background: 'white',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      color: '#374151',
-                    }}
-                  >
-                    {g.name}
-                    {g.isDefault === 1 && (
-                      <span style={{ fontSize: 10, background: '#f3f4f6', padding: '1px 4px', borderRadius: 4 }}>
-                        默认
-                      </span>
-                    )}
-                  </button>
-                ))}
+        <div className={styles.modalOverlay} onClick={() => { setAddToGroupOpen(false); setTargetItem(null); }}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <h3 className={styles.modalTitle}>添加到分类组: {targetItem.title}</h3>
+            <div className={styles.modalList}>
+              {groups.filter(g => g.id !== selectedGroupId).map(g => (
+                <button key={g.id} className={styles.modalBtn} onClick={() => handleAddToGroup(targetItem, g.id)}>
+                  {g.name}
+                  {g.isDefault === 1 && <span className={styles.defaultBadge}>默认</span>}
+                </button>
+              ))}
               {groups.filter(g => g.id !== selectedGroupId).length === 0 && (
-                <p style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center' }}>暂无其他分类组</p>
+                <p className={styles.emptyHint}>暂无其他分类组</p>
               )}
             </div>
-            <button
-              onClick={() => { setAddToGroupOpen(false); setTargetItem(null); }}
-              style={{ display: 'block', width: '100%', padding: 8, fontSize: 13, border: 'none', background: '#f3f4f6', borderRadius: 8, cursor: 'pointer', color: '#6b7280' }}
-            >
-              取消
-            </button>
+            <button className={styles.modalClose} onClick={() => { setAddToGroupOpen(false); setTargetItem(null); }}>取消</button>
           </div>
         </div>
       )}
 
       {/* Batch add-to-group modal */}
       {batchAddToGroupOpen && (
-        <div
-          onClick={() => setBatchAddToGroupOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 2000,
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: 'white',
-              borderRadius: 12,
-              padding: 20,
-              width: 320,
-              maxHeight: '60vh',
-              overflowY: 'auto',
-            }}
-          >
-            <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 16px', color: '#1f2937' }}>
-              批量添加到分类组 ({selectedIds.size} 项)
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-              {groups
-                .filter(g => g.id !== selectedGroupId)
-                .map(g => (
-                  <button
-                    key={g.id}
-                    onClick={() => handleBatchAddToGroup(g.id)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '10px 14px',
-                      fontSize: 13,
-                      border: '1px solid #e5e7eb',
-                      borderRadius: 8,
-                      background: 'white',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      color: '#374151',
-                    }}
-                  >
-                    {g.name}
-                    {g.isDefault === 1 && (
-                      <span style={{ fontSize: 10, background: '#f3f4f6', padding: '1px 4px', borderRadius: 4 }}>
-                        默认
-                      </span>
-                    )}
-                  </button>
-                ))}
+        <div className={styles.modalOverlay} onClick={() => setBatchAddToGroupOpen(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <h3 className={styles.modalTitle}>批量添加到分类组 ({selectedIds.size} 项)</h3>
+            <div className={styles.modalList}>
+              {groups.filter(g => g.id !== selectedGroupId).map(g => (
+                <button key={g.id} className={styles.modalBtn} onClick={() => handleBatchAddToGroup(g.id)}>
+                  {g.name}
+                  {g.isDefault === 1 && <span className={styles.defaultBadge}>默认</span>}
+                </button>
+              ))}
               {groups.filter(g => g.id !== selectedGroupId).length === 0 && (
-                <p style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center' }}>暂无其他分类组</p>
+                <p className={styles.emptyHint}>暂无其他分类组</p>
               )}
             </div>
-            <button
-              onClick={() => setBatchAddToGroupOpen(false)}
-              style={{ display: 'block', width: '100%', padding: 8, fontSize: 13, border: 'none', background: '#f3f4f6', borderRadius: 8, cursor: 'pointer', color: '#6b7280' }}
-            >
-              取消
-            </button>
+            <button className={styles.modalClose} onClick={() => setBatchAddToGroupOpen(false)}>取消</button>
           </div>
         </div>
       )}
