@@ -27,6 +27,31 @@ export async function GET(req: NextRequest) {
       .groupBy(footprintGroups.id)
       .orderBy(asc(footprintGroups.sortOrder), asc(footprintGroups.id));
 
+    // Auto-create default group if user has none
+    if (groups.length === 0) {
+      await db.insert(footprintGroups).values({
+        userId: auth.userId,
+        name: '我的足迹',
+        isDefault: 1,
+        sortOrder: 0,
+      });
+      const fresh = await db
+        .select({
+          id: footprintGroups.id,
+          name: footprintGroups.name,
+          isDefault: footprintGroups.isDefault,
+          sortOrder: footprintGroups.sortOrder,
+          itemCount: sql<number>`count(${footprintGroupItems.id})`,
+          createdAt: footprintGroups.createdAt,
+        })
+        .from(footprintGroups)
+        .leftJoin(footprintGroupItems, eq(footprintGroups.id, footprintGroupItems.groupId))
+        .where(eq(footprintGroups.userId, auth.userId))
+        .groupBy(footprintGroups.id)
+        .orderBy(asc(footprintGroups.sortOrder), asc(footprintGroups.id));
+      return NextResponse.json({ groups: fresh }, { status: 200 });
+    }
+
     return NextResponse.json({ groups }, { status: 200 });
   } catch (err) {
     console.error('GET /api/footprints/groups error:', err);
