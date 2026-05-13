@@ -38,6 +38,10 @@ export default function UserDetailPage() {
   const [bookmarkedPosts, setBookmarkedPosts] = useState<any[]>([]);
   const [bookmarksLoading, setBookmarksLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'profile' | 'posts' | 'favorites' | 'favoritesPosts' | 'visited' | 'ratings'>('profile');
+  const [fpGroups, setFpGroups] = useState<any[]>([]);
+  const [fpLoading, setFpLoading] = useState(false);
+  const [expandedFpGroup, setExpandedFpGroup] = useState<number | null>(null);
+  const [expandedFpItems, setExpandedFpItems] = useState<any[]>([]);
 
   useEffect(() => {
     fetch(`/api/admin/users?userId=${userId}`, {
@@ -79,14 +83,38 @@ export default function UserDetailPage() {
     }
   }, [userId]);
 
+  const fetchFootprintGroups = useCallback(async () => {
+    setFpLoading(true);
+    try {
+      const res = await fetch(`/api/admin/footprints?user_id=${userId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      const data = await res.json();
+      setFpGroups(data.groups || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setFpLoading(false);
+    }
+  }, [userId, token]);
+
+  const fetchFootprintItems = async (groupId: number) => {
+    try {
+      const res = await fetch(`/api/admin/footprints?group_id=${groupId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      const data = await res.json();
+      setExpandedFpItems(data.items || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
-    if (activeTab === 'posts' && posts.length === 0) {
-      fetchPosts();
+    if (activeTab === 'visited' && fpGroups.length === 0) {
+      fetchFootprintGroups();
     }
-    if (activeTab === 'favoritesPosts' && bookmarkedPosts.length === 0) {
-      fetchBookmarks();
-    }
-  }, [activeTab, fetchPosts, fetchBookmarks, posts.length, bookmarkedPosts.length]);
+  }, [activeTab, fetchFootprintGroups, fpGroups.length]);
 
   if (loading) {
     return (
@@ -150,12 +178,79 @@ export default function UserDetailPage() {
   };
 
   const renderVisited = () => {
+    if (fpLoading) {
+      return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>加载中...</div>;
+    }
+    if (fpGroups.length === 0) {
+      return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>暂无足迹分类组</div>;
+    }
     return (
-      <div style={{ padding: 16, textAlign: 'center', color: '#9ca3af' }}>
-        <p>足迹已迁移到分类组系统</p>
-        <a href="/management/footprints" style={{ color: '#3b82f6' }}>
-          前往足迹分组管理
-        </a>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {fpGroups.map((g: any) => (
+          <div key={g.id}>
+            <div
+              onClick={() => {
+                if (expandedFpGroup === g.id) {
+                  setExpandedFpGroup(null);
+                  setExpandedFpItems([]);
+                } else {
+                  setExpandedFpGroup(g.id);
+                  fetchFootprintItems(g.id);
+                }
+              }}
+              style={{
+                padding: 12,
+                background: '#f9fafb',
+                borderRadius: 8,
+                fontSize: 14,
+                cursor: 'pointer',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <span>
+                {expandedFpGroup === g.id ? '▾ ' : '▸ '}
+                <strong>{g.name}</strong>
+                {g.isDefault === 1 && <span style={{ marginLeft: 8, padding: '1px 6px', fontSize: 11, background: '#dbeafe', color: '#3b82f6', borderRadius: 4 }}>默认</span>}
+              </span>
+              <span style={{ color: '#9ca3af', fontSize: 12 }}>{g.itemCount} 个地点</span>
+            </div>
+            {expandedFpGroup === g.id && (
+              <div style={{ marginLeft: 24, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {expandedFpItems.length === 0 ? (
+                  <div style={{ padding: 12, color: '#9ca3af', fontSize: 13 }}>暂无地点</div>
+                ) : (
+                  expandedFpItems.map((item: any) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '8px 12px',
+                        background: '#fff',
+                        borderRadius: 6,
+                        fontSize: 13,
+                      }}
+                    >
+                      {item.coverImage && (
+                        <img src={item.coverImage} alt="" width={36} height={36} style={{ borderRadius: 4, objectFit: 'cover' }} />
+                      )}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 500 }}>{item.title || `地点 #${item.listItemId}`}</div>
+                        {item.address && <div style={{ color: '#6b7280', fontSize: 11 }}>{item.address}</div>}
+                      </div>
+                      <div style={{ color: '#9ca3af', fontSize: 11 }}>
+                        {item.addedAt ? new Date(item.addedAt).toLocaleDateString('zh-CN') : ''}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     );
   };

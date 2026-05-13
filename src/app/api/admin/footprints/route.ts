@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { eq, sql, desc } from 'drizzle-orm';
 import { db } from '@/db';
-import { footprintGroups, footprintGroupItems, users } from '@/db/schema';
+import { footprintGroups, footprintGroupItems, users, listItems } from '@/db/schema';
 import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
 
 function verifyAdminToken(req: NextRequest): NextResponse | null {
@@ -32,12 +32,22 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const groupId = searchParams.get('group_id');
+  const userId = searchParams.get('user_id');
 
   try {
     if (groupId) {
       const items = await db
-        .select()
+        .select({
+          id: footprintGroupItems.id,
+          groupId: footprintGroupItems.groupId,
+          listItemId: footprintGroupItems.listItemId,
+          title: listItems.title,
+          coverImage: listItems.coverImage,
+          address: listItems.address,
+          addedAt: footprintGroupItems.addedAt,
+        })
         .from(footprintGroupItems)
+        .leftJoin(listItems, eq(footprintGroupItems.listItemId, listItems.id))
         .where(eq(footprintGroupItems.groupId, parseInt(groupId)))
         .orderBy(desc(footprintGroupItems.id));
 
@@ -58,6 +68,7 @@ export async function GET(req: NextRequest) {
       .from(footprintGroups)
       .leftJoin(users, eq(footprintGroups.userId, users.id))
       .leftJoin(footprintGroupItems, eq(footprintGroups.id, footprintGroupItems.groupId))
+      .where(userId ? eq(footprintGroups.userId, parseInt(userId)) : undefined)
       .groupBy(footprintGroups.id)
       .orderBy(desc(footprintGroups.id));
 
