@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import PlanMap, { type MapMarker } from '@/components/PlanMap';
 import styles from './footprints.module.css';
 
@@ -24,6 +25,8 @@ interface FootprintItem {
   listId: number | null;
   listName: string | null;
   addedAt: string;
+  cloudCover: string | null;
+  cloudFolder: string | null;
 }
 
 export default function UserFootprintsPage() {
@@ -45,6 +48,7 @@ export default function UserFootprintsPage() {
   // Batch selection
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [batchAddToGroupOpen, setBatchAddToGroupOpen] = useState(false);
+  const router = useRouter();
 
   // Map
   const mapInstanceRef = useRef<any>(null);
@@ -426,8 +430,8 @@ export default function UserFootprintsPage() {
                   )}
                 </div>
 
-                {item.coverImage && (
-                  <div className={styles.itemCover} style={{ backgroundImage: `url(${item.coverImage})` }} />
+                {((item.cloudCover || item.coverImage)) && (
+                  <div className={styles.itemCover} style={{ backgroundImage: `url(${item.cloudCover || item.coverImage})` }} />
                 )}
                 <div className={styles.itemInfo}>
                   <h3 className={styles.itemTitle}>{item.title}</h3>
@@ -441,6 +445,15 @@ export default function UserFootprintsPage() {
                     <circle cx="13" cy="8" r="1.5" fill="#9ca3af" />
                   </svg>
                 </button>
+                {item.cloudFolder && (
+                  <button
+                    className={styles.itemAlbumBtn}
+                    onClick={e => { e.stopPropagation(); router.push(`/albums/${item.listItemId}`); }}
+                    title="相册"
+                  >
+                    🖼
+                  </button>
+                )}
               </div>
             ))}
             {items.length === 0 && selectedGroup && (
@@ -472,6 +485,15 @@ export default function UserFootprintsPage() {
       {/* Context menu */}
       {contextMenu && (
         <div className={styles.contextMenu} style={{ left: contextMenu.x, top: contextMenu.y }}>
+          <button
+            className={styles.contextItem}
+            onClick={() => {
+              router.push(`/albums/${contextMenu.item.listItemId}`);
+              setContextMenu(null);
+            }}
+          >
+            相册
+          </button>
           <button className={styles.contextItem} onClick={() => { setTargetItem(contextMenu.item); setAddToGroupOpen(true); setContextMenu(null); }}>
             添加到其他组
           </button>

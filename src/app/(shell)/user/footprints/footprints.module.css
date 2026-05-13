@@ -501,3 +501,20 @@
   cursor: pointer;
   color: #6b7280;
 }
+
+.itemAlbumBtn {
+  position: absolute;
+  bottom: 40px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  border-radius: 50%;
+  border: none;
+  background: none;
+  font-size: 14px;
+}
+.itemAlbumBtn:hover { background: #f3f4f6; }
