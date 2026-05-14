@@ -4,8 +4,10 @@ import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { storageFiles } from '@/db/schema';
 
-const UPLOAD_ROOT = path.join(process.cwd(), 'uploads');
+const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads');
 const MAX_QUOTA = 5 * 1024 * 1024 * 1024; // 5GB
+const MAX_FILE = 20 * 1024 * 1024; // 20MB per file
+const ALLOWED_EXT = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
 
 function ensureDir(dir: string) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -16,7 +18,10 @@ function sanitize(name: string): string {
 }
 
 function userDir(userId: number, placeTitle: string): string {
-  return path.join(UPLOAD_ROOT, `user_${userId}`, sanitize(placeTitle));
+  const dir = path.resolve(UPLOAD_ROOT, `user_${userId}`, sanitize(placeTitle));
+  // Path traversal guard
+  if (!dir.startsWith(UPLOAD_ROOT + path.sep)) throw new Error('路径非法');
+  return dir;
 }
 
 export async function getUserUsage(userId: number): Promise<number> {
@@ -33,8 +38,12 @@ export async function saveFile(
   filename: string,
   buffer: Buffer,
 ): Promise<{ url: string; size: number }> {
+  const ext = path.extname(filename).toLowerCase();
+  if (!ALLOWED_EXT.includes(ext)) throw new Error(`不支持的文件类型: ${ext}`);
+  if (buffer.length > MAX_FILE) throw new Error(`单个文件最大 ${MAX_FILE / 1024 / 1024}MB`);
+
   const usage = await getUserUsage(userId);
-  if (usage >= MAX_QUOTA) throw new Error('存储空间已满（5GB）');
+  if (usage + buffer.length > MAX_QUOTA) throw new Error('存储空间已满（5GB）');
 
   const dir = userDir(userId, placeTitle);
   ensureDir(dir);
