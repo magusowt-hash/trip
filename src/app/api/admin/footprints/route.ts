@@ -1,8 +1,8 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { eq, sql, desc } from 'drizzle-orm';
+import { eq, sql, desc, and } from 'drizzle-orm';
 import { db } from '@/db';
-import { footprintGroups, footprintGroupItems, users, listItems } from '@/db/schema';
+import { footprintGroups, footprintGroupItems, users, listItems, storageFiles } from '@/db/schema';
 import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
 
 function verifyAdminToken(req: NextRequest): NextResponse | null {
@@ -33,8 +33,37 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const groupId = searchParams.get('group_id');
   const userId = searchParams.get('user_id');
+  const type = searchParams.get('type');
 
   try {
+    if (type === 'storage') {
+      const stats = await db
+        .select({
+          userId: storageFiles.userId,
+          userPhone: sql<string>`max(${users.phone})`,
+          userNickname: sql<string>`max(${users.nickname})`,
+          fileCount: sql<number>`count(${storageFiles.id})`,
+          totalSize: sql<number>`coalesce(sum(${storageFiles.size}), 0)`,
+          placeCount: sql<number>`count(distinct ${storageFiles.placeTitle})`,
+        })
+        .from(storageFiles)
+        .leftJoin(users, eq(storageFiles.userId, users.id))
+        .groupBy(storageFiles.userId)
+        .orderBy(desc(sql`totalSize`));
+
+      return NextResponse.json({ storage: stats });
+    }
+
+    if (type === 'storage_detail' && userId) {
+      const files = await db
+        .select()
+        .from(storageFiles)
+        .where(eq(storageFiles.userId, parseInt(userId)))
+        .orderBy(desc(storageFiles.createdAt));
+
+      return NextResponse.json({ files });
+    }
+
     if (groupId) {
       const items = await db
         .select({
@@ -86,8 +115,22 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const groupId = searchParams.get('group_id');
   const itemId = searchParams.get('item_id');
+  const fileId = searchParams.get('file_id');
+  const type = searchParams.get('type');
 
   try {
+    if (type === 'storage_delete' && fileId) {
+      const [f] = await db.select().from(storageFiles).where(eq(storageFiles.id, parseInt(fileId)));
+      if (f) {
+        const fs = await import('fs');
+        const p = await import('path');
+        const filePath = p.default.join(process.cwd(), 'uploads', `user_${f.userId}`, f.placeTitle, f.filename);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        await db.delete(storageFiles).where(eq(storageFiles.id, parseInt(fileId)));
+      }
+      return NextResponse.json({ success: true });
+    }
+
     if (itemId) {
       await db
         .delete(footprintGroupItems)
