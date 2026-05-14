@@ -45,6 +45,7 @@ export default function UserDetailPage() {
   const [expandedItemId, setExpandedItemId] = useState<number | null>(null);
   const [expandedItemPhotos, setExpandedItemPhotos] = useState<any[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
+  const [photoCounts, setPhotoCounts] = useState<Map<string, number>>(new Map());
 
   useEffect(() => {
     fetch(`/api/admin/users?userId=${userId}`, {
@@ -89,11 +90,20 @@ export default function UserDetailPage() {
   const fetchFootprintGroups = useCallback(async () => {
     setFpLoading(true);
     try {
-      const res = await fetch(`/api/admin/footprints?user_id=${userId}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-      const data = await res.json();
-      setFpGroups(data.groups || []);
+      const [groupsRes, filesRes] = await Promise.all([
+        fetch(`/api/admin/footprints?user_id=${userId}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined }),
+        fetch(`/api/admin/footprints?type=storage_detail&user_id=${userId}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined }),
+      ]);
+      const groupsData = await groupsRes.json();
+      const filesData = await filesRes.json();
+
+      setFpGroups(groupsData.groups || []);
+
+      // Build photo count map: listItemId → count (matched by placeTitle)
+      const files: any[] = filesData.files || [];
+      const countsByTitle = new Map<string, number>();
+      files.forEach((f: any) => countsByTitle.set(f.placeTitle, (countsByTitle.get(f.placeTitle) || 0) + 1));
+      setPhotoCounts(countsByTitle as any);
     } catch (e) {
       console.error(e);
     } finally {
@@ -282,6 +292,11 @@ export default function UserDetailPage() {
                           <div style={{ fontWeight: 500 }}>{item.title || `#${item.listItemId}`}</div>
                           {item.address && <div style={{ color: '#6b7280', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.address}</div>}
                         </div>
+                        {photoCounts.get(item.title) > 0 && (
+                          <span style={{ fontSize: 11, background: '#ecfdf5', color: '#059669', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>
+                            🖼 {photoCounts.get(item.title)}
+                          </span>
+                        )}
                         <span style={{ color: '#9ca3af', fontSize: 11, whiteSpace: 'nowrap' }}>
                           {item.addedAt ? new Date(item.addedAt).toLocaleDateString('zh-CN') : ''}
                         </span>
