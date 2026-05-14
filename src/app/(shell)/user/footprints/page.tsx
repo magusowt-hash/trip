@@ -511,6 +511,27 @@ export default function UserFootprintsPage() {
                     🖼
                   </button>
                 )}
+
+                {/* Per-card context menu, opens left */}
+                {contextMenu && contextMenu.item.listItemId === item.listItemId && (
+                  <div className={styles.contextMenu}>
+                    <button className={styles.contextItem} onClick={() => { handleUpload(item); setContextMenu(null); }}>
+                      上传照片
+                    </button>
+                    <button className={styles.contextItem} onClick={() => { togglePhotos(item); setContextMenu(null); }}>
+                      查看照片
+                    </button>
+                    <button className={styles.contextItem} onClick={() => { router.push(`/albums/${item.listItemId}`); setContextMenu(null); }}>
+                      网盘相册
+                    </button>
+                    <button className={styles.contextItem} onClick={() => { setTargetItem(item); setAddToGroupOpen(true); setContextMenu(null); }}>
+                      添加到其他组
+                    </button>
+                    <button className={styles.contextItemDanger} onClick={() => { handleRemoveItem(item); setContextMenu(null); }}>
+                      从本组移除
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
             {items.length === 0 && selectedGroup && (
@@ -561,39 +582,6 @@ export default function UserFootprintsPage() {
             添加到其他组
           </button>
           <button className={styles.batchBtnDanger} onClick={handleBatchRemove}>
-            从本组移除
-          </button>
-        </div>
-      )}
-
-      {/* Context menu */}
-      {contextMenu && (
-        <div className={styles.contextMenu} style={{ right: 20, top: contextMenu.y }}>
-          <button
-            className={styles.contextItem}
-            onClick={() => { handleUpload(contextMenu.item); setContextMenu(null); }}
-          >
-            上传照片
-          </button>
-          <button
-            className={styles.contextItem}
-            onClick={() => { togglePhotos(contextMenu.item); setContextMenu(null); }}
-          >
-            查看照片
-          </button>
-          <button
-            className={styles.contextItem}
-            onClick={() => {
-              router.push(`/albums/${contextMenu.item.listItemId}`);
-              setContextMenu(null);
-            }}
-          >
-            网盘相册
-          </button>
-          <button className={styles.contextItem} onClick={() => { setTargetItem(contextMenu.item); setAddToGroupOpen(true); setContextMenu(null); }}>
-            添加到其他组
-          </button>
-          <button className={styles.contextItemDanger} onClick={() => { handleRemoveItem(contextMenu.item); setContextMenu(null); }}>
             从本组移除
           </button>
         </div>
