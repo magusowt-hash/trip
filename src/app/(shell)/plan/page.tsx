@@ -489,6 +489,17 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   const [budgetViewMode, setBudgetViewMode] = useState<'bubble' | 'list'>('bubble');
   const [budgetAmount, setBudgetAmount] = useState('');
   const [budgetNote, setBudgetNote] = useState('');
+  const MAX_CHARS = 19.5;
+  const getCharCount = (str: string) => {
+    let count = 0;
+    for (const char of str) {
+      if (/[\u4e00-\u9fa5]/.test(char)) count += 1;
+      else count += 0.5;
+    }
+    return count;
+  };
+  const canAddChar = (str: string) => getCharCount(str) <= MAX_CHARS;
+  const handleNoteChange = (val: string) => { if (canAddChar(val)) setBudgetNote(val); };
   const [selectedCategory, setSelectedCategory] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [customCategoryName, setCustomCategoryName] = useState('');
@@ -504,6 +515,11 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
   const [editingField, setEditingField] = useState<{ id: number; field: 'name' | 'amount' | 'note' } | null>(null);
   const [editValue, setEditValue] = useState('');
   const bubbleAreaRef = useRef<HTMLDivElement>(null);
+  const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const adjustTextareaHeight = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 28) + 'px';
+  };
   const CATEGORY_PRESETS = [
     { name: '酒店', color: '#f59e0b' },
     { name: '交通', color: '#3b82f6' },
@@ -561,8 +577,8 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     if (free.length === 0) return null;
 
     const cell = free[Math.floor(Math.random() * free.length)];
-    const offX = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_W * 0.15);
-    const offY = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_H * 0.15);
+    const offX = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_W * 0.25);
+    const offY = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_H * 0.25);
     return { x: cell.cx + offX, y: cell.cy + offY };
   };
 
@@ -681,13 +697,21 @@ function PlanModal({ onClose, editPlan }: { onClose: () => void; editPlan?: { id
     setEditValue(field === 'amount' ? String(item.amount) : (item[field] || ''));
   };
 
+  const handleEditValueChange = (val: string, field?: 'name' | 'note') => {
+    if (field && canAddChar(val)) setEditValue(val);
+    else if (!field) setEditValue(val);
+  };
+
   const handleFieldEditSave = () => {
     if (!editingField) return;
     const { id, field } = editingField;
+    const finalValue = (field === 'name' || field === 'note') && getCharCount(editValue) > 20 
+      ? editValue.substring(0, 40) // rough truncate
+      : editValue;
     setBudgetList(budgetList.map(b => {
       if (b.id !== id) return b;
-      if (field === 'amount') return { ...b, amount: parseInt(editValue) || 0 };
-      return { ...b, [field]: editValue };
+      if (field === 'amount') return { ...b, amount: parseInt(finalValue) || 0 };
+      return { ...b, [field]: finalValue };
     }));
     setEditingField(null);
   };
@@ -1109,13 +1133,13 @@ const handleUpdate = (id: number, field: 'from' | 'to' | 'note' | 'startDate' | 
                 )}
                 <div className={styles.bubbleCat} onDoubleClick={(e) => handleFieldEditStart(item.id, 'name', e)}>
                   {isEditThis && editingField?.field === 'name' ? (
-                    <input className={styles.bubbleFieldInput} value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={handleFieldEditSave} onKeyDown={(e) => { if (e.key === 'Enter') handleFieldEditSave(); if (e.key === 'Escape') setEditingField(null); }} onFocus={(e) => e.target.select()} autoFocus />
+                    <input className={styles.bubbleFieldInput} value={editValue} onChange={(e) => { if (canAddChar(e.target.value)) setEditValue(e.target.value); }} onBlur={handleFieldEditSave} onKeyDown={(e) => { if (e.key === 'Enter') handleFieldEditSave(); if (e.key === 'Escape') setEditingField(null); }} onFocus={(e) => e.target.select()} autoFocus />
                   ) : item.name}
                 </div>
-                <div className={styles.bubbleNote} onDoubleClick={(e) => handleFieldEditStart(item.id, 'note', e)}>
+                <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', marginTop: 4, padding: '2px 8px', borderRadius: 4, background: 'rgba(0,0,0,0.6)', zIndex: 5, opacity: 0, transition: 'opacity 0.15s' }} className="bubble-note-container" onClick={(e) => e.stopPropagation()} onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')} onMouseLeave={(e) => (e.currentTarget.style.opacity = '0')}>
                   {isEditThis && editingField?.field === 'note' ? (
-                    <textarea className={styles.bubbleFieldTextarea} value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={handleFieldEditSave} onKeyDown={(e) => { if (e.key === 'Escape') setEditingField(null); }} onFocus={(e) => e.target.select()} rows={1} autoFocus />
-                  ) : (item.note || '')}
+                    <textarea ref={noteTextareaRef} className={styles.bubbleFieldTextarea} value={editValue} onChange={(e) => { if (canAddChar(e.target.value)) { setEditValue(e.target.value); adjustTextareaHeight(e.target); } }} onBlur={handleFieldEditSave} onKeyDown={(e) => { if (e.key === 'Escape') setEditingField(null); }} onFocus={(e) => { e.target.select(); adjustTextareaHeight(e.target); }} rows={1} autoFocus />
+                  ) : <div style={{ fontSize: 10, color: '#fff', whiteSpace: 'normal', wordBreak: 'break-all', maxHeight: 28, overflow: 'hidden', textAlign: 'center' }}>{item.note || ''}</div>}
                 </div>
                 <div className={styles.bubbleHoverActions}>
                   <button type="button" className={styles.bubbleDelBtn} onClick={(e) => { e.stopPropagation(); handleBudgetDelete(item.id); }}>×</button>
@@ -1205,7 +1229,7 @@ const handleUpdate = (id: number, field: 'from' | 'to' | 'note' | 'startDate' | 
               type="text"
               className={styles.budgetNoteInput}
               value={budgetNote}
-              onChange={(e) => setBudgetNote(e.target.value)}
+              onChange={(e) => handleNoteChange(e.target.value)}
               placeholder="备注"
               onKeyDown={(e) => e.key === 'Enter' && handleBudgetAdd()}
             />
@@ -1480,7 +1504,7 @@ const handleUpdate = (id: number, field: 'from' | 'to' | 'note' | 'startDate' | 
           <textarea
             className={styles.transportNotePopoverTextarea}
             value={budgetNoteText}
-            onChange={(e) => setBudgetNoteText(e.target.value)}
+            onChange={(e) => { if (canAddChar(e.target.value)) setBudgetNoteText(e.target.value); }}
             placeholder="备注..."
             autoFocus
           />

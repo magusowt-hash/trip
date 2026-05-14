@@ -48,6 +48,12 @@ export default function UserFootprintsPage() {
   // Batch selection
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [batchAddToGroupOpen, setBatchAddToGroupOpen] = useState(false);
+
+  // Photo upload & display
+  const [photoItem, setPhotoItem] = useState<FootprintItem | null>(null);
+  const [photos, setPhotos] = useState<any[]>([]);
+  const [photosLoading, setPhotosLoading] = useState(false);
+  const [expandedPhotos, setExpandedPhotos] = useState<number | null>(null);
   const router = useRouter();
 
   // Map
@@ -237,6 +243,57 @@ export default function UserFootprintsPage() {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.setZoomAndCenter(12, [lng, lat], true);
       }
+    }
+  }
+
+  // Photo upload & display
+  async function handleUpload(item: FootprintItem) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = 'image/*';
+    input.onchange = async () => {
+      if (!input.files?.length) return;
+      const form = new FormData();
+      form.append('place_title', item.title);
+      for (const f of Array.from(input.files)) form.append('files', f);
+      try {
+        const res = await fetch('/api/storage/upload', { method: 'POST', credentials: 'include', body: form });
+        const data = await res.json();
+        if (!res.ok) { alert(data.error || '上传失败'); return; }
+        if (expandedPhotos === item.listItemId) loadPhotos(item);
+      } catch { alert('上传失败'); }
+    };
+    input.click();
+  }
+
+  async function loadPhotos(item: FootprintItem) {
+    setPhotosLoading(true);
+    try {
+      const res = await fetch(`/api/storage/photos?place_title=${encodeURIComponent(item.title)}`, { credentials: 'include' });
+      const data = await res.json();
+      setPhotos(data.photos || []);
+    } catch { setPhotos([]); }
+    finally { setPhotosLoading(false); }
+  }
+
+  async function handleDeletePhoto(item: FootprintItem, photoId: number) {
+    if (!confirm('确定删除该照片？')) return;
+    try {
+      await fetch(`/api/storage/photos?id=${photoId}`, { method: 'DELETE', credentials: 'include' });
+      loadPhotos(item);
+    } catch { alert('删除失败'); }
+  }
+
+  function togglePhotos(item: FootprintItem) {
+    if (expandedPhotos === item.listItemId) {
+      setExpandedPhotos(null);
+      setPhotos([]);
+      setPhotoItem(null);
+    } else {
+      setExpandedPhotos(item.listItemId);
+      setPhotoItem(item);
+      loadPhotos(item);
     }
   }
 
@@ -466,6 +523,33 @@ export default function UserFootprintsPage() {
         </div>
       </div>
 
+      {/* Photo gallery section */}
+      {photoItem && expandedPhotos && (
+        <div className={styles.photoSection}>
+          <div className={styles.photoHeader}>
+            <span className={styles.photoTitle}>{photoItem.title} · 照片</span>
+            <div className={styles.photoActions}>
+              <button className={styles.photoUploadBtn} onClick={() => handleUpload(photoItem)}>📤 上传</button>
+              <button className={styles.photoCloseBtn} onClick={() => { setExpandedPhotos(null); setPhotoItem(null); setPhotos([]); }}>✕</button>
+            </div>
+          </div>
+          {photosLoading ? (
+            <div className={styles.emptyHint}>加载中...</div>
+          ) : photos.length === 0 ? (
+            <div className={styles.emptyHint}>暂无照片，点击上传添加</div>
+          ) : (
+            <div className={styles.photoGrid}>
+              {photos.map((p: any) => (
+                <div key={p.id} className={styles.photoItem}>
+                  <img src={p.url} alt={p.filename} loading="lazy" />
+                  <button className={styles.photoDeleteBtn} onClick={() => handleDeletePhoto(photoItem, p.id)}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Batch action bar */}
       {selectedIds.size > 0 && (
         <div className={styles.batchBar}>
@@ -487,12 +571,24 @@ export default function UserFootprintsPage() {
         <div className={styles.contextMenu} style={{ left: contextMenu.x, top: contextMenu.y }}>
           <button
             className={styles.contextItem}
+            onClick={() => { handleUpload(contextMenu.item); setContextMenu(null); }}
+          >
+            📤 上传照片
+          </button>
+          <button
+            className={styles.contextItem}
+            onClick={() => { togglePhotos(contextMenu.item); setContextMenu(null); }}
+          >
+            🖼 查看照片
+          </button>
+          <button
+            className={styles.contextItem}
             onClick={() => {
               router.push(`/albums/${contextMenu.item.listItemId}`);
               setContextMenu(null);
             }}
           >
-            相册
+            网盘相册
           </button>
           <button className={styles.contextItem} onClick={() => { setTargetItem(contextMenu.item); setAddToGroupOpen(true); setContextMenu(null); }}>
             添加到其他组

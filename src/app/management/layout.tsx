@@ -7,19 +7,25 @@ import { AdminAuthCtx } from './admin-auth';
 
 const navItems = [
   { path: '/management', icon: '📊', label: '看板' },
-  { path: '/management/users', icon: '👥', label: '用户' },
-  { path: '/management/posts', icon: '📝', label: '帖子' },
-  { path: '/management/comments', icon: '💬', label: '评论' },
-  { path: '/management/plans', icon: '✈️', label: '计划' },
-  { path: '/management/keys', icon: '🔑', label: '密钥' },
+  { path: '/management/users', icon: '👥', label: '用户管理' },
+  { path: '/management/posts', icon: '📝', label: '帖子管理' },
+  { path: '/management/comments', icon: '💬', label: '评论管理' },
+  { path: '/management/plans', icon: '✈️', label: '旅行计划' },
+  { path: '/management/keys', icon: '🔑', label: '密钥管理' },
   { path: '/management/markers', icon: '📍', label: '标记点' },
-  { path: '/management/lists', icon: '🏆', label: '榜单' },
+  { path: '/management/lists', icon: '🏆', label: '榜单管理' },
   { path: '/management/list_items', icon: '📋', label: '榜单项' },
   { path: '/management/packing', icon: '🎒', label: '行李清单' },
   { path: '/management/embed-logs', icon: '📈', label: '嵌入访问' },
   { path: '/management/alist', icon: '☁️', label: '网盘配置' },
   { path: '/management/footprints', icon: '👣', label: '足迹分组' },
 ];
+
+function getBreadcrumb(pathname: string) {
+  const item = navItems.find((n) => n.path !== '/management' && pathname.startsWith(n.path));
+  if (!item) return null;
+  return item.label;
+}
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -64,54 +70,55 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.push('/management/login');
   };
 
+  const isLoginPage = pathname === '/management/login';
+  const isHomePage = pathname === '/management';
+  const breadcrumb = getBreadcrumb(pathname);
+
   return (
-    <AdminAuthCtx.Provider value={{ isAuthenticated, token,       setAuthenticated: (t) => { localStorage.setItem('admin_token', t); setToken(t); setIsAuthenticated(true); }, logout: handleLogout }}>
-      <div className="admin-layout">
-        {isAuthenticated && pathname !== '/management/login' && (
-          <aside className="admin-sidebar">
-            <div className="sidebar-header">
-              <h2>管理后台</h2>
-              <button className="logout-btn" onClick={handleLogout}>退出</button>
+    <AdminAuthCtx.Provider value={{ isAuthenticated, token, setAuthenticated: (t) => { localStorage.setItem('admin_token', t); setToken(t); setIsAuthenticated(true); }, logout: handleLogout }}>
+      <div className="admin-root">
+        {isAuthenticated && !isLoginPage && !isHomePage && (
+          <header className="admin-topbar">
+            <div className="topbar-left">
+              <Link href="/management" className="topbar-home">管理后台</Link>
+              {breadcrumb && (
+                <>
+                  <span className="topbar-sep">/</span>
+                  <span className="topbar-current">{breadcrumb}</span>
+                </>
+              )}
             </div>
-            <nav className="sidebar-nav">
-              {navItems.map((item) => (
-                <Link
-                  key={item.path}
-                  href={item.path}
-                  className={`nav-item ${pathname === item.path ? 'active' : ''}`}
-                >
-                  <span className="nav-icon">{item.icon}</span>
-                  <span className="nav-label">{item.label}</span>
-                </Link>
-              ))}
-            </nav>
-          </aside>
+            <button className="topbar-logout" onClick={handleLogout}>退出登录</button>
+          </header>
         )}
-        <main className="admin-main">{children}</main>
+        <main className={`admin-content ${isLoginPage ? 'login-page' : ''}`}>{children}</main>
       </div>
       <style>{`
-        .admin-layout { display: flex; min-height: 100vh; }
-        .admin-sidebar {
-          width: 200px; background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
-          color: #fff; padding: 20px 0; position: fixed; height: 100vh;
+        * { box-sizing: border-box; }
+        .admin-root { min-height: 100vh; background: var(--color-bg, #f7f8fa); }
+        .admin-topbar {
+          position: sticky; top: 0; z-index: 50;
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 0 32px; height: 56px;
+          background: var(--color-surface, #fff);
+          border-bottom: 1px solid var(--color-border, #e5e7eb);
         }
-        .sidebar-header { padding: 0 20px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .sidebar-header h2 { margin: 0 0 15px; font-size: 18px; }
-        .logout-btn {
-          background: rgba(255,255,255,0.1); border: none; color: #fff;
-          padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
+        .topbar-left { display: flex; align-items: center; gap: 8px; }
+        .topbar-home {
+          font-size: 15px; font-weight: 600; color: var(--color-primary, #2563eb);
+          text-decoration: none; transition: opacity 0.15s;
         }
-        .logout-btn:hover { background: rgba(255,255,255,0.2); }
-        .sidebar-nav { padding: 20px 0; }
-        .nav-item {
-          display: flex; align-items: center; padding: 12px 20px;
-          color: rgba(255,255,255,0.7); text-decoration: none; transition: all 0.2s;
+        .topbar-home:hover { opacity: 0.7; }
+        .topbar-sep { color: var(--color-text-muted, #6b7280); font-size: 14px; }
+        .topbar-current { font-size: 15px; font-weight: 500; color: var(--color-text, #1f2937); }
+        .topbar-logout {
+          background: none; border: 1px solid var(--color-border, #e5e7eb);
+          color: var(--color-text-muted, #6b7280); padding: 6px 14px;
+          border-radius: 6px; font-size: 13px; cursor: pointer; transition: all 0.15s;
         }
-        .nav-item:hover, .nav-item.active { background: rgba(255,255,255,0.1); color: #fff; }
-        .nav-item.active { border-left: 3px solid #3b82f6; }
-        .nav-icon { margin-right: 10px; font-size: 16px; }
-        .nav-label { font-size: 14px; }
-        .admin-main { flex: 1; margin-left: 200px; padding: 20px; background: #f5f5f5; }
+        .topbar-logout:hover { border-color: var(--color-danger, #dc2626); color: var(--color-danger, #dc2626); }
+        .admin-content { max-width: 1280px; margin: 0 auto; padding: 24px 32px; }
+        .admin-content.login-page { max-width: none; padding: 0; }
       `}</style>
     </AdminAuthCtx.Provider>
   );

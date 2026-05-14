@@ -62,8 +62,8 @@ export default function TestCssPage() {
       alert('网格已满！');
       return;
     }
-    const offX = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_W * 0.15);
-    const offY = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_H * 0.15);
+    const offX = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_W * 0.25);
+    const offY = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_H * 0.25);
     const newBubble: Bubble = {
       id: Date.now(),
       x: cell.cx + offX,
@@ -78,8 +78,8 @@ export default function TestCssPage() {
     const newBubbles: Bubble[] = [...bubbles];
     let cell = findFreeCell(newBubbles);
     while (cell) {
-      const offX = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_W * 0.15);
-      const offY = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_H * 0.15);
+      const offX = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_W * 0.25);
+      const offY = (Math.random() - 0.5) * 2 * (BUBBLE_REAL_H * 0.25);
       newBubbles.push({
         id: Date.now() + newBubbles.length,
         x: cell.cx + offX,
@@ -177,7 +177,7 @@ export default function TestCssPage() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: 13,
+              fontSize: 14,
               fontWeight: 600,
               color: '#1d1d1f',
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)',

@@ -344,3 +344,5 @@ export const packingTemplates = mysqlTable(
 // Footprints classification
 export { footprintGroups, footprintGroupItems } from './schema.footprints';
 export { alistConfig } from './schema.alist';
+
+export { storageFiles } from './schema.storage';

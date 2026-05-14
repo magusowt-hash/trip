@@ -5,6 +5,7 @@ export const PRIMARY_NAV_TABS = [
   { href: '/explore', label: '发现' },
   { href: '/plan', label: '计划' },
   { href: '/lists', label: '榜单' },
+  { href: '/footprints', label: '足迹' },
   { href: '/messages', label: '消息' },
   { href: '/test-css', label: '测试' },
 ] as const;
