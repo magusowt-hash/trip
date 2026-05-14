@@ -294,7 +294,7 @@ export default function UserDetailPage() {
                         </div>
                         {photoCounts.get(item.title) > 0 && (
                           <span style={{ fontSize: 11, background: '#ecfdf5', color: '#059669', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>
-                            🖼 {photoCounts.get(item.title)}
+                            {photoCounts.get(item.title)} 张
                           </span>
                         )}
                         <span style={{ color: '#9ca3af', fontSize: 11, whiteSpace: 'nowrap' }}>
