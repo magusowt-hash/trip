@@ -7,7 +7,7 @@ import { authenticate } from '../_auth';
 
 export async function POST(req: NextRequest) {
   const auth = await authenticate(req);
-  if (!auth.authorized) return (auth as any).response;
+  if (!auth.authorized) return auth.response;
   const userId = auth.userId;
 
   try {

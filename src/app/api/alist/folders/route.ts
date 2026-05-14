@@ -5,7 +5,7 @@ import { authenticate } from '../_auth';
 
 export async function GET(req: NextRequest) {
   const auth = await authenticate(req);
-  if (!auth.authorized) return (auth as any).response;
+  if (!auth.authorized) return auth.response;
 
   const { searchParams } = new URL(req.url);
   const name = searchParams.get('name');

@@ -3,7 +3,11 @@ import { NextResponse } from 'next/server';
 import { verifyAuthToken, type AuthJwtPayload } from '@/server/auth/jwt';
 import { getAuthTokenFromRequest } from '@/server/auth/cookies';
 
-export async function authenticate(req: NextRequest) {
+type AuthResult =
+  | { authorized: false; response: NextResponse }
+  | { authorized: true; userId: number };
+
+export async function authenticate(req: NextRequest): Promise<AuthResult> {
   const token = getAuthTokenFromRequest(req);
   if (!token) return { authorized: false, response: NextResponse.json({ error: '未登录' }, { status: 401 }) };
   let payload: AuthJwtPayload;

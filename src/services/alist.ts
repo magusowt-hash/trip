@@ -12,7 +12,9 @@ let cachedConfig: { url: string; username: string; password: string; rootPath: s
 let cachedToken: string | null = null;
 let tokenExpiry = 0;
 
-async function getConfig() {
+type Config = { url: string; username: string; password: string; rootPath: string; enabled: boolean };
+
+async function getConfig(): Promise<Config | null> {
   if (cachedConfig) return cachedConfig;
   try {
     const { db } = await import('@/db');
@@ -21,8 +23,8 @@ async function getConfig() {
     if (!row || !row.enabled) return null;
     cachedConfig = {
       url: (row.url as string).replace(/\/$/, ''),
-      username: row.username as string,
-      password: row.password as string,
+      username: (row.username as string) || '',
+      password: (row.password as string) || '',
       rootPath: (row.rootPath as string) || '/',
       enabled: true,
     };
@@ -32,7 +34,7 @@ async function getConfig() {
   }
 }
 
-async function getToken(config: { url: string; username: string; password: string }): Promise<string> {
+async function getToken(config: Config): Promise<string> {
   if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
   const res = await fetch(`${config.url}/api/auth/login`, {
     method: 'POST',
@@ -41,12 +43,12 @@ async function getToken(config: { url: string; username: string; password: strin
   });
   const data = await res.json() as any;
   if (data.code !== 200) throw new Error('AList login failed: ' + (data.message || ''));
-  cachedToken = data.data.token;
+  cachedToken = data.data.token as string;
   tokenExpiry = Date.now() + 3600000;
-  return cachedToken;
+  return cachedToken!;
 }
 
-async function alistFetch(config: { url: string }, path: string, body?: any): Promise<any> {
+async function alistFetch(config: Config, path: string, body?: any): Promise<any> {
   const token = await getToken(config);
   const res = await fetch(`${config.url}/api${path}`, {
     method: body ? 'POST' : 'GET',
