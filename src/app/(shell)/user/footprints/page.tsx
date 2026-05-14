@@ -447,11 +447,11 @@ export default function UserFootprintsPage() {
               ) : (
                 <div className={styles.groupTitleRow}>
                   <span className={styles.groupTitle}>{selectedGroup.name}</span>
-                  <button className={styles.groupIconBtn} onClick={() => { setEditingGroupId(selectedGroup.id); setEditGroupName(selectedGroup.name); }} title="重命名">✏️</button>
+                  <button className={styles.groupIconBtn} onClick={() => { setEditingGroupId(selectedGroup.id); setEditGroupName(selectedGroup.name); }}>重命名</button>
                   {selectedGroup.isDefault !== 1 && (
-                    <button className={styles.groupIconBtn} onClick={() => handleSetDefault(selectedGroup.id)} title="设为默认">⭐</button>
+                    <button className={styles.groupIconBtn} onClick={() => handleSetDefault(selectedGroup.id)}>设为默认</button>
                   )}
-                  <button className={styles.groupIconDanger} onClick={() => handleDeleteGroup(selectedGroup.id)} title="删除">🗑</button>
+                  <button className={styles.groupIconDanger} onClick={() => handleDeleteGroup(selectedGroup.id)}>删除</button>
                 </div>
               )}
               <div className={styles.headerRow}>
@@ -506,9 +506,8 @@ export default function UserFootprintsPage() {
                   <button
                     className={styles.itemAlbumBtn}
                     onClick={e => { e.stopPropagation(); router.push(`/albums/${item.listItemId}`); }}
-                    title="相册"
                   >
-                    🖼
+                    网盘
                   </button>
                 )}
 
@@ -550,8 +549,8 @@ export default function UserFootprintsPage() {
           <div className={styles.photoHeader}>
             <span className={styles.photoTitle}>{photoItem.title} · 照片</span>
             <div className={styles.photoActions}>
-              <button className={styles.photoUploadBtn} onClick={() => handleUpload(photoItem)}>📤 上传</button>
-              <button className={styles.photoCloseBtn} onClick={() => { setExpandedPhotos(null); setPhotoItem(null); setPhotos([]); }}>✕</button>
+              <button className={styles.photoUploadBtn} onClick={() => handleUpload(photoItem)}>上传</button>
+              <button className={styles.photoCloseBtn} onClick={() => { setExpandedPhotos(null); setPhotoItem(null); setPhotos([]); }}>关闭</button>
             </div>
           </div>
           {photosLoading ? (
@@ -563,7 +562,7 @@ export default function UserFootprintsPage() {
               {photos.map((p: any) => (
                 <div key={p.id} className={styles.photoItem}>
                   <img src={p.url} alt={p.filename} loading="lazy" />
-                  <button className={styles.photoDeleteBtn} onClick={() => handleDeletePhoto(photoItem, p.id)}>✕</button>
+                  <button className={styles.photoDeleteBtn} onClick={() => handleDeletePhoto(photoItem, p.id)}>删除</button>
                 </div>
               ))}
             </div>

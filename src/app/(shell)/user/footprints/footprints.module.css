@@ -163,23 +163,25 @@
 }
 
 .groupIconBtn {
-  padding: 2px 6px;
-  font-size: 14px;
+  padding: 2px 8px;
+  font-size: 12px;
   background: none;
-  border: none;
+  border: 1px solid #e5e7eb;
   cursor: pointer;
   border-radius: 4px;
+  color: #374151;
 }
 
 .groupIconBtn:hover { background: #f3f4f6; }
 
 .groupIconDanger {
-  padding: 2px 6px;
-  font-size: 14px;
+  padding: 2px 8px;
+  font-size: 12px;
   background: none;
-  border: none;
+  border: 1px solid #fecaca;
   cursor: pointer;
   border-radius: 4px;
+  color: #ef4444;
 }
 
 .groupIconDanger:hover { background: #fee2e2; }
@@ -508,16 +510,13 @@
   position: absolute;
   bottom: 40px;
   right: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
+  padding: 2px 6px;
+  font-size: 11px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
   cursor: pointer;
-  border-radius: 50%;
-  border: none;
-  background: none;
-  font-size: 14px;
+  background: #fff;
+  color: #6b7280;
 }
 .itemAlbumBtn:hover { background: #f3f4f6; }
 
@@ -570,12 +569,13 @@
 }
 
 .photoCloseBtn {
-  padding: 2px 8px;
-  font-size: 16px;
-  background: none;
-  border: none;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
   cursor: pointer;
-  color: #9ca3af;
+  border-radius: 4px;
+  color: #6b7280;
 }
 
 .photoCloseBtn:hover { color: #374151; }
@@ -604,19 +604,15 @@
 
 .photoDeleteBtn {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
+  top: 2px;
+  right: 2px;
+  padding: 1px 4px;
   border: none;
-  background: rgba(0,0,0,0.5);
+  background: rgba(220,38,38,0.8);
   color: #fff;
-  font-size: 12px;
+  font-size: 10px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  border-radius: 3px;
   opacity: 0;
   transition: opacity 0.15s;
 }
