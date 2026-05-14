@@ -42,6 +42,9 @@ export default function UserDetailPage() {
   const [fpLoading, setFpLoading] = useState(false);
   const [expandedFpGroup, setExpandedFpGroup] = useState<number | null>(null);
   const [expandedFpItems, setExpandedFpItems] = useState<any[]>([]);
+  const [expandedItemId, setExpandedItemId] = useState<number | null>(null);
+  const [expandedItemPhotos, setExpandedItemPhotos] = useState<any[]>([]);
+  const [photosLoading, setPhotosLoading] = useState(false);
 
   useEffect(() => {
     fetch(`/api/admin/users?userId=${userId}`, {
@@ -108,6 +111,43 @@ export default function UserDetailPage() {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const fetchItemPhotos = async (it: any) => {
+    setPhotosLoading(true);
+    try {
+      const res = await fetch(`/api/admin/footprints?type=storage_detail&user_id=${userId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      const data = await res.json();
+      const placeTitle = it.title || it.listItemId;
+      setExpandedItemPhotos((data.files || []).filter((f: any) => f.placeTitle === placeTitle));
+    } catch (e) { console.error(e); }
+    finally { setPhotosLoading(false); }
+  };
+
+  const handleToggleItemPhotos = (it: any) => {
+    if (expandedItemId === it.listItemId) {
+      setExpandedItemId(null);
+      setExpandedItemPhotos([]);
+    } else {
+      setExpandedItemId(it.listItemId);
+      fetchItemPhotos(it);
+    }
+  };
+
+  const handleDeletePhoto = async (fileId: number) => {
+    if (!confirm('确定删除该照片？')) return;
+    await fetch(`/api/admin/footprints?type=storage_delete&file_id=${fileId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const placeTitle = (expandedFpItems.find(i => i.listItemId === expandedItemId) as any)?.title || '';
+    const res = await fetch(`/api/admin/footprints?type=storage_detail&user_id=${userId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    setExpandedItemPhotos((data.files || []).filter((f: any) => f.placeTitle === placeTitle));
   };
 
   useEffect(() => {
@@ -222,28 +262,74 @@ export default function UserDetailPage() {
                   <div style={{ padding: 12, color: '#9ca3af', fontSize: 13 }}>暂无地点</div>
                 ) : (
                   expandedFpItems.map((item: any) => (
-                    <div
-                      key={item.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '8px 12px',
-                        background: '#fff',
-                        borderRadius: 6,
-                        fontSize: 13,
-                      }}
-                    >
-                      {item.coverImage && (
-                        <img src={item.coverImage} alt="" width={36} height={36} style={{ borderRadius: 4, objectFit: 'cover' }} />
+                    <div key={item.id}>
+                      <div
+                        onClick={() => handleToggleItemPhotos(item)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center', gap: 8,
+                          padding: '8px 12px', background: '#fff', borderRadius: 6,
+                          fontSize: 13, cursor: 'pointer',
+                          border: expandedItemId === item.listItemId ? '1px solid #3b82f6' : '1px solid #f3f4f6',
+                        }}
+                      >
+                        {item.coverImage ? (
+                          <img src={item.coverImage} alt="" width={36} height={36} style={{ borderRadius: 4, objectFit: 'cover' }} />
+                        ) : (
+                          <div style={{ width: 36, height: 36, borderRadius: 4, background: '#f3f4f6' }} />
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 500 }}>{item.title || `#${item.listItemId}`}</div>
+                          {item.address && <div style={{ color: '#6b7280', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.address}</div>}
+                        </div>
+                        <span style={{ color: '#9ca3af', fontSize: 11, whiteSpace: 'nowrap' }}>
+                          {item.addedAt ? new Date(item.addedAt).toLocaleDateString('zh-CN') : ''}
+                        </span>
+                      </div>
+
+                      {expandedItemId === item.listItemId && (
+                        <div style={{ marginLeft: 44, marginTop: 4, marginBottom: 8 }}>
+                          {photosLoading ? (
+                            <div style={{ color: '#9ca3af', fontSize: 12, padding: 8 }}>加载中...</div>
+                          ) : expandedItemPhotos.length === 0 ? (
+                            <div style={{ color: '#9ca3af', fontSize: 12, padding: 8 }}>该地点暂无上传照片</div>
+                          ) : (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                              {expandedItemPhotos.map((p: any) => (
+                                <div key={p.id} style={{
+                                  position: 'relative', width: 72, height: 72,
+                                  borderRadius: 6, overflow: 'hidden', background: '#f3f4f6',
+                                }}>
+                                  <img
+                                    src={`/api/storage/file?uid=${userId}&place=${encodeURIComponent(p.placeTitle)}&file=${encodeURIComponent(p.filename)}`}
+                                    alt={p.filename}
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                  />
+                                  <div style={{
+                                    position: 'absolute', bottom: 0, left: 0, right: 0,
+                                    background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 9,
+                                    padding: '1px 4px', textAlign: 'center',
+                                  }}>
+                                    {p.filename.length > 10 ? p.filename.slice(0, 8) + '..' : p.filename}
+                                  </div>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleDeletePhoto(p.id); }}
+                                    style={{
+                                      position: 'absolute', top: 2, right: 2,
+                                      width: 16, height: 16, borderRadius: '50%',
+                                      border: 'none', background: 'rgba(255,0,0,0.7)',
+                                      color: '#fff', fontSize: 10, cursor: 'pointer',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    }}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       )}
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 500 }}>{item.title || `地点 #${item.listItemId}`}</div>
-                        {item.address && <div style={{ color: '#6b7280', fontSize: 11 }}>{item.address}</div>}
-                      </div>
-                      <div style={{ color: '#9ca3af', fontSize: 11 }}>
-                        {item.addedAt ? new Date(item.addedAt).toLocaleDateString('zh-CN') : ''}
-                      </div>
                     </div>
                   ))
                 )}
