@@ -568,18 +568,18 @@ export default function UserFootprintsPage() {
 
       {/* Context menu */}
       {contextMenu && (
-        <div className={styles.contextMenu} style={{ left: contextMenu.x, top: contextMenu.y }}>
+        <div className={styles.contextMenu} style={{ right: 20, top: contextMenu.y }}>
           <button
             className={styles.contextItem}
             onClick={() => { handleUpload(contextMenu.item); setContextMenu(null); }}
           >
-            📤 上传照片
+            上传照片
           </button>
           <button
             className={styles.contextItem}
             onClick={() => { togglePhotos(contextMenu.item); setContextMenu(null); }}
           >
-            🖼 查看照片
+            查看照片
           </button>
           <button
             className={styles.contextItem}
