@@ -1,3 +1,153 @@
+/* Full-screen outer frame layout — breaks out of ShellLayout constraints */
+.rootFull {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  overflow: hidden;
+  background: #0f172a;
+}
+
+/* Floating toolbar */
+.toolbar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+
+.toolbarBtn {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #e2e8f0;
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.toolbarBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.toolbarBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.toolbarBtnDanger {
+  composes: toolbarBtn;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+.toolbarBtnDanger:hover {
+  background: rgba(239, 68, 68, 0.35) !important;
+}
+
+/* Batch bar */
+.batchBar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(99, 102, 241, 0.9);
+  color: #fff;
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+.linkBtnMuted {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: underline;
+}
+
+/* Modal — reused from original */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal {
+  background: #1e293b;
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 300px;
+  max-width: 400px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modalTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin: 0 0 16px;
+}
+
+.modalList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modalBtn {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: #e2e8f0;
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 14px;
+}
+
+.modalBtn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.modalClose {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #94a3b8;
+  padding: 6px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.emptyHint {
+  color: #64748b;
+  font-size: 14px;
+  text-align: center;
+  padding: 16px 0;
+}
+
+/* ====== Legacy styles kept for reference ====== */
 .root {
   width: calc(100% - var(--space-16));
   height: min(calc(100vh - var(--shell-header-offset, 88px) - 32px), 880px);
@@ -615,6 +765,118 @@
   border-radius: 3px;
   opacity: 0;
   transition: opacity 0.15s;
+}
+
+/* Page title */
+.pageTitle {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+/* Bottom-right panels */
+.panelBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
+.bottomRight {
+  position: absolute;
+  bottom: 16px;
+  right: 4px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 12px;
+  align-items: flex-end;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.zoomBadge {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.saveBtn {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  background: rgba(99, 102, 241, 0.3);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: #a5b4fc;
+  padding: 8px 24px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.saveBtn:hover {
+  background: rgba(99, 102, 241, 0.45);
+}
+
+/* Image viewer */
+.viewerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.viewerClose {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: #fff;
+  font-size: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.viewerClose:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.viewerImage {
+  max-width: 90vw;
+  max-height: 80vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.viewerTitle {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
 }
 
 .photoItem:hover .photoDeleteBtn { opacity: 1; }

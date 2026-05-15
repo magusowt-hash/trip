@@ -13,6 +13,10 @@ type AuthResult = {
   userId: number;
 }
 
+export async function authenticate(req: NextRequest): Promise<AuthResult> {
+  return authenticateFootprintRequest(req);
+}
+
 export async function authenticateFootprintRequest(req: NextRequest): Promise<AuthResult> {
   const token = getAuthTokenFromRequest(req);
   if (!token) {

@@ -29,7 +29,7 @@ export async function getUserUsage(userId: number): Promise<number> {
     .select({ total: sql<number>`coalesce(sum(${storageFiles.size}), 0)` })
     .from(storageFiles)
     .where(eq(storageFiles.userId, userId));
-  return row?.total ?? 0;
+  return Number(row?.total) || 0;
 }
 
 export async function saveFile(
@@ -89,6 +89,8 @@ export async function listPhotos(userId: number, placeTitle: string) {
     id: f.id,
     filename: f.filename,
     size: f.size,
+    frameX: f.frameX ?? null,
+    frameY: f.frameY ?? null,
     url: `/api/storage/file?uid=${userId}&place=${encodeURIComponent(sanitize(placeTitle))}&file=${encodeURIComponent(f.filename)}`,
     createdAt: f.createdAt,
   }));
@@ -102,6 +104,32 @@ export async function deletePhoto(userId: number, fileId: number) {
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
   await db.delete(storageFiles).where(eq(storageFiles.id, fileId));
+}
+
+export async function updatePhotoPosition(
+  userId: number,
+  fileId: number,
+  frameX: number | null,
+  frameY: number | null,
+) {
+  const [f] = await db.select({ id: storageFiles.id }).from(storageFiles)
+    .where(and(eq(storageFiles.id, fileId), eq(storageFiles.userId, userId)));
+  if (!f) throw new Error('文件不存在');
+
+  await db.update(storageFiles)
+    .set({ frameX, frameY })
+    .where(eq(storageFiles.id, fileId));
+}
+
+export async function batchUpdatePhotoPositions(
+  userId: number,
+  updates: Array<{ id: number; frameX: number; frameY: number }>,
+) {
+  for (const u of updates) {
+    await db.update(storageFiles)
+      .set({ frameX: u.frameX, frameY: u.frameY })
+      .where(and(eq(storageFiles.id, u.id), eq(storageFiles.userId, userId)));
+  }
 }
 
 export function serveFile(uid: string, place: string, file: string): { buffer: Buffer; type: string } | null {

@@ -9,6 +9,7 @@ export interface MapMarker {
   address?: string;
   description?: string;
   type?: string;
+  groupColor?: string;
 }
 
 export interface PlanMapProps {
@@ -19,6 +20,8 @@ export interface PlanMapProps {
   onMarkerClick?: (marker: MapMarker) => void;
   onMapLoad?: (map: any) => void;
   autoLoadMarkers?: boolean;
+  markerColor?: string;
+  markerShape?: string;
 }
 
 declare global {
@@ -46,6 +49,8 @@ export default function PlanMap({
   onMarkerClick,
   onMapLoad,
   autoLoadMarkers = false,
+  markerColor = '#ef4444',
+  markerShape = 'pin',
 }: PlanMapProps) {
 const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -173,16 +178,29 @@ const mapRef = useRef<HTMLDivElement>(null);
     let infoWindow: any = null;
 
     markers.forEach((marker) => {
-const markerContent = `
-        <div style="position:relative;width:25px;height:34px;">
-          <img src="//a.amap.com/jsapi_demos/static/demo-center/icons/poi-marker-red.png" style="width:100%;height:100%;">
-        </div>
-      `;
+      const color = marker.groupColor || markerColor;
+      let markerContent: string;
+      let offset: [number, number];
+
+      switch (markerShape) {
+        case 'dot':
+          markerContent = `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);"></div>`;
+          offset = [-7, -7];
+          break;
+        case 'diamond':
+          markerContent = `<div style="width:0;height:0;border:8px solid transparent;border-bottom:12px solid ${color};position:relative;top:-6px;"><div style="position:absolute;top:10px;left:-6px;width:12px;height:6px;background:${color};border-radius:50%;opacity:0.3;"></div></div>`;
+          offset = [-8, -20];
+          break;
+        case 'pin':
+        default:
+          markerContent = `<div style="position:relative;width:25px;height:34px;"><svg width="25" height="34" viewBox="0 0 25 34" xmlns="http://www.w3.org/2000/svg"><path d="M12.5 0C5.6 0 0 5.6 0 12.5C0 21.9 12.5 34 12.5 34S25 21.9 25 12.5C25 5.6 19.4 0 12.5 0Z" fill="${color}" stroke="#fff" stroke-width="1.5"/><circle cx="12.5" cy="12" r="4" fill="#fff" opacity="0.9"/></svg></div>`;
+          offset = [-13, -34];
+      }
 
       const amapMarker = new window.AMap.Marker({
         position: new window.AMap.LngLat(marker.position[0], marker.position[1]),
         content: markerContent,
-        offset: new window.AMap.Pixel(-13, -30),
+        offset: new window.AMap.Pixel(offset[0], offset[1]),
         title: marker.title || '',
       });
 
@@ -215,7 +233,7 @@ const markerContent = `
     if (markers.length > 1) {
       map.setFitView();
     }
-  }, [markers, loaded, onMarkerClick, dbMarkers]);
+  }, [markers, loaded, onMarkerClick, dbMarkers, markerColor, markerShape]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;

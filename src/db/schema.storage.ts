@@ -1,4 +1,4 @@
-import { mysqlTable, serial, int, varchar, bigint, timestamp, uniqueIndex, index } from 'drizzle-orm/mysql-core';
+import { mysqlTable, serial, int, varchar, bigint, timestamp, double, uniqueIndex, index } from 'drizzle-orm/mysql-core';
 
 export const storageFiles = mysqlTable(
   'storage_files',
@@ -8,6 +8,8 @@ export const storageFiles = mysqlTable(
     placeTitle: varchar('place_title', { length: 255 }).notNull(),
     filename: varchar('filename', { length: 500 }).notNull(),
     size: bigint('size', { mode: 'number' }).notNull().default(0),
+    frameX: double('frame_x'),
+    frameY: double('frame_y'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => ({

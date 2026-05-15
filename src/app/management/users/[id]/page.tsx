@@ -231,11 +231,37 @@ export default function UserDetailPage() {
     if (fpLoading) {
       return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>加载中...</div>;
     }
-    if (fpGroups.length === 0) {
-      return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>暂无足迹分类组</div>;
-    }
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <a
+          href="#"
+          onClick={async (e) => {
+            e.preventDefault();
+            try {
+              const token = localStorage.getItem('admin_token');
+              if (!token) { alert('请先登录管理后台'); return; }
+              const res = await fetch('/api/footprints/view', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ user_id: userId }),
+              });
+              const data = await res.json();
+              if (data.url) window.open(data.url, '_blank');
+              else alert(data.error || '生成链接失败');
+            } catch { alert('请求失败'); }
+          }}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '8px 16px', background: '#6366f1', color: '#fff',
+            borderRadius: 8, textDecoration: 'none', fontSize: 14,
+            alignSelf: 'flex-start',
+          }}
+        >
+          🗺 查看足迹地图
+        </a>
+        {fpGroups.length === 0 && (
+          <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>暂无足迹分类组</div>
+        )}
         {fpGroups.map((g: any) => (
           <div key={g.id}>
             <div
