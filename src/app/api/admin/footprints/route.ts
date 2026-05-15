@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { eq, sql, desc, and } from 'drizzle-orm';
 import { db } from '@/db';
-import { footprintGroups, footprintGroupItems, users, listItems, storageFiles } from '@/db/schema';
+import { footprintGroups, footprintGroupItems, users, listItems, storageFiles, userFootprintSettings } from '@/db/schema';
 import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
 
 function verifyAdminToken(req: NextRequest): NextResponse | null {
@@ -62,6 +62,32 @@ export async function GET(req: NextRequest) {
         .orderBy(desc(storageFiles.createdAt));
 
       return NextResponse.json({ files });
+    }
+
+    if (type === 'settings' && userId) {
+      const [row] = await db
+        .select()
+        .from(userFootprintSettings)
+        .where(eq(userFootprintSettings.userId, parseInt(userId)));
+
+      if (!row) {
+        return NextResponse.json({
+          showPhotos: true, showLines: true, showLabels: true, showTitle: true, panelCollapsed: false,
+          backgroundColor: '#0f172a', lineColor: '#a5b4fc', lineWidth: 2, lineDashed: true,
+        });
+      }
+
+      return NextResponse.json({
+        showPhotos: !!row.showPhotos,
+        showLines: !!row.showLines,
+        showLabels: !!row.showLabels,
+        showTitle: !!row.showTitle,
+        panelCollapsed: !!row.panelCollapsed,
+        backgroundColor: row.backgroundColor,
+        lineColor: row.lineColor,
+        lineWidth: row.lineWidth,
+        lineDashed: !!row.lineDashed,
+      });
     }
 
     if (groupId) {
