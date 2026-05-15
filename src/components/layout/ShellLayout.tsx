@@ -15,6 +15,8 @@ export function ShellLayout({ children }: { children: ReactNode }) {
     pathname.startsWith('/user/') ||
     pathname === '/plan' ||
     pathname.startsWith('/plan/') ||
+    pathname === '/maps' ||
+    pathname.startsWith('/maps/') ||
     pathname === '/messages' ||
     pathname.startsWith('/messages/') ||
     pathname === '/lists' ||

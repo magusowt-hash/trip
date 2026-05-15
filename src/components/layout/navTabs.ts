@@ -4,6 +4,7 @@ import { getDefaultAvatar } from '@/store/userStore';
 export const PRIMARY_NAV_TABS = [
   { href: '/explore', label: '发现' },
   { href: '/plan', label: '计划' },
+  { href: '/maps', label: '地图' },
   { href: '/lists', label: '榜单' },
   { href: '/footprints', label: '足迹' },
   { href: '/messages', label: '消息' },

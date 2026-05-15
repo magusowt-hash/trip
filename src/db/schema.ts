@@ -206,6 +206,58 @@ export const markers = mysqlTable(
   },
 );
 
+export const mapPois = mysqlTable(
+  'map_pois',
+  {
+    id: serial('id').primaryKey(),
+    amapPoiId: varchar('amap_poi_id', { length: 128 }),
+    name: varchar('name', { length: 255 }).notNull(),
+    lng: varchar('lng', { length: 20 }).notNull(),
+    lat: varchar('lat', { length: 20 }).notNull(),
+    address: varchar('address', { length: 500 }),
+    city: varchar('city', { length: 128 }),
+    district: varchar('district', { length: 128 }),
+    type: varchar('type', { length: 255 }),
+    source: varchar('source', { length: 32 }).notNull().default('amap'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    amapPoiIdIdx: index('map_pois_amap_poi_id_idx').on(t.amapPoiId),
+    lngLatIdx: index('map_pois_lng_lat_idx').on(t.lng, t.lat),
+  }),
+);
+
+export const userMapFavorites = mysqlTable(
+  'user_map_favorites',
+  {
+    id: serial('id').primaryKey(),
+    userId: int('user_id').notNull(),
+    poiId: int('poi_id').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    userPoiUnique: uniqueIndex('user_map_favorites_user_poi_unique').on(t.userId, t.poiId),
+    userIdIdx: index('user_map_favorites_user_id_idx').on(t.userId),
+  }),
+);
+
+export const userMapFootprints = mysqlTable(
+  'user_map_footprints',
+  {
+    id: serial('id').primaryKey(),
+    userId: int('user_id').notNull(),
+    groupId: int('group_id'),
+    poiId: int('poi_id').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    userPoiUnique: uniqueIndex('user_map_footprints_user_poi_unique').on(t.userId, t.poiId),
+    userIdIdx: index('user_map_footprints_user_id_idx').on(t.userId),
+    groupIdIdx: index('user_map_footprints_group_id_idx').on(t.groupId),
+  }),
+);
+
 // Marker images (multiple images per marker)
 export const markerImages = mysqlTable(
   'marker_images',

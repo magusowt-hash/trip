@@ -19,6 +19,16 @@ export interface PlanMapProps {
   focusPosition?: [number, number] | null;
   onMarkerClick?: (marker: MapMarker) => void;
   onMapLoad?: (map: any) => void;
+  onMapPoiSelect?: (poi: {
+    amapPoiId?: string | null;
+    name: string;
+    lng: string;
+    lat: string;
+    address?: string;
+    city?: string;
+    district?: string;
+    type?: string;
+  }) => void;
   autoLoadMarkers?: boolean;
   markerColor?: string;
   markerShape?: string;
@@ -48,11 +58,12 @@ export default function PlanMap({
   focusPosition = null,
   onMarkerClick,
   onMapLoad,
+  onMapPoiSelect,
   autoLoadMarkers = false,
   markerColor = '#ef4444',
   markerShape = 'pin',
 }: PlanMapProps) {
-const mapRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const [loaded, setLoaded] = useState(false);
   const [dbMarkers, setDbMarkers] = useState<any[]>([]);
@@ -99,6 +110,24 @@ const mapRef = useRef<HTMLDivElement>(null);
 
             setLoaded(true);
             onMapLoad?.(map);
+
+            map.on('click', async (event: any) => {
+              if (!onMapPoiSelect) return;
+              const lng = event?.lnglat?.getLng?.();
+              const lat = event?.lnglat?.getLat?.();
+              if (lng == null || lat == null) return;
+
+              try {
+                const res = await fetch(`/api/maps/selection?lng=${encodeURIComponent(String(lng))}&lat=${encodeURIComponent(String(lat))}`, {
+                  credentials: 'include',
+                });
+                const data = await res.json();
+                if (!res.ok || !data?.poi?.name) return;
+                onMapPoiSelect(data.poi);
+              } catch (error) {
+                console.error('Map POI selection failed:', error);
+              }
+            });
           } else {
             setTimeout(checkSize, 100);
           }
@@ -167,7 +196,7 @@ const mapRef = useRef<HTMLDivElement>(null);
     };
 
     loadMap();
-  }, [onMapLoad]);
+  }, [onMapLoad, onMapPoiSelect]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
