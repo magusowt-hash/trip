@@ -6,6 +6,9 @@ import styles from './maps-page.module.css';
 
 type MapTab = 'standard' | 'china-rail';
 
+type RailRoute = { p: [number, number][]; c: string; w: number; t: string };
+type RailStation = { name: string; lng: number; lat: number; 'name:en'?: string };
+
 type SearchResult = {
   poiId?: number;
   amapPoiId?: string | null;
@@ -34,6 +37,12 @@ export default function MapsPage() {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
+  // 中国铁路
+  const [railRoutes, setRailRoutes] = useState<RailRoute[]>([]);
+  const [railStations, setRailStations] = useState<RailStation[]>([]);
+  const [stationQuery, setStationQuery] = useState('');
+  const [railLoaded, setRailLoaded] = useState(false);
+
   useEffect(() => {
     if (activeTab !== 'standard') return;
 
@@ -53,6 +62,20 @@ export default function MapsPage() {
       })
       .catch(() => {});
   }, [activeTab]);
+
+  // 加载中国铁路数据
+  useEffect(() => {
+    if (activeTab !== 'china-rail' || railLoaded) return;
+    setRailLoaded(true);
+    fetch('/data/railways.json')
+      .then((r) => r.json())
+      .then(setRailRoutes)
+      .catch(console.error);
+    fetch('/data/stations.json')
+      .then((r) => r.json())
+      .then(setRailStations)
+      .catch(console.error);
+  }, [activeTab, railLoaded]);
 
   const markers = useMemo<MapMarker[]>(
     () =>
@@ -188,9 +211,13 @@ export default function MapsPage() {
                 autoLoadMarkers={false}
               />
             ) : (
-              <div className={styles.status} style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                中国铁路地图专题视图待接入
-              </div>
+              <PlanMap
+                routes={railRoutes.map((r) => ({ path: r.p, color: r.c, width: r.w }))}
+                markers={[]}
+                markerColor="#dc2626"
+                markerShape="dot"
+                autoLoadMarkers={false}
+              />
             )}
           </div>
         </section>
@@ -233,7 +260,11 @@ export default function MapsPage() {
             </div>
 
             {activeTab === 'china-rail' ? (
-              <div className={styles.status}>当前仅保留独立页签和视图位置。后续如果确定铁路数据来源，我会在这里补站点列表、线路筛选和地图联动。</div>
+              <RailPanel
+                stations={railStations}
+                query={stationQuery}
+                onQueryChange={setStationQuery}
+              />
             ) : (
               <>
                 <form className={styles.searchStack} onSubmit={handleSearch}>
@@ -361,4 +392,56 @@ function attachSavedState(poi: SearchResult, favorites: Set<number>, footprints:
 function samePoi(a: SearchResult | null | undefined, b: SearchResult | null | undefined) {
   if (!a || !b) return false;
   return (a.amapPoiId && b.amapPoiId && a.amapPoiId === b.amapPoiId) || (a.name === b.name && a.lng === b.lng && a.lat === b.lat);
+}
+
+// ─── 中国铁路右侧面板 ────────────────────────────────────
+function RailPanel({
+  stations,
+  query,
+  onQueryChange,
+}: {
+  stations: RailStation[];
+  query: string;
+  onQueryChange: (v: string) => void;
+}) {
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return stations
+      .filter((s) => s.name && (s.name.toLowerCase().includes(q) || (s['name:en'] || '').toLowerCase().includes(q)))
+      .slice(0, 20);
+  }, [stations, query]);
+
+  return (
+    <div className={styles.searchStack}>
+      <div className={styles.searchInputWrap}>
+        <input
+          className={styles.searchInput}
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="搜索铁路站点"
+        />
+      </div>
+      {!query.trim() ? (
+        <div className={styles.status} style={{ color: '#6b7280', fontSize: 13 }}>
+          输入关键词搜索站点（共 {stations.length.toLocaleString()} 站）
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className={styles.status}>未找到匹配站点</div>
+      ) : (
+        filtered.map((s, i) => (
+          <article key={`${s.name}-${s.lng}-${s.lat}-${i}`} className={styles.poiCard}>
+            <div className={styles.poiTop}>
+              <div>
+                <h3 className={styles.poiTitle}>{s.name}</h3>
+                {s['name:en'] ? (
+                  <p className={styles.poiAddress}>{s['name:en']}</p>
+                ) : null}
+              </div>
+            </div>
+          </article>
+        ))
+      )}
+    </div>
+  );
 }

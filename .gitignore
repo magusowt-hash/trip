@@ -27,3 +27,15 @@ npm-debug.log*
 
 # 用户上传文件
 uploads/
+
+# OSM 原始数据（体积大，重新获取即可）
+*.osm.pbf
+geojson/*.pbf
+china.osm.pbf
+
+# 中间产物 GeoJSON
+data/china-railways.geojson
+data/china-stations.geojson
+
+# macOS
+.DS_Store
