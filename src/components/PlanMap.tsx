@@ -194,6 +194,33 @@ export default function PlanMap({
             map.on('mousemove', (event: any) => {
               map.setDefaultCursor(event?.poi ? 'pointer' : 'default');
             });
+
+            map.on('click', (event: any) => {
+              if (!event?.poi) return;
+              emitPoi(event.poi, event?.lnglat);
+            });
+
+            map.on('mousemove', (event: any) => {
+              map.setDefaultCursor(event?.poi ? 'pointer' : 'default');
+=======
+            map.on('click', async (event: any) => {
+              if (!onMapPoiSelectRef.current) return;
+              const lng = event?.lnglat?.getLng?.();
+              const lat = event?.lnglat?.getLat?.();
+              if (lng == null || lat == null) return;
+
+              try {
+                const res = await fetch(`/api/maps/selection?lng=${encodeURIComponent(String(lng))}&lat=${encodeURIComponent(String(lat))}`, {
+                  credentials: 'include',
+                });
+                const data = await res.json();
+                if (!res.ok || !data?.poi?.name) return;
+                onMapPoiSelectRef.current(data.poi);
+              } catch (error) {
+                console.error('Map POI selection failed:', error);
+              }
+>>>>>>> Stashed changes
+            });
           } else {
             setTimeout(checkSize, 100);
           }
