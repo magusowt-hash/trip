@@ -1,7 +1,8 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import PlanMap, { MapMarker } from '@/components/PlanMap';
+import RailCanvas from '@/components/RailCanvas';
 import styles from './maps-page.module.css';
 
 type MapTab = 'standard' | 'china-rail';
@@ -42,6 +43,8 @@ export default function MapsPage() {
   const [railStations, setRailStations] = useState<RailStation[]>([]);
   const [stationQuery, setStationQuery] = useState('');
   const [railLoaded, setRailLoaded] = useState(false);
+  const [railZoom, setRailZoom] = useState(4);
+  const railMapRef = useRef<any>(null);
 
   useEffect(() => {
     if (activeTab !== 'standard') return;
@@ -211,13 +214,23 @@ export default function MapsPage() {
                 autoLoadMarkers={false}
               />
             ) : (
-              <PlanMap
-                routes={railRoutes.map((r) => ({ path: r.p, color: r.c, width: r.w }))}
-                markers={[]}
-                markerColor="#dc2626"
-                markerShape="dot"
-                autoLoadMarkers={false}
-              />
+              <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                <PlanMap
+                  autoLoadMarkers={false}
+                  onMapLoad={(m: any) => {
+                    railMapRef.current = m;
+                    setRailZoom(m.getZoom());
+                    m.on('zoomend', () => setRailZoom(m.getZoom()));
+                  }}
+                />
+                {railMapRef.current && (
+                  <RailCanvas
+                    mapInstance={railMapRef.current}
+                    routes={railRoutes}
+                    zoom={railZoom}
+                  />
+                )}
+              </div>
             )}
           </div>
         </section>
