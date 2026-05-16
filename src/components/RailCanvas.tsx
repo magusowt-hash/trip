@@ -79,9 +79,9 @@ export default function RailCanvas({ mapInstance, routes, zoom }: RailCanvasProp
 
         ctx.beginPath();
         ctx.strokeStyle = route.c;
-        ctx.lineWidth = route.w * (zoom < 6 ? 0.8 : 1);
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(0.5, route.w * 0.5);
+        ctx.lineCap = 'butt';
+        ctx.lineJoin = 'miter';
 
         const firstPt = map.lngLatToContainer([first[0], first[1]]);
         ctx.moveTo(firstPt.x, firstPt.y);
