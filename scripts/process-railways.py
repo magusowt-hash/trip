@@ -269,3 +269,24 @@ import os
 r_size = os.path.getsize(RAIL_OUT) / 1024
 s_size = os.path.getsize(STATION_OUT) / 1024
 print(f"\nOutput sizes: railways={r_size:.0f}KB, stations={s_size:.0f}KB")
+
+# 生成 WGS-84 版本（从 GCJ-02 反向转换）
+print("\nGenerating WGS-84 version...")
+def gcj02_to_wgs84(lng, lat):
+    w_lng, w_lat = lng, lat
+    for _ in range(2):
+        g = wgs84_to_gcj02(w_lng, w_lat)
+        w_lng += lng - g[0]
+        w_lat += lat - g[1]
+    return w_lng, w_lat
+
+wgs_routes = []
+for r in routes:
+    wgs_path = [list(gcj02_to_wgs84(c[0], c[1])) for c in r['p']]
+    wgs_routes.append({ 'p': wgs_path, 'c': r['c'], 'w': r['w'], 't': r['t'] })
+
+WGS_OUT = f'{BASE}/public/data/railways-wgs84.json'
+with open(WGS_OUT, 'w') as f:
+    json.dump(wgs_routes, f, ensure_ascii=False)
+wgs_size = os.path.getsize(WGS_OUT) / 1024
+print(f"WGS-84 railways: {wgs_size:.0f}KB")
