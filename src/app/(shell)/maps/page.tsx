@@ -218,6 +218,7 @@ export default function MapsPage() {
                 <PlanMap
                   autoLoadMarkers={false}
                   mapStyle="amap://styles/light"
+                  mapFeatures={[]}
                   onMapLoad={(m: any) => {
                     railMapRef.current = m;
                     setRailZoom(m.getZoom());

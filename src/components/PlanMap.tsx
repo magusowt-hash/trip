@@ -65,6 +65,7 @@ export interface PlanMapProps {
   markerColor?: string;
   markerShape?: string;
   mapStyle?: string;
+  mapFeatures?: string[];
 }
 
 declare global {
@@ -99,6 +100,7 @@ export default function PlanMap({
   markerColor = '#ef4444',
   markerShape = 'pin',
   mapStyle = 'amap://styles/normal',
+  mapFeatures,
 }: PlanMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -157,6 +159,7 @@ export default function PlanMap({
               mapStyle,
               viewMode: '2D',
               resizeEnable: true,
+              ...(mapFeatures ? { features: mapFeatures } : {}),
             });
             mapInstanceRef.current = map;
 
