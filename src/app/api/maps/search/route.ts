@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
-const AMAP_KEY = '64138cb3827187cd053ccbb9eaa18fa2';
+const AMAP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
 
 type AmapPoi = {
   id?: string;
@@ -15,28 +15,31 @@ type AmapPoi = {
 };
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const q = searchParams.get('q')?.trim();
-  const city = searchParams.get('city')?.trim();
+  const q = req.nextUrl.searchParams.get('q')?.trim();
+  const city = req.nextUrl.searchParams.get('city')?.trim();
 
   if (!q) {
     return NextResponse.json({ error: '缺少搜索关键词' }, { status: 400 });
   }
 
   try {
-    const url = new URL('https://restapi.amap.com/v5/place/text');
-    url.searchParams.set('key', AMAP_KEY);
-    url.searchParams.set('keywords', q);
-    url.searchParams.set('page_size', '15');
-    url.searchParams.set('show_fields', 'business,children,photos');
-    if (city) url.searchParams.set('region', city);
+    const params = new URLSearchParams();
+    params.set('key', AMAP_KEY);
+    params.set('keywords', q);
+    params.set('page_size', '15');
+    if (city) params.set('region', city);
+    const amapUrl = `https://restapi.amap.com/v5/place/text?${params.toString()}`;
 
-    const res = await fetch(url.toString(), { cache: 'no-store' });
+    const res = await fetch(amapUrl, { cache: 'no-store' });
     if (!res.ok) {
       return NextResponse.json({ error: '地图搜索服务暂时不可用' }, { status: 502 });
     }
 
     const data = await res.json();
+    if (data.status === '0' || (data.infocode && data.infocode !== '10000')) {
+      console.error('Amap search api error:', data.info || data.infocode);
+      return NextResponse.json({ error: `高德搜索失败：${data.info || data.infocode || '未知错误'}` }, { status: 502 });
+    }
     const pois = Array.isArray(data.pois) ? data.pois : [];
 
     return NextResponse.json({

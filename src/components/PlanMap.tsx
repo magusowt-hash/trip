@@ -48,7 +48,7 @@ declare global {
   }
 }
 
-const AMAP_KEY = '64138cb3827187cd053ccbb9eaa18fa2';
+const AMAP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
 const AMAP_SECURITY_CODE = 'efc009ad907da44e5b727c1f890050fc';
 
 export default function PlanMap({
@@ -65,6 +65,11 @@ export default function PlanMap({
 }: PlanMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
+  const infoWindowRef = useRef<any>(null);
+  const onMapPoiSelectRef = useRef(onMapPoiSelect);
+  const onMapLoadRef = useRef(onMapLoad);
+  onMapPoiSelectRef.current = onMapPoiSelect;
+  onMapLoadRef.current = onMapLoad;
   const [loaded, setLoaded] = useState(false);
   const [dbMarkers, setDbMarkers] = useState<any[]>([]);
   const markers = [...initialMarkers, ...dbMarkers];
@@ -109,10 +114,10 @@ export default function PlanMap({
             });
 
             setLoaded(true);
-            onMapLoad?.(map);
+            onMapLoadRef.current?.(map);
 
             map.on('click', async (event: any) => {
-              if (!onMapPoiSelect) return;
+              if (!onMapPoiSelectRef.current) return;
               const lng = event?.lnglat?.getLng?.();
               const lat = event?.lnglat?.getLat?.();
               if (lng == null || lat == null) return;
@@ -123,7 +128,7 @@ export default function PlanMap({
                 });
                 const data = await res.json();
                 if (!res.ok || !data?.poi?.name) return;
-                onMapPoiSelect(data.poi);
+                onMapPoiSelectRef.current(data.poi);
               } catch (error) {
                 console.error('Map POI selection failed:', error);
               }
@@ -196,15 +201,18 @@ export default function PlanMap({
     };
 
     loadMap();
-  }, [onMapLoad, onMapPoiSelect]);
+  }, []);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !loaded) return;
 
-    map.clearMap();
+    if (infoWindowRef.current) {
+      infoWindowRef.current.close();
+      infoWindowRef.current = null;
+    }
 
-    let infoWindow: any = null;
+    map.clearMap();
 
     markers.forEach((marker) => {
       const color = marker.groupColor || markerColor;
@@ -234,27 +242,27 @@ export default function PlanMap({
       });
 
       amapMarker.on('click', () => {
-        if (infoWindow) {
-          infoWindow.close();
+        if (infoWindowRef.current) {
+          infoWindowRef.current.close();
+          infoWindowRef.current = null;
         }
-        const content = `
-          <div class="marker-info-window">
-            <h3>${marker.title}</h3>
-            ${marker.address ? `<p class="address">${marker.address}</p>` : ''}
-            ${marker.description ? `<p class="desc">${marker.description}</p>` : ''}
-            <button class="detail-btn" data-id="${marker.id}">查看详情</button>
-          </div>
-        `;
-        infoWindow = new window.AMap.InfoWindow({
-          content,
+        infoWindowRef.current = new window.AMap.InfoWindow({
+          content: `
+            <div class="marker-info-window">
+              <h3>${marker.title}</h3>
+              ${marker.address ? `<p class="address">${marker.address}</p>` : ''}
+              ${marker.description ? `<p class="desc">${marker.description}</p>` : ''}
+              <button class="detail-btn" data-id="${marker.id}">查看详情</button>
+            </div>
+          `,
           offset: new window.AMap.Pixel(0, -32),
         });
-        infoWindow.open(map, amapMarker.getPosition());
-      });
+        infoWindowRef.current.open(map, amapMarker.getPosition());
 
-      if (onMarkerClick) {
-        amapMarker.on('click', () => onMarkerClick(marker));
-      }
+        if (onMarkerClick) {
+          onMarkerClick(marker);
+        }
+      });
 
       map.add(amapMarker);
     });
