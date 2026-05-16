@@ -305,23 +305,6 @@ export default function MapsPage() {
         </aside>
       </div>
 
-      {pickModeOpen ? (
-        <div className={styles.modalOverlay} onClick={() => setPickModeOpen(false)}>
-          <div className={styles.modalCard} onClick={(event) => event.stopPropagation()}>
-            <h3 className={styles.modalTitle}>地图选点</h3>
-            <p className={styles.modalText}>进入选点模式后，请直接点击高德地图上已有名称标记的地点，例如北京、宁国市、虎跳峡。识别到明确地点后，会在地图上弹出操作卡片；未命中明确地点时，右侧列表不会新增结果。</p>
-            <div className={styles.modalActions}>
-              <button type="button" className={styles.ghostButtonWide} onClick={() => setPickModeOpen(false)}>
-                取消
-              </button>
-              <button type="button" className={styles.searchButton} onClick={() => setPickModeOpen(false)}>
-                我知道了
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       {detailOpen ? (
         <div className={styles.detailModalOverlay} onClick={() => setDetailOpen(false)}>
           <div className={styles.detailModalCard} onClick={(event) => event.stopPropagation()}>
