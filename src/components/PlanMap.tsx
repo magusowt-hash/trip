@@ -150,7 +150,7 @@ export default function PlanMap({
         if (mapRef.current && mapRef.current.offsetWidth > 0 && mapRef.current.offsetHeight > 0) {
           if (window.AMap) {
             const map = new window.AMap.Map(mapRef.current, {
-              zoom: 5,
+              zoom: 4,
               center: [108.923611, 34.540833],
               mapStyle: 'amap://styles/normal',
               viewMode: '2D',
