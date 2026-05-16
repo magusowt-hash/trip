@@ -151,7 +151,7 @@ export default function PlanMap({
           if (window.AMap) {
             const map = new window.AMap.Map(mapRef.current, {
               zoom: 4,
-              center: [104.9572932, 33.3721445],
+              center: [105, 37],
               mapStyle: 'amap://styles/normal',
               viewMode: '2D',
               resizeEnable: true,

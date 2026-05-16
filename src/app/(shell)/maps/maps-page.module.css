@@ -58,7 +58,27 @@
 .topRow {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
+}
+
+.scrollTabs {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.scrollTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  padding: 0 10px;
+  white-space: nowrap;
+  width: max-content;
 }
 
 .tab {
@@ -69,6 +89,8 @@
   padding: 8px 14px;
   font-size: 13px;
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tabActive {
@@ -84,6 +106,7 @@
 }
 
 .toolButtonDetail {
+  flex-shrink: 0;
   border: 1px solid #d1d5db;
   border-radius: 12px;
   width: 36px;

@@ -198,7 +198,8 @@ export default function MapsPage() {
         <aside className={styles.listCol} aria-label="地图结果列表">
           <div className={styles.listPanel}>
             <div className={styles.topRow}>
-              <div className={styles.tabs}>
+              <div className={styles.scrollTabs}>
+                <div className={styles.tabs}>
                 <button
                   type="button"
                   className={`${styles.tab} ${activeTab === 'standard' ? styles.tabActive : ''}`}
@@ -213,6 +214,13 @@ export default function MapsPage() {
                 >
                   中国铁路
                 </button>
+                <button type="button" className={styles.tab}>
+                  种类C
+                </button>
+                <button type="button" className={styles.tab}>
+                  种类D
+                </button>
+              </div>
               </div>
               <button
                 type="button"
@@ -249,9 +257,7 @@ export default function MapsPage() {
 
                 {searchError && results.length === 0 ? (
                   <div className={styles.status}>{searchError}</div>
-                ) : results.length === 0 ? (
-                  <div className={styles.status}>搜索结果会显示在这里。直接点击地图可尝试识别高德已有地点标记；命中明确地点后，只会在地图上弹出卡片，不会进入右侧列表。</div>
-                ) : (
+                ) : results.length === 0 ? null : (
                   results.map((poi) => {
                     const active = samePoi(poi, selectedPoi);
                     const favorited = poi.poiId ? favorites.has(poi.poiId) : false;
