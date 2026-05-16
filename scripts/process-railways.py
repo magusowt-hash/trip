@@ -77,21 +77,27 @@ def classify_railway(props):
     usage = props.get('usage', '')
     service = props.get('service', '')
     high_speed = props.get('highspeed', '')
-    railway_type = props.get('railway', '')
+    maxspeed = props.get('maxspeed', '')
+    traffic = props.get('railway:traffic_mode', '')
     
-    # 高铁
-    if high_speed == 'yes' or props.get('maxspeed', '') in ('250','300','350'):
-        return '#e53e3e', 3, '高铁'
-    # 干线
-    if usage == 'main':
-        return '#3182ce', 2.5, '干线'
-    # 支线
-    if usage == 'branch':
-        return '#38a169', 1.8, '支线'
-    # 其他
+    # 排除：货运/工业/军事/站内线
     if service in ('spur','yard','siding','crossover'):
-        return '#a0aec0', 0.8, '侧线'
-    return '#059669', 1.5, '普速'
+        return None
+    if usage in ('industrial','military','freight'):
+        return None
+    if traffic == 'freight':
+        return None
+    
+    # 高速 (350级别)
+    if high_speed == 'yes' or maxspeed in ('300','350','380'):
+        return '#e53e3e', 2.0, '高速'
+    
+    # 城际 (250级别)
+    if maxspeed in ('200','250') or (usage == 'main' and maxspeed not in ('','0')):
+        return '#f59e0b', 1.6, '城际'
+    
+    # 普速
+    return '#059669', 1.2, '普速'
 
 # ─── 端点匹配合并 ──────────────────────────────────────────
 def merge_segments(segments):
@@ -195,9 +201,10 @@ for feat in data['features']:
         continue
     
     props = feat.get('properties', {})
-    color, width, cat = classify_railway(props)
-    if cat == '侧线':
+    result = classify_railway(props)
+    if result is None:
         continue
+    color, width, cat = result
     
     type_counts_raw[cat] = type_counts_raw.get(cat, 0) + 1
     
