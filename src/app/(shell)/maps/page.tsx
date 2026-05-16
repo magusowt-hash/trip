@@ -177,14 +177,6 @@ export default function MapsPage() {
     <div className={styles.root}>
       <div className={styles.split}>
         <section className={styles.mapCol} aria-label="地图区域">
-          <div className={styles.panel}>
-            {activeTab === 'standard' ? (
-              <p className={styles.helper}>右侧搜索地点；如果要从地图选点，请使用"地图选点"按钮后点击高德已有地点标记。</p>
-            ) : (
-              <p className={styles.helper}>中国铁路地图专题视图待接入</p>
-            )}
-          </div>
-
           <div className={styles.mapFrame}>
             {activeTab === 'standard' ? (
               <PlanMap
