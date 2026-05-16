@@ -107,10 +107,12 @@ export default function PlanMap({
   const onMapLoadRef = useRef(onMapLoad);
   const onMapPoiFavoriteRef = useRef(onMapPoiFavorite);
   const onMapPoiFootprintRef = useRef(onMapPoiFootprint);
+  const mapPickModeRef = useRef(mapPickMode);
   onMapPoiSelectRef.current = onMapPoiSelect;
   onMapLoadRef.current = onMapLoad;
   onMapPoiFavoriteRef.current = onMapPoiFavorite;
   onMapPoiFootprintRef.current = onMapPoiFootprint;
+  mapPickModeRef.current = mapPickMode;
   const [loaded, setLoaded] = useState(false);
   const [dbMarkers, setDbMarkers] = useState<any[]>([]);
   const markers = [...initialMarkers, ...dbMarkers];
@@ -158,7 +160,7 @@ export default function PlanMap({
             onMapLoadRef.current?.(map);
 
             map.on('click', async (event: any) => {
-              if (!mapPickMode || !onMapPoiSelectRef.current) return;
+              if (!mapPickModeRef.current || !onMapPoiSelectRef.current) return;
               const lng = event?.lnglat?.getLng?.();
               const lat = event?.lnglat?.getLat?.();
               if (lng == null || lat == null) return;
@@ -242,7 +244,7 @@ export default function PlanMap({
     };
 
     loadMap();
-  }, [mapPickMode]);
+  }, []);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
