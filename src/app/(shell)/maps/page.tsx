@@ -217,6 +217,7 @@ export default function MapsPage() {
               <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                 <PlanMap
                   autoLoadMarkers={false}
+                  mapStyle="amap://styles/light"
                   onMapLoad={(m: any) => {
                     railMapRef.current = m;
                     setRailZoom(m.getZoom());
@@ -227,6 +228,7 @@ export default function MapsPage() {
                   <RailCanvas
                     mapInstance={railMapRef.current}
                     routes={railRoutes}
+                    stations={railStations}
                     zoom={railZoom}
                   />
                 )}

@@ -64,6 +64,7 @@ export interface PlanMapProps {
   autoLoadMarkers?: boolean;
   markerColor?: string;
   markerShape?: string;
+  mapStyle?: string;
 }
 
 declare global {
@@ -97,6 +98,7 @@ export default function PlanMap({
   autoLoadMarkers = false,
   markerColor = '#ef4444',
   markerShape = 'pin',
+  mapStyle = 'amap://styles/normal',
 }: PlanMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -152,7 +154,7 @@ export default function PlanMap({
             const map = new window.AMap.Map(mapRef.current, {
               zoom: 4,
               center: [105, 37],
-              mapStyle: 'amap://styles/normal',
+              mapStyle,
               viewMode: '2D',
               resizeEnable: true,
             });

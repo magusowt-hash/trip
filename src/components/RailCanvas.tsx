@@ -4,13 +4,16 @@ import { useEffect, useRef } from 'react';
 
 type RailRoute = { p: [number, number][]; c: string; w: number; t: string };
 
+type RailStation = { name: string; lng: number; lat: number };
+
 interface RailCanvasProps {
   mapInstance: any;
   routes: RailRoute[];
+  stations?: RailStation[];
   zoom: number;
 }
 
-export default function RailCanvas({ mapInstance, routes, zoom }: RailCanvasProps) {
+export default function RailCanvas({ mapInstance, routes, stations, zoom }: RailCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -92,6 +95,34 @@ export default function RailCanvas({ mapInstance, routes, zoom }: RailCanvasProp
         }
         ctx.stroke();
       }
+
+      // 站点标注
+      if (stations && zoom >= 7) {
+        ctx.font = zoom >= 10 ? '11px sans-serif' : '9px sans-serif';
+        ctx.fillStyle = '#1f2937';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+
+        const drawn = new Set<string>();
+        for (const st of stations) {
+          if (!st.name) continue;
+          // 视野裁剪
+          if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
+              st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
+
+          const pt = map.lngLatToContainer([st.lng, st.lat]);
+          const key = `${Math.round(pt.x/60)},${Math.round(pt.y/60)}`;
+          if (drawn.has(key)) continue; // 防重叠
+          drawn.add(key);
+
+          // 白色描边
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 3;
+          ctx.strokeText(st.name, pt.x, pt.y - 2);
+          // 文字
+          ctx.fillText(st.name, pt.x, pt.y - 2);
+        }
+      }
     };
 
     let timer: ReturnType<typeof setTimeout>;
@@ -115,7 +146,7 @@ export default function RailCanvas({ mapInstance, routes, zoom }: RailCanvasProp
         canvasRef.current = null;
       }
     };
-  }, [mapInstance, routes, zoom]);
+  }, [mapInstance, routes, stations, zoom]);
 
   return null;
 }
