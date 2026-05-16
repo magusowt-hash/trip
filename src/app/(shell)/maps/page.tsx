@@ -33,6 +33,7 @@ export default function MapsPage() {
   const [footprints, setFootprints] = useState<Set<number>>(new Set());
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [pickModeOpen, setPickModeOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   useEffect(() => {
     if (activeTab !== 'standard') return;
@@ -227,32 +228,46 @@ export default function MapsPage() {
 
         <aside className={styles.listCol} aria-label="地图结果列表">
           <div className={styles.listPanel}>
-            <h2 className={styles.sectionTitle}>{activeTab === 'standard' ? '地点搜索' : '专题说明'}</h2>
-
             {activeTab === 'china-rail' ? (
               <div className={styles.status}>当前仅保留独立页签和视图位置。后续如果确定铁路数据来源，我会在这里补站点列表、线路筛选和地图联动。</div>
             ) : (
               <>
+                <div className={styles.toolbar}>
+                  <button
+                    type="button"
+                    className={`${styles.toolButton} ${pickModeOpen ? styles.toolButtonActive : ''}`}
+                    onClick={() => {
+                      setMapSelectedPoi(null);
+                      setPickModeOpen(!pickModeOpen);
+                    }}
+                  >
+                    {pickModeOpen ? '选点中' : '地图选点'}
+                  </button>
+                  <div className={styles.toolbarSpacer} />
+                  <button
+                    type="button"
+                    className={styles.toolButtonDetail}
+                    onClick={() => setDetailOpen(true)}
+                  >
+                    详情
+                  </button>
+                </div>
+
                 <form className={styles.searchStack} onSubmit={handleSearch}>
-                  <input
-                    className={styles.searchInput}
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="搜索已知地点名称"
-                  />
-                  <div className={styles.actionRow}>
-                    <button className={styles.searchButton} type="submit" disabled={searching}>
-                      {searching ? '搜索中' : '搜索'}
-                    </button>
+                  <div className={styles.searchInputWrap}>
+                    <input
+                      className={styles.searchInput}
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="搜索地点"
+                    />
                     <button
-                      type="button"
-                      className={styles.ghostButtonWide}
-                      onClick={() => {
-                        setMapSelectedPoi(null);
-                        setPickModeOpen(true);
-                      }}
+                      type="submit"
+                      className={styles.searchIcon}
+                      disabled={searching}
+                      aria-label="搜索"
                     >
-                      地图选点
+                      &#x1F50D;
                     </button>
                   </div>
                 </form>
@@ -326,6 +341,49 @@ export default function MapsPage() {
               <button type="button" className={styles.searchButton} onClick={() => setPickModeOpen(false)}>
                 我知道了
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {detailOpen ? (
+        <div className={styles.detailModalOverlay} onClick={() => setDetailOpen(false)}>
+          <div className={styles.detailModalCard} onClick={(event) => event.stopPropagation()}>
+            <div className={styles.detailModalHeader}>
+              <h3 className={styles.detailModalTitle}>全部地点 ({results.length})</h3>
+              <button type="button" className={styles.detailModalClose} onClick={() => setDetailOpen(false)}>
+                &#x2715;
+              </button>
+            </div>
+            <div className={styles.detailGrid}>
+              {results.map((poi) => {
+                const favorited = poi.poiId ? favorites.has(poi.poiId) : false;
+                const visited = poi.poiId ? footprints.has(poi.poiId) : false;
+                return (
+                  <div key={`detail-${poi.amapPoiId || poi.name}-${poi.lng}-${poi.lat}`} className={styles.detailGridCard}>
+                    <h4 className={styles.detailGridCardName}>{poi.name}</h4>
+                    <p className={styles.detailGridCardAddr}>
+                      {[poi.city, poi.district, poi.address].filter(Boolean).join(' ')}
+                    </p>
+                    <div className={styles.detailGridCardActions}>
+                      <button
+                        type="button"
+                        disabled={favorited || savingKey === `favorite:${poi.amapPoiId || poi.name}:${poi.lng}:${poi.lat}`}
+                        onClick={() => { if (!favorited) void savePoi('favorite', poi); }}
+                      >
+                        {favorited ? '已收藏' : '收藏'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={visited || savingKey === `footprint:${poi.amapPoiId || poi.name}:${poi.lng}:${poi.lat}`}
+                        onClick={() => { if (!visited) void savePoi('footprint', poi); }}
+                      >
+                        {visited ? '已加入' : '足迹'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

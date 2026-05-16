@@ -77,9 +77,48 @@
   gap: 10px;
 }
 
-.actionRow {
+.toolbar {
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.toolbarSpacer {
+  flex: 1;
+}
+
+.toolButton {
+  height: 32px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 0 12px;
+  background: #fff;
+  color: #111827;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.toolButtonActive {
+  border-color: #111827;
+  background: #111827;
+  color: #fff;
+}
+
+.toolButtonDetail {
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 0 12px;
+  height: 32px;
+  background: #fff;
+  color: #111827;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.searchInputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .searchInput {
@@ -87,9 +126,36 @@
   border-radius: 12px;
   border: 1px solid #d1d5db;
   background: #fff;
-  padding: 0 12px;
+  padding: 0 44px 0 12px;
   font-size: 14px;
   color: #111827;
+  flex: 1;
+}
+
+.searchIcon {
+  position: absolute;
+  right: 4px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.searchIcon:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.searchIcon:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .searchButton {
@@ -272,6 +338,111 @@
 
 .modalActions > * {
   flex: 1;
+}
+
+.detailModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  z-index: 80;
+}
+
+.detailModalCard {
+  width: min(720px, 100%);
+  max-height: 76vh;
+  padding: 20px;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.detailModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.detailModalTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.detailModalClose {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #fff;
+  color: #6b7280;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.detailGridCard {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #e5e7eb;
+  background: #fafbfc;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detailGridCardName {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.detailGridCardAddr {
+  margin: 0;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+.detailGridCardActions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.detailGridCardActions button {
+  flex: 1;
+  height: 30px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #111827;
+}
+
+.detailGridCardActions button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 @media (max-width: 960px) {
