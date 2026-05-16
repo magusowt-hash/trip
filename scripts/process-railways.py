@@ -91,7 +91,7 @@ def classify_railway(props):
     # 其他
     if service in ('spur','yard','siding','crossover'):
         return '#a0aec0', 0.8, '侧线'
-    return '#718096', 1.5, '普速'
+    return '#059669', 1.5, '普速'
 
 # ─── 端点匹配合并 ──────────────────────────────────────────
 def merge_segments(segments):
