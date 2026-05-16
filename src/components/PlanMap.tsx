@@ -29,6 +29,39 @@ export interface PlanMapProps {
     district?: string;
     type?: string;
   }) => void;
+  selectedMapPoi?: {
+    amapPoiId?: string | null;
+    poiId?: number;
+    name: string;
+    lng: string;
+    lat: string;
+    address?: string;
+    city?: string;
+    district?: string;
+    favorited?: boolean;
+    visited?: boolean;
+  } | null;
+  onMapPoiFavorite?: (poi: {
+    amapPoiId?: string | null;
+    poiId?: number;
+    name: string;
+    lng: string;
+    lat: string;
+    address?: string;
+    city?: string;
+    district?: string;
+  }) => void;
+  onMapPoiFootprint?: (poi: {
+    amapPoiId?: string | null;
+    poiId?: number;
+    name: string;
+    lng: string;
+    lat: string;
+    address?: string;
+    city?: string;
+    district?: string;
+  }) => void;
+  mapPickMode?: boolean;
   autoLoadMarkers?: boolean;
   markerColor?: string;
   markerShape?: string;
@@ -59,6 +92,10 @@ export default function PlanMap({
   onMarkerClick,
   onMapLoad,
   onMapPoiSelect,
+  selectedMapPoi = null,
+  onMapPoiFavorite,
+  onMapPoiFootprint,
+  mapPickMode = false,
   autoLoadMarkers = false,
   markerColor = '#ef4444',
   markerShape = 'pin',
@@ -68,8 +105,12 @@ export default function PlanMap({
   const infoWindowRef = useRef<any>(null);
   const onMapPoiSelectRef = useRef(onMapPoiSelect);
   const onMapLoadRef = useRef(onMapLoad);
+  const onMapPoiFavoriteRef = useRef(onMapPoiFavorite);
+  const onMapPoiFootprintRef = useRef(onMapPoiFootprint);
   onMapPoiSelectRef.current = onMapPoiSelect;
   onMapLoadRef.current = onMapLoad;
+  onMapPoiFavoriteRef.current = onMapPoiFavorite;
+  onMapPoiFootprintRef.current = onMapPoiFootprint;
   const [loaded, setLoaded] = useState(false);
   const [dbMarkers, setDbMarkers] = useState<any[]>([]);
   const markers = [...initialMarkers, ...dbMarkers];
@@ -117,7 +158,7 @@ export default function PlanMap({
             onMapLoadRef.current?.(map);
 
             map.on('click', async (event: any) => {
-              if (!onMapPoiSelectRef.current) return;
+              if (!mapPickMode || !onMapPoiSelectRef.current) return;
               const lng = event?.lnglat?.getLng?.();
               const lat = event?.lnglat?.getLat?.();
               if (lng == null || lat == null) return;
@@ -201,7 +242,7 @@ export default function PlanMap({
     };
 
     loadMap();
-  }, []);
+  }, [mapPickMode]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -300,6 +341,63 @@ export default function PlanMap({
 
   useEffect(() => {
     const map = mapInstanceRef.current;
+    if (!map || !loaded || !selectedMapPoi) return;
+
+    const content = document.createElement('div');
+    content.className = 'map-selection-card';
+
+    const title = document.createElement('h3');
+    title.textContent = selectedMapPoi.name;
+    content.appendChild(title);
+
+    const address = document.createElement('p');
+    address.className = 'map-selection-card__address';
+    address.textContent = [selectedMapPoi.city, selectedMapPoi.district, selectedMapPoi.address].filter(Boolean).join(' ');
+    content.appendChild(address);
+
+    const actions = document.createElement('div');
+    actions.className = 'map-selection-card__actions';
+
+    const favButton = document.createElement('button');
+    favButton.type = 'button';
+    favButton.textContent = selectedMapPoi.favorited ? '已收藏' : '收藏';
+    favButton.disabled = !!selectedMapPoi.favorited;
+    favButton.onclick = () => {
+      if (!selectedMapPoi.favorited) {
+        onMapPoiFavoriteRef.current?.(selectedMapPoi);
+      }
+    };
+    actions.appendChild(favButton);
+
+    const footprintButton = document.createElement('button');
+    footprintButton.type = 'button';
+    footprintButton.className = 'primary';
+    footprintButton.textContent = selectedMapPoi.visited ? '已加入足迹' : '加入足迹';
+    footprintButton.disabled = !!selectedMapPoi.visited;
+    footprintButton.onclick = () => {
+      if (!selectedMapPoi.visited) {
+        onMapPoiFootprintRef.current?.(selectedMapPoi);
+      }
+    };
+    actions.appendChild(footprintButton);
+
+    content.appendChild(actions);
+
+    if (infoWindowRef.current) {
+      infoWindowRef.current.close();
+    }
+    infoWindowRef.current = new window.AMap.InfoWindow({
+      content,
+      offset: new window.AMap.Pixel(0, -26),
+      anchor: 'bottom-center',
+    });
+    const pos = new window.AMap.LngLat(Number(selectedMapPoi.lng), Number(selectedMapPoi.lat));
+    infoWindowRef.current.open(map, pos);
+    map.setFitView(undefined, false, [120, 120, 120, 420]);
+  }, [selectedMapPoi, loaded]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
     if (!map || !loaded) return;
 
     overlays.forEach((overlay) => {
@@ -369,6 +467,48 @@ export default function PlanMap({
         }
         .marker-info-window .detail-btn:hover {
           background: #2563eb;
+        }
+        .map-selection-card {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          max-width: 260px;
+          padding: 2px;
+        }
+        .map-selection-card h3 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 600;
+          color: #111827;
+        }
+        .map-selection-card__address {
+          margin: 0;
+          font-size: 12px;
+          line-height: 1.5;
+          color: #6b7280;
+        }
+        .map-selection-card__actions {
+          display: flex;
+          gap: 8px;
+        }
+        .map-selection-card__actions button {
+          flex: 1;
+          height: 36px;
+          border-radius: 10px;
+          border: 1px solid #d1d5db;
+          background: #fff;
+          color: #111827;
+          font-size: 13px;
+          cursor: pointer;
+        }
+        .map-selection-card__actions button.primary {
+          border: none;
+          background: #111827;
+          color: #fff;
+        }
+        .map-selection-card__actions button:disabled {
+          opacity: 0.6;
+          cursor: default;
         }
         .amap-info-content {
           padding: 12px;

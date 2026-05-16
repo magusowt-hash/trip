@@ -18,25 +18,21 @@ type SearchResult = {
   type?: string;
 };
 
-type FavoriteItem = {
-  poiId: number;
-};
-
-type FootprintItem = {
-  poiId: number;
-};
+type SavedFavorite = { poiId: number };
+type SavedFootprint = { poiId: number };
 
 export default function MapsPage() {
   const [activeTab, setActiveTab] = useState<MapTab>('standard');
   const [query, setQuery] = useState('');
-  const [city, setCity] = useState('');
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedPoi, setSelectedPoi] = useState<SearchResult | null>(null);
+  const [mapSelectedPoi, setMapSelectedPoi] = useState<SearchResult | null>(null);
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
   const [footprints, setFootprints] = useState<Set<number>>(new Set());
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [pickModeOpen, setPickModeOpen] = useState(false);
 
   useEffect(() => {
     if (activeTab !== 'standard') return;
@@ -48,11 +44,11 @@ export default function MapsPage() {
       .then(async ([favoritesRes, footprintsRes]) => {
         if (favoritesRes.ok) {
           const data = await favoritesRes.json();
-          setFavorites(new Set((data.favorites || []).map((item: FavoriteItem) => item.poiId)));
+          setFavorites(new Set((data.favorites || []).map((item: SavedFavorite) => item.poiId)));
         }
         if (footprintsRes.ok) {
           const data = await footprintsRes.json();
-          setFootprints(new Set((data.footprints || []).map((item: FootprintItem) => item.poiId)));
+          setFootprints(new Set((data.footprints || []).map((item: SavedFootprint) => item.poiId)));
         }
       })
       .catch(() => {});
@@ -87,10 +83,10 @@ export default function MapsPage() {
 
     setSearching(true);
     setSearchError(null);
+    setMapSelectedPoi(null);
 
     try {
       const params = new URLSearchParams({ q: trimmed });
-      if (city.trim()) params.set('city', city.trim());
       const res = await fetch(`/api/maps/search?${params.toString()}`, { credentials: 'include' });
       const data = await res.json();
 
@@ -100,9 +96,10 @@ export default function MapsPage() {
         return;
       }
 
-      setResults(data.results || []);
-      setSelectedPoi(data.results?.[0] || null);
-      if (!data.results?.length) {
+      const nextResults = (data.results || []).slice(0, 8);
+      setResults(nextResults);
+      setSelectedPoi(nextResults.length === 1 ? nextResults[0] : null);
+      if (!nextResults.length) {
         setSearchError('没有找到匹配地点');
       }
     } catch {
@@ -113,12 +110,12 @@ export default function MapsPage() {
     }
   }
 
-  async function handleFavorite(poi: SearchResult) {
-    const key = `fav:${poi.amapPoiId || poi.name}:${poi.lng}:${poi.lat}`;
+  async function savePoi(mode: 'favorite' | 'footprint', poi: SearchResult) {
+    const key = `${mode}:${poi.amapPoiId || poi.name}:${poi.lng}:${poi.lat}`;
     setSavingKey(key);
 
     try {
-      const res = await fetch('/api/maps/favorites', {
+      const res = await fetch(`/api/maps/${mode === 'favorite' ? 'favorites' : 'footprints'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -126,61 +123,38 @@ export default function MapsPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error || '收藏失败');
+        alert(data.error || (mode === 'favorite' ? '收藏失败' : '加入足迹失败'));
         return;
       }
 
       const poiId = data.poi?.id;
-      if (poiId) {
+      if (!poiId) return;
+
+      if (mode === 'favorite') {
         setFavorites((prev) => new Set(prev).add(poiId));
-        setResults((prev) => prev.map((item) => samePoi(item, poi) ? { ...item, poiId } : item));
-        setSelectedPoi((prev) => (prev && samePoi(prev, poi) ? { ...prev, poiId } : prev));
+      } else {
+        setFootprints((prev) => new Set(prev).add(poiId));
       }
+
+      const updater = (item: SearchResult) => samePoi(item, poi) ? { ...item, poiId } : item;
+      setResults((prev) => prev.map(updater));
+      setSelectedPoi((prev) => (prev && samePoi(prev, poi) ? { ...prev, poiId } : prev));
+      setMapSelectedPoi((prev) => (prev && samePoi(prev, poi) ? { ...prev, poiId } : prev));
     } catch {
-      alert('收藏失败');
+      alert(mode === 'favorite' ? '收藏失败' : '加入足迹失败');
     } finally {
       setSavingKey(null);
     }
   }
 
-  async function handleFootprint(poi: SearchResult) {
-    const key = `fp:${poi.amapPoiId || poi.name}:${poi.lng}:${poi.lat}`;
-    setSavingKey(key);
-
-    try {
-      const res = await fetch('/api/maps/footprints', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ poi }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || '加入足迹失败');
-        return;
-      }
-
-      const poiId = data.poi?.id;
-      if (poiId) {
-        setFootprints((prev) => new Set(prev).add(poiId));
-        setResults((prev) => prev.map((item) => samePoi(item, poi) ? { ...item, poiId } : item));
-        setSelectedPoi((prev) => (prev && samePoi(prev, poi) ? { ...prev, poiId } : prev));
-      }
-    } catch {
-      alert('加入足迹失败');
-    } finally {
-      setSavingKey(null);
-    }
+  function handleResultClick(poi: SearchResult) {
+    setSelectedPoi(poi);
+    setMapSelectedPoi(null);
   }
 
   function handleMapPoiSelect(poi: SearchResult) {
-    setActiveTab('standard');
-    setSearchError(null);
-    setResults((prev) => {
-      const merged = [poi, ...prev.filter((item) => !samePoi(item, poi))];
-      return merged.slice(0, 20);
-    });
-    setSelectedPoi(poi);
+    setPickModeOpen(false);
+    setMapSelectedPoi(attachSavedState(poi, favorites, footprints));
   }
 
   function handleMapMarkerClick(marker: MapMarker) {
@@ -190,8 +164,13 @@ export default function MapsPage() {
         item.lat === String(marker.position[1]) &&
         item.name === marker.title,
     );
-    if (matched) setSelectedPoi(matched);
+    if (matched) {
+      setSelectedPoi(matched);
+      setMapSelectedPoi(null);
+    }
   }
+
+  const mapPopupPoi = mapSelectedPoi ? attachSavedState(mapSelectedPoi, favorites, footprints) : null;
 
   return (
     <div className={styles.root}>
@@ -216,32 +195,11 @@ export default function MapsPage() {
             </div>
 
             {activeTab === 'standard' ? (
-              <>
-                <form className={styles.searchRow} onSubmit={handleSearch}>
-                  <input
-                    className={styles.searchInput}
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="搜索已知地点名称"
-                  />
-                  <input
-                    className={styles.cityInput}
-                    value={city}
-                    onChange={(event) => setCity(event.target.value)}
-                    placeholder="城市"
-                  />
-                  <button className={styles.searchButton} type="submit" disabled={searching}>
-                    {searching ? '搜索中' : '搜索'}
-                  </button>
-                </form>
-                <p className={styles.helper}>支持搜索后定位，也支持直接点击地图识别明确 POI 再收藏或加入足迹。</p>
-              </>
+              <p className={styles.helper}>右侧搜索地点；如果要从地图选点，请使用“地图选点”按钮后点击高德已有地点标记。</p>
             ) : (
               <>
                 <h2 className={styles.sectionTitle}>中国铁路地图</h2>
-                <p className={styles.sectionDesc}>
-                  这一版先预留独立专题视图入口。下一阶段可在这里接入铁路站点、线路和专题图层，而不与普通 POI 地图混杂在一起。
-                </p>
+                <p className={styles.sectionDesc}>当前先保留独立专题视图位置，后续在这里接入铁路站点、线路与筛选能力。</p>
               </>
             )}
           </div>
@@ -253,6 +211,10 @@ export default function MapsPage() {
                 focusPosition={focusPosition}
                 onMarkerClick={handleMapMarkerClick}
                 onMapPoiSelect={handleMapPoiSelect}
+                selectedMapPoi={mapPopupPoi}
+                onMapPoiFavorite={(poi) => void savePoi('favorite', poi)}
+                onMapPoiFootprint={(poi) => void savePoi('footprint', poi)}
+                mapPickMode={pickModeOpen}
                 autoLoadMarkers={false}
               />
             ) : (
@@ -265,69 +227,119 @@ export default function MapsPage() {
 
         <aside className={styles.listCol} aria-label="地图结果列表">
           <div className={styles.listPanel}>
-            <h2 className={styles.sectionTitle}>{activeTab === 'standard' ? '地点结果' : '专题说明'}</h2>
+            <h2 className={styles.sectionTitle}>{activeTab === 'standard' ? '地点搜索' : '专题说明'}</h2>
 
             {activeTab === 'china-rail' ? (
-              <div className={styles.status}>
-                当前仅保留独立页签和视图位置。后续如果确定铁路数据来源，我会在这里补站点列表、线路筛选和地图联动。
-              </div>
-            ) : searchError && results.length === 0 ? (
-              <div className={styles.status}>{searchError}</div>
-            ) : results.length === 0 ? (
-              <div className={styles.status}>搜索地点后，结果会显示在这里。点击地图也可以补充识别到的地点。</div>
+              <div className={styles.status}>当前仅保留独立页签和视图位置。后续如果确定铁路数据来源，我会在这里补站点列表、线路筛选和地图联动。</div>
             ) : (
-              results.map((poi) => {
-                const active = samePoi(poi, selectedPoi);
-                const favorited = poi.poiId ? favorites.has(poi.poiId) : false;
-                const visited = poi.poiId ? footprints.has(poi.poiId) : false;
-                return (
-                  <article
-                    key={`${poi.amapPoiId || poi.name}-${poi.lng}-${poi.lat}`}
-                    className={`${styles.poiCard} ${active ? styles.poiCardActive : ''}`}
-                    onClick={() => setSelectedPoi(poi)}
-                  >
-                    <div className={styles.poiTop}>
-                      <div>
-                        <h3 className={styles.poiTitle}>{poi.name}</h3>
-                        <p className={styles.poiAddress}>
-                          {[poi.city, poi.district, poi.address].filter(Boolean).join(' ')}
-                        </p>
-                      </div>
-                      <span className={styles.poiMeta}>{poi.type?.split(';')[0] || 'POI'}</span>
-                    </div>
-                    <div className={styles.poiActions}>
-                      <button
-                        type="button"
-                        className={`${styles.ghostButton} ${favorited ? styles.saved : ''}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (!favorited) void handleFavorite(poi);
-                        }}
-                        disabled={favorited || savingKey === `fav:${poi.amapPoiId || poi.name}:${poi.lng}:${poi.lat}`}
+              <>
+                <form className={styles.searchStack} onSubmit={handleSearch}>
+                  <input
+                    className={styles.searchInput}
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="搜索已知地点名称"
+                  />
+                  <div className={styles.actionRow}>
+                    <button className={styles.searchButton} type="submit" disabled={searching}>
+                      {searching ? '搜索中' : '搜索'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.ghostButtonWide}
+                      onClick={() => {
+                        setMapSelectedPoi(null);
+                        setPickModeOpen(true);
+                      }}
+                    >
+                      地图选点
+                    </button>
+                  </div>
+                </form>
+
+                {searchError && results.length === 0 ? (
+                  <div className={styles.status}>{searchError}</div>
+                ) : results.length === 0 ? (
+                  <div className={styles.status}>搜索结果会显示在这里。地图选点结果只会在地图上弹出卡片，不会进入右侧列表。</div>
+                ) : (
+                  results.map((poi) => {
+                    const active = samePoi(poi, selectedPoi);
+                    const favorited = poi.poiId ? favorites.has(poi.poiId) : false;
+                    const visited = poi.poiId ? footprints.has(poi.poiId) : false;
+                    return (
+                      <article
+                        key={`${poi.amapPoiId || poi.name}-${poi.lng}-${poi.lat}`}
+                        className={`${styles.poiCard} ${active ? styles.poiCardActive : ''}`}
+                        onClick={() => handleResultClick(poi)}
                       >
-                        {favorited ? '已收藏' : '收藏'}
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.primaryButton} ${visited ? styles.saved : ''}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (!visited) void handleFootprint(poi);
-                        }}
-                        disabled={visited || savingKey === `fp:${poi.amapPoiId || poi.name}:${poi.lng}:${poi.lat}`}
-                      >
-                        {visited ? '已加入足迹' : '加入足迹'}
-                      </button>
-                    </div>
-                  </article>
-                );
-              })
+                        <div className={styles.poiTop}>
+                          <div>
+                            <h3 className={styles.poiTitle}>{poi.name}</h3>
+                            <p className={styles.poiAddress}>
+                              {[poi.city, poi.district, poi.address].filter(Boolean).join(' ')}
+                            </p>
+                          </div>
+                        </div>
+                        <div className={styles.poiActions}>
+                          <button
+                            type="button"
+                            className={`${styles.ghostButton} ${favorited ? styles.saved : ''}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (!favorited) void savePoi('favorite', poi);
+                            }}
+                            disabled={favorited || savingKey === `favorite:${poi.amapPoiId || poi.name}:${poi.lng}:${poi.lat}`}
+                          >
+                            {favorited ? '已收藏' : '收藏'}
+                          </button>
+                          <button
+                            type="button"
+                            className={`${styles.primaryButton} ${visited ? styles.saved : ''}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (!visited) void savePoi('footprint', poi);
+                            }}
+                            disabled={visited || savingKey === `footprint:${poi.amapPoiId || poi.name}:${poi.lng}:${poi.lat}`}
+                          >
+                            {visited ? '已加入足迹' : '加入足迹'}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })
+                )}
+              </>
             )}
           </div>
         </aside>
       </div>
+
+      {pickModeOpen ? (
+        <div className={styles.modalOverlay} onClick={() => setPickModeOpen(false)}>
+          <div className={styles.modalCard} onClick={(event) => event.stopPropagation()}>
+            <h3 className={styles.modalTitle}>地图选点</h3>
+            <p className={styles.modalText}>进入选点模式后，请直接点击高德地图上已有名称标记的地点，例如北京、宁国市、虎跳峡。识别到明确地点后，会在地图上弹出操作卡片；未命中明确地点时，右侧列表不会新增结果。</p>
+            <div className={styles.modalActions}>
+              <button type="button" className={styles.ghostButtonWide} onClick={() => setPickModeOpen(false)}>
+                取消
+              </button>
+              <button type="button" className={styles.searchButton} onClick={() => setPickModeOpen(false)}>
+                我知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function attachSavedState(poi: SearchResult, favorites: Set<number>, footprints: Set<number>) {
+  return {
+    ...poi,
+    favorited: poi.poiId ? favorites.has(poi.poiId) : false,
+    visited: poi.poiId ? footprints.has(poi.poiId) : false,
+  };
 }
 
 function samePoi(a: SearchResult | null | undefined, b: SearchResult | null | undefined) {
