@@ -221,6 +221,7 @@ export default function MapsPage() {
                   mapFeatures={[]}
                   onMapLoad={(m: any) => {
                     railMapRef.current = m;
+                    m.setFeatures([]);
                     setRailZoom(m.getZoom());
                     m.on('zoomend', () => setRailZoom(m.getZoom()));
                   }}
