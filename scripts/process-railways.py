@@ -93,6 +93,78 @@ def classify_railway(props):
         return '#a0aec0', 0.8, '侧线'
     return '#718096', 1.5, '普速'
 
+# ─── 端点匹配合并 ──────────────────────────────────────────
+def merge_segments(segments):
+    """合并共享端点的同类型线段。"""
+    from collections import defaultdict
+    ep = defaultdict(list)
+    for i, seg in enumerate(segments):
+        c = seg['coords']
+        ep[f"{c[0][0]:.4f},{c[0][1]:.4f}"].append((i, 'start'))
+        ep[f"{c[-1][0]:.4f},{c[-1][1]:.4f}"].append((i, 'end'))
+    
+    visited = [False] * len(segments)
+    merged = []
+    
+    for start_idx in range(len(segments)):
+        if visited[start_idx]:
+            continue
+        
+        s = segments[start_idx]
+        chain = list(s['coords'])
+        cat = s['cat']
+        color = s['color']
+        width = s['width']
+        visited[start_idx] = True
+        
+        front = f"{chain[0][0]:.4f},{chain[0][1]:.4f}"
+        back = f"{chain[-1][0]:.4f},{chain[-1][1]:.4f}"
+        
+        while True:
+            extended = False
+            for ni, et in ep.get(front, []):
+                if visited[ni] or segments[ni]['cat'] != cat:
+                    continue
+                nb = segments[ni]['coords']
+                if et == 'end':
+                    chain = list(reversed(nb[:-1])) + chain
+                else:
+                    chain = list(reversed(nb[1:])) + chain
+                visited[ni] = True
+                front = f"{chain[0][0]:.4f},{chain[0][1]:.4f}"
+                extended = True
+                break
+            if extended:
+                continue
+            for ni, et in ep.get(back, []):
+                if visited[ni] or segments[ni]['cat'] != cat:
+                    continue
+                nb = segments[ni]['coords']
+                if et == 'start':
+                    chain = chain + nb[1:]
+                else:
+                    chain = chain + list(reversed(nb[:-1]))
+                visited[ni] = True
+                back = f"{chain[-1][0]:.4f},{chain[-1][1]:.4f}"
+                extended = True
+                break
+            if not extended:
+                break
+        
+        simplified = simplify_dp(chain, tolerance=0.003)
+        if len(simplified) < 2:
+            continue
+        
+        compact = [[round(c[0],4), round(c[1],4)] for c in simplified]
+        merged.append({
+            'p': compact,
+            'c': color,
+            'w': width,
+            't': cat,
+        })
+    
+    return merged
+
 # ─── 主处理 ────────────────────────────────────────────────
 BASE = '/Users/apple/Desktop/codex/trip'
 RAIL_IN = f'{BASE}/data/china-railways.geojson'
@@ -106,10 +178,9 @@ with open(RAIL_IN) as f:
 
 print(f"Input features: {len(data['features'])}")
 
-routes = []
-type_counts = {}
+segments = []
+type_counts_raw = {}
 total_coords_in = 0
-total_coords_out = 0
 
 for feat in data['features']:
     geom = feat.get('geometry')
@@ -119,34 +190,38 @@ for feat in data['features']:
     coords = geom['coordinates']
     total_coords_in += len(coords)
     
-    # GCJ-02 转换
     gcj_coords = [wgs84_to_gcj02(c[0], c[1]) for c in coords]
+    if len(gcj_coords) < 2:
+        continue
     
-    # 着色分类 (在精简前判断，侧线直接跳过节省时间)
     props = feat.get('properties', {})
     color, width, cat = classify_railway(props)
     if cat == '侧线':
         continue
     
-    # 精简 (tolerance 0.008 ~ 800m，全国尺度足够)
-    simplified = simplify_dp(gcj_coords, tolerance=0.008)
-    if len(simplified) < 2:
-        continue
-    total_coords_out += len(simplified)
+    type_counts_raw[cat] = type_counts_raw.get(cat, 0) + 1
     
-    type_counts[cat] = type_counts.get(cat, 0) + 1
-    
-    # 坐标截断到 4 位小数 (~11m 精度，节省 40% 体积)
-    compact_path = [[round(c[0],4), round(c[1],4)] for c in simplified]
-    
-    routes.append({
-        'p': compact_path,
-        'c': color,
-        'w': width,
-        't': cat,
+    segments.append({
+        'coords': gcj_coords,
+        'color': color,
+        'width': width,
+        'cat': cat,
     })
 
-print(f"Railway routes: {len(routes)}")
+print(f"Segments: {len(segments)}")
+print(f"Raw categories: {type_counts_raw}")
+print(f"Coords in: {total_coords_in}")
+
+# 合并
+print("Merging segments...")
+routes = merge_segments(segments)
+
+total_coords_out = sum(len(r['p']) for r in routes)
+type_counts = {}
+for r in routes:
+    type_counts[r['t']] = type_counts.get(r['t'], 0) + 1
+
+print(f"Merged routes: {len(routes)}")
 print(f"Categories: {type_counts}")
 print(f"Coords: {total_coords_in} → {total_coords_out} ({100*total_coords_out/max(1,total_coords_in):.1f}%)")
 

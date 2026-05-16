@@ -49,9 +49,10 @@ export default function RailCanvas({ mapInstance, routes, zoom }: RailCanvasProp
       const ne = bounds.getNorthEast();
       const margin = 0.5;
 
+      // zoom 分层：小 zoom 减少线条密度
       let filtered: RailRoute[];
       if (zoom < 6) {
-        filtered = routes.filter((r) => r.p.length >= 4);
+        filtered = routes.filter((r) => r.p.length >= 5);
       } else if (zoom < 8) {
         filtered = routes.filter((r) => r.p.length >= 3);
       } else {
