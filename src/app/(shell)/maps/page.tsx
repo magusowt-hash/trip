@@ -32,7 +32,6 @@ export default function MapsPage() {
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
   const [footprints, setFootprints] = useState<Set<number>>(new Set());
   const [savingKey, setSavingKey] = useState<string | null>(null);
-  const [pickModeOpen, setPickModeOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
 
   useEffect(() => {
@@ -154,7 +153,6 @@ export default function MapsPage() {
   }
 
   function handleMapPoiSelect(poi: SearchResult) {
-    setPickModeOpen(false);
     setMapSelectedPoi(attachSavedState(poi, favorites, footprints));
   }
 
@@ -187,7 +185,6 @@ export default function MapsPage() {
                 selectedMapPoi={mapPopupPoi}
                 onMapPoiFavorite={(poi) => void savePoi('favorite', poi)}
                 onMapPoiFootprint={(poi) => void savePoi('footprint', poi)}
-                mapPickMode={pickModeOpen}
                 autoLoadMarkers={false}
               />
             ) : (
@@ -224,21 +221,11 @@ export default function MapsPage() {
                 <div className={styles.toolbar}>
                   <button
                     type="button"
-                    className={`${styles.toolButton} ${pickModeOpen ? styles.toolButtonActive : ''}`}
-                    onClick={() => {
-                      setMapSelectedPoi(null);
-                      setPickModeOpen(!pickModeOpen);
-                    }}
-                  >
-                    {pickModeOpen ? '选点中' : '地图选点'}
-                  </button>
-                  <div className={styles.toolbarSpacer} />
-                  <button
-                    type="button"
                     className={styles.toolButtonDetail}
                     onClick={() => setDetailOpen(true)}
+                    aria-label="查看全部地图种类"
                   >
-                    详情
+                    &#x22ef;
                   </button>
                 </div>
 
@@ -256,7 +243,7 @@ export default function MapsPage() {
                       disabled={searching}
                       aria-label="搜索"
                     >
-                      &#x1F50D;
+                      <span className={styles.searchGlyph} />
                     </button>
                   </div>
                 </form>
@@ -264,7 +251,7 @@ export default function MapsPage() {
                 {searchError && results.length === 0 ? (
                   <div className={styles.status}>{searchError}</div>
                 ) : results.length === 0 ? (
-                  <div className={styles.status}>搜索结果会显示在这里。地图选点结果只会在地图上弹出卡片，不会进入右侧列表。</div>
+                  <div className={styles.status}>搜索结果会显示在这里。直接点击地图可尝试识别高德已有地点标记；命中明确地点后，只会在地图上弹出卡片，不会进入右侧列表。</div>
                 ) : (
                   results.map((poi) => {
                     const active = samePoi(poi, selectedPoi);
@@ -339,40 +326,34 @@ export default function MapsPage() {
         <div className={styles.detailModalOverlay} onClick={() => setDetailOpen(false)}>
           <div className={styles.detailModalCard} onClick={(event) => event.stopPropagation()}>
             <div className={styles.detailModalHeader}>
-              <h3 className={styles.detailModalTitle}>全部地点 ({results.length})</h3>
+              <h3 className={styles.detailModalTitle}>全部地图种类</h3>
               <button type="button" className={styles.detailModalClose} onClick={() => setDetailOpen(false)}>
                 &#x2715;
               </button>
             </div>
             <div className={styles.detailGrid}>
-              {results.map((poi) => {
-                const favorited = poi.poiId ? favorites.has(poi.poiId) : false;
-                const visited = poi.poiId ? footprints.has(poi.poiId) : false;
-                return (
-                  <div key={`detail-${poi.amapPoiId || poi.name}-${poi.lng}-${poi.lat}`} className={styles.detailGridCard}>
-                    <h4 className={styles.detailGridCardName}>{poi.name}</h4>
-                    <p className={styles.detailGridCardAddr}>
-                      {[poi.city, poi.district, poi.address].filter(Boolean).join(' ')}
-                    </p>
-                    <div className={styles.detailGridCardActions}>
-                      <button
-                        type="button"
-                        disabled={favorited || savingKey === `favorite:${poi.amapPoiId || poi.name}:${poi.lng}:${poi.lat}`}
-                        onClick={() => { if (!favorited) void savePoi('favorite', poi); }}
-                      >
-                        {favorited ? '已收藏' : '收藏'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={visited || savingKey === `footprint:${poi.amapPoiId || poi.name}:${poi.lng}:${poi.lat}`}
-                        onClick={() => { if (!visited) void savePoi('footprint', poi); }}
-                      >
-                        {visited ? '已加入' : '足迹'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+              <button
+                type="button"
+                className={`${styles.mapTypeCard} ${activeTab === 'standard' ? styles.mapTypeCardActive : ''}`}
+                onClick={() => {
+                  setActiveTab('standard');
+                  setDetailOpen(false);
+                }}
+              >
+                <span className={styles.mapTypeCardName}>普通地图</span>
+                <span className={styles.mapTypeCardDesc}>地点搜索、地图点击识别已有 POI、收藏与足迹。</span>
+              </button>
+              <button
+                type="button"
+                className={`${styles.mapTypeCard} ${activeTab === 'china-rail' ? styles.mapTypeCardActive : ''}`}
+                onClick={() => {
+                  setActiveTab('china-rail');
+                  setDetailOpen(false);
+                }}
+              >
+                <span className={styles.mapTypeCardName}>中国铁路地图</span>
+                <span className={styles.mapTypeCardDesc}>铁路专题视图入口，后续可接线路、站点和专题筛选。</span>
+              </button>
             </div>
           </div>
         </div>

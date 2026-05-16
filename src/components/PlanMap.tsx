@@ -61,7 +61,6 @@ export interface PlanMapProps {
     city?: string;
     district?: string;
   }) => void;
-  mapPickMode?: boolean;
   autoLoadMarkers?: boolean;
   markerColor?: string;
   markerShape?: string;
@@ -95,7 +94,6 @@ export default function PlanMap({
   selectedMapPoi = null,
   onMapPoiFavorite,
   onMapPoiFootprint,
-  mapPickMode = false,
   autoLoadMarkers = false,
   markerColor = '#ef4444',
   markerShape = 'pin',
@@ -107,12 +105,10 @@ export default function PlanMap({
   const onMapLoadRef = useRef(onMapLoad);
   const onMapPoiFavoriteRef = useRef(onMapPoiFavorite);
   const onMapPoiFootprintRef = useRef(onMapPoiFootprint);
-  const mapPickModeRef = useRef(mapPickMode);
   onMapPoiSelectRef.current = onMapPoiSelect;
   onMapLoadRef.current = onMapLoad;
   onMapPoiFavoriteRef.current = onMapPoiFavorite;
   onMapPoiFootprintRef.current = onMapPoiFootprint;
-  mapPickModeRef.current = mapPickMode;
   const [loaded, setLoaded] = useState(false);
   const [dbMarkers, setDbMarkers] = useState<any[]>([]);
   const markers = [...initialMarkers, ...dbMarkers];
@@ -160,7 +156,7 @@ export default function PlanMap({
             onMapLoadRef.current?.(map);
 
             map.on('click', async (event: any) => {
-              if (!mapPickModeRef.current || !onMapPoiSelectRef.current) return;
+              if (!onMapPoiSelectRef.current) return;
               const lng = event?.lnglat?.getLng?.();
               const lat = event?.lnglat?.getLat?.();
               if (lng == null || lat == null) return;
