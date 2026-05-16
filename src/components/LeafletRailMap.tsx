@@ -38,7 +38,6 @@ export default function LeafletRailMap({ routes, stations, zoom = 5 }: Props) {
     const map = L.map(containerRef.current, {
       center: [35, 105], zoom, zoomControl: true, attributionControl: false,
     });
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
     mapRef.current = map;
 
     const canvas = document.createElement('canvas');
@@ -111,5 +110,5 @@ export default function LeafletRailMap({ routes, stations, zoom = 5 }: Props) {
     draw();
   };
 
-  return <div ref={containerRef} style={{ width: '100%', height: '100%', borderRadius: '12px', overflow: 'hidden' }} />;
+  return <div ref={containerRef} style={{ width: '100%', height: '100%', backgroundColor: '#fff', borderRadius: '12px', overflow: 'hidden' }} />;
 }
