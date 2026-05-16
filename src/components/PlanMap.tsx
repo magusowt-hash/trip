@@ -81,7 +81,7 @@ declare global {
   }
 }
 
-const AMAP_KEY = 'fbf5d9a8e346f93257eb7c5ab4d32034';
+const AMAP_KEY = '64138cb3827187cd053ccbb9eaa18fa2';
 const AMAP_SECURITY_CODE = 'efc009ad907da44e5b727c1f890050fc';
 
 export default function PlanMap({
