@@ -178,30 +178,10 @@ export default function MapsPage() {
       <div className={styles.split}>
         <section className={styles.mapCol} aria-label="地图区域">
           <div className={styles.panel}>
-            <div className={styles.tabs}>
-              <button
-                type="button"
-                className={`${styles.tab} ${activeTab === 'standard' ? styles.tabActive : ''}`}
-                onClick={() => setActiveTab('standard')}
-              >
-                普通地图
-              </button>
-              <button
-                type="button"
-                className={`${styles.tab} ${activeTab === 'china-rail' ? styles.tabActive : ''}`}
-                onClick={() => setActiveTab('china-rail')}
-              >
-                中国铁路
-              </button>
-            </div>
-
             {activeTab === 'standard' ? (
-              <p className={styles.helper}>右侧搜索地点；如果要从地图选点，请使用“地图选点”按钮后点击高德已有地点标记。</p>
+              <p className={styles.helper}>右侧搜索地点；如果要从地图选点，请使用"地图选点"按钮后点击高德已有地点标记。</p>
             ) : (
-              <>
-                <h2 className={styles.sectionTitle}>中国铁路地图</h2>
-                <p className={styles.sectionDesc}>当前先保留独立专题视图位置，后续在这里接入铁路站点、线路与筛选能力。</p>
-              </>
+              <p className={styles.helper}>中国铁路地图专题视图待接入</p>
             )}
           </div>
 
@@ -228,6 +208,23 @@ export default function MapsPage() {
 
         <aside className={styles.listCol} aria-label="地图结果列表">
           <div className={styles.listPanel}>
+            <div className={styles.tabs}>
+              <button
+                type="button"
+                className={`${styles.tab} ${activeTab === 'standard' ? styles.tabActive : ''}`}
+                onClick={() => setActiveTab('standard')}
+              >
+                普通地图
+              </button>
+              <button
+                type="button"
+                className={`${styles.tab} ${activeTab === 'china-rail' ? styles.tabActive : ''}`}
+                onClick={() => setActiveTab('china-rail')}
+              >
+                中国铁路
+              </button>
+            </div>
+
             {activeTab === 'china-rail' ? (
               <div className={styles.status}>当前仅保留独立页签和视图位置。后续如果确定铁路数据来源，我会在这里补站点列表、线路筛选和地图联动。</div>
             ) : (
