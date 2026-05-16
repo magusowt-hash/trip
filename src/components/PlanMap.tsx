@@ -116,6 +116,33 @@ export default function PlanMap({
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
+    const emitPoi = (rawPoi: any, rawLngLat?: any) => {
+      if (!onMapPoiSelectRef.current) return;
+      const lngLat = rawPoi?.location || rawLngLat;
+      const lng =
+        lngLat?.lng ??
+        lngLat?.getLng?.() ??
+        lngLat?.longitude;
+      const lat =
+        lngLat?.lat ??
+        lngLat?.getLat?.() ??
+        lngLat?.latitude;
+
+      const name = rawPoi?.name || rawPoi?.poiName || rawPoi?.title;
+      if (!name || lng == null || lat == null) return;
+
+      onMapPoiSelectRef.current({
+        amapPoiId: rawPoi?.id || rawPoi?.poiId || null,
+        name,
+        lng: String(lng),
+        lat: String(lat),
+        address: rawPoi?.address || rawPoi?.adname || rawPoi?.addressInfo || '',
+        city: rawPoi?.cityname || rawPoi?.pname || rawPoi?.city || '',
+        district: rawPoi?.adname || rawPoi?.district || '',
+        type: rawPoi?.type || '',
+      });
+    };
+
     const initMap = () => {
       if (!mapRef.current || mapInstanceRef.current) return;
 
@@ -155,31 +182,17 @@ export default function PlanMap({
             setLoaded(true);
             onMapLoadRef.current?.(map);
 
-            map.on('click', async (event: any) => {
-              if (!onMapPoiSelectRef.current) return;
-              const eventPoi = event?.poi;
-              const eventLngLat = eventPoi?.location || event?.lnglat;
-              const lng =
-                eventLngLat?.lng ??
-                eventLngLat?.getLng?.() ??
-                eventLngLat?.longitude;
-              const lat =
-                eventLngLat?.lat ??
-                eventLngLat?.getLat?.() ??
-                eventLngLat?.latitude;
+            map.on('hotspotclick', (event: any) => {
+              emitPoi(event?.poi || event, event?.lnglat);
+            });
 
-              if (!eventPoi?.name || lng == null || lat == null) return;
+            map.on('click', (event: any) => {
+              if (!event?.poi) return;
+              emitPoi(event.poi, event?.lnglat);
+            });
 
-              onMapPoiSelectRef.current({
-                amapPoiId: eventPoi?.id || eventPoi?.poiId || null,
-                name: eventPoi.name,
-                lng: String(lng),
-                lat: String(lat),
-                address: eventPoi.address || eventPoi.adname || '',
-                city: eventPoi.cityname || eventPoi.pname || '',
-                district: eventPoi.adname || '',
-                type: eventPoi.type || '',
-              });
+            map.on('mousemove', (event: any) => {
+              map.setDefaultCursor(event?.poi ? 'pointer' : 'default');
             });
           } else {
             setTimeout(checkSize, 100);

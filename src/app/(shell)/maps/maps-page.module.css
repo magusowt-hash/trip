@@ -55,6 +55,12 @@
   gap: 8px;
 }
 
+.topRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .tab {
   border: 1px solid #d1d5db;
   background: #fff;
@@ -75,12 +81,6 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
 }
 
 .toolButtonDetail {

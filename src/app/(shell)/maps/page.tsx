@@ -197,20 +197,30 @@ export default function MapsPage() {
 
         <aside className={styles.listCol} aria-label="地图结果列表">
           <div className={styles.listPanel}>
-            <div className={styles.tabs}>
+            <div className={styles.topRow}>
+              <div className={styles.tabs}>
+                <button
+                  type="button"
+                  className={`${styles.tab} ${activeTab === 'standard' ? styles.tabActive : ''}`}
+                  onClick={() => setActiveTab('standard')}
+                >
+                  普通地图
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.tab} ${activeTab === 'china-rail' ? styles.tabActive : ''}`}
+                  onClick={() => setActiveTab('china-rail')}
+                >
+                  中国铁路
+                </button>
+              </div>
               <button
                 type="button"
-                className={`${styles.tab} ${activeTab === 'standard' ? styles.tabActive : ''}`}
-                onClick={() => setActiveTab('standard')}
+                className={styles.toolButtonDetail}
+                onClick={() => setDetailOpen(true)}
+                aria-label="查看全部地图种类"
               >
-                普通地图
-              </button>
-              <button
-                type="button"
-                className={`${styles.tab} ${activeTab === 'china-rail' ? styles.tabActive : ''}`}
-                onClick={() => setActiveTab('china-rail')}
-              >
-                中国铁路
+                &#x22ef;
               </button>
             </div>
 
@@ -218,17 +228,6 @@ export default function MapsPage() {
               <div className={styles.status}>当前仅保留独立页签和视图位置。后续如果确定铁路数据来源，我会在这里补站点列表、线路筛选和地图联动。</div>
             ) : (
               <>
-                <div className={styles.toolbar}>
-                  <button
-                    type="button"
-                    className={styles.toolButtonDetail}
-                    onClick={() => setDetailOpen(true)}
-                    aria-label="查看全部地图种类"
-                  >
-                    &#x22ef;
-                  </button>
-                </div>
-
                 <form className={styles.searchStack} onSubmit={handleSearch}>
                   <div className={styles.searchInputWrap}>
                     <input
