@@ -1,4 +1,4 @@
-import { mysqlTable, serial, varchar, timestamp, uniqueIndex, tinyint, date, text, int, json, index } from 'drizzle-orm/mysql-core';
+import { mysqlTable, serial, varchar, timestamp, uniqueIndex, tinyint, date, text, int, json, index, decimal, mysqlEnum } from 'drizzle-orm/mysql-core';
 import { relations } from 'drizzle-orm';
 
 export const users = mysqlTable(
@@ -390,6 +390,53 @@ export const packingTemplates = mysqlTable(
   },
   (t) => ({
     categoryIdIdx: index('packing_templates_category_id_idx').on(t.categoryId),
+  }),
+);
+
+// ─── 铁路地图设置 ────────────────────────────────────────
+export const railMapSettings = mysqlTable(
+  'rail_map_settings',
+  {
+    id: serial('id').primaryKey(),
+    localMajorShowZoom: decimal('local_major_show_zoom', { precision: 2, scale: 1 }).notNull().default('8.0'),
+    localMajorFadeStart: decimal('local_major_fade_start', { precision: 2, scale: 1 }).notNull().default('7.0'),
+    localShowZoom: decimal('local_show_zoom', { precision: 2, scale: 1 }).notNull().default('9.0'),
+    localFadeStart: decimal('local_fade_start', { precision: 2, scale: 1 }).notNull().default('8.0'),
+    clusterRZ1: int('cluster_r_z1').notNull().default(40),
+    clusterRZ2: int('cluster_r_z2').notNull().default(28),
+    clusterRZ3: int('cluster_r_z3').notNull().default(18),
+    clusterRZ4: int('cluster_r_z4').notNull().default(10),
+    majorClusterRatio: decimal('major_cluster_ratio', { precision: 2, scale: 2 }).notNull().default('0.70'),
+    dedupZ1: int('dedup_z1').notNull().default(36),
+    dedupZ2: int('dedup_z2').notNull().default(24),
+    dedupZ3: int('dedup_z3').notNull().default(16),
+    dedupZ4: int('dedup_z4').notNull().default(12),
+    hubRadius: int('hub_radius').notNull().default(5),
+    majorRadius: int('major_radius').notNull().default(4),
+    localMajorRadius: decimal('local_major_radius', { precision: 2, scale: 1 }).notNull().default('2.5'),
+    localRadius: int('local_radius').notNull().default(2),
+    hubColor: varchar('hub_color', { length: 7 }).notNull().default('#dc2626'),
+    majorColor: varchar('major_color', { length: 7 }).notNull().default('#f59e0b'),
+    localMajorColor: varchar('local_major_color', { length: 7 }).notNull().default('#10b981'),
+    localColor: varchar('local_color', { length: 7 }).notNull().default('#9ca3af'),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+);
+
+// ─── 站点自定义覆盖 ──────────────────────────────────────
+export const stationOverrides = mysqlTable(
+  'station_overrides',
+  {
+    id: serial('id').primaryKey(),
+    stationName: varchar('station_name', { length: 64 }).notNull(),
+    displayName: varchar('display_name', { length: 64 }),
+    levelOverride: mysqlEnum('level_override', ['hub', 'major', 'local_major', 'local', 'deleted']),
+    displayLevel: mysqlEnum('display_level', ['hub', 'major', 'local_major', 'local']),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    stationNameIdx: uniqueIndex('station_overrides_name_idx').on(t.stationName),
   }),
 );
 

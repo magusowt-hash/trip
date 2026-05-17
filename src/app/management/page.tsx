@@ -79,6 +79,7 @@ const quickNav = [
   { path: '/management/packing', icon: '🎒', label: '行李清单', desc: '行李模板管理' },
   { path: '/management/embed-logs', icon: '📈', label: '嵌入访问', desc: '嵌入页访问统计' },
   { path: '/management/alist', icon: '☁️', label: '网盘配置', desc: 'AList 云存储' },
+  { path: '/management/maps', icon: '🗺️', label: '地图管理', desc: '地图显示与数据管理' },
   { path: '/management/footprints', icon: '👣', label: '足迹分组', desc: '足迹数据管理' },
 ];
 

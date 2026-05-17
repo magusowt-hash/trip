@@ -18,6 +18,7 @@ const navItems = [
   { path: '/management/packing', icon: '🎒', label: '行李清单' },
   { path: '/management/embed-logs', icon: '📈', label: '嵌入访问' },
   { path: '/management/alist', icon: '☁️', label: '网盘配置' },
+  { path: '/management/maps', icon: '🗺️', label: '地图管理' },
   { path: '/management/footprints', icon: '👣', label: '足迹分组' },
 ];
 

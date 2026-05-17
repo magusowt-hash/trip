@@ -41,6 +41,8 @@ export default function MapsPage() {
   // 中国铁路
   const [railRoutes, setRailRoutes] = useState<RailRoute[]>([]);
   const [railStations, setRailStations] = useState<RailStation[]>([]);
+  const [railSettings, setRailSettings] = useState<any>(null);
+  const [stationOverrides, setStationOverrides] = useState<any[]>([]);
   const [capitalLabels, setCapitalLabels] = useState<any[]>([]);
   const [stationQuery, setStationQuery] = useState('');
   const [railLoaded, setRailLoaded] = useState(false);
@@ -77,6 +79,10 @@ export default function MapsPage() {
       .catch(console.error);
     fetch('/data/stations.json').then(r => r.json()).then(d => { setRailStations(d.stations); setCapitalLabels(d.capitals) })
       .catch(console.error);
+    fetch('/api/public/rail-settings').then(r => r.json()).then(d => d.settings && setRailSettings(d.settings))
+      .catch(() => {});
+    fetch('/api/public/station-overrides').then(r => r.json()).then(setStationOverrides)
+      .catch(() => {});
   }, [activeTab, railLoaded]);
 
   const markers = useMemo<MapMarker[]>(
@@ -231,6 +237,8 @@ export default function MapsPage() {
                     stations={railStations}
                     capitals={capitalLabels}
                     zoom={railZoom}
+                    settings={railSettings}
+                    overrides={stationOverrides}
                   />
                 )}
               </div>
