@@ -98,8 +98,8 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
         ctx.stroke();
       }
 
-      // 站点圆点 — 按 zoom 分层
-      if (stations) {
+      // 站点圆点 — 按 zoom 分层（省会显示时跳过）
+      if (stations && !(capitals && zoom < 4)) {
         const dotDrawn = new Set<string>();
         for (const st of stations) {
           if (!st.name) continue;
@@ -143,7 +143,8 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
           
           let displayName = st.name;
           if (st.level === 'hub' && zoom < 7) {
-            const city = st.name.replace(/[东西南北站城]/g, '').slice(0, 2);
+            // 提取城市名：去掉方向字和"站"字
+            const city = st.name.replace(/[东西南北站城]/g, '');
             if (cityShown.has(city)) continue;
             cityShown.add(city);
             displayName = city;
@@ -160,7 +161,7 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
 
       // 省会定位名称 — 只在 zoom=3 时显示 (zoom<4)
       if (capitals && zoom < 4) {
-        ctx.font = 'bold 12px sans-serif';
+        ctx.font = 'bold 10px sans-serif';
         ctx.fillStyle = '#000000';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
