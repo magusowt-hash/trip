@@ -61,7 +61,13 @@ const HUB_CITY_MAP: {[key: string]: string} = {
   '广元':'广元','广元西':'广元','广元南':'广元',
 };
 
+    const safeLngLatToContainer = (m: any, lnglat: [number, number]) => {
+      try { return m.lngLatToContainer(lnglat); }
+      catch(e) { return { x: 0, y: 0 }; }
+    };
+
     const draw = () => {
+      try {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -108,11 +114,11 @@ const HUB_CITY_MAP: {[key: string]: string} = {
         ctx.lineCap = 'butt';
         ctx.lineJoin = 'miter';
 
-        const firstPt = map.lngLatToContainer([first[0], first[1]]);
+        const firstPt = safeLngLatToContainer(map, [first[0], first[1]]);
         ctx.moveTo(firstPt.x, firstPt.y);
 
         for (let i = 1; i < coords.length; i++) {
-          const pt = map.lngLatToContainer([coords[i][0], coords[i][1]]);
+          const pt = safeLngLatToContainer(map, [coords[i][0], coords[i][1]]);
           ctx.lineTo(pt.x, pt.y);
         }
         ctx.stroke();
@@ -131,7 +137,7 @@ const HUB_CITY_MAP: {[key: string]: string} = {
           if (st.lng < _swLng - margin || st.lng > _neLng + margin ||
               st.lat < _swLat - margin || st.lat > _neLat + margin) continue;
 
-          const pt = map.lngLatToContainer([st.lng, st.lat]);
+          const pt = safeLngLatToContainer(map, [st.lng, st.lat]);
           const cell = 20;
           const key = `${Math.round(pt.x/cell)},${Math.round(pt.y/cell)}`;
           if (dotDrawn.has(key)) continue;
@@ -162,7 +168,7 @@ const HUB_CITY_MAP: {[key: string]: string} = {
           if (st.lng < _swLng - margin || st.lng > _neLng + margin ||
               st.lat < _swLat - margin || st.lat > _neLat + margin) continue;
 
-          const pt = map.lngLatToContainer([st.lng, st.lat]);
+          const pt = safeLngLatToContainer(map, [st.lng, st.lat]);
           const r = st.level === 'hub' ? 4 : st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
           
           let displayName = st.name;
@@ -194,22 +200,27 @@ const HUB_CITY_MAP: {[key: string]: string} = {
         for (const cap of capitals) {
           if (cap.lng < _swLng - 0.5 || cap.lng > _neLng + 0.5 ||
               cap.lat < _swLat - 0.5 || cap.lat > _neLat + 0.5) continue;
-          const pt = map.lngLatToContainer([cap.lng, cap.lat]);
+          const pt = safeLngLatToContainer(map, [cap.lng, cap.lat]);
           ctx.strokeText(cap.name, pt.x, pt.y);
           ctx.fillText(cap.name, pt.x, pt.y);
         }
       }
+      } catch(e) { console.error('RailCanvas draw error:', e); }
     };
 
     let rafId = 0;
-    let lastCenter = '';
+    let lastKey = '';
     const loop = () => {
-      const c = map.getCenter();
-      const key = `zoom${map.getZoom()}-${(c.getLng ? c.getLng() : c.lng).toFixed(3)}-${(c.getLat ? c.getLat() : c.lat).toFixed(3)}`;
-      if (key !== lastCenter) {
-        lastCenter = key;
-        draw();
-      }
+      try {
+        const z = map.getZoom();
+        const center = map.getCenter();
+        if (center) {
+          const lng = typeof center.getLng === 'function' ? center.getLng() : center.lng;
+          const lat = typeof center.getLat === 'function' ? center.getLat() : center.lat;
+          const key = `${z}-${lng.toFixed(2)}-${lat.toFixed(2)}`;
+          if (key !== lastKey) { lastKey = key; draw(); }
+        }
+      } catch(e) {}
       rafId = requestAnimationFrame(loop);
     };
 
