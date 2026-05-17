@@ -143,8 +143,9 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
           
           let displayName = st.name;
           if (st.level === 'hub' && zoom < 7) {
-            // 提取城市名：去掉方向字和"站"字
-            const city = st.name.replace(/[东西南北站城]/g, '');
+            // 提取城市名：去"站"字，再去末尾方向字
+            let city = st.name.replace(/站$/, '');
+            city = city.replace(/[东西南北]$/, '');
             if (cityShown.has(city)) continue;
             cityShown.add(city);
             displayName = city;
