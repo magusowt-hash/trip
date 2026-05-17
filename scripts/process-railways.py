@@ -84,7 +84,7 @@ def classify_railway(props):
     passenger = props.get('passenger_lines', '')
     
     # 排除：货运/工业/军事/站内线
-    if service in ('spur','yard','siding','crossover'):
+    if service:
         return None
     if usage in ('industrial','military','freight','test','tourism'):
         return None
@@ -171,7 +171,7 @@ def merge_segments(segments):
                 break
         
         simplified = simplify_dp(chain, tolerance=0.002)
-        if len(simplified) < 2:
+        if len(simplified) < 4:
             continue
         
         compact = [[round(c[0],4), round(c[1],4)] for c in simplified]
