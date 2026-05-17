@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import PlanMap from '@/components/PlanMap';
 import RailCanvas from '@/components/RailCanvas';
 
-const MAP_STYLE = '080d656368975ea57344000114d78388';
+const MAP_STYLE = 'amap://styles/080d656368975ea57344000114d78388';
 
 type RailRoute = { p: [number, number][]; c: string; w: number; t: string };
 
@@ -27,7 +27,7 @@ export default function TestRailPage() {
         autoLoadMarkers={false}
                 onMapLoad={(m: any) => {
           mapRef.current = m;
-          m.setMapStyle('080d656368975ea57344000114d78388');
+          m.setMapStyle('amap://styles/080d656368975ea57344000114d78388');
           setZoom(m.getZoom());
           m.on('zoomend', () => setZoom(m.getZoom()));
         }}

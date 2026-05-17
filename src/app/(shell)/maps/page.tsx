@@ -217,10 +217,10 @@ export default function MapsPage() {
               <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                 <PlanMap
                   autoLoadMarkers={false}
-                  
+                  mapStyle="amap://styles/080d656368975ea57344000114d78388"
                   onMapLoad={(m: any) => {
                     railMapRef.current = m;
-                    m.setMapStyle('080d656368975ea57344000114d78388');
+                    m.setMapStyle('amap://styles/080d656368975ea57344000114d78388');
                     setRailZoom(m.getZoom());
                     m.on('zoomend', () => setRailZoom(m.getZoom()));
                   }}
