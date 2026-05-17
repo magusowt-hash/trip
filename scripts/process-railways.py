@@ -79,22 +79,30 @@ def classify_railway(props):
     high_speed = props.get('highspeed', '')
     maxspeed = props.get('maxspeed', '')
     traffic = props.get('railway:traffic_mode', '')
+    ctcs = props.get('railway:ctcs', '')
+    name = props.get('name', '')
     
     # 排除：货运/工业/军事/站内线
     if service in ('spur','yard','siding','crossover'):
         return None
-    if usage in ('industrial','military','freight'):
+    if usage in ('industrial','military','freight','test','tourism'):
         return None
     if traffic == 'freight':
         return None
     
-    # 高速 (350级别)
-    if high_speed == 'yes' or maxspeed in ('300','350','380'):
+    # 高速 (350级别)：CTCS-3 或 highspeed=yes 且 maxspeed>=300
+    if ctcs == '3':
+        return '#e53e3e', 2.0, '高速'
+    if high_speed == 'yes' and maxspeed in ('300','350','380'):
         return '#e53e3e', 2.0, '高速'
     
-    # 城际 (250级别)
-    if maxspeed in ('200','250') or (usage == 'main' and maxspeed not in ('','0')):
+    # 城际 (200-250级别)：CTCS-2 或 highspeed=yes 且 maxspeed 200/250，或名称含城际/客专
+    if ctcs == '2':
         return '#f59e0b', 1.6, '城际'
+    if high_speed == 'yes' and maxspeed in ('200','250'):
+        return '#f59e0b', 1.6, '城际'
+    if '城际' in name or '客专' in name:
+        return '#d97706', 1.4, '城际'
     
     # 普速
     return '#059669', 1.2, '普速'
