@@ -41,7 +41,7 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
       draw();
     };
 
-const HUB_CITY_MAP: Record<string, string> = {
+const HUB_CITY_MAP: {[key: string]: string} = {
   '北京':'北京','北京西':'北京','北京南':'北京','北京北':'北京','北京朝阳':'北京','北京丰台':'北京','丰台':'北京','丰台西':'北京',
   '上海':'上海','上海虹桥':'上海','上海南':'上海',
   '广州':'广州','广州南':'广州','深圳北':'深圳',
