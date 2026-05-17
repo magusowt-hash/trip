@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import PlanMap, { MapMarker } from '@/components/PlanMap';
-import LeafletRailMap from '@/components/LeafletRailMap';
+import RailCanvas from '@/components/RailCanvas';
 import styles from './maps-page.module.css';
 
 type MapTab = 'standard' | 'china-rail';
@@ -43,6 +43,8 @@ export default function MapsPage() {
   const [railStations, setRailStations] = useState<RailStation[]>([]);
   const [stationQuery, setStationQuery] = useState('');
   const [railLoaded, setRailLoaded] = useState(false);
+  const [railZoom, setRailZoom] = useState(4);
+  const railMapRef = useRef<any>(null);
 
   useEffect(() => {
     if (activeTab !== 'standard') return;
@@ -68,7 +70,7 @@ export default function MapsPage() {
   useEffect(() => {
     if (activeTab !== 'china-rail' || railLoaded) return;
     setRailLoaded(true);
-    fetch('/data/railways-wgs84.json')
+    fetch('/data/railways.json')
       .then((r) => r.json())
       .then(setRailRoutes)
       .catch(console.error);
@@ -212,7 +214,24 @@ export default function MapsPage() {
                 autoLoadMarkers={false}
               />
             ) : (
-              <LeafletRailMap routes={railRoutes} stations={railStations} />
+              <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                <PlanMap
+                  autoLoadMarkers={false}
+                  mapStyle="amap://styles/080d656368975ea57344000114d78388"
+                  onMapLoad={(m: any) => {
+                    railMapRef.current = m;
+                    setRailZoom(m.getZoom());
+                    m.on('zoomend', () => setRailZoom(m.getZoom()));
+                  }}
+                />
+                {railMapRef.current && (
+                  <RailCanvas
+                    mapInstance={railMapRef.current}
+                    routes={railRoutes}
+                    zoom={railZoom}
+                  />
+                )}
+              </div>
             )}
           </div>
         </section>
