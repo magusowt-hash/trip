@@ -117,7 +117,7 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
           if (dotDrawn.has(key)) continue;
           dotDrawn.add(key);
 
-          const r = st.level === 'hub' ? 4 : st.level === 'major' ? 3 : st.level === 'local_major' ? 2.5 : 2;
+          const r = st.level === 'hub' ? 4 : st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
           const color = st.level === 'hub' ? '#dc2626' : st.level === 'major' ? '#f59e0b' : st.level === 'local_major' ? '#10b981' : '#9ca3af';
           
           ctx.beginPath();
@@ -143,7 +143,7 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
               st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
 
           const pt = map.lngLatToContainer([st.lng, st.lat]);
-          const r = st.level === 'hub' ? 4 : st.level === 'major' ? 3 : st.level === 'local_major' ? 2.5 : 2;
+          const r = st.level === 'hub' ? 4 : st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
           
           let displayName = st.name;
           if (st.level === 'hub' && zoom < 7) {
@@ -155,8 +155,8 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
             displayName = city;
           }
           
-          ctx.font = st.level === 'hub' ? 'bold 10px sans-serif' : '9px sans-serif';
-          ctx.fillStyle = '#1f2937';
+          ctx.font = st.level === 'hub' ? 'bold 10px sans-serif' : st.level === 'major' ? 'bold 10px sans-serif' : '9px sans-serif';
+          ctx.fillStyle = st.level === 'major' ? '#000' : '#1f2937';
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 2;
           ctx.strokeText(displayName, pt.x, pt.y - r - 4);

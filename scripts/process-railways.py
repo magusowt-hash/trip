@@ -347,11 +347,23 @@ for feat in sdata['features']:
     
     name = props.get('name', '')
     # 排除货运站关键词
+    # 保留中文字符
+    import re
+    name = re.sub(r'[^\u4e00-\u9fff()0-9]', '', name).strip()
+    if not name:
+        continue
+    
     # 12306 白名单过滤
     clean = name.replace('站','').replace('火车站','').strip()
     if clean not in WHITELIST:
-        continue
-
+        matched = False
+        for w in WHITELIST:
+            if len(w) >= 2 and (w in clean or clean in w):
+                matched = True
+                break
+        if not matched:
+            continue
+    
     if any(kw in name for kw in ('货','编组','驼峰','车辆段','机务段','折返段')):
         continue
     stations.append({
