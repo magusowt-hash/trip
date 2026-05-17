@@ -158,7 +158,31 @@ const HUB_CITY_MAP = {
           hubClusters.push({ x: cx, y: cy, name: city, count: group.length });
         }
 
-        // 4. 绘制 hub 聚类 marker（红底白芯）
+        // 3b. major 站空间聚类，相近站合并
+        const majors = visible.filter(v => v.st.level === 'major');
+        const majorClusters: { x: number; y: number; name: string; count: number }[] = [];
+        const majorUsed = new Set<number>();
+        const majorClusterR = clusterR * 0.7;
+        for (let i = 0; i < majors.length; i++) {
+          if (majorUsed.has(i)) continue;
+          const group = [i];
+          majorUsed.add(i);
+          for (let j = i + 1; j < majors.length; j++) {
+            if (majorUsed.has(j)) continue;
+            const dx = majors[j].x - majors[i].x;
+            const dy = majors[j].y - majors[i].y;
+            if (Math.sqrt(dx * dx + dy * dy) < majorClusterR) {
+              group.push(j);
+              majorUsed.add(j);
+            }
+          }
+          const cx = group.reduce((s, idx) => s + majors[idx].x, 0) / group.length;
+          const cy = group.reduce((s, idx) => s + majors[idx].y, 0) / group.length;
+          const name = HUB_CITY_MAP[majors[group[0]].st.name] || majors[group[0]].st.name;
+          majorClusters.push({ x: cx, y: cy, name, count: group.length });
+        }
+
+        // 4. 绘制 hub 聚类 marker（红底白芯） + major 聚类
         for (const hc of hubClusters) {
           const r = 5;
           ctx.beginPath();
@@ -169,11 +193,22 @@ const HUB_CITY_MAP = {
           ctx.arc(hc.x, hc.y, r * 0.7, 0, Math.PI * 2);
           ctx.fill();
         }
+        for (const mc of majorClusters) {
+          const r = 4;
+          ctx.beginPath();
+          ctx.arc(mc.x, mc.y, r, 0, Math.PI * 2);
+          ctx.fillStyle = '#fff';
+          ctx.fill();
+          ctx.fillStyle = '#f59e0b';
+          ctx.arc(mc.x, mc.y, r * 0.7, 0, Math.PI * 2);
+          ctx.fill();
+        }
 
         // 5. 绘制其余站点 — 自适应网格去重，不再按等级过滤
         const dotDrawn = new Set<string>();
         for (const { st, x, y } of visible) {
           if (st.level === 'hub') continue; // hub 已通过聚类绘制
+          if (st.level === 'major') continue; // major 已通过聚类绘制
           let alpha = 1;
           if (st.level === 'local_major') {
             alpha = Math.max(0, Math.min(1, zoom - 7)); // 7→8 淡入
@@ -190,8 +225,8 @@ const HUB_CITY_MAP = {
             ctx.save();
             ctx.globalAlpha = alpha;
           }
-          const r = st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
-          const color = st.level === 'major' ? '#f59e0b' : st.level === 'local_major' ? '#10b981' : '#9ca3af';
+          const r = st.level === 'local_major' ? 2.5 : 2;
+          const color = st.level === 'local_major' ? '#10b981' : '#9ca3af';
 
           ctx.beginPath();
           ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -222,9 +257,23 @@ const HUB_CITY_MAP = {
           ctx.fillText(label, hc.x, hc.y - 7);
         }
 
+        // major 聚类名称
+        for (const mc of majorClusters) {
+          const nk = `${Math.round(mc.x / dedupCell)},${Math.round(mc.y / dedupCell)}`;
+          if (nameDrawn.has(nk)) continue;
+          nameDrawn.add(nk);
+          ctx.font = 'bold 10px sans-serif';
+          ctx.fillStyle = '#000';
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 2;
+          ctx.strokeText(mc.name, mc.x, mc.y - 6);
+          ctx.fillText(mc.name, mc.x, mc.y - 6);
+        }
+
         // 其余站点名称
         for (const { st, x, y } of visible) {
           if (st.level === 'hub') continue;
+          if (st.level === 'major') continue;
           let alpha = 1;
           if (st.level === 'local_major') {
             alpha = Math.max(0, Math.min(1, zoom - 7));
@@ -240,8 +289,8 @@ const HUB_CITY_MAP = {
             ctx.save();
             ctx.globalAlpha = alpha;
           }
-          const r = st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
-          if (st.level === 'major') {
+          const r = st.level === 'local_major' ? 2.5 : 2;
+          if (st.level === 'local_major') {
             ctx.font = 'bold 10px sans-serif';
             ctx.fillStyle = '#000';
           } else {
