@@ -118,67 +118,115 @@ const HUB_CITY_MAP = {
         ctx.stroke();
       }
 
-      // 站点圆点 — 按 zoom 分层（省会显示时跳过）
+      // ─── 站点渲染：空间聚类 + 密度自适应 ──────────────────
       if (stations && !(capitals && zoom < 4)) {
-        const dotDrawn = new Set<string>();
+        // 1. 收集当前视野内所有站点并计算像素坐标
+        const visible: { st: RailStation; x: number; y: number }[] = [];
         for (const st of stations) {
           if (!st.name) continue;
-          if (zoom < 6 && st.level !== 'hub') continue;
-          if (zoom < 8 && st.level === 'major') continue;
-          if (zoom < 9 && st.level === 'local_major') continue;
-          if (zoom < 10 && st.level === 'local') continue;
-          
           if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
               st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
-
           const pt = map.lngLatToContainer([st.lng, st.lat]);
-          const cell = 20;
-          const key = `${Math.round(pt.x/cell)},${Math.round(pt.y/cell)}`;
+           visible.push({ st, x: pt.x, y: pt.y });
+        }
+
+        // 2. 像素距离聚类阈值 — zoom 越小阈值越大，合并越激进
+        const clusterR = zoom < 6 ? 40 : zoom < 8 ? 28 : zoom < 10 ? 18 : 10;
+        const dedupCell = zoom < 6 ? 36 : zoom < 8 ? 24 : zoom < 10 ? 16 : 12;
+
+        // 3. 对 hub 站做空间聚类，相近特等站合并为一个 marker
+        const hubs = visible.filter(v => v.st.level === 'hub');
+        const hubClusters: { x: number; y: number; name: string; count: number }[] = [];
+        const hubUsed = new Set<number>();
+        for (let i = 0; i < hubs.length; i++) {
+          if (hubUsed.has(i)) continue;
+          const group = [i];
+          hubUsed.add(i);
+          // 以当前站为中心，收集阈值内的同城站
+          for (let j = i + 1; j < hubs.length; j++) {
+            if (hubUsed.has(j)) continue;
+            const dx = hubs[j].x - hubs[i].x;
+            const dy = hubs[j].y - hubs[i].y;
+            if (Math.sqrt(dx * dx + dy * dy) < clusterR) {
+              group.push(j);
+              hubUsed.add(j);
+            }
+          }
+          const cx = group.reduce((s, idx) => s + hubs[idx].x, 0) / group.length;
+          const cy = group.reduce((s, idx) => s + hubs[idx].y, 0) / group.length;
+          const city = HUB_CITY_MAP[hubs[group[0]].st.name] || hubs[group[0]].st.name;
+          hubClusters.push({ x: cx, y: cy, name: city, count: group.length });
+        }
+
+        // 4. 绘制 hub 聚类 marker（红底白芯）
+        for (const hc of hubClusters) {
+          const r = 5;
+          ctx.beginPath();
+          ctx.arc(hc.x, hc.y, r, 0, Math.PI * 2);
+          ctx.fillStyle = '#fff';
+          ctx.fill();
+          ctx.fillStyle = '#dc2626';
+          ctx.arc(hc.x, hc.y, r * 0.7, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // 5. 绘制其余站点 — 自适应网格去重，不再按等级过滤
+        const dotDrawn = new Set<string>();
+        for (const { st, x, y } of visible) {
+          if (st.level === 'hub') continue; // hub 已通过聚类绘制
+          const key = `${Math.round(x / dedupCell)},${Math.round(y / dedupCell)}`;
           if (dotDrawn.has(key)) continue;
           dotDrawn.add(key);
 
-          const r = st.level === 'hub' ? 4 : st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
-          const color = st.level === 'hub' ? '#dc2626' : st.level === 'major' ? '#f59e0b' : st.level === 'local_major' ? '#10b981' : '#9ca3af';
-          
+          const r = st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
+          const color = st.level === 'major' ? '#f59e0b' : st.level === 'local_major' ? '#10b981' : '#9ca3af';
+
           ctx.beginPath();
-          ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+          ctx.arc(x, y, r, 0, Math.PI * 2);
           ctx.fillStyle = '#fff';
           ctx.fill();
           ctx.fillStyle = color;
-          ctx.arc(pt.x, pt.y, r * 0.7, 0, Math.PI * 2);
+          ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
           ctx.fill();
         }
-        
-        // 站点名称 — zoom<7 时枢纽站合并显示城市名
+
+        // 6. 站点名称 — hub 聚类显示城市名，其余自适应去重
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
-        const cityShown = new Set<string>();
-        for (const st of stations) {
-          if (!st.name) continue;
-          if (zoom < 8 && st.level === 'major') continue;
-          if (zoom < 9 && st.level === 'local_major') continue;
-          if (zoom < 10 && st.level === 'local') continue;
-          
-          if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
-              st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
+        const nameDrawn = new Set<string>();
 
-          const pt = map.lngLatToContainer([st.lng, st.lat]);
-          const r = st.level === 'hub' ? 4 : st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
-          
-          let displayName = st.name;
-          if (st.level === 'hub' && zoom < 7) {
-            const city = HUB_CITY_MAP[st.name] || st.name;
-            if (cityShown.has(city)) continue;
-            cityShown.add(city);
-            displayName = city;
-          }
-          
-          ctx.font = st.level === 'hub' ? 'bold 10px sans-serif' : st.level === 'major' ? 'bold 10px sans-serif' : '9px sans-serif';
-          ctx.fillStyle = st.level === 'major' ? '#000' : '#1f2937';
+        // hub 聚类名称
+        for (const hc of hubClusters) {
+          const nk = `${Math.round(hc.x / dedupCell)},${Math.round(hc.y / dedupCell)}`;
+          if (nameDrawn.has(nk)) continue;
+          nameDrawn.add(nk);
+          ctx.font = 'bold 10px sans-serif';
+          ctx.fillStyle = '#1f2937';
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 2;
-          ctx.strokeText(displayName, pt.x, pt.y - r - 4);
-          ctx.fillText(displayName, pt.x, pt.y - r - 4);
+          const label = hc.count > 1 && zoom >= 10 ? `${hc.name}(${hc.count}站)` : hc.name;
+          ctx.strokeText(label, hc.x, hc.y - 7);
+          ctx.fillText(label, hc.x, hc.y - 7);
+        }
+
+        // 其余站点名称
+        for (const { st, x, y } of visible) {
+          if (st.level === 'hub') continue;
+          const nk = `${Math.round(x / dedupCell)},${Math.round(y / dedupCell)}`;
+          if (nameDrawn.has(nk)) continue;
+          nameDrawn.add(nk);
+          const r = st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
+          if (st.level === 'major') {
+            ctx.font = 'bold 10px sans-serif';
+            ctx.fillStyle = '#000';
+          } else {
+            ctx.font = '9px sans-serif';
+            ctx.fillStyle = '#6b7280';
+          }
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 2;
+          ctx.strokeText(st.name, x, y - r - 4);
+          ctx.fillText(st.name, x, y - r - 4);
         }
       }
 
