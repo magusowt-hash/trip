@@ -10,13 +10,13 @@ type RailRoute = { p: [number, number][]; c: string; w: number; t: string };
 
 export default function TestRailPage() {
   const [routes, setRoutes] = useState<RailRoute[]>([]);
+  const [railStations, setRailStations] = useState<any[]>([]);
   const [zoom, setZoom] = useState(4);
   const mapRef = useRef<any>(null);
 
   useEffect(() => {
-    fetch('/data/railways.json')
-      .then((r) => r.json())
-      .then(setRoutes)
+    fetch('/data/railways.json').then(r => r.json()).then(setRoutes);
+    fetch('/data/stations.json').then(r => r.json()).then(setRailStations)
       .catch(console.error);
   }, []);
 
@@ -33,7 +33,7 @@ export default function TestRailPage() {
         }}
       />
       {mapRef.current && (
-        <RailCanvas mapInstance={mapRef.current} routes={routes} zoom={zoom} />
+        <RailCanvas mapInstance={mapRef.current} routes={routes} stations={railStations} zoom={zoom} />
       )}
     </div>
   );

@@ -229,6 +229,7 @@ export default function MapsPage() {
                   <RailCanvas
                     mapInstance={railMapRef.current}
                     routes={railRoutes}
+                    stations={railStations}
                     zoom={railZoom}
                   />
                 )}
