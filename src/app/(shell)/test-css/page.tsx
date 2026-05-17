@@ -25,11 +25,11 @@ export default function TestRailPage() {
       <PlanMap
         mapStyle={MAP_STYLE}
         autoLoadMarkers={false}
-        onMapLoad={(m: any) => {
+                onMapLoad={(m: any) => {
           mapRef.current = m;
+          m.setMapStyle('amap://styles/080d656368975ea57344000114d78388');
           setZoom(m.getZoom());
           m.on('zoomend', () => setZoom(m.getZoom()));
-
         }}
       />
       {mapRef.current && (
