@@ -70,8 +70,8 @@ const HUB_CITY_MAP: {[key: string]: string} = {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const bounds = map.getBounds();
-      const sw = bounds.getSouthWest();
-      const ne = bounds.getNorthEast();
+      const sw = bounds.getSouthWest(); const _swLng = sw.getLng ? sw.getLng() : sw.lng; const _swLat = sw.getLat ? sw.getLat() : sw.lat;
+      const ne = bounds.getNorthEast(); const _neLng = ne.getLng ? ne.getLng() : ne.lng; const _neLat = ne.getLat ? ne.getLat() : ne.lat;
       const margin = 0.5;
 
       // zoom 分层：小 zoom 减少线条密度
@@ -91,12 +91,12 @@ const HUB_CITY_MAP: {[key: string]: string} = {
         const first = coords[0];
         const last = coords[coords.length - 1];
         if (
-          first[0] < sw.lng - margin || first[0] > ne.lng + margin ||
-          first[1] < sw.lat - margin || first[1] > ne.lat + margin
+          first[0] < _swLng - margin || first[0] > _neLng + margin ||
+          first[1] < _swLat - margin || first[1] > _neLat + margin
         ) {
           if (
-            last[0] < sw.lng - margin || last[0] > ne.lng + margin ||
-            last[1] < sw.lat - margin || last[1] > ne.lat + margin
+            last[0] < _swLng - margin || last[0] > _neLng + margin ||
+            last[1] < _swLat - margin || last[1] > _neLat + margin
           ) {
             continue;
           }
@@ -128,8 +128,8 @@ const HUB_CITY_MAP: {[key: string]: string} = {
           if (zoom < 9 && st.level === 'local_major') continue;
           if (zoom < 10 && st.level === 'local') continue;
           
-          if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
-              st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
+          if (st.lng < _swLng - margin || st.lng > _neLng + margin ||
+              st.lat < _swLat - margin || st.lat > _neLat + margin) continue;
 
           const pt = map.lngLatToContainer([st.lng, st.lat]);
           const cell = 20;
@@ -159,8 +159,8 @@ const HUB_CITY_MAP: {[key: string]: string} = {
           if (zoom < 9 && st.level === 'local_major') continue;
           if (zoom < 10 && st.level === 'local') continue;
           
-          if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
-              st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
+          if (st.lng < _swLng - margin || st.lng > _neLng + margin ||
+              st.lat < _swLat - margin || st.lat > _neLat + margin) continue;
 
           const pt = map.lngLatToContainer([st.lng, st.lat]);
           const r = st.level === 'hub' ? 4 : st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
@@ -192,8 +192,8 @@ const HUB_CITY_MAP: {[key: string]: string} = {
         ctx.lineWidth = 2;
         
         for (const cap of capitals) {
-          if (cap.lng < sw.lng - 0.5 || cap.lng > ne.lng + 0.5 ||
-              cap.lat < sw.lat - 0.5 || cap.lat > ne.lat + 0.5) continue;
+          if (cap.lng < _swLng - 0.5 || cap.lng > _neLng + 0.5 ||
+              cap.lat < _swLat - 0.5 || cap.lat > _neLat + 0.5) continue;
           const pt = map.lngLatToContainer([cap.lng, cap.lat]);
           ctx.strokeText(cap.name, pt.x, pt.y);
           ctx.fillText(cap.name, pt.x, pt.y);
@@ -205,7 +205,7 @@ const HUB_CITY_MAP: {[key: string]: string} = {
     let lastCenter = '';
     const loop = () => {
       const c = map.getCenter();
-      const key = `zoom${map.getZoom()}-${c.lng.toFixed(3)}-${c.lat.toFixed(3)}`;
+      const key = `zoom${map.getZoom()}-${(c.getLng ? c.getLng() : c.lng).toFixed(3)}-${(c.getLat ? c.getLat() : c.lat).toFixed(3)}`;
       if (key !== lastCenter) {
         lastCenter = key;
         draw();
