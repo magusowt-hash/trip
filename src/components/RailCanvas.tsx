@@ -174,6 +174,8 @@ const HUB_CITY_MAP = {
         const dotDrawn = new Set<string>();
         for (const { st, x, y } of visible) {
           if (st.level === 'hub') continue; // hub 已通过聚类绘制
+          if (st.level === 'local_major' && zoom < 8) continue;
+          if (st.level === 'local' && zoom < 9) continue;
           const key = `${Math.round(x / dedupCell)},${Math.round(y / dedupCell)}`;
           if (dotDrawn.has(key)) continue;
           dotDrawn.add(key);
@@ -212,6 +214,8 @@ const HUB_CITY_MAP = {
         // 其余站点名称
         for (const { st, x, y } of visible) {
           if (st.level === 'hub') continue;
+          if (st.level === 'local_major' && zoom < 8) continue;
+          if (st.level === 'local' && zoom < 9) continue;
           const nk = `${Math.round(x / dedupCell)},${Math.round(y / dedupCell)}`;
           if (nameDrawn.has(nk)) continue;
           nameDrawn.add(nk);
