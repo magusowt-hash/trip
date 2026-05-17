@@ -174,12 +174,22 @@ const HUB_CITY_MAP = {
         const dotDrawn = new Set<string>();
         for (const { st, x, y } of visible) {
           if (st.level === 'hub') continue; // hub 已通过聚类绘制
-          if (st.level === 'local_major' && zoom < 8) continue;
-          if (st.level === 'local' && zoom < 9) continue;
+          let alpha = 1;
+          if (st.level === 'local_major') {
+            alpha = Math.max(0, Math.min(1, zoom - 7)); // 7→8 淡入
+            if (alpha <= 0) continue;
+          } else if (st.level === 'local') {
+            alpha = Math.max(0, Math.min(1, zoom - 8)); // 8→9 淡入
+            if (alpha <= 0) continue;
+          }
           const key = `${Math.round(x / dedupCell)},${Math.round(y / dedupCell)}`;
           if (dotDrawn.has(key)) continue;
           dotDrawn.add(key);
 
+          if (alpha < 1) {
+            ctx.save();
+            ctx.globalAlpha = alpha;
+          }
           const r = st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
           const color = st.level === 'major' ? '#f59e0b' : st.level === 'local_major' ? '#10b981' : '#9ca3af';
 
@@ -190,6 +200,7 @@ const HUB_CITY_MAP = {
           ctx.fillStyle = color;
           ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
           ctx.fill();
+          if (alpha < 1) ctx.restore();
         }
 
         // 6. 站点名称 — hub 聚类显示城市名，其余自适应去重
@@ -214,11 +225,21 @@ const HUB_CITY_MAP = {
         // 其余站点名称
         for (const { st, x, y } of visible) {
           if (st.level === 'hub') continue;
-          if (st.level === 'local_major' && zoom < 8) continue;
-          if (st.level === 'local' && zoom < 9) continue;
+          let alpha = 1;
+          if (st.level === 'local_major') {
+            alpha = Math.max(0, Math.min(1, zoom - 7));
+            if (alpha <= 0) continue;
+          } else if (st.level === 'local') {
+            alpha = Math.max(0, Math.min(1, zoom - 8));
+            if (alpha <= 0) continue;
+          }
           const nk = `${Math.round(x / dedupCell)},${Math.round(y / dedupCell)}`;
           if (nameDrawn.has(nk)) continue;
           nameDrawn.add(nk);
+          if (alpha < 1) {
+            ctx.save();
+            ctx.globalAlpha = alpha;
+          }
           const r = st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
           if (st.level === 'major') {
             ctx.font = 'bold 10px sans-serif';
@@ -231,6 +252,7 @@ const HUB_CITY_MAP = {
           ctx.lineWidth = 2;
           ctx.strokeText(st.name, x, y - r - 4);
           ctx.fillText(st.name, x, y - r - 4);
+          if (alpha < 1) ctx.restore();
         }
       }
 
