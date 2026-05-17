@@ -30,7 +30,7 @@ export default function TestRailPage() {
         autoLoadMarkers={false}
                 onMapLoad={(m: any) => {
           mapRef.current = m;
-          // m.setMapStyle('amap://styles/080d656368975ea57344000114d78388');
+          m.setMapStyle('amap://styles/080d656368975ea57344000114d78388');
           setZoom(m.getZoom());
           m.on('zoomend', () => setZoom(m.getZoom()));
         }}
