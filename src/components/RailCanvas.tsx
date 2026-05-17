@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 
 type RailRoute = { p: [number, number][]; c: string; w: number; t: string };
 
-type RailStation = { name: string; lng: number; lat: number };
+type RailStation = { name: string; lng: number; lat: number; level?: string };
 
 interface RailCanvasProps {
   mapInstance: any;
@@ -96,30 +96,37 @@ export default function RailCanvas({ mapInstance, routes, stations, zoom }: Rail
         ctx.stroke();
       }
 
-      // 站点标注
-      if (stations && zoom >= 7) {
-        ctx.font = zoom >= 10 ? '11px sans-serif' : '9px sans-serif';
-        ctx.fillStyle = '#1f2937';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-
+      // 站点标注 — 按 zoom 分层
+      if (stations && zoom >= 4) {
         const drawn = new Set<string>();
         for (const st of stations) {
           if (!st.name) continue;
+          
+          // zoom 分层
+          if (zoom < 6 && st.level !== 'capital') continue;
+          if (zoom < 8 && st.level === 'local') continue;
+          
           // 视野裁剪
           if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
               st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
 
           const pt = map.lngLatToContainer([st.lng, st.lat]);
-          const key = `${Math.round(pt.x/60)},${Math.round(pt.y/60)}`;
-          if (drawn.has(key)) continue; // 防重叠
+          const cell = zoom >= 10 ? 30 : 50;
+          const key = `${Math.round(pt.x/cell)},${Math.round(pt.y/cell)}`;
+          if (drawn.has(key)) continue;
           drawn.add(key);
 
-          // 白色描边
+          const isCapital = st.level === 'capital';
+          ctx.font = isCapital
+            ? `bold ${zoom >= 8 ? '13px' : '11px'} sans-serif`
+            : zoom >= 10 ? '10px sans-serif' : '9px sans-serif';
+          ctx.fillStyle = isCapital ? '#dc2626' : '#1f2937';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 3;
           ctx.strokeText(st.name, pt.x, pt.y - 2);
-          // 文字
           ctx.fillText(st.name, pt.x, pt.y - 2);
         }
       }

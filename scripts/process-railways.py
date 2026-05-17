@@ -272,6 +272,18 @@ print("\nLoading stations...")
 with open(STATION_IN) as f:
     sdata = json.load(f)
 
+# 省会/直辖市站点名（去"站"字）
+CAPITALS = {'北京','上海','广州','深圳','成都','重庆','杭州','武汉','西安','郑州','南京','天津','长沙','福州','厦门','合肥','南昌','沈阳','大连','昆明','贵阳','南宁','海口','乌鲁木齐','拉萨','西宁','兰州','银川','太原','石家庄','济南','青岛','哈尔滨','长春','呼和浩特'}
+
+def station_level(name, name_en):
+    base = name.replace('站','').replace('火车站','').strip()
+    for c in CAPITALS:
+        if c in base:
+            return 'capital'
+    if '市' in base or (name_en and ('city' in name_en.lower() or 'central' in name_en.lower())):
+        return 'city'
+    return 'local'
+
 stations = []
 for feat in sdata['features']:
     geom = feat.get('geometry')
@@ -280,11 +292,13 @@ for feat in sdata['features']:
     lng, lat = geom['coordinates']
     gcj = wgs84_to_gcj02(lng, lat)
     props = feat.get('properties', {})
+    name = props.get('name', '')
     stations.append({
-        'name': props.get('name', ''),
+        'name': name.replace('站','').replace('火车站','').strip(),
         'lng': gcj[0],
         'lat': gcj[1],
         'name:en': props.get('name:en', ''),
+        'level': station_level(name, props.get('name:en', '')),
     })
 
 print(f"Stations: {len(stations)}")
