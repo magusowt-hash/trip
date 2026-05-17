@@ -104,7 +104,9 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
         for (const st of stations) {
           if (!st.name) continue;
           if (zoom < 6 && st.level !== 'hub') continue;
-          if (zoom < 9 && st.level === 'local') continue;
+          if (zoom < 8 && st.level === 'major') continue;
+          if (zoom < 9 && st.level === 'local_major') continue;
+          if (zoom < 10 && st.level === 'local') continue;
           
           if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
               st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
@@ -115,8 +117,8 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
           if (dotDrawn.has(key)) continue;
           dotDrawn.add(key);
 
-          const r = st.level === 'hub' ? 4 : st.level === 'major' ? 3 : 2;
-          const color = st.level === 'hub' ? '#dc2626' : st.level === 'major' ? '#f59e0b' : '#10b981';
+          const r = st.level === 'hub' ? 4 : st.level === 'major' ? 3 : st.level === 'local_major' ? 2.5 : 2;
+          const color = st.level === 'hub' ? '#dc2626' : st.level === 'major' ? '#f59e0b' : st.level === 'local_major' ? '#10b981' : '#9ca3af';
           
           ctx.beginPath();
           ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
@@ -133,13 +135,15 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
         const cityShown = new Set<string>();
         for (const st of stations) {
           if (!st.name) continue;
-          if (zoom < 9 && st.level === 'local') continue;
+          if (zoom < 8 && st.level === 'major') continue;
+          if (zoom < 9 && st.level === 'local_major') continue;
+          if (zoom < 10 && st.level === 'local') continue;
           
           if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
               st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
 
           const pt = map.lngLatToContainer([st.lng, st.lat]);
-          const r = st.level === 'hub' ? 4 : st.level === 'major' ? 3 : 2;
+          const r = st.level === 'hub' ? 4 : st.level === 'major' ? 3 : st.level === 'local_major' ? 2.5 : 2;
           
           let displayName = st.name;
           if (st.level === 'hub' && zoom < 7) {
