@@ -83,12 +83,27 @@ def classify_railway(props):
     name = props.get('name', '')
     passenger = props.get('passenger_lines', '')
     
-    # 排除：货运/工业/军事/站内线
+    # 排除：非客运线路
     if service:
         return None
     if usage in ('industrial','military','freight','test','tourism'):
         return None
     if traffic == 'freight':
+        return None
+    
+    # 必须有客运证据
+    is_passenger = (
+        traffic in ('passenger','mixed') or
+        bool(passenger) or
+        high_speed == 'yes' or
+        bool(ctcs) or
+        ('铁路' in name) or
+        ('高铁' in name) or
+        ('城际' in name) or
+        ('客专' in name) or
+        ('线' in name)
+    )
+    if not is_passenger:
         return None
     
     # 高速 (350级别)
