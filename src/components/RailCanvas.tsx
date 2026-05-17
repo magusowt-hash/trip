@@ -145,59 +145,20 @@ const HUB_CITY_MAP: Record<string, string> = {
         ctx.stroke();
       }
 
-      // 站点圆点 — 动态分层（省会显示时跳过）
+            // 站点圆点 — 按 zoom 分层（省会显示时跳过）
       if (stations && !(capitals && zoom < 4)) {
-        // 预计算每个站点到更高级站点的最近屏幕距离
-        const stationPts = new Map<string, {x:number,y:number}>();
-        for (const st of stations) {
-          if (!st.name) continue;
-          if (st.lng < sw.lng - 0.5 || st.lng > ne.lng + 0.5 ||
-              st.lat < sw.lat - 0.5 || st.lat > ne.lat + 0.5) continue;
-          const pt = map.lngLatToContainer([st.lng, st.lat]);
-          stationPts.set(st.name, pt);
-        }
-        
-        const getDist = (a:any, b:any) => Math.hypot(a.x-b.x, a.y-b.y);
-        const levelOrder = {hub:0, major:1, local_major:2, local:3};
-        const R = 150; // 屏幕像素半径
-        
-        const isLonely = (st: any) => {
-          const pt = stationPts.get(st.name);
-          if (!pt) return true;
-          for (const [name, pt2] of stationPts) {
-            const other = stations.find((s:any) => s.name === name);
-            if (!other || other.name === st.name) continue;
-            if (levelOrder[other.level] < levelOrder[st.level] && getDist(pt, pt2) < R) {
-              return false;
-            }
-          }
-          return true;
-        };
-        
         const dotDrawn = new Set<string>();
         for (const st of stations) {
           if (!st.name) continue;
-          
-          const lonely = isLonely(st);
-          
-          if (zoom < 6 && st.level !== 'hub') {
-            if (!(lonely && zoom >= 5 && st.level === 'major')) continue;
-          }
-          if (zoom < 8 && st.level === 'major') {
-            if (!lonely) continue;
-          }
-          if (zoom < 9 && st.level === 'local_major') {
-            if (!lonely) continue;
-          }
-          if (zoom < 10 && st.level === 'local') {
-            if (!lonely) continue;
-          }
+          if (zoom < 6 && st.level !== 'hub') continue;
+          if (zoom < 8 && st.level === 'major') continue;
+          if (zoom < 9 && st.level === 'local_major') continue;
+          if (zoom < 10 && st.level === 'local') continue;
           
           if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
               st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
 
-          const pt = stationPts.get(st.name);
-          if (!pt) continue;
+          const pt = map.lngLatToContainer([st.lng, st.lat]);
           const cell = 20;
           const key = `${Math.round(pt.x/cell)},${Math.round(pt.y/cell)}`;
           if (dotDrawn.has(key)) continue;
@@ -215,21 +176,19 @@ const HUB_CITY_MAP: Record<string, string> = {
           ctx.fill();
         }
         
-        // 站点名称 — zoom<7 时枢纽站合并显示城市名
+                // 站点名称
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
         const cityShown = new Set<string>();
         for (const st of stations) {
           if (!st.name) continue;
-          if (zoom < 8 && st.level === 'major') continue;
-          if (zoom < 9 && st.level === 'local_major') continue;
+          if (zoom < 9 && st.level === 'local') continue;
           if (zoom < 10 && st.level === 'local') continue;
           
           if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
               st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
 
-          const pt = stationPts.get(st.name);
-          if (!pt) continue;
+          const pt = map.lngLatToContainer([st.lng, st.lat]);
           const r = st.level === 'hub' ? 4 : st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
           
           let displayName = st.name;
@@ -248,6 +207,7 @@ const HUB_CITY_MAP: Record<string, string> = {
           ctx.fillText(displayName, pt.x, pt.y - r - 4);
         }
       }
+
 
       // 省会定位名称 — 只在 zoom=3 时显示 (zoom<4)
       if (capitals && zoom < 4) {
