@@ -292,6 +292,17 @@ for feat in sdata['features']:
     lng, lat = geom['coordinates']
     gcj = wgs84_to_gcj02(lng, lat)
     props = feat.get('properties', {})
+    
+    # 排除地铁/轻轨/电车站
+    if props.get('subway') == 'yes':
+        continue
+    if props.get('station') in ('subway','light_rail','tram'):
+        continue
+    if props.get('railway') in ('halt','tram_stop'):
+        continue
+    if props.get('disused') == 'yes':
+        continue
+    
     name = props.get('name', '')
     stations.append({
         'name': name.replace('站','').replace('火车站','').strip(),
