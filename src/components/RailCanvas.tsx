@@ -41,6 +41,53 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
       draw();
     };
 
+
+const HUB_CITY_MAP: Record<string, string> = {
+  '北京': '北京','北京西':'北京','北京南':'北京','北京北':'北京','北京朝阳':'北京','北京丰台':'北京','丰台':'北京','丰台西':'北京',
+  '上海':'上海','上海虹桥':'上海','上海南':'上海',
+  '广州':'广州','广州南':'广州',
+  '深圳北':'深圳',
+  '郑州':'郑州','郑州东':'郑州','郑州北':'郑州','圃田西':'郑州',
+  '武汉':'武汉','汉口':'武汉','武昌':'武汉',
+  '成都':'成都','成都东':'成都',
+  '重庆西':'重庆','重庆北':'重庆',
+  '西安':'西安','西安北':'西安',
+  '沈阳':'沈阳','沈阳北':'沈阳','苏家屯':'沈阳','裕国':'沈阳',
+  '哈尔滨':'哈尔滨','哈尔滨西':'哈尔滨',
+  '济南':'济南','济南西':'济南',
+  '兰州':'兰州','兰州西':'兰州',
+  '太原':'太原',
+  '南昌':'南昌',
+  '福州':'福州',
+  '南宁':'南宁',
+  '呼和浩特':'呼和浩特',
+  '昆明南':'昆明',
+  '杭州东':'杭州',
+  '南京南':'南京',
+  '合肥南':'合肥',
+  '长沙南':'长沙',
+  '贵阳':'贵阳',
+  '石家庄':'石家庄',
+  '天津':'天津',
+  '青岛':'青岛',
+  '乌鲁木齐':'乌鲁木齐',
+  '长春':'长春',
+  '齐齐哈尔':'齐齐哈尔',
+  '牡丹江':'牡丹江',
+  '佳木斯':'佳木斯',
+  '大同':'大同',
+  '厦门北':'厦门',
+  '柳州':'柳州',
+  '徐州':'徐州',
+  '苏州':'苏州',
+  '株洲':'株洲',
+  '衡阳':'衡阳',
+  '襄阳':'襄阳',
+  '山海关':'山海关',
+  '南仓':'天津',
+  '广元':'广元','广元西':'广元','广元南':'广元',
+};
+
     const draw = () => {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
@@ -98,20 +145,59 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
         ctx.stroke();
       }
 
-      // 站点圆点 — 按 zoom 分层（省会显示时跳过）
+      // 站点圆点 — 动态分层（省会显示时跳过）
       if (stations && !(capitals && zoom < 4)) {
+        // 预计算每个站点到更高级站点的最近屏幕距离
+        const stationPts = new Map<string, {x:number,y:number}>();
+        for (const st of stations) {
+          if (!st.name) continue;
+          if (st.lng < sw.lng - 0.5 || st.lng > ne.lng + 0.5 ||
+              st.lat < sw.lat - 0.5 || st.lat > ne.lat + 0.5) continue;
+          const pt = map.lngLatToContainer([st.lng, st.lat]);
+          stationPts.set(st.name, pt);
+        }
+        
+        const getDist = (a:any, b:any) => Math.hypot(a.x-b.x, a.y-b.y);
+        const levelOrder = {hub:0, major:1, local_major:2, local:3};
+        const R = 150; // 屏幕像素半径
+        
+        const isLonely = (st: any) => {
+          const pt = stationPts.get(st.name);
+          if (!pt) return true;
+          for (const [name, pt2] of stationPts) {
+            const other = stations.find((s:any) => s.name === name);
+            if (!other || other.name === st.name) continue;
+            if (levelOrder[other.level] < levelOrder[st.level] && getDist(pt, pt2) < R) {
+              return false;
+            }
+          }
+          return true;
+        };
+        
         const dotDrawn = new Set<string>();
         for (const st of stations) {
           if (!st.name) continue;
-          if (zoom < 6 && st.level !== 'hub') continue;
-          if (zoom < 8 && st.level === 'major') continue;
-          if (zoom < 9 && st.level === 'local_major') continue;
-          if (zoom < 10 && st.level === 'local') continue;
+          
+          const lonely = isLonely(st);
+          
+          if (zoom < 6 && st.level !== 'hub') {
+            if (!(lonely && zoom >= 5 && st.level === 'major')) continue;
+          }
+          if (zoom < 8 && st.level === 'major') {
+            if (!lonely) continue;
+          }
+          if (zoom < 9 && st.level === 'local_major') {
+            if (!lonely) continue;
+          }
+          if (zoom < 10 && st.level === 'local') {
+            if (!lonely) continue;
+          }
           
           if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
               st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
 
-          const pt = map.lngLatToContainer([st.lng, st.lat]);
+          const pt = stationPts.get(st.name);
+          if (!pt) continue;
           const cell = 20;
           const key = `${Math.round(pt.x/cell)},${Math.round(pt.y/cell)}`;
           if (dotDrawn.has(key)) continue;
@@ -142,14 +228,13 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
           if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
               st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
 
-          const pt = map.lngLatToContainer([st.lng, st.lat]);
+          const pt = stationPts.get(st.name);
+          if (!pt) continue;
           const r = st.level === 'hub' ? 4 : st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
           
           let displayName = st.name;
           if (st.level === 'hub' && zoom < 7) {
-            // 提取城市名：去"站"字，再去末尾方向字
-            let city = st.name.replace(/站$/, '');
-            city = city.replace(/[东西南北]$/, '');
+            const city = HUB_CITY_MAP[st.name] || st.name;
             if (cityShown.has(city)) continue;
             cityShown.add(city);
             displayName = city;
