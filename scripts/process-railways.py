@@ -11,6 +11,10 @@ import json
 import math
 import sys
 
+# 加载12306客运站白名单
+with open('scripts/12306_whitelist.txt', encoding='utf-8') as f:
+    WHITELIST = set(line.strip() for line in f if line.strip())
+
 # ─── GCJ-02 转换 ───────────────────────────────────────────
 PI = math.pi
 A = 6378245.0
@@ -309,6 +313,11 @@ for feat in sdata['features']:
     
     name = props.get('name', '')
     # 排除货运站关键词
+    # 12306 白名单过滤
+    clean = name.replace('站','').replace('火车站','').strip()
+    if clean not in WHITELIST:
+        continue
+
     if any(kw in name for kw in ('货','编组','驼峰','车辆段','机务段','折返段')):
         continue
     stations.append({
