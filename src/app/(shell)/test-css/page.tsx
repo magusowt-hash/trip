@@ -29,12 +29,7 @@ export default function TestRailPage() {
           mapRef.current = m;
           setZoom(m.getZoom());
           m.on('zoomend', () => setZoom(m.getZoom()));
-          const c = m.getContainer();
-          if (c) {
-            c.style.background = '#fff';
-            const l = c.querySelector('.amap-layers');
-            if (l) (l as HTMLElement).style.display = 'none';
-          }
+
         }}
       />
       {mapRef.current && (

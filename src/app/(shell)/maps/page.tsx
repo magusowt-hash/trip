@@ -222,12 +222,7 @@ export default function MapsPage() {
                     railMapRef.current = m;
                     setRailZoom(m.getZoom());
                     m.on('zoomend', () => setRailZoom(m.getZoom()));
-                    const c = m.getContainer();
-                    if (c) {
-                      c.style.background = '#fff';
-                      const l = c.querySelector('.amap-layers');
-                      if (l) (l as HTMLElement).style.display = 'none';
-                    }
+
                   }}
                 />
                 {railMapRef.current && (
