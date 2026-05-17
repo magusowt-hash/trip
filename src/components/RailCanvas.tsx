@@ -41,7 +41,7 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
       draw();
     };
 
-const HUB_CITY_MAP: {[key: string]: string} = {
+const HUB_CITY_MAP = {
   '北京':'北京','北京西':'北京','北京南':'北京','北京北':'北京','北京朝阳':'北京','北京丰台':'北京','丰台':'北京','丰台西':'北京',
   '上海':'上海','上海虹桥':'上海','上海南':'上海',
   '广州':'广州','广州南':'广州','深圳北':'深圳',
@@ -61,26 +61,17 @@ const HUB_CITY_MAP: {[key: string]: string} = {
   '广元':'广元','广元西':'广元','广元南':'广元',
 };
 
-    const safeLngLatToContainer = (m: any, lnglat: [number, number]) => {
-      if (!lnglat || lnglat.length !== 2 || isNaN(lnglat[0]) || isNaN(lnglat[1])) return { x: 0, y: 0 };
-      try { return m.lngLatToContainer(lnglat); }
-      catch(e) { return { x: 0, y: 0 }; }
-    };
-
     const draw = () => {
-      try {
-      if (!canvas || !canvas.parentElement) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-      if (canvas.width === 0 || canvas.height === 0) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const dpr = window.devicePixelRatio || 1;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const bounds = map.getBounds();
-      const sw = bounds.getSouthWest(); const _swLng = sw.getLng ? sw.getLng() : sw.lng; const _swLat = sw.getLat ? sw.getLat() : sw.lat;
-      const ne = bounds.getNorthEast(); const _neLng = ne.getLng ? ne.getLng() : ne.lng; const _neLat = ne.getLat ? ne.getLat() : ne.lat;
+      const sw = bounds.getSouthWest();
+      const ne = bounds.getNorthEast();
       const margin = 0.5;
 
       // zoom 分层：小 zoom 减少线条密度
@@ -100,12 +91,12 @@ const HUB_CITY_MAP: {[key: string]: string} = {
         const first = coords[0];
         const last = coords[coords.length - 1];
         if (
-          first[0] < _swLng - margin || first[0] > _neLng + margin ||
-          first[1] < _swLat - margin || first[1] > _neLat + margin
+          first[0] < sw.lng - margin || first[0] > ne.lng + margin ||
+          first[1] < sw.lat - margin || first[1] > ne.lat + margin
         ) {
           if (
-            last[0] < _swLng - margin || last[0] > _neLng + margin ||
-            last[1] < _swLat - margin || last[1] > _neLat + margin
+            last[0] < sw.lng - margin || last[0] > ne.lng + margin ||
+            last[1] < sw.lat - margin || last[1] > ne.lat + margin
           ) {
             continue;
           }
@@ -117,13 +108,11 @@ const HUB_CITY_MAP: {[key: string]: string} = {
         ctx.lineCap = 'butt';
         ctx.lineJoin = 'miter';
 
-        const firstPt = safeLngLatToContainer(map, [first[0], first[1]]);
-        if (isNaN(firstPt.x) || isNaN(firstPt.y)) continue;
+        const firstPt = map.lngLatToContainer([first[0], first[1]]);
         ctx.moveTo(firstPt.x, firstPt.y);
 
         for (let i = 1; i < coords.length; i++) {
-          const pt = safeLngLatToContainer(map, [coords[i][0], coords[i][1]]);
-          if (isNaN(pt.x) || isNaN(pt.y)) continue;
+          const pt = map.lngLatToContainer([coords[i][0], coords[i][1]]);
           ctx.lineTo(pt.x, pt.y);
         }
         ctx.stroke();
@@ -139,10 +128,10 @@ const HUB_CITY_MAP: {[key: string]: string} = {
           if (zoom < 9 && st.level === 'local_major') continue;
           if (zoom < 10 && st.level === 'local') continue;
           
-          if (st.lng < _swLng - margin || st.lng > _neLng + margin ||
-              st.lat < _swLat - margin || st.lat > _neLat + margin) continue;
+          if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
+              st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
 
-          const pt = safeLngLatToContainer(map, [st.lng, st.lat]);
+          const pt = map.lngLatToContainer([st.lng, st.lat]);
           const cell = 20;
           const key = `${Math.round(pt.x/cell)},${Math.round(pt.y/cell)}`;
           if (dotDrawn.has(key)) continue;
@@ -170,10 +159,10 @@ const HUB_CITY_MAP: {[key: string]: string} = {
           if (zoom < 9 && st.level === 'local_major') continue;
           if (zoom < 10 && st.level === 'local') continue;
           
-          if (st.lng < _swLng - margin || st.lng > _neLng + margin ||
-              st.lat < _swLat - margin || st.lat > _neLat + margin) continue;
+          if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
+              st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
 
-          const pt = safeLngLatToContainer(map, [st.lng, st.lat]);
+          const pt = map.lngLatToContainer([st.lng, st.lat]);
           const r = st.level === 'hub' ? 4 : st.level === 'major' ? 4 : st.level === 'local_major' ? 2.5 : 2;
           
           let displayName = st.name;
@@ -203,28 +192,33 @@ const HUB_CITY_MAP: {[key: string]: string} = {
         ctx.lineWidth = 2;
         
         for (const cap of capitals) {
-          if (cap.lng < _swLng - 0.5 || cap.lng > _neLng + 0.5 ||
-              cap.lat < _swLat - 0.5 || cap.lat > _neLat + 0.5) continue;
-          const pt = safeLngLatToContainer(map, [cap.lng, cap.lat]);
+          if (cap.lng < sw.lng - 0.5 || cap.lng > ne.lng + 0.5 ||
+              cap.lat < sw.lat - 0.5 || cap.lat > ne.lat + 0.5) continue;
+          const pt = map.lngLatToContainer([cap.lng, cap.lat]);
           ctx.strokeText(cap.name, pt.x, pt.y);
           ctx.fillText(cap.name, pt.x, pt.y);
         }
       }
-      } catch(e) { console.error('RailCanvas draw error:', e); }
     };
 
-    let timer: ReturnType<typeof setTimeout>;
-    const scheduleDraw = () => { clearTimeout(timer); timer = setTimeout(draw, 50); };
+    let rafId = 0;
+    let lastCenter = '';
+    const loop = () => {
+      const c = map.getCenter();
+      const key = `zoom${map.getZoom()}-${c.lng.toFixed(3)}-${c.lat.toFixed(3)}`;
+      if (key !== lastCenter) {
+        lastCenter = key;
+        draw();
+      }
+      rafId = requestAnimationFrame(loop);
+    };
 
     resize();
-    map.on('zoomend', scheduleDraw);
-    map.on('moveend', scheduleDraw);
+    rafId = requestAnimationFrame(loop);
     window.addEventListener('resize', resize);
 
     return () => {
-      clearTimeout(timer);
-      map.off('zoomend', scheduleDraw);
-      map.off('moveend', scheduleDraw);
+      cancelAnimationFrame(rafId);
       window.removeEventListener('resize', resize);
       if (canvasRef.current && canvasRef.current.parentElement) {
         canvasRef.current.parentElement.removeChild(canvasRef.current);
