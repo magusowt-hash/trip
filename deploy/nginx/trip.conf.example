@@ -2,6 +2,36 @@ server {
     listen 80;
     server_name _;
 
+    # ─── 地图管理 API（Next.js Route Handler，走前端）───
+    location /api/public/rail-settings {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+    location /api/public/station-overrides {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+
+    location /api/admin/maps {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+
+    location /api/admin/station-overrides {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+    # ─── 以上为地图管理 API ────────────────────────────
+
+    # 后端 API（其余 /api -> trip-backend）
+    location /api {
+        proxy_pass http://127.0.0.1:3002;
+    }
+
     # 前端（/ -> trip-web）
     location / {
         proxy_pass http://127.0.0.1:3001;
@@ -12,10 +42,4 @@ server {
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
     }
-
-    # 后端 API（/api -> trip-backend）
-    location /api {
-        proxy_pass http://127.0.0.1:3002;
-    }
 }
-

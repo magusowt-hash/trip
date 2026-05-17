@@ -161,3 +161,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 - 业务结构、组件与 Figma 映射：见 [development-summary.md](./development-summary.md)
 - 设计文件对应关系：见 [figma-structure.md](./figma-structure.md)
+
+## 10. 专题部署文档
+
+- 中国铁路地图后台管理：见 [rail-map-admin-deploy.md](./rail-map-admin-deploy.md)
