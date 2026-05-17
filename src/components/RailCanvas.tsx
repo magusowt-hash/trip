@@ -82,7 +82,7 @@ export default function RailCanvas({ mapInstance, routes, stations, zoom }: Rail
 
         ctx.beginPath();
         ctx.strokeStyle = route.c;
-        ctx.lineWidth = Math.max(0.5, route.w * 0.5);
+        ctx.lineWidth = Math.max(0.5, route.w * 0.8);
         ctx.lineCap = 'butt';
         ctx.lineJoin = 'miter';
 
