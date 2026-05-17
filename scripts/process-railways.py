@@ -308,6 +308,9 @@ for feat in sdata['features']:
         continue
     
     name = props.get('name', '')
+    # 排除货运站关键词
+    if any(kw in name for kw in ('货','编组','驼峰','车辆段','机务段','折返段')):
+        continue
     stations.append({
         'name': name.replace('站','').replace('火车站','').strip(),
         'lng': gcj[0],

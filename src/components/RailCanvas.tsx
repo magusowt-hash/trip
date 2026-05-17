@@ -104,7 +104,7 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
         for (const st of stations) {
           if (!st.name) continue;
           if (zoom < 6 && st.level !== 'hub') continue;
-          if (zoom < 8 && st.level === 'local') continue;
+          if (zoom < 9 && st.level === 'local') continue;
           
           if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
               st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
@@ -132,7 +132,7 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
         ctx.textBaseline = 'bottom';
         for (const st of stations) {
           if (!st.name) continue;
-          if (zoom < 8 && st.level === 'local') continue;
+          if (zoom < 9 && st.level === 'local') continue;
           
           if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
               st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
@@ -150,7 +150,7 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
       }
 
       // 省会定位名称 — 只在 zoom < 7 时显示
-      if (capitals && zoom < 7) {
+      if (capitals && zoom < 5) {
         ctx.font = 'bold 14px sans-serif';
         ctx.fillStyle = '#6b7280';
         ctx.textAlign = 'center';
