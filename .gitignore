@@ -39,3 +39,6 @@ data/china-stations.geojson
 
 # macOS
 .DS_Store
+
+# WGS-84 生成产物
+public/data/railways-wgs84.json
