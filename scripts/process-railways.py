@@ -308,17 +308,19 @@ def station_classify(name, name_en):
     else:
         base2 = base
     
-    # 一级：匹配HUBS指定枢纽站
-    for h in HUBS:
-        if h in base or h in base2:
-            return 'hub'
+    # 一级：精确匹配HUBS（去掉末尾方向字后比较）
+    if base2 in HUBS:
+        return 'hub'
+    # 也检查带方向字的原站名
+    if base in HUBS:
+        return 'hub'
     
     # 二级：匹配地级市/州/盟名
-    if base in CITY_NAMES or base2 in CITY_NAMES:
+    if base2 in CITY_NAMES or base in CITY_NAMES:
         return 'major'
     
     # 三级：匹配县级名
-    if base in COUNTY_NAMES or base2 in COUNTY_NAMES:
+    if base2 in COUNTY_NAMES or base in COUNTY_NAMES:
         return 'local_major'
     
     # 四级：其他
