@@ -127,9 +127,10 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
           ctx.fill();
         }
         
-        // 站点名称
+        // 站点名称 — zoom<7 时枢纽站合并显示城市名
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
+        const cityShown = new Set<string>();
         for (const st of stations) {
           if (!st.name) continue;
           if (zoom < 9 && st.level === 'local') continue;
@@ -140,23 +141,31 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
           const pt = map.lngLatToContainer([st.lng, st.lat]);
           const r = st.level === 'hub' ? 4 : st.level === 'major' ? 3 : 2;
           
+          let displayName = st.name;
+          if (st.level === 'hub' && zoom < 7) {
+            const city = st.name.replace(/[东西南北站城]/g, '').slice(0, 2);
+            if (cityShown.has(city)) continue;
+            cityShown.add(city);
+            displayName = city;
+          }
+          
           ctx.font = st.level === 'hub' ? 'bold 10px sans-serif' : '9px sans-serif';
           ctx.fillStyle = '#1f2937';
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 2;
-          ctx.strokeText(st.name, pt.x, pt.y - r - 4);
-          ctx.fillText(st.name, pt.x, pt.y - r - 4);
+          ctx.strokeText(displayName, pt.x, pt.y - r - 4);
+          ctx.fillText(displayName, pt.x, pt.y - r - 4);
         }
       }
 
-      // 省会定位名称 — 只在 zoom < 7 时显示
-      if (capitals && zoom < 5) {
-        ctx.font = 'bold 14px sans-serif';
-        ctx.fillStyle = '#6b7280';
+      // 省会定位名称 — 只在 zoom=3 时显示 (zoom<4)
+      if (capitals && zoom < 4) {
+        ctx.font = 'bold 12px sans-serif';
+        ctx.fillStyle = '#000000';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         
         for (const cap of capitals) {
           if (cap.lng < sw.lng - 0.5 || cap.lng > ne.lng + 0.5 ||
