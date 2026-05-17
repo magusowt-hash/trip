@@ -17,8 +17,10 @@ export default function TestRailPage() {
 
   useEffect(() => {
     fetch('/data/railways.json').then(r => r.json()).then(setRoutes);
-    fetch('/data/stations.json').then(r => r.json()).then(setRailStations)
-      .catch(console.error);
+    fetch('/data/stations.json').then(r => r.json()).then(d => {
+      setRailStations(d.stations);
+      setCapitalLabels(d.capitals);
+    }).catch(console.error);
   }, []);
 
   return (
