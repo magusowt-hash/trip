@@ -62,14 +62,17 @@ const HUB_CITY_MAP: {[key: string]: string} = {
 };
 
     const safeLngLatToContainer = (m: any, lnglat: [number, number]) => {
+      if (!lnglat || lnglat.length !== 2 || isNaN(lnglat[0]) || isNaN(lnglat[1])) return { x: 0, y: 0 };
       try { return m.lngLatToContainer(lnglat); }
       catch(e) { return { x: 0, y: 0 }; }
     };
 
     const draw = () => {
       try {
+      if (!canvas || !canvas.parentElement) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
+      if (canvas.width === 0 || canvas.height === 0) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const dpr = window.devicePixelRatio || 1;
@@ -115,10 +118,12 @@ const HUB_CITY_MAP: {[key: string]: string} = {
         ctx.lineJoin = 'miter';
 
         const firstPt = safeLngLatToContainer(map, [first[0], first[1]]);
+        if (isNaN(firstPt.x) || isNaN(firstPt.y)) continue;
         ctx.moveTo(firstPt.x, firstPt.y);
 
         for (let i = 1; i < coords.length; i++) {
           const pt = safeLngLatToContainer(map, [coords[i][0], coords[i][1]]);
+          if (isNaN(pt.x) || isNaN(pt.y)) continue;
           ctx.lineTo(pt.x, pt.y);
         }
         ctx.stroke();
@@ -208,28 +213,18 @@ const HUB_CITY_MAP: {[key: string]: string} = {
       } catch(e) { console.error('RailCanvas draw error:', e); }
     };
 
-    let rafId = 0;
-    let lastKey = '';
-    const loop = () => {
-      try {
-        const z = map.getZoom();
-        const center = map.getCenter();
-        if (center) {
-          const lng = typeof center.getLng === 'function' ? center.getLng() : center.lng;
-          const lat = typeof center.getLat === 'function' ? center.getLat() : center.lat;
-          const key = `${z}-${lng.toFixed(2)}-${lat.toFixed(2)}`;
-          if (key !== lastKey) { lastKey = key; draw(); }
-        }
-      } catch(e) {}
-      rafId = requestAnimationFrame(loop);
-    };
+    let timer: ReturnType<typeof setTimeout>;
+    const scheduleDraw = () => { clearTimeout(timer); timer = setTimeout(draw, 50); };
 
     resize();
-    rafId = requestAnimationFrame(loop);
+    map.on('zoomend', scheduleDraw);
+    map.on('moveend', scheduleDraw);
     window.addEventListener('resize', resize);
 
     return () => {
-      cancelAnimationFrame(rafId);
+      clearTimeout(timer);
+      map.off('zoomend', scheduleDraw);
+      map.off('moveend', scheduleDraw);
       window.removeEventListener('resize', resize);
       if (canvasRef.current && canvasRef.current.parentElement) {
         canvasRef.current.parentElement.removeChild(canvasRef.current);
