@@ -134,8 +134,8 @@ def merge_segments(segments):
     ep = defaultdict(list)
     for i, seg in enumerate(segments):
         c = seg['coords']
-        ep[f"{c[0][0]:.3f},{c[0][1]:.3f}"].append((i, 'start'))
-        ep[f"{c[-1][0]:.3f},{c[-1][1]:.3f}"].append((i, 'end'))
+        ep[f"{c[0][0]:.4f},{c[0][1]:.4f}"].append((i, 'start'))
+        ep[f"{c[-1][0]:.4f},{c[-1][1]:.4f}"].append((i, 'end'))
     
     visited = [False] * len(segments)
     merged = []
@@ -151,8 +151,8 @@ def merge_segments(segments):
         width = s['width']
         visited[start_idx] = True
         
-        front = f"{chain[0][0]:.3f},{chain[0][1]:.3f}"
-        back = f"{chain[-1][0]:.3f},{chain[-1][1]:.3f}"
+        front = f"{chain[0][0]:.4f},{chain[0][1]:.4f}"
+        back = f"{chain[-1][0]:.4f},{chain[-1][1]:.4f}"
         
         while True:
             extended = False
@@ -165,7 +165,7 @@ def merge_segments(segments):
                 else:
                     chain = list(reversed(nb[1:])) + chain
                 visited[ni] = True
-                front = f"{chain[0][0]:.3f},{chain[0][1]:.3f}"
+                front = f"{chain[0][0]:.4f},{chain[0][1]:.4f}"
                 extended = True
                 break
             if extended:
@@ -179,17 +179,17 @@ def merge_segments(segments):
                 else:
                     chain = chain + list(reversed(nb[:-1]))
                 visited[ni] = True
-                back = f"{chain[-1][0]:.3f},{chain[-1][1]:.3f}"
+                back = f"{chain[-1][0]:.4f},{chain[-1][1]:.4f}"
                 extended = True
                 break
             if not extended:
                 break
         
-        simplified = simplify_dp(chain, tolerance=0.002)
-        if len(simplified) < 4:
+        simplified = simplify_dp(chain, tolerance=0.001)
+        if len(simplified) < 2:
             continue
         
-        compact = [[round(c[0],4), round(c[1],4)] for c in simplified]
+        compact = [[round(c[0],5), round(c[1],5)] for c in simplified]
         merged.append({
             'p': compact,
             'c': color,
