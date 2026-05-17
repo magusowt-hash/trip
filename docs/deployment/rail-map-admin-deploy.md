@@ -18,7 +18,7 @@ DESC station_overrides;
 
 ## 2. Nginx 配置更新
 
-在 `location /api {` 之前插入四条规则：
+在 `location /api {` 之前插入四条规则，让新增的 Next.js API 走前端 3001：
 
 ```nginx
 location /api/public/rail-settings {
@@ -49,16 +49,7 @@ location /api/admin/station-overrides {
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-## 3. 前端构建 + 重启
-
-```bash
-cd /path/to/trip
-git pull
-npm run build
-pm2 restart trip-web
-```
-
-## 4. 验证
+## 3. 验证
 
 ```bash
 curl -s http://localhost:3001/api/public/rail-settings
