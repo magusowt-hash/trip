@@ -4,16 +4,18 @@ import { useEffect, useRef } from 'react';
 
 type RailRoute = { p: [number, number][]; c: string; w: number; t: string };
 
-type RailStation = { name: string; lng: number; lat: number; level?: string };
+type RailStation = { name: string; lng: number; lat: number; level: string };
+type CapitalLabel = { name: string; lng: number; lat: number };
 
 interface RailCanvasProps {
   mapInstance: any;
   routes: RailRoute[];
   stations?: RailStation[];
+  capitals?: CapitalLabel[];
   zoom: number;
 }
 
-export default function RailCanvas({ mapInstance, routes, stations, zoom }: RailCanvasProps) {
+export default function RailCanvas({ mapInstance, routes, stations, capitals, zoom }: RailCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -96,38 +98,72 @@ export default function RailCanvas({ mapInstance, routes, stations, zoom }: Rail
         ctx.stroke();
       }
 
-      // 站点标注 — 按 zoom 分层
-      if (stations && zoom >= 4) {
-        const drawn = new Set<string>();
+      // 站点圆点 — 按 zoom 分层
+      if (stations) {
+        const dotDrawn = new Set<string>();
         for (const st of stations) {
           if (!st.name) continue;
-          
-          // zoom 分层
-          if (zoom < 6 && st.level !== 'capital') continue;
+          if (zoom < 6 && st.level !== 'hub') continue;
           if (zoom < 8 && st.level === 'local') continue;
           
-          // 视野裁剪
           if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
               st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
 
           const pt = map.lngLatToContainer([st.lng, st.lat]);
-          const cell = zoom >= 10 ? 30 : 50;
+          const cell = 20;
           const key = `${Math.round(pt.x/cell)},${Math.round(pt.y/cell)}`;
-          if (drawn.has(key)) continue;
-          drawn.add(key);
+          if (dotDrawn.has(key)) continue;
+          dotDrawn.add(key);
 
-          const isCapital = st.level === 'capital';
-          ctx.font = isCapital
-            ? `bold ${zoom >= 8 ? '13px' : '11px'} sans-serif`
-            : zoom >= 10 ? '10px sans-serif' : '9px sans-serif';
-          ctx.fillStyle = isCapital ? '#dc2626' : '#1f2937';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'bottom';
+          const r = st.level === 'hub' ? 4 : st.level === 'major' ? 3 : 2;
+          const color = st.level === 'hub' ? '#dc2626' : st.level === 'major' ? '#f59e0b' : '#10b981';
+          
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+          ctx.fillStyle = '#fff';
+          ctx.fill();
+          ctx.fillStyle = color;
+          ctx.arc(pt.x, pt.y, r * 0.7, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        
+        // 站点名称
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        for (const st of stations) {
+          if (!st.name) continue;
+          if (zoom < 8 && st.level === 'local') continue;
+          
+          if (st.lng < sw.lng - margin || st.lng > ne.lng + margin ||
+              st.lat < sw.lat - margin || st.lat > ne.lat + margin) continue;
 
+          const pt = map.lngLatToContainer([st.lng, st.lat]);
+          const r = st.level === 'hub' ? 4 : st.level === 'major' ? 3 : 2;
+          
+          ctx.font = st.level === 'hub' ? 'bold 10px sans-serif' : '9px sans-serif';
+          ctx.fillStyle = '#1f2937';
           ctx.strokeStyle = '#fff';
-          ctx.lineWidth = 3;
-          ctx.strokeText(st.name, pt.x, pt.y - 2);
-          ctx.fillText(st.name, pt.x, pt.y - 2);
+          ctx.lineWidth = 2;
+          ctx.strokeText(st.name, pt.x, pt.y - r - 4);
+          ctx.fillText(st.name, pt.x, pt.y - r - 4);
+        }
+      }
+
+      // 省会定位名称 — 只在 zoom < 7 时显示
+      if (capitals && zoom < 7) {
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillStyle = '#6b7280';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 3;
+        
+        for (const cap of capitals) {
+          if (cap.lng < sw.lng - 0.5 || cap.lng > ne.lng + 0.5 ||
+              cap.lat < sw.lat - 0.5 || cap.lat > ne.lat + 0.5) continue;
+          const pt = map.lngLatToContainer([cap.lng, cap.lat]);
+          ctx.strokeText(cap.name, pt.x, pt.y);
+          ctx.fillText(cap.name, pt.x, pt.y);
         }
       }
     };
@@ -156,7 +192,7 @@ export default function RailCanvas({ mapInstance, routes, stations, zoom }: Rail
         canvasRef.current = null;
       }
     };
-  }, [mapInstance, routes, stations, zoom]);
+  }, [mapInstance, routes, stations, capitals, zoom]);
 
   return null;
 }

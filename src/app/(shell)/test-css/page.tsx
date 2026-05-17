@@ -11,6 +11,7 @@ type RailRoute = { p: [number, number][]; c: string; w: number; t: string };
 export default function TestRailPage() {
   const [routes, setRoutes] = useState<RailRoute[]>([]);
   const [railStations, setRailStations] = useState<any[]>([]);
+  const [capitalLabels, setCapitalLabels] = useState<any[]>([]);
   const [zoom, setZoom] = useState(4);
   const mapRef = useRef<any>(null);
 
@@ -33,7 +34,8 @@ export default function TestRailPage() {
         }}
       />
       {mapRef.current && (
-        <RailCanvas mapInstance={mapRef.current} routes={routes} stations={railStations} zoom={zoom} />
+        <RailCanvas mapInstance={mapRef.current} routes={routes} stations={railStations}
+                    capitals={capitalLabels} zoom={zoom} />
       )}
     </div>
   );

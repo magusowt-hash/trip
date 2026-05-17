@@ -272,16 +272,20 @@ print("\nLoading stations...")
 with open(STATION_IN) as f:
     sdata = json.load(f)
 
-# 省会/直辖市站点名（去"站"字）
-CAPITALS = {'北京','上海','广州','深圳','成都','重庆','杭州','武汉','西安','郑州','南京','天津','长沙','福州','厦门','合肥','南昌','沈阳','大连','昆明','贵阳','南宁','海口','乌鲁木齐','拉萨','西宁','兰州','银川','太原','石家庄','济南','青岛','哈尔滨','长春','呼和浩特'}
+# 重要铁路枢纽站（不含"站"字）
+HUBS = {'北京','上海','广州','深圳','武汉','郑州','西安','成都','重庆','南京','天津','杭州','长沙','沈阳','哈尔滨','昆明','贵阳','南宁','兰州','乌鲁木齐','太原','石家庄','济南','青岛','大连','厦门','福州','合肥','南昌','长春','呼和浩特','西宁','银川','拉萨','徐州','株洲','柳州','宝鸡','襄阳','怀化','洛阳','商丘','阜阳','鹰潭'}
 
-def station_level(name, name_en):
+# 省会名称定位（纯文字，非站点）
+CAPITAL_CITIES = {'北京':(116.407,39.904),'上海':(121.474,31.233),'广州':(113.264,23.129),'深圳':(114.058,22.543),'成都':(104.066,30.573),'重庆':(106.551,29.563),'杭州':(120.155,30.274),'武汉':(114.305,30.593),'西安':(108.940,34.347),'郑州':(113.625,34.747),'南京':(118.797,32.061),'天津':(117.201,39.085),'长沙':(112.939,28.228),'福州':(119.296,26.074),'厦门':(118.089,24.480),'合肥':(117.227,31.821),'南昌':(115.858,28.683),'沈阳':(123.432,41.807),'大连':(121.615,38.914),'昆明':(102.833,24.881),'贵阳':(106.630,26.647),'南宁':(108.366,22.817),'海口':(110.199,20.044),'乌鲁木齐':(87.617,43.793),'拉萨':(91.173,29.650),'西宁':(101.778,36.617),'兰州':(103.834,36.061),'银川':(106.231,38.487),'太原':(112.549,37.870),'石家庄':(114.514,38.042),'济南':(117.000,36.670),'青岛':(120.383,36.067),'哈尔滨':(126.535,45.803),'长春':(125.324,43.817),'呼和浩特':(111.749,40.843)}
+
+def station_classify(name, name_en):
     base = name.replace('站','').replace('火车站','').strip()
-    for c in CAPITALS:
+    for h in HUBS:
+        if h in base:
+            return 'hub'
+    for c in CAPITAL_CITIES:
         if c in base:
-            return 'capital'
-    if '市' in base or (name_en and ('city' in name_en.lower() or 'central' in name_en.lower())):
-        return 'city'
+            return 'major'
     return 'local'
 
 stations = []
@@ -309,13 +313,18 @@ for feat in sdata['features']:
         'lng': gcj[0],
         'lat': gcj[1],
         'name:en': props.get('name:en', ''),
-        'level': station_level(name, props.get('name:en', '')),
+        'level': station_classify(name, props.get('name:en', '')),
     })
 
 print(f"Stations: {len(stations)}")
 
+# 省会定位文字
+capital_labels = [{'name': name, 'lng': wgs84_to_gcj02(lng, lat)[0], 'lat': wgs84_to_gcj02(lng, lat)[1]} 
+                  for name, (lng, lat) in CAPITAL_CITIES.items()]
+
+output = {'stations': stations, 'capitals': capital_labels}
 with open(STATION_OUT, 'w') as f:
-    json.dump(stations, f, ensure_ascii=False)
+    json.dump(output, f, ensure_ascii=False)
 print(f"Written: {STATION_OUT}")
 
 import os

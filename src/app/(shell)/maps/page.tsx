@@ -41,6 +41,7 @@ export default function MapsPage() {
   // 中国铁路
   const [railRoutes, setRailRoutes] = useState<RailRoute[]>([]);
   const [railStations, setRailStations] = useState<RailStation[]>([]);
+  const [capitalLabels, setCapitalLabels] = useState<any[]>([]);
   const [stationQuery, setStationQuery] = useState('');
   const [railLoaded, setRailLoaded] = useState(false);
   const [railZoom, setRailZoom] = useState(4);
@@ -74,9 +75,7 @@ export default function MapsPage() {
       .then((r) => r.json())
       .then(setRailRoutes)
       .catch(console.error);
-    fetch('/data/stations.json')
-      .then((r) => r.json())
-      .then(setRailStations)
+    fetch('/data/stations.json').then(r => r.json()).then(d => { setRailStations(d.stations); setCapitalLabels(d.capitals) })
       .catch(console.error);
   }, [activeTab, railLoaded]);
 
@@ -230,6 +229,7 @@ export default function MapsPage() {
                     mapInstance={railMapRef.current}
                     routes={railRoutes}
                     stations={railStations}
+                    capitals={capitalLabels}
                     zoom={railZoom}
                   />
                 )}
@@ -278,6 +278,7 @@ export default function MapsPage() {
             {activeTab === 'china-rail' ? (
               <RailPanel
                 stations={railStations}
+                    capitals={capitalLabels}
                 query={stationQuery}
                 onQueryChange={setStationQuery}
               />
