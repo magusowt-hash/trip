@@ -125,21 +125,24 @@ export default function RailCanvas({ mapInstance, routes, stations, zoom }: Rail
       }
     };
 
-    let timer: ReturnType<typeof setTimeout>;
-    const scheduleDraw = () => {
-      clearTimeout(timer);
-      timer = setTimeout(draw, 16);
+    let rafId = 0;
+    let lastCenter = '';
+    const loop = () => {
+      const c = map.getCenter();
+      const key = `zoom${map.getZoom()}-${c.lng.toFixed(3)}-${c.lat.toFixed(3)}`;
+      if (key !== lastCenter) {
+        lastCenter = key;
+        draw();
+      }
+      rafId = requestAnimationFrame(loop);
     };
 
     resize();
-    map.on('zoomend', scheduleDraw);
-    map.on('moveend', scheduleDraw);
+    rafId = requestAnimationFrame(loop);
     window.addEventListener('resize', resize);
 
     return () => {
-      clearTimeout(timer);
-      map.off('zoomend', scheduleDraw);
-      map.off('moveend', scheduleDraw);
+      cancelAnimationFrame(rafId);
       window.removeEventListener('resize', resize);
       if (canvasRef.current && canvasRef.current.parentElement) {
         canvasRef.current.parentElement.removeChild(canvasRef.current);
