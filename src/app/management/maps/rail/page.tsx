@@ -322,7 +322,7 @@ export default function RailMapManagementPage() {
         <div>
           <div style={{ marginBottom: 16 }}>
             <input
-              placeholder="输入站名搜索（共 4,620 站）…"
+              placeholder={allStations.length ? `输入站名搜索（共 ${allStations.length.toLocaleString()} 站）…` : '输入站名搜索…'}
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
               style={{
@@ -523,7 +523,7 @@ const linkBtnStyle: React.CSSProperties = {
 };
 const badgeStyle = (level: string): React.CSSProperties => {
   const colors: Record<string, string> = {
-    hub: '#dc2626', major: '#d97706', local_major: '#059669', local: '#6b7280', deleted: '#9ca3af',
+    CH: '#dc2626', RK: '#d97706', GI: '#059669', AS: '#6b7280', MT: '#9ca3af', deleted: '#9ca3af',
   };
   return {
     background: (colors[level] || '#9ca3af') + '1a',
