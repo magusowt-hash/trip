@@ -310,8 +310,56 @@ try:
 except:
     pass
 
+# ─── 多维计分体系 ──────────────────────────────────────────
+RAIL_HUB_CITIES = {
+    '徐州','株洲','柳州','洛阳','宝鸡','怀化','蚌埠','襄阳','鹰潭','衡阳',
+    '大同','阜阳','商丘','新乡','向塘','安康','黎塘','山海关',
+}
+HUB_SUFFIXES = ('东','西','南','北','虹桥','白云','双流','机场','新塘')
+
+def compute_score(name, city, city_count):
+    """多维计分，返回 (总分, 级别)"""
+    s = 0
+    # 维度1: 城市行政等级 0-30
+    if city in MAJOR_CITIES:        s += 30
+    elif city_count >= 5:           s += 15
+    else:                           s += 5
+    
+    # 维度2: 同城站点密度 0-25（省会 cap=25，地级 cap=15）
+    cap = 25 if city in MAJOR_CITIES else 15
+    if city_count >= 15:        v = cap
+    elif city_count >= 10:      v = min(cap, 20)
+    elif city_count >= 6:       v = min(cap, 15)
+    elif city_count >= 3:       v = 10
+    elif city_count >= 2:       v = 5
+    else:                       v = 0
+    s += v
+    
+    # 维度3: 站名枢纽特征 0-25
+    clean_nm = name.replace('站','').replace('火车站','').strip()
+    if clean_nm == city:            s += 25
+    elif any(clean_nm.endswith(sx) and clean_nm[:-len(sx)] == city 
+             for sx in HUB_SUFFIXES if len(clean_nm) > len(sx)):
+                                    s += 20
+    elif city in clean_nm and len(city) >= 2:
+                                    s += 15
+    
+    # 维度4: 铁路枢纽城市 0-10
+    if city in RAIL_HUB_CITIES and clean_nm == city:
+                                    s += 10
+    
+    # 维度5: 线路等级 0-15（主干线15/区域干线10/城际5/支线0，预留）
+    s += 0
+    
+    # 判定级别
+    if s >= 70:     return s, 'CH'
+    elif s >= 55:   return s, 'RK'
+    elif s >= 35:   return s, 'GI'
+    elif s >= 15:   return s, 'AS'
+    else:           return s, 'MT'
+
 def station_classify(name, name_en):
-    # 手动升级（promoted_stations.json 优先）
+    # promoted 手动配置优先
     for pname, plevel in PROMOTED.items():
         if pname == name or pname in name:
             if plevel in ('CH','RK','GI','AS','MT'):
@@ -321,27 +369,10 @@ def station_classify(name, name_en):
             if plevel == 'local_major': return 'GI'
     
     clean = name.replace('站','').replace('火车站','').strip()
-    
-    # 维度一：同城站点密度分级
     city = NAME_TO_CITY.get(clean, clean)
     city_count = CITY_STATION_COUNT.get(city, 1)
-    
-    # 站名是否匹配省会（"北京"+"北京南"等，但不包含"一面坡"）
-    is_major_station = (clean == city and city in MAJOR_CITIES) or \
-        any(clean.endswith(sfx) and clean[:-len(sfx)] in MAJOR_CITIES 
-            for sfx in ('东','西','南','北'))
-    
-    if is_major_station and city_count >= 5:
-        return 'CH'
-    if city_count >= 15:
-        return 'RK'
-    if is_major_station and city_count >= 3:
-        return 'RK'
-    if city_count >= 5:
-        return 'GI'
-    if city_count >= 2:
-        return 'AS'
-    return 'MT'
+    _, level = compute_score(name, city, city_count)
+    return level
 
 stations = []
 for feat in sdata['features']:
@@ -378,13 +409,23 @@ for feat in sdata['features']:
     if any(kw in name for kw in ('货','编组','驼峰','车辆段','机务段','折返段')):
         continue
     
-    level = station_classify(name, props.get('name:en', ''))
+    city = NAME_TO_CITY.get(clean_name, clean_name)
+    city_count = CITY_STATION_COUNT.get(city, 1)
+    score, level = compute_score(name, city, city_count)
+    # promoted 覆盖
+    for pname, plevel in PROMOTED.items():
+        if pname == name or pname in name:
+            if plevel in ('CH','RK','GI','AS','MT'):
+                level = plevel
+                break
     
     stations.append({
         'name': clean_name,
-        'lng': gcj[0],
-        'lat': gcj[1],
+        'lng': round(gcj[0], 5),
+        'lat': round(gcj[1], 5),
         'level': level,
+        'score': score,
+        'dev_index': 1.0,   # 平台发展指数，初始100%
     })
 
 print(f"Stations: {len(stations)}")
