@@ -30,8 +30,7 @@ export async function GET(request: NextRequest) {
   if (authError) return authError;
 
   try {
-    const { searchParams } = new URL(request.url);
-    const q = (searchParams.get('q') || '').trim();
+    const q = (request.nextUrl.searchParams.get('q') || '').trim();
     
     let list;
     if (q) {

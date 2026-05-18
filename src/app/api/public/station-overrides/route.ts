@@ -15,16 +15,11 @@ export async function GET() {
       })
       .from(stationOverrides);
 
-    // 仅返回非 deleted 的覆盖（deleted 站用 level_override === 'deleted' 标记）
-    const filtered = rows.filter(
-      (r) => r.levelOverride !== 'deleted'
-    );
-
     return NextResponse.json(
-      filtered,
+      rows,
       {
         headers: {
-          'Cache-Control': 'public, max-age=300',
+          'Cache-Control': 'public, max-age=0, must-revalidate',
         },
       }
     );

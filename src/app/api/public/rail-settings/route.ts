@@ -12,13 +12,13 @@ export async function GET() {
     if (rows.length === 0) {
       return NextResponse.json(
         { settings: null },
-        { headers: { 'Cache-Control': 'public, max-age=300' } }
+        { headers: { 'Cache-Control': 'public, max-age=0, must-revalidate' } }
       );
     }
 
     return NextResponse.json(
       { settings: rows[0] },
-      { headers: { 'Cache-Control': 'public, max-age=300' } }
+      { headers: { 'Cache-Control': 'public, max-age=0, must-revalidate' } }
     );
   } catch (error: any) {
     console.error('Public rail-settings error:', error);

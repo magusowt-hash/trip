@@ -35,6 +35,14 @@ interface StationOverride {
   displayLevel: string | null;
 }
 
+interface RailStation {
+  name: string;
+  lng: number;
+  lat: number;
+  level: string;
+  'name:en'?: string;
+}
+
 const DEFAULTS: RailSettings = {
   localMajorShowZoom: '8.0', localMajorFadeStart: '7.0',
   localShowZoom: '9.0', localFadeStart: '8.0',
@@ -60,11 +68,28 @@ export default function RailMapManagementPage() {
   const [msg, setMsg] = useState('');
 
   // 站点管理
+  const [allStations, setAllStations] = useState<RailStation[]>([]);
+  const [stationsLoaded, setStationsLoaded] = useState(false);
   const [overrides, setOverrides] = useState<StationOverride[]>([]);
   const [searchQ, setSearchQ] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [editItem, setEditItem] = useState<Partial<StationOverride>>({});
   const [stationsLoading, setStationsLoading] = useState(false);
+
+  // 行内编辑 —— 每行直接显示控件
+  const [rowForms, setRowForms] = useState<Record<string, { displayName: string; levelOverride: string; displayLevel: string }>>({});
+  const [savingName, setSavingName] = useState<string | null>(null);
+
+  // overrides 加载后同步到 rowForms
+  useEffect(() => {
+    const forms: Record<string, { displayName: string; levelOverride: string; displayLevel: string }> = {};
+    overrides.forEach((o) => {
+      forms[o.stationName] = {
+        displayName: o.displayName || '',
+        levelOverride: o.levelOverride || '',
+        displayLevel: o.displayLevel || '',
+      };
+    });
+    setRowForms(forms);
+  }, [overrides]);
 
   // 加载设置
   useEffect(() => {
@@ -77,17 +102,26 @@ export default function RailMapManagementPage() {
       .catch(() => setLoaded(true));
   }, []);
 
-  // 加载覆盖列表
-  const loadOverrides = (q = '') => {
-    setStationsLoading(true);
-    fetch(`/api/admin/station-overrides?q=${encodeURIComponent(q)}`, { headers })
+  // 加载车站数据 JSON（与前台界面检索一致）
+  useEffect(() => {
+    if (tab !== 'stations' || stationsLoaded) return;
+    fetch('/data/stations.json')
       .then((r) => r.json())
-      .then((d) => setOverrides(d.list || []))
+      .then((d) => { setAllStations(d.stations || []); setStationsLoaded(true); })
+      .catch(() => setStationsLoaded(true));
+  }, [tab, stationsLoaded]);
+
+  // 加载全部覆盖列表
+  const loadOverrides = () => {
+    setStationsLoading(true);
+    fetch('/api/admin/station-overrides', { headers })
+      .then((r) => r.json())
+      .then((d) => { setOverrides(d.list || []); })
       .finally(() => setStationsLoading(false));
   };
 
   useEffect(() => {
-    if (tab === 'stations') loadOverrides(searchQ);
+    if (tab === 'stations') loadOverrides();
   }, [tab]);
 
   const handleSave = async () => {
@@ -113,26 +147,30 @@ export default function RailMapManagementPage() {
     setSettings({ ...DEFAULTS });
   };
 
-  const openEdit = (item?: StationOverride) => {
-    setEditItem(item ? { ...item } : { stationName: '', displayName: '', levelOverride: '', displayLevel: '' });
-    setShowModal(true);
+  const updateRowForm = (name: string, patch: Partial<{ displayName: string; levelOverride: string; displayLevel: string }>) => {
+    setRowForms((prev) => ({
+      ...prev,
+      [name]: { ...(prev[name] || { displayName: '', levelOverride: '', displayLevel: '' }), ...patch },
+    }));
   };
 
-  const handleOverrideSave = async () => {
-    if (!editItem.stationName?.trim()) return;
+  const handleRowSave = async (stationName: string) => {
+    const form = rowForms[stationName] || { displayName: '', levelOverride: '', displayLevel: '' };
+    if (!stationName.trim()) return;
+    setSavingName(stationName);
     try {
       const res = await fetch('/api/admin/station-overrides', {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(editItem),
+        body: JSON.stringify({ stationName, ...form }),
       });
       const data = await res.json();
       if (data.success) {
-        setShowModal(false);
-        loadOverrides(searchQ);
+        loadOverrides();
         setMsg('✅ 覆盖已保存');
       }
     } catch { setMsg('❌ 保存失败'); }
+    finally { setSavingName(null); }
   };
 
   const handleOverrideDelete = async (name: string) => {
@@ -141,7 +179,7 @@ export default function RailMapManagementPage() {
       await fetch(`/api/admin/station-overrides/${encodeURIComponent(name)}`, {
         method: 'DELETE', headers,
       });
-      loadOverrides(searchQ);
+      loadOverrides();
       setMsg('✅ 已删除');
     } catch { setMsg('❌ 删除失败'); }
   };
@@ -283,111 +321,184 @@ export default function RailMapManagementPage() {
       {/* ─── Tab 2: 站点管理 ───────────────────── */}
       {tab === 'stations' && (
         <div>
-          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+          <div style={{ marginBottom: 16 }}>
             <input
-              placeholder="搜索站名..."
+              placeholder="输入站名搜索（共 4,620 站）…"
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && loadOverrides(searchQ)}
               style={{
-                flex: 1, padding: '6px 12px', border: '1px solid #d1d5db',
-                borderRadius: 6, fontSize: 13,
+                width: '100%', padding: '6px 12px', border: '1px solid #d1d5db',
+                borderRadius: 6, fontSize: 13, boxSizing: 'border-box',
               }}
             />
-            <button onClick={() => loadOverrides(searchQ)} style={btnStyle('#f3f4f6', '#374151')}>搜索</button>
-            <button onClick={() => openEdit()} style={btnStyle('#2563eb', '#fff')}>+ 新增覆盖</button>
           </div>
+
+          {!stationsLoaded ? (
+            <div style={{ padding: 24, textAlign: 'center', color: '#9ca3af' }}>加载车站数据中...</div>
+          ) : searchQ.trim() ? (
+            (() => {
+              const q = searchQ.trim().toLowerCase();
+              const matches = allStations
+                .filter((s) => s.name && s.name.toLowerCase().includes(q))
+                .slice(0, 50);
+
+              if (matches.length === 0) {
+                return <div style={{ padding: 16, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>未找到匹配站点</div>;
+              }
+
+              return (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+                    找到 {matches.length} 个站点（{allStations.length.toLocaleString()} 站中匹配）
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {matches.map((st) => {
+                      const name = st.name;
+                      const form = rowForms[name] || { displayName: '', levelOverride: '', displayLevel: '' };
+                      const hasOv = form.levelOverride || form.displayName || form.displayLevel;
+                      return (
+                        <div
+                          key={name}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            padding: '5px 8px', border: '1px solid #e5e7eb', borderRadius: 6,
+                            background: hasOv ? '#f0fdf4' : '#fff',
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <span style={{ fontWeight: 500, fontSize: 13, minWidth: 90 }}>{name}</span>
+                          <span style={badgeStyle(st.level)}>{levelLabels[st.level] || st.level}</span>
+                          {st['name:en'] && (
+                            <span style={{ fontSize: 10, color: '#9ca3af', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{st['name:en']}</span>
+                          )}
+                          <span style={{ flex: 1, minWidth: 4 }} />
+                          <input
+                            placeholder="显示名"
+                            value={form.displayName}
+                            onChange={(e) => updateRowForm(name, { displayName: e.target.value })}
+                            style={{ width: 70, padding: '3px 5px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }}
+                          />
+                          <select
+                            value={form.levelOverride}
+                            onChange={(e) => updateRowForm(name, { levelOverride: e.target.value })}
+                            style={{ width: 72, padding: '3px 2px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }}
+                          >
+                            <option value="">级别</option>
+                            <option value="hub">枢纽</option>
+                            <option value="major">地级</option>
+                            <option value="local_major">县级</option>
+                            <option value="local">其他</option>
+                            <option value="deleted">删除</option>
+                          </select>
+                          <select
+                            value={form.displayLevel}
+                            onChange={(e) => updateRowForm(name, { displayLevel: e.target.value })}
+                            style={{ width: 72, padding: '3px 2px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }}
+                          >
+                            <option value="">显示级</option>
+                            <option value="hub">枢纽</option>
+                            <option value="major">地级</option>
+                            <option value="local_major">县级</option>
+                            <option value="local">其他</option>
+                          </select>
+                          <button
+                            onClick={() => handleRowSave(name)}
+                            disabled={savingName === name}
+                            style={{ padding: '3px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >
+                            {savingName === name ? '...' : '保存'}
+                          </button>
+                          {hasOv && (
+                            <button
+                              onClick={() => handleOverrideDelete(name)}
+                              style={{ ...linkBtnStyle, color: '#dc2626', fontSize: 11, whiteSpace: 'nowrap' }}
+                            >
+                              删
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()
+          ) : null}
+
+          {/* ── 已有覆盖列表 ───────────────────── */}
+          <h3 style={{ fontSize: 14, fontWeight: 600, color: '#374151', margin: '24px 0 12px' }}>
+            已有覆盖 ({overrides.length})
+          </h3>
 
           {stationsLoading ? (
             <div style={{ padding: 24, textAlign: 'center', color: '#9ca3af' }}>加载中...</div>
           ) : overrides.length === 0 ? (
             <div style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
-              {searchQ ? '无匹配记录' : '暂无自定义覆盖，点击「新增覆盖」添加'}
+              暂无自定义覆盖，在上方搜索站名来添加
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #e5e7eb', textAlign: 'left' }}>
-                  <th style={thStyle}>站名</th>
-                  <th style={thStyle}>覆盖名</th>
-                  <th style={thStyle}>级别覆盖</th>
-                  <th style={thStyle}>显示级别</th>
-                  <th style={thStyle}>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overrides.map((row) => (
-                  <tr key={row.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td style={tdStyle}>{row.stationName}</td>
-                    <td style={tdStyle}>{row.displayName || '-'}</td>
-                    <td style={tdStyle}>
-                      {row.levelOverride ? <span style={badgeStyle(row.levelOverride)}>{levelLabels[row.levelOverride] || row.levelOverride}</span> : '-'}
-                    </td>
-                    <td style={tdStyle}>
-                      {row.displayLevel ? <span style={badgeStyle(row.displayLevel)}>{levelLabels[row.displayLevel] || row.displayLevel}</span> : '-'}
-                    </td>
-                    <td style={tdStyle}>
-                      <button onClick={() => openEdit(row)} style={linkBtnStyle}>编辑</button>
-                      <button onClick={() => handleOverrideDelete(row.stationName)} style={{ ...linkBtnStyle, color: '#dc2626' }}>删除</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {overrides.map((row) => {
+                const name = row.stationName;
+                const form = rowForms[name] || { displayName: row.displayName || '', levelOverride: row.levelOverride || '', displayLevel: row.displayLevel || '' };
+                return (
+                  <div
+                    key={row.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '5px 8px', border: '1px solid #e5e7eb', borderRadius: 6,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span style={{ fontWeight: 500, fontSize: 13, minWidth: 90 }}>{name}</span>
+                    <input
+                      placeholder="显示名"
+                      value={form.displayName}
+                      onChange={(e) => updateRowForm(name, { displayName: e.target.value })}
+                      style={{ width: 80, padding: '3px 5px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }}
+                    />
+                    <select
+                      value={form.levelOverride}
+                      onChange={(e) => updateRowForm(name, { levelOverride: e.target.value })}
+                      style={{ width: 72, padding: '3px 2px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }}
+                    >
+                      <option value="">级别</option>
+                      <option value="hub">枢纽</option>
+                      <option value="major">地级</option>
+                      <option value="local_major">县级</option>
+                      <option value="local">其他</option>
+                      <option value="deleted">删除</option>
+                    </select>
+                    <select
+                      value={form.displayLevel}
+                      onChange={(e) => updateRowForm(name, { displayLevel: e.target.value })}
+                      style={{ width: 72, padding: '3px 2px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }}
+                    >
+                      <option value="">显示级</option>
+                      <option value="hub">枢纽</option>
+                      <option value="major">地级</option>
+                      <option value="local_major">县级</option>
+                      <option value="local">其他</option>
+                    </select>
+                    <span style={{ flex: 1, minWidth: 4 }} />
+                    <button
+                      onClick={() => handleRowSave(name)}
+                      disabled={savingName === name}
+                      style={{ padding: '3px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+                    >
+                      {savingName === name ? '...' : '保存'}
+                    </button>
+                    <button
+                      onClick={() => handleOverrideDelete(name)}
+                      style={{ ...linkBtnStyle, color: '#dc2626', fontSize: 11 }}
+                    >
+                      删
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           )}
-        </div>
-      )}
-
-      {/* ─── Edit Modal ────────────────────────── */}
-      {showModal && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 100,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={() => setShowModal(false)}>
-          <div style={{
-            background: '#fff', borderRadius: 10, padding: 24, width: 400, maxHeight: '80vh', overflow: 'auto',
-          }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 600 }}>
-              {editItem.id ? '编辑覆盖' : '新增覆盖'}
-            </h3>
-            <div style={gridStyle}>
-              {input('站名 *', editItem.stationName || '', (v) => setEditItem({ ...editItem, stationName: v }))}
-              {input('覆盖显示名', editItem.displayName || '', (v) => setEditItem({ ...editItem, displayName: v }))}
-            </div>
-            <div style={{ marginTop: 12 }}>
-              <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>级别覆盖</label>
-              <select
-                value={editItem.levelOverride || ''}
-                onChange={(e) => setEditItem({ ...editItem, levelOverride: e.target.value })}
-                style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 13 }}
-              >
-                <option value="">不覆盖</option>
-                <option value="hub">枢纽</option>
-                <option value="major">地级</option>
-                <option value="local_major">县级</option>
-                <option value="local">其他</option>
-                <option value="deleted">删除</option>
-              </select>
-            </div>
-            <div style={{ marginTop: 12 }}>
-              <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>显示级别（类调整）</label>
-              <select
-                value={editItem.displayLevel || ''}
-                onChange={(e) => setEditItem({ ...editItem, displayLevel: e.target.value })}
-                style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 13 }}
-              >
-                <option value="">不调整</option>
-                <option value="hub">枢纽</option>
-                <option value="major">地级</option>
-                <option value="local_major">县级</option>
-                <option value="local">其他</option>
-              </select>
-            </div>
-            <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowModal(false)} style={btnStyle('#f3f4f6', '#374151')}>取消</button>
-              <button onClick={handleOverrideSave} style={btnStyle('#2563eb', '#fff')}>保存</button>
-            </div>
-          </div>
         </div>
       )}
     </div>
@@ -401,8 +512,6 @@ const sectionStyle: React.CSSProperties = {
 };
 const h3Style: React.CSSProperties = { margin: '0 0 10px', fontSize: 14, fontWeight: 600, color: '#1f2937' };
 const gridStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
-const thStyle: React.CSSProperties = { padding: '8px 12px', fontWeight: 600, color: '#374151' };
-const tdStyle: React.CSSProperties = { padding: '8px 12px', color: '#4b5563' };
 const btnStyle = (bg: string, color: string): React.CSSProperties => ({
   padding: '8px 18px', background: bg, color, border: 'none',
   borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: 'pointer',

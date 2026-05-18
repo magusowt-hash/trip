@@ -69,7 +69,7 @@ export default function MapsPage() {
       .catch(() => {});
   }, [activeTab]);
 
-  // 加载中国铁路数据
+  // 加载中国铁路静态数据（仅一次）
   useEffect(() => {
     if (activeTab !== 'china-rail' || railLoaded) return;
     setRailLoaded(true);
@@ -79,11 +79,16 @@ export default function MapsPage() {
       .catch(console.error);
     fetch('/data/stations.json').then(r => r.json()).then(d => { setRailStations(d.stations); setCapitalLabels(d.capitals) })
       .catch(console.error);
+  }, [activeTab, railLoaded]);
+
+  // 每次切换到铁路 Tab 时重新拉取动态数据（覆盖 + 设置）
+  useEffect(() => {
+    if (activeTab !== 'china-rail') return;
     fetch('/api/public/rail-settings').then(r => r.json()).then(d => d.settings && setRailSettings(d.settings))
       .catch(() => {});
     fetch('/api/public/station-overrides').then(r => r.json()).then(setStationOverrides)
       .catch(() => {});
-  }, [activeTab, railLoaded]);
+  }, [activeTab]);
 
   const markers = useMemo<MapMarker[]>(
     () =>
