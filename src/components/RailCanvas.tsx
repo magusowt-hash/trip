@@ -8,27 +8,33 @@ type RailStation = { name: string; lng: number; lat: number; level: string };
 type CapitalLabel = { name: string; lng: number; lat: number };
 
 interface RailSettings {
+  // 渐显门槛
+  majorShowZoom?: string;
+  majorFadeStart?: string;
   localMajorShowZoom?: string;
   localMajorFadeStart?: string;
   localShowZoom?: string;
   localFadeStart?: string;
-  clusterRZ1?: number;
-  clusterRZ2?: number;
-  clusterRZ3?: number;
-  clusterRZ4?: number;
+  mtShowZoom?: string;
+  mtFadeStart?: string;
+  // 线路过滤
+  routeMinPointsZ1?: number;
+  routeMinPointsZ2?: number;
+  lineWidthScale?: string;
+  // 聚类 (6档)
+  clusterRZ1?: number; clusterRZ2?: number; clusterRZ3?: number;
+  clusterRZ4?: number; clusterRZ5?: number; clusterRZ6?: number;
   majorClusterRatio?: string;
-  dedupZ1?: number;
-  dedupZ2?: number;
-  dedupZ3?: number;
-  dedupZ4?: number;
-  hubRadius?: number;
-  majorRadius?: number;
-  localMajorRadius?: string;
-  localRadius?: number;
-  hubColor?: string;
-  majorColor?: string;
-  localMajorColor?: string;
-  localColor?: string;
+  // 去重 (6档)
+  dedupZ1?: number; dedupZ2?: number; dedupZ3?: number;
+  dedupZ4?: number; dedupZ5?: number; dedupZ6?: number;
+  // 圆点
+  hubRadius?: number; majorRadius?: number;
+  localMajorRadius?: string; localRadius?: string; mtRadius?: string;
+  dotScalePerZoom?: string;
+  // 颜色
+  hubColor?: string; majorColor?: string;
+  localMajorColor?: string; localColor?: string; mtColor?: string;
 }
 
 interface StationOverride {
@@ -74,23 +80,78 @@ export default function RailCanvas({ mapInstance, routes, stations, capitals, zo
       draw();
     };
 
-const HUB_CITY_MAP = {
-  '北京':'北京','北京西':'北京','北京南':'北京','北京北':'北京','北京朝阳':'北京','北京丰台':'北京','丰台':'北京','丰台西':'北京',
-  '上海':'上海','上海虹桥':'上海','上海南':'上海',
-  '广州':'广州','广州南':'广州','深圳北':'深圳',
-  '郑州':'郑州','郑州东':'郑州','郑州北':'郑州','圃田西':'郑州',
-  '武汉':'武汉','汉口':'武汉','武昌':'武汉',
-  '成都':'成都','成都东':'成都','重庆西':'重庆','重庆北':'重庆',
-  '西安':'西安','西安北':'西安',
-  '沈阳':'沈阳','沈阳北':'沈阳','苏家屯':'沈阳','裕国':'沈阳',
-  '哈尔滨':'哈尔滨','哈尔滨西':'哈尔滨',
-  '济南':'济南','济南西':'济南','兰州':'兰州','兰州西':'兰州',
-  '太原':'太原','南昌':'南昌','福州':'福州','南宁':'南宁','呼和浩特':'呼和浩特',
-  '昆明南':'昆明','杭州东':'杭州','南京南':'南京','合肥南':'合肥','长沙南':'长沙',
-  '贵阳':'贵阳','石家庄':'石家庄','天津':'天津','青岛':'青岛','乌鲁木齐':'乌鲁木齐',
-  '长春':'长春','齐齐哈尔':'齐齐哈尔','牡丹江':'牡丹江','佳木斯':'佳木斯',
-  '大同':'大同','厦门北':'厦门','柳州':'柳州','徐州':'徐州','苏州':'苏州',
-  '株洲':'株洲','衡阳':'衡阳','襄阳':'襄阳','山海关':'山海关','南仓':'天津',
+const HUB_CITY_MAP: Record<string, string> = {
+  // 北京枢纽
+  '北京':'北京','北京东':'北京','北京丰台':'北京','北京北':'北京','北京南':'北京',
+  '北京大兴':'北京','北京朝阳':'北京','北京西':'北京','北京通州':'北京',
+  '丰台':'北京','丰台西':'北京',
+  // 上海枢纽
+  '上海':'上海','上海虹桥':'上海','上海南':'上海','上海西':'上海','上海松江':'上海',
+  // 广州枢纽
+  '广州':'广州','广州东':'广州','广州北':'广州','广州南':'广州',
+  '广州大学城':'广州','广州新塘':'广州','广州白云':'广州',
+  '广州莲花山':'广州','广州长隆':'广州',
+  // 深圳枢纽
+  '深圳':'深圳','深圳东':'深圳','深圳北':'深圳','深圳机场':'深圳',
+  '深圳坪山':'深圳','深圳机场北':'深圳',
+  // 成都枢纽
+  '成都':'成都','成都东':'成都','成都南':'成都','成都西':'成都',
+  // 重庆枢纽
+  '重庆':'重庆','重庆东':'重庆','重庆北':'重庆','重庆南':'重庆','重庆西':'重庆',
+  // 武汉枢纽
+  '武汉':'武汉','武汉东':'武汉','汉口':'武汉','武昌':'武汉',
+  // 杭州枢纽
+  '杭州':'杭州','杭州东':'杭州','杭州南':'杭州','杭州西':'杭州',
+  // 西安枢纽
+  '西安':'西安','西安北':'西安','西安西':'西安',
+  // 郑州枢纽
+  '郑州':'郑州','郑州东':'郑州','郑州航空港':'郑州','郑州西':'郑州','圃田西':'郑州',
+  // 南京枢纽
+  '南京':'南京','南京南':'南京',
+  // 天津枢纽
+  '天津':'天津','天津北':'天津','天津南':'天津','天津西':'天津','南仓':'天津',
+  // 长沙枢纽
+  '长沙':'长沙','长沙南':'长沙','长沙西':'长沙',
+  // 福州枢纽
+  '福州':'福州','福州南':'福州',
+  // 合肥枢纽
+  '合肥':'合肥','合肥北城':'合肥','合肥南':'合肥','合肥西':'合肥',
+  // 南昌枢纽
+  '南昌':'南昌','南昌东':'南昌','南昌南':'南昌','南昌西':'南昌',
+  // 沈阳枢纽
+  '沈阳':'沈阳','沈阳东':'沈阳','沈阳北':'沈阳','沈阳南':'沈阳','沈阳西':'沈阳',
+  '苏家屯':'沈阳','裕国':'沈阳',
+  // 大连枢纽
+  '大连':'大连','大连北':'大连','大连西':'大连',
+  // 昆明枢纽
+  '昆明':'昆明','昆明南':'昆明',
+  // 贵阳枢纽
+  '贵阳':'贵阳','贵阳东':'贵阳','贵阳北':'贵阳',
+  // 南宁枢纽
+  '南宁':'南宁','南宁东':'南宁','南宁北':'南宁','南宁西':'南宁',
+  // 海口枢纽
+  '海口':'海口','海口东':'海口',
+  // 兰州枢纽
+  '兰州':'兰州','兰州东':'兰州','兰州新区':'兰州','兰州西':'兰州',
+  // 太原枢纽
+  '太原':'太原','太原东':'太原','太原南':'太原',
+  // 石家庄枢纽
+  '石家庄':'石家庄','石家庄东':'石家庄','石家庄北':'石家庄',
+  // 济南枢纽
+  '济南':'济南','济南东':'济南','济南西':'济南',
+  // 青岛枢纽
+  '青岛':'青岛','青岛北':'青岛','青岛机场':'青岛','青岛西':'青岛',
+  // 哈尔滨枢纽
+  '哈尔滨':'哈尔滨','哈尔滨东':'哈尔滨','哈尔滨北':'哈尔滨','哈尔滨西':'哈尔滨',
+  // 长春枢纽
+  '长春':'长春','长春南':'长春','长春西':'长春',
+  // 其他枢纽城市
+  '厦门北':'厦门','大同':'大同','柳州':'柳州','徐州':'徐州','苏州':'苏州',
+  '株洲':'株洲','衡阳':'衡阳','襄阳':'襄阳','山海关':'山海关',
+  '齐齐哈尔':'齐齐哈尔','牡丹江':'牡丹江','佳木斯':'佳木斯',
+  '呼和浩特':'呼和浩特','呼和浩特东':'呼和浩特',
+  '乌鲁木齐':'乌鲁木齐','乌鲁木齐南':'乌鲁木齐',
+  '拉萨':'拉萨','西宁':'西宁','银川':'银川',
   '广元':'广元','广元西':'广元','广元南':'广元',
 };
 
@@ -107,15 +168,23 @@ const HUB_CITY_MAP = {
       const ne = bounds.getNorthEast();
       const margin = 0.5;
 
-      // zoom 分层：小 zoom 减少线条密度
+      const s = settings;
+
+      // zoom 分层：小 zoom 减少线条密度（可配置）
+      const minPtsZ1 = s?.routeMinPointsZ1 ?? 5;
+      const minPtsZ2 = s?.routeMinPointsZ2 ?? 3;
       let filtered: RailRoute[];
       if (zoom < 6) {
-        filtered = routes.filter((r) => r.p.length >= 5);
+        filtered = routes.filter((r) => r.p.length >= minPtsZ1);
       } else if (zoom < 8) {
-        filtered = routes.filter((r) => r.p.length >= 3);
+        filtered = routes.filter((r) => r.p.length >= minPtsZ2);
       } else {
         filtered = routes;
       }
+
+      // 线宽随 zoom 缩放：zoom 越大线越细
+      const lwScale = parseFloat(s?.lineWidthScale ?? '0.8');
+      const lwByZoom = zoom < 6 ? 1.2 : zoom < 10 ? 1.0 : 0.8;
 
       for (const route of filtered) {
         const coords = route.p;
@@ -137,7 +206,7 @@ const HUB_CITY_MAP = {
 
         ctx.beginPath();
         ctx.strokeStyle = route.c;
-        ctx.lineWidth = Math.max(0.5, route.w * 0.8);
+        ctx.lineWidth = Math.max(0.3, route.w * lwScale * lwByZoom);
         ctx.lineCap = 'butt';
         ctx.lineJoin = 'miter';
 
@@ -181,10 +250,22 @@ const HUB_CITY_MAP = {
           visible.push({ st: effective, x: pt.x, y: pt.y, displayLevel });
         }
 
-        // 2. 像素距离聚类阈值 — zoom 越小阈值越大，合并越激进
-        const s = settings;
-        const clusterR = zoom < 6 ? (s?.clusterRZ1 ?? 40) : zoom < 8 ? (s?.clusterRZ2 ?? 28) : zoom < 10 ? (s?.clusterRZ3 ?? 18) : (s?.clusterRZ4 ?? 10);
-        const dedupCell = zoom < 6 ? (s?.dedupZ1 ?? 36) : zoom < 8 ? (s?.dedupZ2 ?? 24) : zoom < 10 ? (s?.dedupZ3 ?? 16) : (s?.dedupZ4 ?? 12);
+        // 2. 聚类/去重阈值 — 6档线性插值，消除跳变
+        const lerp = (a: number, b: number, t: number) => a + (b - a) * Math.max(0, Math.min(1, t));
+        const zVals = [s?.clusterRZ1 ?? 44, s?.clusterRZ2 ?? 32, s?.clusterRZ3 ?? 22, s?.clusterRZ4 ?? 14, s?.clusterRZ5 ?? 8, s?.clusterRZ6 ?? 4];
+        const dVals = [s?.dedupZ1 ?? 40, s?.dedupZ2 ?? 28, s?.dedupZ3 ?? 20, s?.dedupZ4 ?? 14, s?.dedupZ5 ?? 10, s?.dedupZ6 ?? 6];
+        const breaks = [5, 7, 9, 11, 13]; // 分界点
+        let clusterR: number, dedupCell: number;
+        if (zoom < breaks[0])      { clusterR = lerp(zVals[0], zVals[1], (zoom - (breaks[0]-1)) / 1); dedupCell = lerp(dVals[0], dVals[1], (zoom - (breaks[0]-1)) / 1); }
+        else if (zoom < breaks[1]) { clusterR = lerp(zVals[1], zVals[2], (zoom - breaks[0]) / 2); dedupCell = lerp(dVals[1], dVals[2], (zoom - breaks[0]) / 2); }
+        else if (zoom < breaks[2]) { clusterR = lerp(zVals[2], zVals[3], (zoom - breaks[1]) / 2); dedupCell = lerp(dVals[2], dVals[3], (zoom - breaks[1]) / 2); }
+        else if (zoom < breaks[3]) { clusterR = lerp(zVals[3], zVals[4], (zoom - breaks[2]) / 2); dedupCell = lerp(dVals[3], dVals[4], (zoom - breaks[2]) / 2); }
+        else if (zoom < breaks[4]) { clusterR = lerp(zVals[4], zVals[5], (zoom - breaks[3]) / 2); dedupCell = lerp(dVals[4], dVals[5], (zoom - breaks[3]) / 2); }
+        else                       { clusterR = zVals[5]; dedupCell = dVals[5]; }
+
+        // 圆点大小随 zoom 缩放
+        const dspz = parseFloat(s?.dotScalePerZoom ?? '0.06');
+        const dotScale = 1 + (zoom - 5) * dspz;
 
         // 3. 对 hub 站做空间聚类，相近特等站合并为一个 marker
         const hubs = visible.filter(v => v.st.level === 'CH');
@@ -234,8 +315,8 @@ const HUB_CITY_MAP = {
           majorClusters.push({ x: cx, y: cy, name, count: group.length });
         }
 
-        // 4. 绘制 hub 聚类 marker + major 聚类
-        const hubR = s?.hubRadius ?? 5;
+        // 4. 绘制 hub 聚类 marker + major 聚类（半径随 zoom 缩放）
+        const hubR = (s?.hubRadius ?? 5) * dotScale;
         const hubCol = s?.hubColor ?? '#dc2626';
         for (const hc of hubClusters) {
           ctx.beginPath();
@@ -246,7 +327,7 @@ const HUB_CITY_MAP = {
           ctx.arc(hc.x, hc.y, hubR * 0.7, 0, Math.PI * 2);
           ctx.fill();
         }
-        const majorR = s?.majorRadius ?? 4;
+        const majorR = (s?.majorRadius ?? 4) * dotScale;
         const majorCol = s?.majorColor ?? '#f59e0b';
         for (const mc of majorClusters) {
           ctx.beginPath();
@@ -258,27 +339,43 @@ const HUB_CITY_MAP = {
           ctx.fill();
         }
 
-        // 5. 绘制其余站点 — 自适应网格去重，不再按等级过滤
+        // 5. 绘制其余站点 — 自适应网格去重，支持 RK/GI/AS/MT 渐显
         const dotDrawn = new Set<string>();
-        const lmShowZoom = parseFloat(s?.localMajorShowZoom ?? '8');
-        const lmFadeStart = parseFloat(s?.localMajorFadeStart ?? '7');
-        const lShowZoom = parseFloat(s?.localShowZoom ?? '9');
-        const lFadeStart = parseFloat(s?.localFadeStart ?? '8');
-        const lmRadius = parseFloat(s?.localMajorRadius ?? '2.5');
-        const lRadius = s?.localRadius ?? 2;
-        const lmColor = s?.localMajorColor ?? '#10b981';
-        const lColor = s?.localColor ?? '#9ca3af';
+        const mjShowZ = parseFloat(s?.majorShowZoom ?? '5');
+        const mjFadeS = parseFloat(s?.majorFadeStart ?? '4');
+        const lmShowZ = parseFloat(s?.localMajorShowZoom ?? '8');
+        const lmFadeS = parseFloat(s?.localMajorFadeStart ?? '7');
+        const lShowZ  = parseFloat(s?.localShowZoom ?? '9');
+        const lFadeS  = parseFloat(s?.localFadeStart ?? '8');
+        const mtShowZ = parseFloat(s?.mtShowZoom ?? '11');
+        const mtFadeS = parseFloat(s?.mtFadeStart ?? '10');
+        const lmR = parseFloat(s?.localMajorRadius ?? '2.5') * dotScale;
+        const lR  = parseFloat(s?.localRadius ?? '2') * dotScale;
+        const mtR = parseFloat(s?.mtRadius ?? '1.5') * dotScale;
+        const lmC = s?.localMajorColor ?? '#10b981';
+        const lC  = s?.localColor ?? '#9ca3af';
+        const mtC = s?.mtColor ?? '#d1d5db';
+
+        const fadeAlpha = (showZ: number, fadeS: number) => {
+          if (fadeS >= showZ) return 1;
+          return Math.max(0, Math.min(1, (zoom - fadeS) / (showZ - fadeS)));
+        };
+
         for (const { st, x, y, displayLevel } of visible) {
           if (st.level === 'CH') continue;
           if (st.level === 'RK') continue;
-          let alpha = 1;
-          if (displayLevel === 'GI') {
-            alpha = Math.max(0, Math.min(1, (zoom - lmFadeStart) / (lmShowZoom - lmFadeStart)));
-            if (alpha <= 0) continue;
-          } else if (displayLevel === 'AS') {
-            alpha = Math.max(0, Math.min(1, (zoom - lFadeStart) / (lShowZoom - lFadeStart)));
-            if (alpha <= 0) continue;
+          let alpha = 1, r: number, color: string;
+          switch (displayLevel) {
+            case 'GI':
+              alpha = fadeAlpha(lmShowZ, lmFadeS); r = lmR; color = lmC; break;
+            case 'AS':
+              alpha = fadeAlpha(lShowZ, lFadeS); r = lR; color = lC; break;
+            case 'MT':
+              alpha = fadeAlpha(mtShowZ, mtFadeS); r = mtR; color = mtC; break;
+            default:
+              r = lR; color = lC;
           }
+          if (alpha <= 0) continue;
           const key = `${Math.round(x / dedupCell)},${Math.round(y / dedupCell)}`;
           if (dotDrawn.has(key)) continue;
           dotDrawn.add(key);
@@ -287,9 +384,6 @@ const HUB_CITY_MAP = {
             ctx.save();
             ctx.globalAlpha = alpha;
           }
-          const r = displayLevel === 'GI' ? lmRadius : lRadius;
-          const color = displayLevel === 'GI' ? lmColor : lColor;
-
           ctx.beginPath();
           ctx.arc(x, y, r, 0, Math.PI * 2);
           ctx.fillStyle = '#fff';
@@ -300,17 +394,23 @@ const HUB_CITY_MAP = {
           if (alpha < 1) ctx.restore();
         }
 
-        // 6. 站点名称 — hub 聚类显示城市名，其余自适应去重
+        // 6. 站点名称 — hub/major 聚类显示城市名，其余自适应去重
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
         const nameDrawn = new Set<string>();
+        // 字号随 zoom 调整
+        const fontByZoom = zoom < 6 ? '8px' : zoom < 10 ? '10px' : '12px';
+        const fontSmall = zoom < 6 ? '7px' : zoom < 10 ? '9px' : '11px';
+
+        // major 渐显 alpha（用于聚类标签）
+        const mjAlpha = fadeAlpha(mjShowZ, mjFadeS);
 
         // hub 聚类名称
         for (const hc of hubClusters) {
           const nk = `${Math.round(hc.x / dedupCell)},${Math.round(hc.y / dedupCell)}`;
           if (nameDrawn.has(nk)) continue;
           nameDrawn.add(nk);
-          ctx.font = 'bold 10px sans-serif';
+          ctx.font = `bold ${fontByZoom} sans-serif`;
           ctx.fillStyle = '#1f2937';
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 2;
@@ -319,31 +419,36 @@ const HUB_CITY_MAP = {
           ctx.fillText(label, hc.x, hc.y - 7);
         }
 
-        // major 聚类名称
+        // major 聚类名称（带渐隐）
         for (const mc of majorClusters) {
           const nk = `${Math.round(mc.x / dedupCell)},${Math.round(mc.y / dedupCell)}`;
           if (nameDrawn.has(nk)) continue;
           nameDrawn.add(nk);
-          ctx.font = 'bold 10px sans-serif';
+          if (mjAlpha < 1) {
+            ctx.save();
+            ctx.globalAlpha = mjAlpha;
+          }
+          ctx.font = `bold ${fontByZoom} sans-serif`;
           ctx.fillStyle = '#000';
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 2;
           ctx.strokeText(mc.name, mc.x, mc.y - 6);
           ctx.fillText(mc.name, mc.x, mc.y - 6);
+          if (mjAlpha < 1) ctx.restore();
         }
 
-        // 其余站点名称
+        // 其余站点名称（RK/GI/AS/MT，统一带 alpha）
         for (const { st, x, y, displayLevel } of visible) {
           if (st.level === 'CH') continue;
           if (st.level === 'RK') continue;
-          let alpha = 1;
-          if (displayLevel === 'GI') {
-            alpha = Math.max(0, Math.min(1, (zoom - lmFadeStart) / (lmShowZoom - lmFadeStart)));
-            if (alpha <= 0) continue;
-          } else if (displayLevel === 'AS') {
-            alpha = Math.max(0, Math.min(1, (zoom - lFadeStart) / (lShowZoom - lFadeStart)));
-            if (alpha <= 0) continue;
+          let alpha = 1, r: number;
+          switch (displayLevel) {
+            case 'GI': alpha = fadeAlpha(lmShowZ, lmFadeS); r = lmR; break;
+            case 'AS': alpha = fadeAlpha(lShowZ, lFadeS); r = lR; break;
+            case 'MT': alpha = fadeAlpha(mtShowZ, mtFadeS); r = mtR; break;
+            default: r = lR;
           }
+          if (alpha <= 0) continue;
           const nk = `${Math.round(x / dedupCell)},${Math.round(y / dedupCell)}`;
           if (nameDrawn.has(nk)) continue;
           nameDrawn.add(nk);
@@ -351,12 +456,11 @@ const HUB_CITY_MAP = {
             ctx.save();
             ctx.globalAlpha = alpha;
           }
-          const r = displayLevel === 'GI' ? lmRadius : lRadius;
-          if (displayLevel === 'GI') {
-            ctx.font = 'bold 10px sans-serif';
+          if (displayLevel === 'GI' || displayLevel === 'RK') {
+            ctx.font = `bold ${fontByZoom} sans-serif`;
             ctx.fillStyle = '#000';
           } else {
-            ctx.font = '9px sans-serif';
+            ctx.font = `${fontSmall} sans-serif`;
             ctx.fillStyle = '#6b7280';
           }
           ctx.strokeStyle = '#fff';
@@ -398,16 +502,20 @@ const HUB_CITY_MAP = {
       rafId = requestAnimationFrame(loop);
     };
 
+    // 初始化
     resize();
-    rafId = requestAnimationFrame(loop);
     window.addEventListener('resize', resize);
+    map.on('moveend', draw);
+    map.on('zoomend', draw);
+    rafId = requestAnimationFrame(loop);
 
     return () => {
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', resize);
-      if (canvasRef.current && canvasRef.current.parentElement) {
-        canvasRef.current.parentElement.removeChild(canvasRef.current);
-        canvasRef.current = null;
+      map.off('moveend', draw);
+      map.off('zoomend', draw);
+      if (canvasRef.current && canvasRef.current.parentNode) {
+        canvasRef.current.parentNode.removeChild(canvasRef.current);
       }
     };
   }, [mapInstance, routes, stations, capitals, zoom, settings, overrides]);
