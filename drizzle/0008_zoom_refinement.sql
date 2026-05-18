@@ -2,8 +2,8 @@
 ALTER TABLE `rail_map_settings`
   ADD COLUMN `major_show_zoom` decimal(2,1) NOT NULL DEFAULT '5.0' AFTER `local_fade_start`,
   ADD COLUMN `major_fade_start` decimal(2,1) NOT NULL DEFAULT '4.0' AFTER `major_show_zoom`,
-  ADD COLUMN `mt_show_zoom` decimal(2,1) NOT NULL DEFAULT '11.0' AFTER `major_fade_start`,
-  ADD COLUMN `mt_fade_start` decimal(2,1) NOT NULL DEFAULT '10.0' AFTER `mt_show_zoom`,
+  ADD COLUMN `mt_show_zoom` decimal(3,1) NOT NULL DEFAULT '11.0' AFTER `major_fade_start`,
+  ADD COLUMN `mt_fade_start` decimal(3,1) NOT NULL DEFAULT '10.0' AFTER `mt_show_zoom`,
   ADD COLUMN `route_min_points_z1` int NOT NULL DEFAULT 5 AFTER `mt_fade_start`,
   ADD COLUMN `route_min_points_z2` int NOT NULL DEFAULT 3 AFTER `route_min_points_z1`,
   ADD COLUMN `line_width_scale` decimal(2,1) NOT NULL DEFAULT '0.8' AFTER `route_min_points_z2`,

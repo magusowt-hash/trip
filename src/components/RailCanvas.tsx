@@ -269,7 +269,7 @@ const HUB_CITY_MAP: Record<string, string> = {
 
         // 3. 对 hub 站做空间聚类，相近特等站合并为一个 marker
         const hubs = visible.filter(v => v.st.level === 'CH');
-        const hubClusters: { x: number; y: number; name: string; count: number }[] = [];
+        const hubClusters: { x: number; y: number; name: string; originalName: string; count: number }[] = [];
         const hubUsed = new Set<number>();
         for (let i = 0; i < hubs.length; i++) {
           if (hubUsed.has(i)) continue;
@@ -288,12 +288,12 @@ const HUB_CITY_MAP: Record<string, string> = {
           const cx = group.reduce((s, idx) => s + hubs[idx].x, 0) / group.length;
           const cy = group.reduce((s, idx) => s + hubs[idx].y, 0) / group.length;
           const city = HUB_CITY_MAP[hubs[group[0]].st.name] || hubs[group[0]].st.name;
-          hubClusters.push({ x: cx, y: cy, name: city, count: group.length });
+          hubClusters.push({ x: cx, y: cy, name: city, originalName: hubs[group[0]].st.name, count: group.length });
         }
 
         // 3b. major 站空间聚类，相近站合并
         const majors = visible.filter(v => v.st.level === 'RK');
-        const majorClusters: { x: number; y: number; name: string; count: number }[] = [];
+        const majorClusters: { x: number; y: number; name: string; originalName: string; count: number }[] = [];
         const majorUsed = new Set<number>();
         const majorClusterR = clusterR * (s?.majorClusterRatio ? parseFloat(s.majorClusterRatio) : 0.7);
         for (let i = 0; i < majors.length; i++) {
@@ -312,7 +312,7 @@ const HUB_CITY_MAP: Record<string, string> = {
           const cx = group.reduce((s, idx) => s + majors[idx].x, 0) / group.length;
           const cy = group.reduce((s, idx) => s + majors[idx].y, 0) / group.length;
           const name = HUB_CITY_MAP[majors[group[0]].st.name] || majors[group[0]].st.name;
-          majorClusters.push({ x: cx, y: cy, name, count: group.length });
+          majorClusters.push({ x: cx, y: cy, name, originalName: majors[group[0]].st.name, count: group.length });
         }
 
         // 4. 绘制 hub 聚类 marker + major 聚类（半径随 zoom 缩放）
@@ -414,7 +414,7 @@ const HUB_CITY_MAP: Record<string, string> = {
           ctx.fillStyle = '#1f2937';
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 2;
-          const label = hc.count > 1 && zoom >= 10 ? `${hc.name}(${hc.count}站)` : hc.name;
+          const label = hc.count > 1 && zoom >= 10 ? `${hc.name}(${hc.count}站)` : (hc.count === 1 ? hc.originalName : hc.name);
           ctx.strokeText(label, hc.x, hc.y - 7);
           ctx.fillText(label, hc.x, hc.y - 7);
         }
@@ -432,8 +432,9 @@ const HUB_CITY_MAP: Record<string, string> = {
           ctx.fillStyle = '#000';
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 2;
-          ctx.strokeText(mc.name, mc.x, mc.y - 6);
-          ctx.fillText(mc.name, mc.x, mc.y - 6);
+          const name = mc.count === 1 ? mc.originalName : mc.name;
+          ctx.strokeText(name, mc.x, mc.y - 6);
+          ctx.fillText(name, mc.x, mc.y - 6);
           if (mjAlpha < 1) ctx.restore();
         }
 
