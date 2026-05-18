@@ -1,11 +1,11 @@
 {
-  "大理": "major",
-  "上饶": "major",
-  "丽江": "major",
-  "婺源": "local_major",
-  "敦煌": "local_major",
-  "阳朔": "local_major",
-  "凤凰": "local_major",
-  "稻城": "local_major",
-  "香格里拉": "local_major"
+  "大理": "RK",
+  "上饶": "RK",
+  "丽江": "RK",
+  "敦煌": "RK",
+  "婺源": "GI",
+  "阳朔": "GI",
+  "凤凰": "GI",
+  "稻城": "GI",
+  "香格里拉": "GI"
 }

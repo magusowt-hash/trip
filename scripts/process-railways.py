@@ -11,25 +11,30 @@ import json
 import math
 import sys
 
-# 加载12306客运站白名单
-with open('scripts/12306_whitelist.txt', encoding='utf-8') as f:
-    WHITELIST = set(line.strip() for line in f if line.strip())
-
-# 加载行政编码CSV用于站点分级
-import csv
-CITY_NAMES = set()   # deep=1 地级市/州/盟
-COUNTY_NAMES = set() # deep=2 县/县级市/区
-with open('geojson/ok_data_level3.csv', encoding='utf-8-sig') as f:
-    for row in csv.DictReader(f):
-        name = row['name'].strip()
-        deep = int(row['deep'])
-        if deep == 1:
-            CITY_NAMES.add(name)
-            for sfx in ('市','州','盟','地区','林区'):
-                if name.endswith(sfx) and len(name) > len(sfx):
-                    CITY_NAMES.add(name[:-len(sfx)])
-        elif deep == 2:
-            COUNTY_NAMES.add(name)
+# 加载12306官方客运站白名单 + 同城站点密度（从 station_name.js 解析）
+import re as _re
+with open('scripts/station_name.js', encoding='utf-8') as _f:
+    _text = _f.read()
+_match = _re.search(r"var station_names ='(.+)'", _text, _re.DOTALL)
+WHITELIST = set()
+NAME_TO_CITY = {}       # 站名 → 城市名
+CITY_STATION_COUNT = {}  # 城市名 → 站点数
+MAJOR_CITIES = {
+    '北京','上海','广州','深圳','成都','重庆','杭州','武汉','西安','郑州',
+    '南京','天津','长沙','福州','厦门','合肥','南昌','沈阳','大连','昆明',
+    '贵阳','南宁','海口','乌鲁木齐','拉萨','西宁','兰州','银川','太原',
+    '石家庄','济南','青岛','哈尔滨','长春','呼和浩特',
+}
+if _match:
+    for _e in _match.group(1).split('@'):
+        _p = _e.split('|')
+        if len(_p) >= 2:
+            _name = _p[1]
+            WHITELIST.add(_name)
+            _city = _p[7].strip() if (len(_p) >= 8 and _p[7].strip()) else _name
+            NAME_TO_CITY[_name] = _city
+            CITY_STATION_COUNT[_city] = CITY_STATION_COUNT.get(_city, 0) + 1
+del _re, _f, _text, _match, _e, _p, _name, _city
 
 # ─── GCJ-02 转换 ───────────────────────────────────────────
 PI = math.pi
@@ -292,9 +297,6 @@ print("\nLoading stations...")
 with open(STATION_IN) as f:
     sdata = json.load(f)
 
-# 重要铁路枢纽站（不含"站"字）
-HUBS = {'广元', '广元西', '广元南', '北京', '北京西', '北京南', '丰台', '石家庄', '天津', '南仓', '丰台西', '上海', '上海虹桥', '上海南', '杭州东', '南京南', '徐州', '合肥南', '苏州', '广州', '广州南', '深圳北', '长沙南', '衡阳', '株洲', '郑州', '郑州东', '郑州北', '圃田西', '武汉', '汉口', '武昌', '襄阳', '成都', '成都东', '重庆西', '重庆北', '贵阳', '西安', '西安北', '沈阳', '沈阳北', '长春', '山海关', '裕国', '苏家屯', '哈尔滨', '哈尔滨西', '齐齐哈尔', '牡丹江', '佳木斯', '济南', '济南西', '青岛', '兰州', '兰州西', '昆明南', '乌鲁木齐', '太原', '大同', '南昌', '福州', '厦门北', '南宁', '柳州', '呼和浩特'}
-
 # 省会名称定位（纯文字，非站点）
 CAPITAL_CITIES = {'北京':(116.407,39.904),'上海':(121.474,31.233),'广州':(113.264,23.129),'深圳':(114.058,22.543),'成都':(104.066,30.573),'重庆':(106.551,29.563),'杭州':(120.155,30.274),'武汉':(114.305,30.593),'西安':(108.940,34.347),'郑州':(113.625,34.747),'南京':(118.797,32.061),'天津':(117.201,39.085),'长沙':(112.939,28.228),'福州':(119.296,26.074),'厦门':(118.089,24.480),'合肥':(117.227,31.821),'南昌':(115.858,28.683),'沈阳':(123.432,41.807),'大连':(121.615,38.914),'昆明':(102.833,24.881),'贵阳':(106.630,26.647),'南宁':(108.366,22.817),'海口':(110.199,20.044),'乌鲁木齐':(87.617,43.793),'拉萨':(91.173,29.650),'西宁':(101.778,36.617),'兰州':(103.834,36.061),'银川':(106.231,38.487),'太原':(112.549,37.870),'石家庄':(114.514,38.042),'济南':(117.000,36.670),'青岛':(120.383,36.067),'哈尔滨':(126.535,45.803),'长春':(125.324,43.817),'呼和浩特':(111.749,40.843)}
 
@@ -309,42 +311,37 @@ except:
     pass
 
 def station_classify(name, name_en):
-    # 检查手动升级
+    # 手动升级（promoted_stations.json 优先）
     for pname, plevel in PROMOTED.items():
         if pname == name or pname in name:
-            if plevel == 'hub':
-                return 'hub'
-            elif plevel == 'major':
-                return 'major'
-            elif plevel == 'local_major':
-                return 'local_major'
+            if plevel in ('CH','RK','GI','AS','MT'):
+                return plevel
+            if plevel == 'hub': return 'CH'
+            if plevel == 'major': return 'RK'
+            if plevel == 'local_major': return 'GI'
     
-    # 提取城市名：去"站"字，再去末尾方向字
-    base = name.replace('站','').replace('火车站','').strip()
-    for sfx in ('东','西','南','北'):
-        if base.endswith(sfx) and len(base) > 2:
-            base2 = base[:-1]
-            break
-    else:
-        base2 = base
+    clean = name.replace('站','').replace('火车站','').strip()
     
-    # 一级：精确匹配HUBS（去掉末尾方向字后比较）
-    if base2 in HUBS:
-        return 'hub'
-    # 也检查带方向字的原站名
-    if base in HUBS:
-        return 'hub'
+    # 维度一：同城站点密度分级
+    city = NAME_TO_CITY.get(clean, clean)
+    city_count = CITY_STATION_COUNT.get(city, 1)
     
-    # 二级：匹配地级市/州/盟名
-    if base2 in CITY_NAMES or base in CITY_NAMES:
-        return 'major'
+    # 站名是否匹配省会（"北京"+"北京南"等，但不包含"一面坡"）
+    is_major_station = (clean == city and city in MAJOR_CITIES) or \
+        any(clean.endswith(sfx) and clean[:-len(sfx)] in MAJOR_CITIES 
+            for sfx in ('东','西','南','北'))
     
-    # 三级：匹配县级名
-    if base2 in COUNTY_NAMES or base in COUNTY_NAMES:
-        return 'local_major'
-    
-    # 四级：其他
-    return 'local'
+    if is_major_station and city_count >= 5:
+        return 'CH'
+    if city_count >= 15:
+        return 'RK'
+    if is_major_station and city_count >= 3:
+        return 'RK'
+    if city_count >= 5:
+        return 'GI'
+    if city_count >= 2:
+        return 'AS'
+    return 'MT'
 
 stations = []
 for feat in sdata['features']:
@@ -373,25 +370,21 @@ for feat in sdata['features']:
     if not name:
         continue
     
-    # 12306 白名单过滤
-    clean = name.replace('站','').replace('火车站','').strip()
-    if clean not in WHITELIST:
-        matched = False
-        for w in WHITELIST:
-            if len(w) >= 2 and (w in clean or clean in w):
-                matched = True
-                break
-        if not matched:
-            continue
+    # 12306 官方白名单精确匹配
+    clean_name = name.replace('站','').replace('火车站','').strip()
+    if clean_name not in WHITELIST:
+        continue
     
     if any(kw in name for kw in ('货','编组','驼峰','车辆段','机务段','折返段')):
         continue
+    
+    level = station_classify(name, props.get('name:en', ''))
+    
     stations.append({
-        'name': name.replace('站','').replace('火车站','').strip(),
+        'name': clean_name,
         'lng': gcj[0],
         'lat': gcj[1],
-        'name:en': props.get('name:en', ''),
-        'level': station_classify(name, props.get('name:en', '')),
+        'level': level,
     })
 
 print(f"Stations: {len(stations)}")

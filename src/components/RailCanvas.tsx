@@ -187,7 +187,7 @@ const HUB_CITY_MAP = {
         const dedupCell = zoom < 6 ? (s?.dedupZ1 ?? 36) : zoom < 8 ? (s?.dedupZ2 ?? 24) : zoom < 10 ? (s?.dedupZ3 ?? 16) : (s?.dedupZ4 ?? 12);
 
         // 3. 对 hub 站做空间聚类，相近特等站合并为一个 marker
-        const hubs = visible.filter(v => v.st.level === 'hub');
+        const hubs = visible.filter(v => v.st.level === 'CH');
         const hubClusters: { x: number; y: number; name: string; count: number }[] = [];
         const hubUsed = new Set<number>();
         for (let i = 0; i < hubs.length; i++) {
@@ -211,7 +211,7 @@ const HUB_CITY_MAP = {
         }
 
         // 3b. major 站空间聚类，相近站合并
-        const majors = visible.filter(v => v.st.level === 'major');
+        const majors = visible.filter(v => v.st.level === 'RK');
         const majorClusters: { x: number; y: number; name: string; count: number }[] = [];
         const majorUsed = new Set<number>();
         const majorClusterR = clusterR * (s?.majorClusterRatio ? parseFloat(s.majorClusterRatio) : 0.7);
@@ -269,13 +269,13 @@ const HUB_CITY_MAP = {
         const lmColor = s?.localMajorColor ?? '#10b981';
         const lColor = s?.localColor ?? '#9ca3af';
         for (const { st, x, y, displayLevel } of visible) {
-          if (st.level === 'hub') continue;
-          if (st.level === 'major') continue;
+          if (st.level === 'CH') continue;
+          if (st.level === 'RK') continue;
           let alpha = 1;
-          if (displayLevel === 'local_major') {
+          if (displayLevel === 'GI') {
             alpha = Math.max(0, Math.min(1, (zoom - lmFadeStart) / (lmShowZoom - lmFadeStart)));
             if (alpha <= 0) continue;
-          } else if (displayLevel === 'local') {
+          } else if (displayLevel === 'AS') {
             alpha = Math.max(0, Math.min(1, (zoom - lFadeStart) / (lShowZoom - lFadeStart)));
             if (alpha <= 0) continue;
           }
@@ -287,8 +287,8 @@ const HUB_CITY_MAP = {
             ctx.save();
             ctx.globalAlpha = alpha;
           }
-          const r = displayLevel === 'local_major' ? lmRadius : lRadius;
-          const color = displayLevel === 'local_major' ? lmColor : lColor;
+          const r = displayLevel === 'GI' ? lmRadius : lRadius;
+          const color = displayLevel === 'GI' ? lmColor : lColor;
 
           ctx.beginPath();
           ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -334,13 +334,13 @@ const HUB_CITY_MAP = {
 
         // 其余站点名称
         for (const { st, x, y, displayLevel } of visible) {
-          if (st.level === 'hub') continue;
-          if (st.level === 'major') continue;
+          if (st.level === 'CH') continue;
+          if (st.level === 'RK') continue;
           let alpha = 1;
-          if (displayLevel === 'local_major') {
+          if (displayLevel === 'GI') {
             alpha = Math.max(0, Math.min(1, (zoom - lmFadeStart) / (lmShowZoom - lmFadeStart)));
             if (alpha <= 0) continue;
-          } else if (displayLevel === 'local') {
+          } else if (displayLevel === 'AS') {
             alpha = Math.max(0, Math.min(1, (zoom - lFadeStart) / (lShowZoom - lFadeStart)));
             if (alpha <= 0) continue;
           }
@@ -351,8 +351,8 @@ const HUB_CITY_MAP = {
             ctx.save();
             ctx.globalAlpha = alpha;
           }
-          const r = displayLevel === 'local_major' ? lmRadius : lRadius;
-          if (displayLevel === 'local_major') {
+          const r = displayLevel === 'GI' ? lmRadius : lRadius;
+          if (displayLevel === 'GI') {
             ctx.font = 'bold 10px sans-serif';
             ctx.fillStyle = '#000';
           } else {

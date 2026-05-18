@@ -40,7 +40,6 @@ interface RailStation {
   lng: number;
   lat: number;
   level: string;
-  'name:en'?: string;
 }
 
 const DEFAULTS: RailSettings = {
@@ -54,7 +53,7 @@ const DEFAULTS: RailSettings = {
 };
 
 const levelLabels: Record<string, string> = {
-  hub: '枢纽', major: '地级', local_major: '县级', local: '其他', deleted: '已删除',
+  CH: '核心枢纽', RK: '区域重点', GI: '一般客运', AS: '辅助站', MT: '待定', deleted: '已删除',
 };
 
 export default function RailMapManagementPage() {
@@ -368,9 +367,7 @@ export default function RailMapManagementPage() {
                         >
                           <span style={{ fontWeight: 500, fontSize: 13, minWidth: 90 }}>{name}</span>
                           <span style={badgeStyle(st.level)}>{levelLabels[st.level] || st.level}</span>
-                          {st['name:en'] && (
-                            <span style={{ fontSize: 10, color: '#9ca3af', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{st['name:en']}</span>
-                          )}
+
                           <span style={{ flex: 1, minWidth: 4 }} />
                           <input
                             placeholder="显示名"
@@ -384,10 +381,11 @@ export default function RailMapManagementPage() {
                             style={{ width: 72, padding: '3px 2px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }}
                           >
                             <option value="">级别</option>
-                            <option value="hub">枢纽</option>
-                            <option value="major">地级</option>
-                            <option value="local_major">县级</option>
-                            <option value="local">其他</option>
+                            <option value="CH">核心枢纽</option>
+                            <option value="RK">区域重点</option>
+                            <option value="GI">一般客运</option>
+                            <option value="AS">辅助站</option>
+                            <option value="MT">待定</option>
                             <option value="deleted">删除</option>
                           </select>
                           <select
@@ -396,10 +394,11 @@ export default function RailMapManagementPage() {
                             style={{ width: 72, padding: '3px 2px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }}
                           >
                             <option value="">显示级</option>
-                            <option value="hub">枢纽</option>
-                            <option value="major">地级</option>
-                            <option value="local_major">县级</option>
-                            <option value="local">其他</option>
+                            <option value="CH">核心枢纽</option>
+                            <option value="RK">区域重点</option>
+                            <option value="GI">一般客运</option>
+                            <option value="AS">辅助站</option>
+                            <option value="MT">待定</option>
                           </select>
                           <button
                             onClick={() => handleRowSave(name)}
@@ -463,10 +462,11 @@ export default function RailMapManagementPage() {
                       style={{ width: 72, padding: '3px 2px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }}
                     >
                       <option value="">级别</option>
-                      <option value="hub">枢纽</option>
-                      <option value="major">地级</option>
-                      <option value="local_major">县级</option>
-                      <option value="local">其他</option>
+                      <option value="CH">核心枢纽</option>
+                      <option value="RK">区域重点</option>
+                      <option value="GI">一般客运</option>
+                      <option value="AS">辅助站</option>
+                      <option value="MT">待定</option>
                       <option value="deleted">删除</option>
                     </select>
                     <select
@@ -475,10 +475,11 @@ export default function RailMapManagementPage() {
                       style={{ width: 72, padding: '3px 2px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11 }}
                     >
                       <option value="">显示级</option>
-                      <option value="hub">枢纽</option>
-                      <option value="major">地级</option>
-                      <option value="local_major">县级</option>
-                      <option value="local">其他</option>
+                      <option value="CH">核心枢纽</option>
+                      <option value="RK">区域重点</option>
+                      <option value="GI">一般客运</option>
+                      <option value="AS">辅助站</option>
+                      <option value="MT">待定</option>
                     </select>
                     <span style={{ flex: 1, minWidth: 4 }} />
                     <button

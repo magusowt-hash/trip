@@ -8,7 +8,7 @@ import styles from './maps-page.module.css';
 type MapTab = 'standard' | 'china-rail';
 
 type RailRoute = { p: [number, number][]; c: string; w: number; t: string };
-type RailStation = { name: string; lng: number; lat: number; 'name:en'?: string };
+type RailStation = { name: string; lng: number; lat: number };
 
 type SearchResult = {
   poiId?: number;
@@ -438,7 +438,7 @@ function RailPanel({
     const q = query.trim().toLowerCase();
     if (!q) return [];
     return stations
-      .filter((s) => s.name && (s.name.toLowerCase().includes(q) || (s['name:en'] || '').toLowerCase().includes(q)))
+      .filter((s) => s.name && s.name.toLowerCase().includes(q))
       .slice(0, 20);
   }, [stations, query]);
 
@@ -464,9 +464,6 @@ function RailPanel({
             <div className={styles.poiTop}>
               <div>
                 <h3 className={styles.poiTitle}>{s.name}</h3>
-                {s['name:en'] ? (
-                  <p className={styles.poiAddress}>{s['name:en']}</p>
-                ) : null}
               </div>
             </div>
           </article>

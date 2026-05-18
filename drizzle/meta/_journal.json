@@ -15,6 +15,13 @@
       "when": 1778071609487,
       "tag": "0006_rail_admin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1778500000000,
+      "tag": "0007_level_enum_migration",
+      "breakpoints": true
     }
   ]
 }
