@@ -1,122 +1,154 @@
 # Maps 模块开发完成总结
 
-> 以最新代码为准，以下为 `/maps` 模块的最终状态。
+> 以最新代码为准。本文件作为 `maps` 模块当前阶段的最终定稿。
 
----
+## 当前结论
 
-## 文件清单
+- `maps` 已从“公共目录集中堆放实现”调整为“地图包 + 公共注册壳层”的结构
+- 当前已落地的地图包：
+  - `standard-map`
+  - `rail-map`
+- 后台页面来源于地图包内部
+- 前台 `/maps` 页面保持原有布局不变，但右侧栏能力来源于地图包内部
+- 地图相关 API 业务逻辑已迁入地图包内部，`app/api` 主要保留原路径入口
 
-| 文件 | 职责 |
-|------|------|
-| `src/app/(shell)/maps/page.tsx` | 地图页面主组件 |
-| `src/app/(shell)/maps/maps-page.module.css` | 地图页面样式 |
-| `src/components/PlanMap.tsx` | 高德地图通用封装组件 |
-| `src/components/layout/navTabs.ts` | 侧边栏导航（含「地图」入口） |
-| `src/components/layout/ShellLayout.tsx` | Shell 布局（/maps 纳入宽布局） |
-| `src/app/api/maps/search/route.ts` | 高德 v5 地点搜索代理 |
-| `src/app/api/maps/selection/route.ts` | 高德 v3 逆地理代理 |
-| `src/app/api/maps/favorites/route.ts` | 地图 POI 收藏 CRUD |
-| `src/app/api/maps/footprints/route.ts` | 地图 POI 足迹 CRUD |
-| `src/app/api/maps/_auth.ts` | 地图 API 鉴权共用 |
-| `src/db/schema.ts` | 数据库表定义（map_pois 等） |
-| `drizzle/0005_maps_poi.sql` | 数据库迁移 |
+## 当前目录结构
 
----
-
-## 页面布局（最终版）
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  左侧（mapCol）                 │  右侧（listCol）         │
-│                                │  ┌────────────────────┐  │
-│                                │  │ [普通地图][中国铁路] │⋯│ ← 滚动页签 + 详情
-│                                │  │ [种类C] [种类D] ←──→│  │    间隔 6px
-│                                │  └────────────────────┘  │
-│     高德地图                   │  ┌────────────────────┐  │
-│     默认中心 105, 37           │  │ 搜索地点        ◉  │  │ ← CSS 放大镜
-│     zoom 4 ≈ 1000km           │  └────────────────────┘  │
-│     （全幅，无遮挡）           │  ┌────────────────────┐  │
-│                                │  │ 结果卡片列表        │  │
-│                                │  │ 收藏 | 加入足迹     │  │
-│                                │  └────────────────────┘  │
-└──────────────────────────────────────────────────────────┘
+```text
+src/modules/maps/
+├── core/
+│   ├── contracts/
+│   └── registry/
+├── packages/
+│   ├── standard-map/
+│   │   ├── admin/
+│   │   ├── api/
+│   │   ├── frontend/
+│   │   └── index.ts
+│   └── rail-map/
+│       ├── admin/
+│       ├── api/
+│       ├── frontend/
+│       └── index.ts
+└── index.ts
 ```
 
-- 页签为横向可滑动列表（`overflow-x: auto`），按钮宽度随文字自适应
-- 详情按钮 `⋯` 在滑动列表右侧外，`flex-shrink: 0` 固定，与列表间隔 6px
-- 左侧地图初始中心 `[105, 37]`，zoom 4，约 1000km 视野
-- 无结果时不显示任何空状态文字
+## 当前运行边界
 
----
+### 后台
 
-## 交互流程
+- 统一入口：
+  - `/management/maps`
+- 动态挂载：
+  - `/management/maps/standard`
+  - `/management/maps/rail`
+- 实际后台页面来源：
+  - `standard-map/admin`
+  - `rail-map/admin`
 
-### 搜索
-1. 右侧搜索框输入关键词 → 高德 v5 文本搜索 API → 8 条结果
-2. 单条结果自动选中并聚焦；多条结果地图自动适配范围
-3. 搜索结果卡片可点击选中 → 地图聚焦该点
+### 前台
 
-### 地图点击（最终方案：高德事件自带 POI）
-- 点击高德已有标注点 → `hotspotclick` / `click` 事件携带 `event.poi`
-- 无需调用 `/api/maps/selection`，即时响应
-- 鼠标悬停 POI 时自动变为 `pointer` 光标
-- 命中后地图弹出操作卡片（名称 + 地址 + 收藏/足迹按钮），不进入右侧列表
+- 公共页面入口：
+  - `/maps`
+- 页面整体布局仍保留在：
+  - `src/app/(shell)/maps/page.tsx`
+- 地图包当前负责：
+  - 普通地图右侧栏
+  - 铁路地图右侧栏
 
-### 收藏 / 足迹
-- 独立表 `user_map_favorites` / `user_map_footprints`
-- 不绑定榜单地点，纯 POI 维度
-- 首次操作自动 upsert POI 到 `map_pois`，再写入关联表
-- 已收藏/已足迹的按钮 disabled 并显示灰态
+### API
 
-### 中国铁路
-- 独立页签 + 地图占位 + 右侧说明
-- 未混入普通地图逻辑，预留专题接入
+- 保留原路径入口：
+  - `/api/maps/search`
+  - `/api/maps/selection`
+  - `/api/maps/favorites`
+  - `/api/maps/footprints`
+  - `/api/public/rail-settings`
+  - `/api/admin/maps/rail/settings`
+- 具体业务逻辑来源：
+  - `standard-map/api`
+  - `rail-map/api`
 
-### 详情弹窗
-- 点击 `⋯` 按钮弹出
-- 展示「普通地图」/「中国铁路」两张卡片，点击切换 activeTab
+## standard-map 当前职责
 
----
+- 后台占位管理页
+- 前台右侧栏：
+  - 搜索地点
+  - 搜索结果列表
+  - 收藏
+  - 加入足迹
+- API 逻辑：
+  - 搜索
+  - 选点
+  - 收藏
+  - 足迹
+- 包内共享逻辑：
+  - 地图用户鉴权
+  - POI upsert
 
-## 高德 Key 方案
+## rail-map 当前职责
 
-| 位置 | Key | 类型 |
-|------|-----|------|
-| PlanMap.tsx（JS API 加载） | `64138cb3827187cd053ccbb9eaa18fa2` | Web端(JS API) |
-| search/route.ts | `fbf5d9a8e346f93257eb7c5ab4d32034` | Web服务 |
-| selection/route.ts | `fbf5d9a8e346f93257eb7c5ab4d32034` | Web服务 |
+- 后台管理页：
+  - 铁路地图设置
+  - 站点覆盖管理
+- 前台右侧栏：
+  - 站点搜索
+  - 搜索结果列表
+- API 逻辑：
+  - 公开铁路设置
+  - 后台铁路设置
 
----
+## 数据依赖
 
-## 数据库
+### 普通地图
 
-```sql
-map_pois              -- POI 地点（amap_poi_id, name, lng, lat, address, city, district, type, source）
-user_map_favorites    -- 用户收藏（user_id, poi_id, unique constraint）
-user_map_footprints   -- 用户足迹（user_id, group_id, poi_id, unique constraint）
-```
+- `map_pois`
+- `user_map_favorites`
+- `user_map_footprints`
+- `footprintGroups` 相关表
 
-已执行迁移，表均存在于 `trip` 数据库。
+### 铁路地图
 
----
+- `rail_map_settings`
+- `station_overrides`
+- 静态文件：
+  - `/data/railways.json`
+  - `/data/stations.json`
 
-## 关键修复记录
+## 本轮模块化改造结果
 
-| 问题 | 修复 |
-|------|------|
-| 高德 Key `USERKEY_PLAT_NOMATCH` | 分离前后端 Key（JS API / Web 服务） |
-| search v5 API 无 `status` 字段 | 改用 `infocode === '10000'` 判断 |
-| selection `city` 返回空数组 `[]` | `typeof === 'string'` 判断 + province 兜底 |
-| mapPickMode 闭包过期 | 改用 `useRef` 持有最新值 |
-| PlanMap 双重点击 + InfoWindow 泄漏 | 合并 handler，ref 管理生命周期 |
-| onMapPoiSelect / onMapLoad 闭包过期 | 全部改用 ref 持有 |
-| pickModeOpen 状态变量已删但 JSX 残留 | 移除死代码 |
-| merge 冲突标记残留 | 清除 `=======` / `>>>>>>>` |
+- 建立 `maps` 模块公共合同和注册表
+- 建立 `standard-map` 与 `rail-map` 两个正式地图包
+- 后台从固定页面切换为“注册式挂载”
+- 前台保持原布局，但将右侧栏下沉到地图包
+- 地图 API 业务逻辑从 `app/api` 迁入地图包
+- 清理废弃入口：
+  - `src/app/api/maps/_auth.ts`
+  - `src/app/management/maps/rail/page.tsx`
 
----
+## 当前公共区职责
 
-## 运行环境
+- 地图包协议
+- 注册表
+- 地图包查询
+- 模块总出口
 
-- 前端：PM2 `next dev -p 3001`，文件变更自动热更新
-- 后端 API：Next.js App Router 内联
-- 数据库：MySQL 127.0.0.1:3306，已执行全部迁移
+## 当前不进入公共区的内容
+
+- 普通地图专属前台右栏逻辑
+- 普通地图专属 API 逻辑
+- 铁路地图专属后台页面
+- 铁路地图专属设置逻辑
+- 铁路地图专属前台右栏逻辑
+
+## 规范文件
+
+- 地图包接入规范：
+  - `docs/team-work/maps/regulation/地图包接入规范.md`
+
+## 后续扩展约束
+
+- 新增地图类型时，必须先在 `src/modules/maps/packages/` 下建立独立地图包
+- 后台页面必须来源于地图包内部
+- 前台如需扩展，优先通过地图包接入，不要回流到公共目录堆叠
+- `src/app/api/...` 只保留路由入口，不继续承载完整地图业务实现

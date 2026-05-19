@@ -1,0 +1,2 @@
+export { StandardMapAdminPage } from './StandardMapAdminPage';
+

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useAdminAuth } from '../../admin-auth';
+import { useEffect, useState } from 'react';
+import { useAdminAuth } from '@/app/management/admin-auth';
 
 interface RailSettings {
   majorShowZoom: string; majorFadeStart: string;
@@ -54,7 +54,7 @@ const levelLabels: Record<string, string> = {
   CH: '核心枢纽', RK: '区域重点', GI: '一般客运', AS: '辅助站', MT: '待定', deleted: '已删除',
 };
 
-export default function RailMapManagementPage() {
+export function RailMapAdminPage() {
   const { token } = useAdminAuth();
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -63,19 +63,14 @@ export default function RailMapManagementPage() {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
-
-  // 站点管理
   const [allStations, setAllStations] = useState<RailStation[]>([]);
   const [stationsLoaded, setStationsLoaded] = useState(false);
   const [overrides, setOverrides] = useState<StationOverride[]>([]);
   const [searchQ, setSearchQ] = useState('');
   const [stationsLoading, setStationsLoading] = useState(false);
-
-  // 行内编辑 —— 每行直接显示控件
   const [rowForms, setRowForms] = useState<Record<string, { displayName: string; levelOverride: string; displayLevel: string }>>({});
   const [savingName, setSavingName] = useState<string | null>(null);
 
-  // overrides 加载后同步到 rowForms
   useEffect(() => {
     const forms: Record<string, { displayName: string; levelOverride: string; displayLevel: string }> = {};
     overrides.forEach((o) => {
@@ -88,7 +83,6 @@ export default function RailMapManagementPage() {
     setRowForms(forms);
   }, [overrides]);
 
-  // 加载设置
   useEffect(() => {
     fetch('/api/admin/maps/rail/settings', { headers })
       .then((r) => r.json())
@@ -99,21 +93,24 @@ export default function RailMapManagementPage() {
       .catch(() => setLoaded(true));
   }, []);
 
-  // 加载车站数据 JSON（与前台界面检索一致）
   useEffect(() => {
     if (tab !== 'stations' || stationsLoaded) return;
     fetch('/data/stations.json')
       .then((r) => r.json())
-      .then((d) => { setAllStations(d.stations || []); setStationsLoaded(true); })
+      .then((d) => {
+        setAllStations(d.stations || []);
+        setStationsLoaded(true);
+      })
       .catch(() => setStationsLoaded(true));
   }, [tab, stationsLoaded]);
 
-  // 加载全部覆盖列表
   const loadOverrides = () => {
     setStationsLoading(true);
     fetch('/api/admin/station-overrides', { headers })
       .then((r) => r.json())
-      .then((d) => { setOverrides(d.list || []); })
+      .then((d) => {
+        setOverrides(d.list || []);
+      })
       .finally(() => setStationsLoading(false));
   };
 
@@ -131,17 +128,12 @@ export default function RailMapManagementPage() {
         body: JSON.stringify(settings),
       });
       const data = await res.json();
-      if (data.settings) setMsg('✅ 设置已保存');
-      else setMsg('❌ 保存失败');
+      setMsg(data.settings ? '✅ 设置已保存' : '❌ 保存失败');
     } catch {
       setMsg('❌ 网络错误');
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleReset = () => {
-    setSettings({ ...DEFAULTS });
   };
 
   const updateRowForm = (name: string, patch: Partial<{ displayName: string; levelOverride: string; displayLevel: string }>) => {
@@ -166,22 +158,27 @@ export default function RailMapManagementPage() {
         loadOverrides();
         setMsg('✅ 覆盖已保存');
       }
-    } catch { setMsg('❌ 保存失败'); }
-    finally { setSavingName(null); }
+    } catch {
+      setMsg('❌ 保存失败');
+    } finally {
+      setSavingName(null);
+    }
   };
 
   const handleOverrideDelete = async (name: string) => {
     if (!confirm(`确定删除「${name}」的覆盖记录？`)) return;
     try {
       await fetch(`/api/admin/station-overrides/${encodeURIComponent(name)}`, {
-        method: 'DELETE', headers,
+        method: 'DELETE',
+        headers,
       });
       loadOverrides();
       setMsg('✅ 已删除');
-    } catch { setMsg('❌ 删除失败'); }
+    } catch {
+      setMsg('❌ 删除失败');
+    }
   };
 
-  // ─── helpers ──────────────────────────────────
   const input = (label: string, value: string | number, onChange: (v: string) => void, type = 'text', step?: string) => (
     <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
       <span style={{ minWidth: 130, color: '#374151' }}>{label}</span>
@@ -215,12 +212,10 @@ export default function RailMapManagementPage() {
     return <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>加载中...</div>;
   }
 
-  // ─── Render ──────────────────────────────────
   return (
     <div>
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 20px', color: '#1f2937' }}>中国铁路地图管理</h1>
 
-      {/* Tab bar */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '2px solid #e5e7eb' }}>
         {[
           ['settings', '显示设置'],
@@ -228,7 +223,7 @@ export default function RailMapManagementPage() {
         ].map(([k, label]) => (
           <button
             key={k}
-            onClick={() => setTab(k as any)}
+            onClick={() => setTab(k as 'settings' | 'stations')}
             style={{
               padding: '8px 20px', border: 'none', background: 'none',
               fontSize: 14, fontWeight: tab === k ? 600 : 400,
@@ -242,18 +237,19 @@ export default function RailMapManagementPage() {
         ))}
       </div>
 
-      {msg && (
-        <div style={{
-          padding: '8px 14px', borderRadius: 6, marginBottom: 16, fontSize: 13,
-          background: msg.startsWith('✅') ? '#ecfdf5' : '#fef2f2',
-          color: msg.startsWith('✅') ? '#065f46' : '#991b1b',
-        }}>
+      {msg ? (
+        <div
+          style={{
+            padding: '8px 14px', borderRadius: 6, marginBottom: 16, fontSize: 13,
+            background: msg.startsWith('✅') ? '#ecfdf5' : '#fef2f2',
+            color: msg.startsWith('✅') ? '#065f46' : '#991b1b',
+          }}
+        >
           {msg}
         </div>
-      )}
+      ) : null}
 
-      {/* ─── Tab 1: 显示设置 ───────────────────── */}
-      {tab === 'settings' && (
+      {tab === 'settings' ? (
         <div style={{ maxWidth: 560 }}>
           <section style={sectionStyle}>
             <h3 style={h3Style}>📐 渐显门槛</h3>
@@ -321,16 +317,13 @@ export default function RailMapManagementPage() {
           </section>
 
           <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-            <button onClick={handleReset} style={btnStyle('#f3f4f6', '#374151')}>恢复默认</button>
+            <button onClick={() => setSettings({ ...DEFAULTS })} style={btnStyle('#f3f4f6', '#374151')}>恢复默认</button>
             <button onClick={handleSave} disabled={saving} style={btnStyle('#2563eb', '#fff')}>
               {saving ? '保存中...' : '保存设置'}
             </button>
           </div>
         </div>
-      )}
-
-      {/* ─── Tab 2: 站点管理 ───────────────────── */}
-      {tab === 'stations' && (
+      ) : (
         <div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
             <input
@@ -342,18 +335,13 @@ export default function RailMapManagementPage() {
                 borderRadius: 6, fontSize: 13, maxWidth: 320,
               }}
             />
-            <span style={{ fontSize: 12, color: '#9ca3af' }}>
-              {allStations.length.toLocaleString()} 站
-            </span>
+            <span style={{ fontSize: 12, color: '#9ca3af' }}>{allStations.length.toLocaleString()} 站</span>
           </div>
 
-          {/* ── 搜索结果 ───────────────────── */}
           {searchQ.length >= 1 ? (
             (() => {
               const q = searchQ.toLowerCase();
-              const matches = allStations.filter((st) =>
-                st.name.toLowerCase().includes(q)
-              ).slice(0, 50);
+              const matches = allStations.filter((st) => st.name.toLowerCase().includes(q)).slice(0, 50);
 
               if (matches.length === 0) {
                 return <div style={{ padding: 16, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>未找到匹配站点</div>;
@@ -381,7 +369,6 @@ export default function RailMapManagementPage() {
                         >
                           <span style={{ fontWeight: 500, fontSize: 13, minWidth: 90 }}>{name}</span>
                           <span style={badgeStyle(st.level)}>{levelLabels[st.level] || st.level}</span>
-
                           <span style={{ flex: 1, minWidth: 4 }} />
                           <input
                             placeholder="显示名"
@@ -421,14 +408,14 @@ export default function RailMapManagementPage() {
                           >
                             {savingName === name ? '...' : '保存'}
                           </button>
-                          {hasOv && (
+                          {hasOv ? (
                             <button
                               onClick={() => handleOverrideDelete(name)}
                               style={{ ...linkBtnStyle, color: '#dc2626', fontSize: 11, whiteSpace: 'nowrap' }}
                             >
                               删
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       );
                     })}
@@ -438,7 +425,6 @@ export default function RailMapManagementPage() {
             })()
           ) : null}
 
-          {/* ── 已有覆盖列表 ───────────────────── */}
           <h3 style={{ fontSize: 14, fontWeight: 600, color: '#374151', margin: '24px 0 12px' }}>
             已有覆盖 ({overrides.length})
           </h3>
@@ -520,28 +506,59 @@ export default function RailMapManagementPage() {
   );
 }
 
-// ─── shared styles ────────────────────────────
 const sectionStyle: React.CSSProperties = {
-  background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
-  padding: '16px 20px', marginBottom: 16,
+  border: '1px solid #e5e7eb',
+  borderRadius: 8,
+  padding: 16,
+  marginBottom: 16,
+  background: '#fff',
 };
-const h3Style: React.CSSProperties = { margin: '0 0 10px', fontSize: 14, fontWeight: 600, color: '#1f2937' };
-const gridStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
-const btnStyle = (bg: string, color: string): React.CSSProperties => ({
-  padding: '8px 18px', background: bg, color, border: 'none',
-  borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: 'pointer',
-});
-const linkBtnStyle: React.CSSProperties = {
-  background: 'none', border: 'none', color: '#2563eb',
-  fontSize: 12, cursor: 'pointer', padding: '2px 8px',
+
+const h3Style: React.CSSProperties = {
+  margin: '0 0 12px',
+  fontSize: 14,
+  fontWeight: 600,
+  color: '#111827',
 };
-const badgeStyle = (level: string): React.CSSProperties => {
-  const colors: Record<string, string> = {
-    CH: '#dc2626', RK: '#d97706', GI: '#059669', AS: '#6b7280', MT: '#9ca3af', deleted: '#9ca3af',
+
+const gridStyle: React.CSSProperties = {
+  display: 'grid',
+  gap: 10,
+};
+
+function btnStyle(bg: string, color: string): React.CSSProperties {
+  return {
+    padding: '8px 16px',
+    borderRadius: 6,
+    border: 'none',
+    background: bg,
+    color,
+    fontSize: 13,
+    cursor: 'pointer',
+  };
+}
+
+function badgeStyle(level: string): React.CSSProperties {
+  const map: Record<string, string> = {
+    CH: '#dc2626',
+    RK: '#f59e0b',
+    GI: '#2563eb',
+    AS: '#6b7280',
+    MT: '#9ca3af',
   };
   return {
-    background: (colors[level] || '#9ca3af') + '1a',
-    color: colors[level] || '#9ca3af',
-    padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 500,
+    fontSize: 11,
+    padding: '2px 6px',
+    borderRadius: 999,
+    background: `${map[level] || '#6b7280'}22`,
+    color: map[level] || '#6b7280',
   };
+}
+
+const linkBtnStyle: React.CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  padding: 0,
+  cursor: 'pointer',
 };
+

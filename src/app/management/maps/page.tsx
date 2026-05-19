@@ -1,12 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-
-const items = [
-  { path: '/management/maps/rail', icon: '🚂', label: '中国铁路地图', desc: '站点显示参数、覆盖管理' },
-];
+import { mapPackages } from '@/modules/maps';
 
 export default function MapsManagementPage() {
+  const items = mapPackages
+    .filter((item) => item.admin.enabled)
+    .map((item) => ({
+      path: item.admin.entryPath,
+      icon: item.slug === 'rail' ? '🚂' : '🗺️',
+      label: item.name,
+      desc: item.description,
+    }));
+
   return (
     <div>
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 8px', color: '#1f2937' }}>地图管理</h1>
