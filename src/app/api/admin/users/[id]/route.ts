@@ -111,7 +111,6 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           postId: favorites.postId,
           createdAt: favorites.createdAt,
           postTitle: posts.title,
-          postStatus: posts.status,
         })
         .from(favorites)
         .leftJoin(posts, eq(favorites.postId, posts.id))
