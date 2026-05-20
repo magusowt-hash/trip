@@ -731,7 +731,6 @@ export default function UserDetailPage() {
             )}
             <div className={styles.heroMeta}>
               <h1 className={styles.title}>{user.nickname || '未设置昵称'}</h1>
-              <p className={styles.subtitle}>用户 ID: {user.id}，可在此集中查看该用户的内容、计划、社交与足迹数据。</p>
               <div className={styles.badgeRow}>
                 <span className={styles.badge}>账号状态: {user.status || 'normal'}</span>
                 <span className={`${styles.badge} ${styles.badgeMuted}`}>注册时间: {user.createdAt ? new Date(user.createdAt).toLocaleDateString('zh-CN') : '-'}</span>
@@ -761,7 +760,6 @@ export default function UserDetailPage() {
 
         <aside className={`${styles.heroCard} ${styles.statsCard}`}>
           <h2 className={styles.sectionTitle}>用户统计</h2>
-          <p className={styles.sectionDesc}>汇总该用户在后台主要业务域内的活跃情况。</p>
           <div className={styles.statsGrid}>
             <div className={styles.statItem}>
               <span className={styles.statLabel}>帖子</span>

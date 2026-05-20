@@ -17,39 +17,10 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-}
-
-.hero {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 24px 26px;
-  border: 1px solid #e5e7eb;
-  border-radius: 24px;
-  background: #ffffff;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
-}
-
-.heroTitle {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: #111827;
-}
-
-.heroSubtitle {
-  margin: 8px 0 0;
-  max-width: 720px;
-  font-size: 14px;
-  line-height: 1.65;
-  color: #6b7280;
+  gap: 0;
 }
 
 .heroAction {
-  flex-shrink: 0;
   padding: 11px 16px;
   border: 1px solid #e5e7eb;
   border-radius: 14px;
@@ -86,30 +57,9 @@
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
 }
 
-.columnHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.columnTitle {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: #111827;
-}
-
-.columnDescription {
-  margin: 6px 0 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #6b7280;
-}
-
 .chartStack {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -133,12 +83,6 @@
   font-size: 15px;
   font-weight: 700;
   color: #111827;
-}
-
-.chartCaption {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: #9ca3af;
 }
 
 .chartTotal {
@@ -191,18 +135,17 @@
   .dashboardShell {
     grid-template-columns: 1fr;
   }
+
+  .chartStack {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 640px) {
-  .hero,
   .trendColumn,
   .dataColumn {
     padding: 18px;
     border-radius: 20px;
-  }
-
-  .hero {
-    flex-direction: column;
   }
 
   .heroAction {

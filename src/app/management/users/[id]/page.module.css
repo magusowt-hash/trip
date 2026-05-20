@@ -70,11 +70,7 @@
 }
 
 .subtitle {
-  margin: 10px 0 0;
-  font-size: 14px;
-  line-height: 1.6;
-  color: #64748b;
-  max-width: 680px;
+  display: none;
 }
 
 .badgeRow {
@@ -143,9 +139,7 @@
 }
 
 .sectionDesc {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: #64748b;
+  display: none;
 }
 
 .statsGrid {

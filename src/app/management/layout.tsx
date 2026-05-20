@@ -102,11 +102,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <div className={styles.sidebarInner}>
                 <div className={styles.brandBlock}>
                   <Link href="/management" className={styles.brandLink}>
-                    <span className={styles.brandMark}>MG</span>
-                    <span>
-                      <span className={styles.brandTitle}>管理后台</span>
-                      <span className={styles.brandDescription}>入口分组与系统总览</span>
-                    </span>
+                    <span className={styles.brandTitle}>管理后台</span>
                   </Link>
                 </div>
 
@@ -117,13 +113,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                         href={dashboardItem.path}
                         className={`${styles.dashboardLink} ${pathname === dashboardItem.path ? styles.dashboardLinkActive : ''}`}
                       >
-                        <span className={styles.navInitial}>{dashboardItem.shortLabel}</span>
-                        <span className={styles.navText}>
-                          <span className={styles.navLabel}>{dashboardItem.label}</span>
-                          {dashboardItem.description ? (
-                            <span className={styles.navDescription}>{dashboardItem.description}</span>
-                          ) : null}
-                        </span>
+                        <span className={styles.navLabel}>{dashboardItem.label}</span>
                       </Link>
                     </div>
                   </div>
@@ -140,7 +130,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                         >
                           <span className={styles.sectionHeading}>
                             <span className={styles.sectionTitle}>{group.label}</span>
-                            <span className={styles.sectionDescription}>{group.description}</span>
                           </span>
                           <span className={`${styles.sectionChevron} ${isCollapsed ? styles.sectionChevronCollapsed : ''}`}>
                             ▾
@@ -156,13 +145,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                                   href={item.path}
                                   className={`${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}
                                 >
-                                  <span className={styles.navInitial}>{item.shortLabel}</span>
-                                  <span className={styles.navText}>
-                                    <span className={styles.navLabel}>{item.label}</span>
-                                    {item.description ? (
-                                      <span className={styles.navDescription}>{item.description}</span>
-                                    ) : null}
-                                  </span>
+                                  <span className={styles.navLabel}>{item.label}</span>
                                 </Link>
                               );
                             })}

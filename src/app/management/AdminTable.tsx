@@ -183,18 +183,6 @@ export function AdminTable({ apiUrl, columns, title, batchActions = [], searchPl
 
   return (
     <div className={styles.page}>
-      <section className={styles.hero}>
-        <div>
-          <h1 className={styles.title}>{title}</h1>
-          <p className={styles.subtitle}>统一的后台表格视图，支持搜索、批量操作和分页浏览。</p>
-        </div>
-        <div className={styles.heroMeta}>
-          <span className={styles.heroMetaLabel}>当前总量</span>
-          <span className={styles.heroMetaValue}>{total}</span>
-          {formFields.length > 0 ? <button className={styles.addButton} onClick={handleAdd}>新增内容</button> : null}
-        </div>
-      </section>
-
       {searchPlaceholder ? (
         <section className={styles.toolbarCard}>
           <div className={styles.toolbar}>
@@ -209,6 +197,14 @@ export function AdminTable({ apiUrl, columns, title, batchActions = [], searchPl
               />
             </div>
             <button className={styles.primaryButton} onClick={handleSearch}>搜索</button>
+            {formFields.length > 0 ? <button className={styles.addButton} onClick={handleAdd}>新增</button> : null}
+          </div>
+        </section>
+      ) : formFields.length > 0 ? (
+        <section className={styles.toolbarCard}>
+          <div className={styles.toolbar}>
+            <div />
+            <button className={styles.addButton} onClick={handleAdd}>新增</button>
           </div>
         </section>
       ) : null}

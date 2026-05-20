@@ -46,10 +46,7 @@ function MiniChart({ data, labels, title }: { data: number[]; labels: string[]; 
   return (
     <article className={styles.chartCard}>
       <div className={styles.chartHeader}>
-        <div>
-          <h3 className={styles.chartTitle}>{title}</h3>
-          <p className={styles.chartCaption}>近 7 天累计 {total.toLocaleString()}</p>
-        </div>
+        <h3 className={styles.chartTitle}>{title}</h3>
         <span className={styles.chartTotal}>{total.toLocaleString()}</span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className={styles.chartSvg}>
@@ -115,24 +112,8 @@ export default function DashboardPage() {
 
   return (
     <div className={styles.page}>
-      <section className={styles.hero}>
-        <div>
-          <h1 className={styles.heroTitle}>后台总览</h1>
-          <p className={styles.heroSubtitle}>
-            左侧观察趋势变化，右侧快速查看核心数据。后台入口由侧边栏承担，首页只保留最必要的信息密度。
-          </p>
-        </div>
-        <button type="button" onClick={logout} className={styles.heroAction}>退出当前登录</button>
-      </section>
-
       <section className={styles.dashboardShell}>
         <div className={styles.trendColumn}>
-          <div className={styles.columnHeader}>
-            <div>
-              <h2 className={styles.columnTitle}>趋势图</h2>
-              <p className={styles.columnDescription}>观察近 7 天的用户、帖子与计划变化。</p>
-            </div>
-          </div>
           {weekly ? (
             <div className={styles.chartStack}>
               <MiniChart data={weekly.users} labels={weekly.dates} title="新增用户" />
@@ -143,12 +124,6 @@ export default function DashboardPage() {
         </div>
 
         <aside className={styles.dataColumn}>
-          <div className={styles.columnHeader}>
-            <div>
-              <h2 className={styles.columnTitle}>数据版</h2>
-              <p className={styles.columnDescription}>按列表方式查看当前关键统计值。</p>
-            </div>
-          </div>
           <div className={styles.dataList}>
             {statRows.map((row) => (
               <div key={row.label} className={styles.dataRow}>
@@ -157,6 +132,7 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
+          <button type="button" onClick={logout} className={styles.heroAction}>退出当前登录</button>
         </aside>
       </section>
     </div>

@@ -1,9 +1,6 @@
 .root {
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 26%),
-    radial-gradient(circle at 85% 12%, rgba(14, 165, 233, 0.1), transparent 24%),
-    linear-gradient(180deg, #f8fafc 0%, #eef2ff 48%, #f3f4f6 100%);
+  background: #f8fafc;
 }
 
 .shell {
@@ -18,9 +15,7 @@
   height: 100vh;
   padding: 20px 18px;
   border-right: 1px solid rgba(148, 163, 184, 0.18);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.84));
-  backdrop-filter: blur(22px);
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.4);
+  background: #f8fafc;
 }
 
 .sidebarInner {
@@ -29,12 +24,9 @@
   gap: 18px;
   height: 100%;
   padding: 12px;
-  border: 1px solid rgba(226, 232, 240, 0.72);
-  border-radius: 28px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(248, 250, 252, 0.9));
-  box-shadow:
-    0 20px 50px rgba(15, 23, 42, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 24px;
+  background: #ffffff;
   overflow: hidden;
 }
 
@@ -46,48 +38,26 @@
 }
 
 .brandLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 20px;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(37, 99, 235, 0.92));
-  box-shadow: 0 18px 36px rgba(37, 99, 235, 0.22);
+  display: block;
+  padding: 10px 12px;
   text-decoration: none;
-}
-
-.brandMark {
-  width: 42px;
-  height: 42px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
 }
 
 .brandTitle {
   display: block;
   font-size: 16px;
-  font-weight: 700;
-  color: #ffffff;
-}
-
-.brandDescription {
-  display: block;
-  font-size: 12px;
-  color: rgba(226, 232, 240, 0.88);
+  font-weight: 800;
+  color: #0f172a;
 }
 
 .sidebarSection {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 10px 10px 12px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 18px;
+  background: #fcfcfd;
 }
 
 .sidebarScrollArea {
@@ -118,7 +88,7 @@
   justify-content: space-between;
   gap: 10px;
   width: 100%;
-  padding: 0;
+  padding: 2px 2px 8px;
   border: none;
   background: transparent;
   text-align: left;
@@ -127,29 +97,32 @@
 
 .sectionHeading {
   min-width: 0;
-  padding: 0 12px;
+  padding: 0 8px;
 }
 
 .sectionTitle {
   display: block;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #111827;
+  text-transform: uppercase;
 }
 
 .sectionDescription {
-  display: block;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #94a3b8;
+  display: none;
 }
 
 .sectionChevron {
   flex-shrink: 0;
-  padding-top: 2px;
-  color: #64748b;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #4b5563;
   font-size: 14px;
   transition: transform 0.18s ease, color 0.18s ease;
 }
@@ -163,6 +136,10 @@
   color: #0f172a;
 }
 
+.sectionToggle:hover .sectionChevron {
+  background: #e5e7eb;
+}
+
 .navList {
   display: flex;
   flex-direction: column;
@@ -173,7 +150,6 @@
 .navLink {
   display: flex;
   align-items: center;
-  gap: 12px;
   padding: 12px;
   border: 1px solid rgba(255, 255, 255, 0);
   border-radius: 18px;
@@ -189,51 +165,24 @@
 
 .dashboardLink:hover,
 .navLink:hover {
-  background: rgba(255, 255, 255, 0.94);
+  background: #f8fafc;
   border-color: rgba(148, 163, 184, 0.16);
   color: #0f172a;
   transform: translateX(2px);
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
 }
 
 .dashboardLinkActive,
 .navLinkActive {
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.18), rgba(15, 23, 42, 0.05));
-  border-color: rgba(37, 99, 235, 0.16);
+  background: #f8fafc;
+  border-color: rgba(148, 163, 184, 0.2);
   color: #0f172a;
-  box-shadow: 0 14px 32px rgba(37, 99, 235, 0.12);
-}
-
-.navInitial {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.14), rgba(14, 165, 233, 0.12));
-  color: #1d4ed8;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
-.navText {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  box-shadow: inset 3px 0 0 #111827;
 }
 
 .navLabel {
   font-size: 14px;
   font-weight: 600;
-}
-
-.navDescription {
-  font-size: 12px;
-  color: #64748b;
+  line-height: 1.5;
 }
 
 .contentArea {
@@ -252,12 +201,9 @@
   justify-content: space-between;
   gap: 16px;
   margin-left: 20px;
-  padding: 20px 24px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 24px;
-  background: rgba(248, 250, 252, 0.82);
-  backdrop-filter: blur(16px);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  background: transparent;
 }
 
 .topbarMeta {
@@ -266,33 +212,33 @@
 
 .topbarTitle {
   margin: 0;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 800;
   color: #0f172a;
   letter-spacing: -0.03em;
 }
 
 .breadcrumb {
-  margin-top: 4px;
+  margin-top: 2px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #64748b;
+  gap: 6px;
+  font-size: 12px;
+  color: #9ca3af;
 }
 
 .breadcrumbHome {
-  color: #2563eb;
+  color: #9ca3af;
   text-decoration: none;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .logoutButton {
   flex-shrink: 0;
-  padding: 11px 16px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 10px 14px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.92);
+  background: #ffffff;
   color: #475569;
   font-size: 13px;
   font-weight: 700;
@@ -304,9 +250,8 @@
 }
 
 .logoutButton:hover {
-  border-color: rgba(220, 38, 38, 0.24);
-  color: #dc2626;
-  box-shadow: 0 10px 24px rgba(220, 38, 38, 0.08);
+  border-color: rgba(148, 163, 184, 0.24);
+  color: #111827;
 }
 
 .content {

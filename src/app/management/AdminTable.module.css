@@ -4,58 +4,6 @@
   gap: 18px;
 }
 
-.hero {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 24px 26px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 24px;
-  background:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.14), transparent 30%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.9));
-  box-shadow: 0 22px 50px rgba(15, 23, 42, 0.06);
-}
-
-.title {
-  margin: 0;
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: #0f172a;
-}
-
-.subtitle {
-  margin: 10px 0 0;
-  max-width: 720px;
-  font-size: 14px;
-  line-height: 1.65;
-  color: #64748b;
-}
-
-.heroMeta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 10px;
-  min-width: 180px;
-}
-
-.heroMetaLabel {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: #64748b;
-}
-
-.heroMetaValue {
-  font-size: 34px;
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  color: #0f172a;
-}
-
 .toolbarCard,
 .tableCard {
   border: 1px solid rgba(148, 163, 184, 0.16);
@@ -345,27 +293,15 @@
 }
 
 @media (max-width: 900px) {
-  .hero {
-    flex-direction: column;
-  }
-
-  .heroMeta {
-    align-items: flex-start;
-  }
-}
-
-@media (max-width: 640px) {
   .page {
     gap: 14px;
   }
 
-  .hero,
   .toolbarCard,
   .tableCard {
     border-radius: 18px;
   }
 
-  .hero,
   .modalBody,
   .modalHeader,
   .modalFooter {
