@@ -1,8 +1,11 @@
 'use client';
 
+import { buildAdminHeaders, useAdminAuth } from '../admin-auth';
 import { AdminTable } from '../AdminTable';
 
 export default function PostsPage() {
+  const { token } = useAdminAuth();
+
   const columns = [
     { key: 'id', label: 'ID' },
     { 
@@ -40,7 +43,7 @@ export default function PostsPage() {
       if (!window.confirm('确定要屏蔽这篇帖子？')) return;
       const res = await fetch(`/api/admin/posts?id=${id}&action=block`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${localStorage.getItem('admin_token')}` },
+        headers: buildAdminHeaders(token),
       });
       if (!res.ok) throw new Error('操作失败');
     },
@@ -48,7 +51,7 @@ export default function PostsPage() {
       if (!window.confirm('确定要恢复这篇帖子？')) return;
       const res = await fetch(`/api/admin/posts?id=${id}&action=restore`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${localStorage.getItem('admin_token')}` },
+        headers: buildAdminHeaders(token),
       });
       if (!res.ok) throw new Error('操作失败');
     },
@@ -56,7 +59,7 @@ export default function PostsPage() {
       if (!window.confirm('确定要删除这篇帖子？')) return;
       const res = await fetch(`/api/admin/posts?id=${id}&action=soft-delete`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${localStorage.getItem('admin_token')}` },
+        headers: buildAdminHeaders(token),
       });
       if (!res.ok) throw new Error('操作失败');
     },
@@ -64,7 +67,7 @@ export default function PostsPage() {
       if (!window.confirm('确定要彻底删除这篇帖子？此操作不可恢复！')) return;
       const res = await fetch(`/api/admin/posts?id=${id}&action=permanent-delete`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${localStorage.getItem('admin_token')}` },
+        headers: buildAdminHeaders(token),
       });
       if (!res.ok) throw new Error('操作失败');
     },

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useAdminAuth } from '../../admin-auth';
+import { buildAdminHeaders, useAdminAuth } from '../../admin-auth';
 import styles from './page.module.css';
 
 type DetailTab =
@@ -170,7 +170,7 @@ export default function UserDetailPage() {
     if (!token) return;
     setLoading(true);
     fetch(`/api/admin/users/${userId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: buildAdminHeaders(token),
     })
       .then((res) => res.json())
       .then((data) => {
@@ -187,7 +187,7 @@ export default function UserDetailPage() {
   const reloadDetail = useCallback(async () => {
     if (!token) return;
     const res = await fetch(`/api/admin/users/${userId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: buildAdminHeaders(token),
     });
     const data = await res.json();
     if (!data.error) {
@@ -200,8 +200,8 @@ export default function UserDetailPage() {
     setFpLoading(true);
     try {
       const [groupsRes, filesRes] = await Promise.all([
-        fetch(`/api/admin/footprints?user_id=${userId}`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`/api/admin/footprints?type=storage_detail&user_id=${userId}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/admin/footprints?user_id=${userId}`, { headers: buildAdminHeaders(token) }),
+        fetch(`/api/admin/footprints?type=storage_detail&user_id=${userId}`, { headers: buildAdminHeaders(token) }),
       ]);
       const groupsData = await groupsRes.json();
       const filesData = await filesRes.json();
@@ -226,7 +226,7 @@ export default function UserDetailPage() {
   const fetchFootprintItems = async (groupId: number) => {
     if (!token) return;
     const res = await fetch(`/api/admin/footprints?group_id=${groupId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: buildAdminHeaders(token),
     });
     const data = await res.json();
     setExpandedFpItems(data.items || []);
@@ -237,7 +237,7 @@ export default function UserDetailPage() {
     setPhotosLoading(true);
     try {
       const res = await fetch(`/api/admin/footprints?type=storage_detail&user_id=${userId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAdminHeaders(token),
       });
       const data = await res.json();
       const placeTitle = item.title || String(item.listItemId);
@@ -261,7 +261,7 @@ export default function UserDetailPage() {
     if (!token || !window.confirm('确定删除该照片？')) return;
     await fetch(`/api/admin/footprints?type=storage_delete&file_id=${fileId}`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: buildAdminHeaders(token),
     });
     const currentItem = expandedFpItems.find((item) => item.listItemId === expandedItemId);
     if (currentItem) {
@@ -271,8 +271,7 @@ export default function UserDetailPage() {
   };
 
   const openFootprintMap = async () => {
-    const adminToken = localStorage.getItem('admin_token');
-    if (!adminToken) {
+    if (!token) {
       alert('请先登录管理后台');
       return;
     }
@@ -280,7 +279,7 @@ export default function UserDetailPage() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`,
+        ...buildAdminHeaders(token),
       },
       body: JSON.stringify({ user_id: userId }),
     });
@@ -315,7 +314,7 @@ export default function UserDetailPage() {
     try {
       const res = await fetch(`/api/admin/users?id=${user.id}&action=${action}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAdminHeaders(token),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -341,7 +340,7 @@ export default function UserDetailPage() {
     try {
       const res = await fetch(`/api/admin/posts?id=${postId}&action=${action}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAdminHeaders(token),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -362,7 +361,7 @@ export default function UserDetailPage() {
     try {
       const res = await fetch(`/api/admin/comments?id=${commentId}&action=${action}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAdminHeaders(token),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -383,7 +382,7 @@ export default function UserDetailPage() {
     try {
       const res = await fetch(`/api/admin/plans?id=${planId}&action=${action}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAdminHeaders(token),
       });
       const data = await res.json();
       if (!res.ok) {

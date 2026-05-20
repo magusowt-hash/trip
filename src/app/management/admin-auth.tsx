@@ -19,3 +19,14 @@ export const AdminAuthCtx = createContext<AdminAuthContextType>({
 export function useAdminAuth() {
   return useContext(AdminAuthCtx);
 }
+
+export function buildAdminHeaders(token?: string | null, init?: HeadersInit): HeadersInit {
+  if (!token) {
+    return init ?? {};
+  }
+
+  return {
+    ...init,
+    Authorization: `Bearer ${token}`,
+  };
+}

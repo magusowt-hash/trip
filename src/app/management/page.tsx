@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAdminAuth } from './admin-auth';
+import { buildAdminHeaders, useAdminAuth } from './admin-auth';
 import styles from './page.module.css';
 
 interface Stats {
@@ -72,13 +72,13 @@ function MiniChart({ data, labels, title }: { data: number[]; labels: string[]; 
 }
 
 export default function DashboardPage() {
+  const { token } = useAdminAuth();
   const [stats, setStats] = useState<Stats | null>(null);
   const [weekly, setWeekly] = useState<WeeklyData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('admin_token');
-    const headers = { Authorization: `Bearer ${token}` };
+    const headers = buildAdminHeaders(token);
     Promise.all([
       fetch('/api/admin/stats', { headers }).then((r) => r.json()),
       fetch('/api/admin/stats/weekly', { headers }).then((r) => r.json()),
@@ -88,7 +88,7 @@ export default function DashboardPage() {
         if (weeklyData.weekly) setWeekly(weeklyData.weekly);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [token]);
 
   const statRows = [
     { label: '总用户数', value: stats?.totalUsers ?? 0 },

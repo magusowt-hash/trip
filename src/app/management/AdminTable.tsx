@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAdminAuth } from './admin-auth';
+import { buildAdminHeaders, useAdminAuth } from './admin-auth';
 import styles from './AdminTable.module.css';
 
 interface Column {
@@ -56,7 +56,7 @@ export function AdminTable({ apiUrl, columns, title, batchActions = [], searchPl
   const fetchData = () => {
     setLoading(true);
     fetch(`${apiUrl}?page=${page}&search=${search}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: buildAdminHeaders(token),
     })
       .then((res) => res.json())
       .then((data) => {
@@ -103,7 +103,7 @@ export function AdminTable({ apiUrl, columns, title, batchActions = [], searchPl
     setGeoLoading(true);
     try {
       const res = await fetch(`${geocodeUrl || apiUrl}?address=${encodeURIComponent(address)}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAdminHeaders(token),
         method: 'PATCH',
       });
       const data = await res.json();
@@ -129,7 +129,7 @@ export function AdminTable({ apiUrl, columns, title, batchActions = [], searchPl
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          ...buildAdminHeaders(token),
         },
         body: JSON.stringify(formData),
       });
@@ -159,7 +159,7 @@ export function AdminTable({ apiUrl, columns, title, batchActions = [], searchPl
       if (batchActionValue === 'delete' && deleteUrl) {
         await fetch(`${deleteUrl}?ids=${selectedIds.join(',')}`, {
           method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
+          headers: buildAdminHeaders(token),
         });
       } else {
         const handler = singleActionHandlers[batchActionValue];
@@ -281,7 +281,7 @@ export function AdminTable({ apiUrl, columns, title, batchActions = [], searchPl
                               if (window.confirm('确定删除？')) {
                                 fetch(`${deleteUrl}?id=${row.id}`, {
                                   method: 'DELETE',
-                                  headers: { Authorization: `Bearer ${token}` },
+                                  headers: buildAdminHeaders(token),
                                 }).then(() => fetchData());
                               }
                             }}
