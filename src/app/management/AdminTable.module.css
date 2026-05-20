@@ -1,0 +1,399 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 26px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.14), transparent 30%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.9));
+  box-shadow: 0 22px 50px rgba(15, 23, 42, 0.06);
+}
+
+.title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #0f172a;
+}
+
+.subtitle {
+  margin: 10px 0 0;
+  max-width: 720px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #64748b;
+}
+
+.heroMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.heroMetaLabel {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.heroMetaValue {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #0f172a;
+}
+
+.toolbarCard,
+.tableCard {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.05);
+}
+
+.toolbarCard {
+  padding: 16px 18px;
+}
+
+.toolbar,
+.batchToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.searchBox {
+  flex: 1;
+  min-width: 220px;
+}
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.9);
+  color: #0f172a;
+  font-size: 14px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: rgba(37, 99, 235, 0.34);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08);
+  background: #ffffff;
+}
+
+.textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.batchActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.selectionInfo {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.addButton,
+.primaryButton,
+.secondaryButton,
+.ghostButton,
+.paginationButton,
+.dangerButton,
+.modalClose {
+  border: none;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.addButton,
+.primaryButton {
+  padding: 11px 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 16px 28px rgba(37, 99, 235, 0.22);
+}
+
+.addButton:hover,
+.primaryButton:hover {
+  transform: translateY(-1px);
+}
+
+.secondaryButton,
+.ghostButton,
+.paginationButton {
+  padding: 10px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.secondaryButton:hover,
+.ghostButton:hover,
+.paginationButton:hover:not(:disabled) {
+  border-color: rgba(37, 99, 235, 0.2);
+  color: #1d4ed8;
+}
+
+.dangerButton {
+  padding: 8px 12px;
+  border: 1px solid rgba(248, 113, 113, 0.24);
+  border-radius: 10px;
+  background: rgba(254, 242, 242, 0.88);
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dangerButton:hover {
+  background: #fee2e2;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.table thead th {
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(248, 250, 252, 0.96);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: left;
+  color: #475569;
+}
+
+.table tbody td {
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.72);
+  font-size: 14px;
+  color: #0f172a;
+  vertical-align: middle;
+}
+
+.table tbody tr:hover {
+  background: rgba(248, 250, 252, 0.86);
+}
+
+.selectCol {
+  width: 52px;
+  text-align: center;
+}
+
+.selectCol input {
+  width: 16px;
+  height: 16px;
+}
+
+.actions {
+  white-space: nowrap;
+}
+
+.loading {
+  padding: 54px 20px;
+  text-align: center;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px;
+}
+
+.paginationButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.paginationStatus {
+  min-width: 72px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.44);
+  backdrop-filter: blur(8px);
+}
+
+.modalContent {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.24);
+}
+
+.modalHeader,
+.modalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+}
+
+.modalHeader {
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.modalHeader h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.modalClose {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: rgba(241, 245, 249, 0.95);
+  color: #64748b;
+  font-size: 22px;
+}
+
+.modalBody {
+  padding: 20px;
+}
+
+.formField {
+  margin-bottom: 16px;
+}
+
+.formField label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.required {
+  margin-left: 4px;
+  color: #dc2626;
+}
+
+.inputGroup {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.inputGroup .input {
+  flex: 1;
+}
+
+.modalFooter {
+  justify-content: flex-end;
+  border-top: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+@media (max-width: 900px) {
+  .hero {
+    flex-direction: column;
+  }
+
+  .heroMeta {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    gap: 14px;
+  }
+
+  .hero,
+  .toolbarCard,
+  .tableCard {
+    border-radius: 18px;
+  }
+
+  .hero,
+  .modalBody,
+  .modalHeader,
+  .modalFooter {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .inputGroup {
+    flex-direction: column;
+  }
+
+  .addButton,
+  .primaryButton,
+  .secondaryButton,
+  .ghostButton {
+    width: 100%;
+  }
+
+  .batchActions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .batchActions > * {
+    width: 100%;
+  }
+
+  .pagination {
+    flex-wrap: wrap;
+  }
+}

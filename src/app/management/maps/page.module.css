@@ -4,10 +4,36 @@
   gap: 22px;
 }
 
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.16), transparent 30%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.9));
+  box-shadow: 0 24px 54px rgba(15, 23, 42, 0.06);
+}
+
 .header {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.08);
+  color: #0369a1;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
 }
 
 .title {
@@ -26,6 +52,41 @@
   color: #64748b;
 }
 
+.summaryCard {
+  min-width: 210px;
+  padding: 18px 20px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(8, 145, 178, 0.92));
+  box-shadow: 0 18px 42px rgba(8, 145, 178, 0.18);
+}
+
+.summaryLabel,
+.summaryHint {
+  display: block;
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.summaryLabel {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.summaryValue {
+  display: block;
+  margin-top: 10px;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #ffffff;
+}
+
+.summaryHint {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -37,10 +98,10 @@
   align-items: center;
   gap: 14px;
   padding: 20px 22px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.84);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.05);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.92));
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.05);
   text-decoration: none;
   transition:
     transform 0.18s ease,
@@ -50,8 +111,8 @@
 
 .card:hover {
   transform: translateY(-2px);
-  border-color: rgba(37, 99, 235, 0.18);
-  box-shadow: 0 18px 36px rgba(37, 99, 235, 0.08);
+  border-color: rgba(14, 165, 233, 0.2);
+  box-shadow: 0 20px 42px rgba(14, 165, 233, 0.1);
 }
 
 .mark {
@@ -62,15 +123,16 @@
   align-items: center;
   justify-content: center;
   border-radius: 14px;
-  background: rgba(15, 23, 42, 0.06);
-  color: #0f172a;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.14), rgba(37, 99, 235, 0.14));
+  color: #075985;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.08em;
 }
 
 .cardText {
   min-width: 0;
+  flex: 1;
 }
 
 .cardTitle {
@@ -86,4 +148,32 @@
   font-size: 13px;
   line-height: 1.55;
   color: #64748b;
+}
+
+.cardArrow {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0ea5e9;
+}
+
+@media (max-width: 900px) {
+  .hero {
+    flex-direction: column;
+  }
+
+  .summaryCard {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero {
+    padding: 18px;
+    border-radius: 20px;
+  }
+
+  .card {
+    padding: 18px;
+  }
 }
