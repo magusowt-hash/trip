@@ -3,7 +3,7 @@ import {
   deleteStandardMapFavorite,
   getStandardMapFavorites,
   postStandardMapFavorite,
-} from '@/modules/maps';
+} from '@/modules/maps/packages/standard-map/api';
 
 export async function GET(req: NextRequest) {
   return getStandardMapFavorites(req);

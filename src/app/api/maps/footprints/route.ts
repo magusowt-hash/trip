@@ -3,7 +3,7 @@ import {
   deleteStandardMapFootprint,
   getStandardMapFootprints,
   postStandardMapFootprint,
-} from '@/modules/maps';
+} from '@/modules/maps/packages/standard-map/api';
 
 export async function GET(req: NextRequest) {
   return getStandardMapFootprints(req);

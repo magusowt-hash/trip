@@ -9,19 +9,3 @@ export {
   useStandardMapPanelController,
 } from './packages/standard-map/frontend';
 export { RailMapRightPanel, useRailMapPanelController } from './packages/rail-map/frontend';
-export {
-  deleteStandardMapFavorite,
-  deleteStandardMapFootprint,
-  getStandardMapFavorites,
-  getStandardMapFootprints,
-  handleStandardMapSearch,
-  handleStandardMapSelection,
-  postStandardMapFavorite,
-  postStandardMapFootprint,
-} from './packages/standard-map/api';
-export {
-  dynamic as railMapPublicSettingsDynamic,
-  getRailMapAdminSettings,
-  getRailMapPublicSettings,
-  putRailMapAdminSettings,
-} from './packages/rail-map/api';
