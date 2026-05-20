@@ -800,7 +800,6 @@ export default function UserDetailPage() {
       <section className={styles.quickPanels}>
         <div className={styles.panel}>
           <h2 className={styles.sectionTitle}>最近计划</h2>
-          <p className={styles.sectionDesc}>快速查看该用户的计划状态与时间范围。</p>
           <div className={styles.panelList}>
             {detail.plans.slice(0, 3).map((plan) => (
               <div key={plan.id} className={styles.rowItem}>
@@ -819,7 +818,6 @@ export default function UserDetailPage() {
 
         <div className={styles.panel}>
           <h2 className={styles.sectionTitle}>最近好友</h2>
-          <p className={styles.sectionDesc}>展示该用户已建立的好友关系。</p>
           <div className={styles.panelList}>
             {detail.friends.slice(0, 3).map((friend) => (
               <div key={friend.id} className={styles.rowItem}>
@@ -836,7 +834,6 @@ export default function UserDetailPage() {
 
         <div className={styles.panel}>
           <h2 className={styles.sectionTitle}>最近消息</h2>
-          <p className={styles.sectionDesc}>展示最近消息会话摘要，便于后台快速判断社交活跃度。</p>
           <div className={styles.panelList}>
             {detail.recentConversations.slice(0, 3).map((chat) => (
               <div key={chat.userId} className={styles.rowItem}>

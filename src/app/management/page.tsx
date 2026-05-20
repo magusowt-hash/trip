@@ -72,7 +72,6 @@ function MiniChart({ data, labels, title }: { data: number[]; labels: string[]; 
 }
 
 export default function DashboardPage() {
-  const { logout } = useAdminAuth();
   const [stats, setStats] = useState<Stats | null>(null);
   const [weekly, setWeekly] = useState<WeeklyData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -132,7 +131,6 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-          <button type="button" onClick={logout} className={styles.heroAction}>退出当前登录</button>
         </aside>
       </section>
     </div>

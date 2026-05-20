@@ -133,12 +133,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         })
         .from(posts)
         .where(eq(posts.userId, userId))
-        .orderBy(desc(posts.createdAt)),
+        .orderBy(desc(posts.createdAt))
+        .catch(() => []),
       db
         .select()
         .from(ratings)
         .where(eq(ratings.userId, userId))
-        .orderBy(desc(ratings.createdAt)),
+        .orderBy(desc(ratings.createdAt))
+        .catch(() => []),
       db
         .select({
           id: favorites.id,
@@ -149,7 +151,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         .from(favorites)
         .leftJoin(posts, eq(favorites.postId, posts.id))
         .where(eq(favorites.userId, userId))
-        .orderBy(desc(favorites.createdAt)),
+        .orderBy(desc(favorites.createdAt))
+        .catch(() => []),
       db
         .select({
           id: plans.id,
@@ -161,7 +164,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         })
         .from(plans)
         .where(eq(plans.userId, userId))
-        .orderBy(desc(plans.createdAt)),
+        .orderBy(desc(plans.createdAt))
+        .catch(() => []),
       db
         .select({
           id: comments.id,
@@ -174,7 +178,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         .from(comments)
         .leftJoin(posts, eq(comments.postId, posts.id))
         .where(eq(comments.userId, userId))
-        .orderBy(desc(comments.createdAt)),
+        .orderBy(desc(comments.createdAt))
+        .catch(() => []),
       db
         .select({
           id: storageFiles.id,
@@ -182,7 +187,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           filename: storageFiles.filename,
         })
         .from(storageFiles)
-        .where(eq(storageFiles.userId, userId)),
+        .where(eq(storageFiles.userId, userId))
+        .catch(() => []),
       db.execute(sql`
         SELECT
           CASE WHEN sender_id = ${userId} THEN receiver_id ELSE sender_id END AS other_user_id,
