@@ -164,3 +164,39 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: '删除用户失败' }, { status: 500 });
   }
 }
+
+export async function PATCH(request: NextRequest) {
+  const authError = verifyAdminToken(request);
+  if (authError) return authError;
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    const action = searchParams.get('action');
+
+    if (!id) {
+      return NextResponse.json({ error: '缺少用户ID' }, { status: 400 });
+    }
+
+    if (!action) {
+      return NextResponse.json({ error: '缺少操作类型' }, { status: 400 });
+    }
+
+    const userId = parseInt(id);
+
+    if (action === 'block') {
+      await db.update(users).set({ status: 'blocked' }).where(eq(users.id, userId));
+      return NextResponse.json({ success: true, message: '已禁用用户' });
+    }
+
+    if (action === 'restore') {
+      await db.update(users).set({ status: 'normal' }).where(eq(users.id, userId));
+      return NextResponse.json({ success: true, message: '已恢复用户' });
+    }
+
+    return NextResponse.json({ error: '无效操作' }, { status: 400 });
+  } catch (error: any) {
+    console.error('Users PATCH error:', error);
+    return NextResponse.json({ error: '操作用户失败' }, { status: 500 });
+  }
+}

@@ -1,0 +1,196 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.loading {
+  padding: 20px;
+  color: #64748b;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.headerTitle {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #0f172a;
+}
+
+.headerDescription {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #64748b;
+}
+
+.primaryButton,
+.secondaryButton,
+.dangerButton,
+.ghostButton {
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.primaryButton {
+  padding: 10px 16px;
+  border: none;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.secondaryButton {
+  padding: 7px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: #ffffff;
+  color: #334155;
+}
+
+.dangerButton {
+  padding: 7px 12px;
+  border: 1px solid rgba(239, 68, 68, 0.24);
+  background: #ffffff;
+  color: #dc2626;
+}
+
+.ghostButton {
+  padding: 6px 12px;
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  background: #ffffff;
+  color: #64748b;
+}
+
+.categories {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.categoryCard {
+  padding: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.05);
+}
+
+.categoryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.categoryTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.categoryActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.templateList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.templateChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 13px;
+}
+
+.templateName {
+  font-weight: 600;
+}
+
+.chipAction {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chipEdit {
+  color: #64748b;
+}
+
+.chipDelete {
+  color: #dc2626;
+}
+
+.empty {
+  padding: 44px 16px;
+  text-align: center;
+  color: #94a3b8;
+  border: 1px dashed rgba(148, 163, 184, 0.3);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  width: min(360px, calc(100vw - 32px));
+  padding: 22px;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
+}
+
+.modalTitle {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAdminAuth } from '../admin-auth';
+import styles from './page.module.css';
 
 const ACTION_LABELS: Record<string, string> = {
   page_view: '页面访问',
@@ -32,6 +33,11 @@ export default function EmbedLogsPage() {
   }, [token]);
 
   const filtered = filter ? logs.filter(l => l.action === filter) : logs;
+  const getBadgeClassName = (action: string) => {
+    if (action === 'page_view') return `${styles.badge} ${styles.badgePageView}`;
+    if (action === 'list_click') return `${styles.badge} ${styles.badgeListClick}`;
+    return `${styles.badge} ${styles.badgeItemClick}`;
+  };
 
   const getDesc = (log: any) => {
     if (log.action === 'page_view') return '访问 /lists-embed 页面';
@@ -41,61 +47,45 @@ export default function EmbedLogsPage() {
   };
 
   return (
-    <div className="page">
-      <div className="header">
-        <h1>嵌入访问记录</h1>
-        <button className="refresh-btn" onClick={fetchLogs} disabled={loading}>
+    <div className={styles.page}>
+      <div className={styles.header}>
+        <div>
+          <h1 className={styles.headerTitle}>嵌入访问记录</h1>
+          <p className={styles.headerDescription}>查看嵌入页访问、榜单切换和数据点击行为。</p>
+        </div>
+        <button className={styles.refreshButton} onClick={fetchLogs} disabled={loading}>
           {loading ? '加载中…' : '刷新数据'}
         </button>
       </div>
-      <div className="filters">
-        <button className={!filter ? 'active' : ''} onClick={() => setFilter('')}>全部</button>
-        <button className={filter === 'page_view' ? 'active' : ''} onClick={() => setFilter('page_view')}>页面访问</button>
-        <button className={filter === 'list_click' ? 'active' : ''} onClick={() => setFilter('list_click')}>点击榜单</button>
-        <button className={filter === 'item_click' ? 'active' : ''} onClick={() => setFilter('item_click')}>点击数据</button>
+      <div className={styles.filters}>
+        <button className={`${styles.filterButton} ${!filter ? styles.filterButtonActive : ''}`} onClick={() => setFilter('')}>全部</button>
+        <button className={`${styles.filterButton} ${filter === 'page_view' ? styles.filterButtonActive : ''}`} onClick={() => setFilter('page_view')}>页面访问</button>
+        <button className={`${styles.filterButton} ${filter === 'list_click' ? styles.filterButtonActive : ''}`} onClick={() => setFilter('list_click')}>点击榜单</button>
+        <button className={`${styles.filterButton} ${filter === 'item_click' ? styles.filterButtonActive : ''}`} onClick={() => setFilter('item_click')}>点击数据</button>
       </div>
-      <div className="summary">
+      <div className={styles.summary}>
         <span>共 {filtered.length} 条记录</span>
       </div>
-      <table className="log-table">
-        <thead>
-          <tr>
-            <th>时间</th>
-            <th>IP</th>
-            <th>操作描述</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map(log => (
-            <tr key={log.id}>
-              <td>{log.createdAt ? new Date(log.createdAt).toLocaleString('zh-CN') : '-'}</td>
-              <td>{log.ip}</td>
-              <td className="desc"><span className={`badge badge-${log.action}`}>{getDesc(log)}</span></td>
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>IP</th>
+              <th>操作描述</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <style>{`
-        .page { padding: 20px; max-width: 900px; margin: 0 auto; }
-        .header { margin-bottom: 16px; display: flex; align-items: center; gap: 12px; }
-        .header h1 { margin: 0; font-size: 20px; }
-        .refresh-btn { padding: 6px 14px; border: 1px solid #d1d5db; background: white; border-radius: 6px; cursor: pointer; font-size: 13px; }
-        .refresh-btn:hover { background: #f3f4f6; }
-        .refresh-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .filters { display: flex; gap: 8px; margin-bottom: 12px; }
-        .filters button { padding: 6px 14px; border: 1px solid #d1d5db; background: white; border-radius: 6px; cursor: pointer; font-size: 13px; }
-        .filters button.active { background: #3b82f6; color: white; border-color: #3b82f6; }
-        .summary { font-size: 13px; color: #6b7280; margin-bottom: 8px; }
-        .log-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .log-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #e5e7eb; background: #f9fafb; font-weight: 600; }
-        .log-table td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; }
-        .log-table .desc { max-width: 400px; }
-        .badge { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
-        .badge-page_view { background: #dbeafe; color: #1d4ed8; }
-        .badge-list_click { background: #dcfce7; color: #15803d; }
-        .badge-item_click { background: #fef3c7; color: #92400e; }
-      `}</style>
+          </thead>
+          <tbody>
+            {filtered.map(log => (
+              <tr key={log.id}>
+                <td>{log.createdAt ? new Date(log.createdAt).toLocaleString('zh-CN') : '-'}</td>
+                <td>{log.ip}</td>
+                <td className={styles.desc}><span className={getBadgeClassName(log.action)}>{getDesc(log)}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

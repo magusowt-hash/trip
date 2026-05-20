@@ -128,9 +128,9 @@ export function RailMapAdminPage() {
         body: JSON.stringify(settings),
       });
       const data = await res.json();
-      setMsg(data.settings ? '✅ 设置已保存' : '❌ 保存失败');
+      setMsg(data.settings ? '设置已保存' : '保存失败');
     } catch {
-      setMsg('❌ 网络错误');
+      setMsg('网络错误');
     } finally {
       setSaving(false);
     }
@@ -156,10 +156,10 @@ export function RailMapAdminPage() {
       const data = await res.json();
       if (data.success) {
         loadOverrides();
-        setMsg('✅ 覆盖已保存');
+        setMsg('覆盖已保存');
       }
     } catch {
-      setMsg('❌ 保存失败');
+      setMsg('保存失败');
     } finally {
       setSavingName(null);
     }
@@ -173,9 +173,9 @@ export function RailMapAdminPage() {
         headers,
       });
       loadOverrides();
-      setMsg('✅ 已删除');
+      setMsg('已删除');
     } catch {
-      setMsg('❌ 删除失败');
+      setMsg('删除失败');
     }
   };
 
@@ -241,8 +241,8 @@ export function RailMapAdminPage() {
         <div
           style={{
             padding: '8px 14px', borderRadius: 6, marginBottom: 16, fontSize: 13,
-            background: msg.startsWith('✅') ? '#ecfdf5' : '#fef2f2',
-            color: msg.startsWith('✅') ? '#065f46' : '#991b1b',
+            background: msg.includes('失败') || msg.includes('错误') ? '#fef2f2' : '#ecfdf5',
+            color: msg.includes('失败') || msg.includes('错误') ? '#991b1b' : '#065f46',
           }}
         >
           {msg}
@@ -252,7 +252,7 @@ export function RailMapAdminPage() {
       {tab === 'settings' ? (
         <div style={{ maxWidth: 560 }}>
           <section style={sectionStyle}>
-            <h3 style={h3Style}>📐 渐显门槛</h3>
+            <h3 style={h3Style}>渐显门槛</h3>
             <div style={gridStyle}>
               {input('区域重点(RK) 开始显示', settings.majorShowZoom, (v) => setSettings({ ...settings, majorShowZoom: v }), 'number', '0.5')}
               {input('区域重点(RK) 淡入起点', settings.majorFadeStart, (v) => setSettings({ ...settings, majorFadeStart: v }), 'number', '0.5')}
@@ -266,7 +266,7 @@ export function RailMapAdminPage() {
           </section>
 
           <section style={sectionStyle}>
-            <h3 style={h3Style}>🔗 聚类阈值（6档线性插值）</h3>
+            <h3 style={h3Style}>聚类阈值（6档线性插值）</h3>
             <div style={gridStyle}>
               {input('Z1: zoom < 5', settings.clusterRZ1, (v) => setSettings({ ...settings, clusterRZ1: Number(v) }), 'number')}
               {input('Z2: zoom 5~7', settings.clusterRZ2, (v) => setSettings({ ...settings, clusterRZ2: Number(v) }), 'number')}
@@ -279,7 +279,7 @@ export function RailMapAdminPage() {
           </section>
 
           <section style={sectionStyle}>
-            <h3 style={h3Style}>📏 网格去重（6档线性插值）</h3>
+            <h3 style={h3Style}>网格去重（6档线性插值）</h3>
             <div style={gridStyle}>
               {input('Z1: zoom < 5', settings.dedupZ1, (v) => setSettings({ ...settings, dedupZ1: Number(v) }), 'number')}
               {input('Z2: zoom 5~7', settings.dedupZ2, (v) => setSettings({ ...settings, dedupZ2: Number(v) }), 'number')}
@@ -291,7 +291,7 @@ export function RailMapAdminPage() {
           </section>
 
           <section style={sectionStyle}>
-            <h3 style={h3Style}>🚂 线路渲染</h3>
+            <h3 style={h3Style}>线路渲染</h3>
             <div style={gridStyle}>
               {input('低zoom最少点数(Z1)', settings.routeMinPointsZ1, (v) => setSettings({ ...settings, routeMinPointsZ1: Number(v) }), 'number')}
               {input('中zoom最少点数(Z2)', settings.routeMinPointsZ2, (v) => setSettings({ ...settings, routeMinPointsZ2: Number(v) }), 'number')}
@@ -301,7 +301,7 @@ export function RailMapAdminPage() {
           </section>
 
           <section style={sectionStyle}>
-            <h3 style={h3Style}>🟢 圆点大小 / 颜色</h3>
+            <h3 style={h3Style}>圆点大小 / 颜色</h3>
             <div style={gridStyle}>
               {input('核心枢纽(CH) 半径', settings.hubRadius, (v) => setSettings({ ...settings, hubRadius: Number(v) }), 'number')}
               {colorInput('核心枢纽(CH) 颜色', settings.hubColor, (v) => setSettings({ ...settings, hubColor: v }))}
@@ -561,4 +561,3 @@ const linkBtnStyle: React.CSSProperties = {
   padding: 0,
   cursor: 'pointer',
 };
-

@@ -1,495 +1,879 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useAdminAuth } from '../../admin-auth';
+import styles from './page.module.css';
 
-interface UserData {
+type DetailTab =
+  | 'profile'
+  | 'posts'
+  | 'favorites'
+  | 'favoritePosts'
+  | 'plans'
+  | 'comments'
+  | 'friends'
+  | 'visited'
+  | 'ratings'
+  | 'messages';
+
+interface UserSummary {
   id: number;
   phone: string;
   nickname: string | null;
   avatar: string | null;
   gender: number;
+  birthday: string | null;
   region: string | null;
-  favoriteLists: any[];
-
-  ratings: any[];
+  status: string | null;
   createdAt: string;
+  updatedAt: string;
+  favoriteLists: Array<{ listItemId: number; addedAt?: string; title: string | null }>;
+  ratingDetails: Array<{
+    id: number;
+    targetType: string;
+    targetId: number;
+    rating: number;
+    comment?: string | null;
+    createdAt: string;
+    targetTitle?: string | null;
+  }>;
 }
 
-interface PostData {
-  id: string;
-  title: string;
-  coverImageUrl: string;
-  topic: string;
-  commentsCnt: number;
-  favoritesCnt: number;
-  createdAt: string;
+interface UserDetailResponse {
+  user: UserSummary;
+  stats: {
+    postsCount: number;
+    favoritePlacesCount: number;
+    favoritePostsCount: number;
+    plansCount: number;
+    ratingsCount: number;
+    commentsCount: number;
+    friendsCount: number;
+    footprintPhotoCount: number;
+    footprintPlaceCount: number;
+    conversationCount: number;
+  };
+  posts: Array<{
+    id: number;
+    title: string;
+    coverImageUrl: string | null;
+    topic: string | null;
+    commentsCnt: number | null;
+    favoritesCnt: number | null;
+    status: string | null;
+    createdAt: string;
+  }>;
+  favoritePosts: Array<{
+    id: number;
+    postId: number;
+    createdAt: string;
+    postTitle: string | null;
+    postStatus: string | null;
+  }>;
+  plans: Array<{
+    id: number;
+    name: string;
+    startDate: string | null;
+    endDate: string | null;
+    status: string | null;
+    createdAt: string;
+  }>;
+  comments: Array<{
+    id: number;
+    postId: number;
+    content: string;
+    status: string | null;
+    createdAt: string;
+    postTitle: string | null;
+  }>;
+  friends: Array<{
+    id: number;
+    nickname: string | null;
+    avatar: string | null;
+    phone: string | null;
+    createdAt: string;
+  }>;
+  recentConversations: Array<{
+    userId: number;
+    nickname: string | null;
+    avatar: string | null;
+    phone: string | null;
+    lastMessage: {
+      id: number;
+      senderId: number;
+      receiverId: number;
+      content: string;
+      isRead: number;
+      createdAt: string;
+    } | null;
+  }>;
 }
+
+interface FootprintGroup {
+  id: number;
+  name: string;
+  isDefault: number;
+  itemCount: number;
+}
+
+interface FootprintItem {
+  id: number;
+  groupId: number;
+  listItemId: number;
+  title: string | null;
+  coverImage: string | null;
+  address: string | null;
+  addedAt: string | null;
+}
+
+interface FootprintPhoto {
+  id: number;
+  placeTitle: string;
+  filename: string;
+}
+
+const tabLabels: Record<DetailTab, string> = {
+  profile: '基本信息',
+  posts: '帖子',
+  favorites: '地点收藏',
+  favoritePosts: '帖子收藏',
+  plans: '计划',
+  comments: '评论',
+  friends: '好友',
+  visited: '足迹',
+  ratings: '评分',
+  messages: '消息',
+};
 
 export default function UserDetailPage() {
   const params = useParams();
   const userId = params.id as string;
   const { token } = useAdminAuth();
-  const [user, setUser] = useState<UserData | null>(null);
+
   const [loading, setLoading] = useState(true);
-  const [posts, setPosts] = useState<PostData[]>([]);
-  const [postsLoading, setPostsLoading] = useState(false);
-  const [bookmarkedPosts, setBookmarkedPosts] = useState<any[]>([]);
-  const [bookmarksLoading, setBookmarksLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'profile' | 'posts' | 'favorites' | 'favoritesPosts' | 'visited' | 'ratings'>('profile');
-  const [fpGroups, setFpGroups] = useState<any[]>([]);
+  const [detail, setDetail] = useState<UserDetailResponse | null>(null);
+  const [activeTab, setActiveTab] = useState<DetailTab>('profile');
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const [fpGroups, setFpGroups] = useState<FootprintGroup[]>([]);
   const [fpLoading, setFpLoading] = useState(false);
   const [expandedFpGroup, setExpandedFpGroup] = useState<number | null>(null);
-  const [expandedFpItems, setExpandedFpItems] = useState<any[]>([]);
+  const [expandedFpItems, setExpandedFpItems] = useState<FootprintItem[]>([]);
   const [expandedItemId, setExpandedItemId] = useState<number | null>(null);
-  const [expandedItemPhotos, setExpandedItemPhotos] = useState<any[]>([]);
+  const [expandedItemPhotos, setExpandedItemPhotos] = useState<FootprintPhoto[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
   const [photoCounts, setPhotoCounts] = useState<Map<string, number>>(new Map());
 
   useEffect(() => {
-    fetch(`/api/admin/users?userId=${userId}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    if (!token) return;
+    setLoading(true);
+    fetch(`/api/admin/users/${userId}`, {
+      headers: { Authorization: `Bearer ${token}` },
     })
-      .then(res => res.json())
-      .then(data => {
-        if (data.list && data.list[0]) {
-          setUser(data.list[0]);
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.error) {
+          setDetail(data);
+        } else {
+          setDetail(null);
         }
       })
-      .catch(console.error)
+      .catch(() => setDetail(null))
       .finally(() => setLoading(false));
-  }, [userId, token]);
+  }, [token, userId]);
 
-  const fetchPosts = useCallback(async () => {
-    setPostsLoading(true);
-    try {
-      const res = await fetch(`/api/users/${userId}/posts`, { credentials: 'include' });
-      const data = await res.json();
-      if (data.posts) setPosts(data.posts);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setPostsLoading(false);
+  const reloadDetail = useCallback(async () => {
+    if (!token) return;
+    const res = await fetch(`/api/admin/users/${userId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!data.error) {
+      setDetail(data);
     }
-  }, [userId]);
-
-  const fetchBookmarks = useCallback(async () => {
-    setBookmarksLoading(true);
-    try {
-      const res = await fetch(`/api/admin/favorites?userId=${userId}`, { credentials: 'include' });
-      const data = await res.json();
-      if (data.favorites) setBookmarkedPosts(data.favorites);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setBookmarksLoading(false);
-    }
-  }, [userId]);
+  }, [token, userId]);
 
   const fetchFootprintGroups = useCallback(async () => {
+    if (!token) return;
     setFpLoading(true);
     try {
       const [groupsRes, filesRes] = await Promise.all([
-        fetch(`/api/admin/footprints?user_id=${userId}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined }),
-        fetch(`/api/admin/footprints?type=storage_detail&user_id=${userId}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined }),
+        fetch(`/api/admin/footprints?user_id=${userId}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/admin/footprints?type=storage_detail&user_id=${userId}`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       const groupsData = await groupsRes.json();
       const filesData = await filesRes.json();
-
       setFpGroups(groupsData.groups || []);
 
-      // Build photo count map: listItemId → count (matched by placeTitle)
-      const files: any[] = filesData.files || [];
       const countsByTitle = new Map<string, number>();
-      files.forEach((f: any) => countsByTitle.set(f.placeTitle, (countsByTitle.get(f.placeTitle) || 0) + 1));
-      setPhotoCounts(countsByTitle as any);
-    } catch (e) {
-      console.error(e);
+      for (const file of filesData.files || []) {
+        countsByTitle.set(file.placeTitle, (countsByTitle.get(file.placeTitle) || 0) + 1);
+      }
+      setPhotoCounts(countsByTitle);
     } finally {
       setFpLoading(false);
     }
-  }, [userId, token]);
+  }, [token, userId]);
+
+  useEffect(() => {
+    if (activeTab === 'visited' && fpGroups.length === 0) {
+      void fetchFootprintGroups();
+    }
+  }, [activeTab, fetchFootprintGroups, fpGroups.length]);
 
   const fetchFootprintItems = async (groupId: number) => {
-    try {
-      const res = await fetch(`/api/admin/footprints?group_id=${groupId}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-      const data = await res.json();
-      setExpandedFpItems(data.items || []);
-    } catch (e) {
-      console.error(e);
-    }
+    if (!token) return;
+    const res = await fetch(`/api/admin/footprints?group_id=${groupId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    setExpandedFpItems(data.items || []);
   };
 
-  const fetchItemPhotos = async (it: any) => {
+  const fetchItemPhotos = async (item: FootprintItem) => {
+    if (!token) return;
     setPhotosLoading(true);
     try {
       const res = await fetch(`/api/admin/footprints?type=storage_detail&user_id=${userId}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      const placeTitle = it.title || it.listItemId;
-      setExpandedItemPhotos((data.files || []).filter((f: any) => f.placeTitle === placeTitle));
-    } catch (e) { console.error(e); }
-    finally { setPhotosLoading(false); }
-  };
-
-  const handleToggleItemPhotos = (it: any) => {
-    if (expandedItemId === it.listItemId) {
-      setExpandedItemId(null);
-      setExpandedItemPhotos([]);
-    } else {
-      setExpandedItemId(it.listItemId);
-      fetchItemPhotos(it);
+      const placeTitle = item.title || String(item.listItemId);
+      setExpandedItemPhotos((data.files || []).filter((file: FootprintPhoto) => file.placeTitle === placeTitle));
+    } finally {
+      setPhotosLoading(false);
     }
   };
 
+  const handleToggleItemPhotos = (item: FootprintItem) => {
+    if (expandedItemId === item.listItemId) {
+      setExpandedItemId(null);
+      setExpandedItemPhotos([]);
+      return;
+    }
+    setExpandedItemId(item.listItemId);
+    void fetchItemPhotos(item);
+  };
+
   const handleDeletePhoto = async (fileId: number) => {
-    if (!confirm('确定删除该照片？')) return;
+    if (!token || !window.confirm('确定删除该照片？')) return;
     await fetch(`/api/admin/footprints?type=storage_delete&file_id=${fileId}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     });
-    const placeTitle = (expandedFpItems.find(i => i.listItemId === expandedItemId) as any)?.title || '';
-    const res = await fetch(`/api/admin/footprints?type=storage_detail&user_id=${userId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await res.json();
-    setExpandedItemPhotos((data.files || []).filter((f: any) => f.placeTitle === placeTitle));
+    const currentItem = expandedFpItems.find((item) => item.listItemId === expandedItemId);
+    if (currentItem) {
+      await fetchItemPhotos(currentItem);
+      void fetchFootprintGroups();
+    }
   };
 
-  useEffect(() => {
-    if (activeTab === 'visited' && fpGroups.length === 0) {
-      fetchFootprintGroups();
+  const openFootprintMap = async () => {
+    const adminToken = localStorage.getItem('admin_token');
+    if (!adminToken) {
+      alert('请先登录管理后台');
+      return;
     }
-  }, [activeTab, fetchFootprintGroups, fpGroups.length]);
+    const res = await fetch('/api/footprints/view', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    const data = await res.json();
+    if (data.url) {
+      window.open(data.url, '_blank');
+      return;
+    }
+    alert(data.error || '生成链接失败');
+  };
+
+  const user = detail?.user ?? null;
+  const stats = detail?.stats;
+  const genderText = useMemo(() => {
+    if (!user) return '-';
+    return user.gender === 1 ? '男' : user.gender === 2 ? '女' : '未设置';
+  }, [user]);
 
   if (loading) {
-    return (
-      <div style={{ padding: 20 }}>
-        <div>加载中...</div>
-      </div>
-    );
+    return <div className={styles.loading}>加载中...</div>;
   }
 
-  if (!user) {
-    return (
-      <div style={{ padding: 20 }}>
-        <div>用户不存在</div>
-      </div>
-    );
+  if (!detail || !user || !stats) {
+    return <div className={styles.empty}>用户不存在或加载失败</div>;
   }
 
-  const genderText = user.gender === 1 ? '男' : user.gender === 2 ? '女' : '未设置';
+  const runUserAction = async (action: 'block' | 'restore') => {
+    if (!token) return;
+    const confirmText = action === 'block' ? '确定禁用该用户？' : '确定恢复该用户？';
+    if (!window.confirm(confirmText)) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users?id=${user.id}&action=${action}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '操作失败');
+        return;
+      }
+      await reloadDetail();
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
-  const renderProfile = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        {user.avatar ? (
-          <img src={user.avatar} alt="" width={80} height={80} style={{ borderRadius: '50%', objectFit: 'cover' }} />
-        ) : (
-          <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>无图</div>
-        )}
-        <div>
-          <h2 style={{ margin: '0 0 8px' }}>{user.nickname || '未设置昵称'}</h2>
-          <p style={{ margin: 0, color: '#6b7280' }}>ID: {user.id}</p>
+  const runPostAction = async (postId: number, action: 'block' | 'restore' | 'soft-delete' | 'permanent-delete') => {
+    if (!token) return;
+    const actionLabelMap: Record<string, string> = {
+      block: '屏蔽',
+      restore: '恢复',
+      'soft-delete': '删除',
+      'permanent-delete': '彻底删除',
+    };
+    if (!window.confirm(`确定${actionLabelMap[action]}该帖子？`)) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/admin/posts?id=${postId}&action=${action}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '操作失败');
+        return;
+      }
+      await reloadDetail();
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const runCommentAction = async (commentId: number, action: 'soft-delete' | 'permanent-delete') => {
+    if (!token) return;
+    const actionLabel = action === 'soft-delete' ? '删除' : '彻底删除';
+    if (!window.confirm(`确定${actionLabel}该评论？`)) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/admin/comments?id=${commentId}&action=${action}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '操作失败');
+        return;
+      }
+      await reloadDetail();
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const runPlanAction = async (planId: number, action: 'soft-delete' | 'permanent-delete') => {
+    if (!token) return;
+    const actionLabel = action === 'soft-delete' ? '删除' : '彻底删除';
+    if (!window.confirm(`确定${actionLabel}该计划？`)) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/admin/plans?id=${planId}&action=${action}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '操作失败');
+        return;
+      }
+      await reloadDetail();
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const renderEmpty = (text: string) => <div className={styles.emptyState}>{text}</div>;
+
+  const renderProfileTab = () => (
+    <div className={styles.stack}>
+      <div className={styles.contentCard}>
+        <h3 className={styles.contentTitle}>账号信息</h3>
+        <div className={styles.detailGrid}>
+          <div className={styles.detailItem}>
+            <span className={styles.detailLabel}>手机号</span>
+            <span className={styles.detailValue}>{user.phone}</span>
+          </div>
+          <div className={styles.detailItem}>
+            <span className={styles.detailLabel}>状态</span>
+            <span className={styles.detailValue}>{user.status || 'normal'}</span>
+          </div>
+          <div className={styles.detailItem}>
+            <span className={styles.detailLabel}>性别</span>
+            <span className={styles.detailValue}>{genderText}</span>
+          </div>
+          <div className={styles.detailItem}>
+            <span className={styles.detailLabel}>地区</span>
+            <span className={styles.detailValue}>{user.region || '-'}</span>
+          </div>
+          <div className={styles.detailItem}>
+            <span className={styles.detailLabel}>生日</span>
+            <span className={styles.detailValue}>{user.birthday || '-'}</span>
+          </div>
+          <div className={styles.detailItem}>
+            <span className={styles.detailLabel}>最近更新</span>
+            <span className={styles.detailValue}>{user.updatedAt ? new Date(user.updatedAt).toLocaleString('zh-CN') : '-'}</span>
+          </div>
         </div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '8px 16px', fontSize: 14 }}>
-        <span style={{ color: '#6b7280' }}>手机号</span>
-        <span>{user.phone}</span>
-        <span style={{ color: '#6b7280' }}>性别</span>
-        <span>{genderText}</span>
-        <span style={{ color: '#6b7280' }}>地区</span>
-        <span>{user.region || '-'}</span>
-        <span style={{ color: '#6b7280' }}>注册时间</span>
-        <span>{user.createdAt ? new Date(user.createdAt).toLocaleString('zh-CN') : '-'}</span>
+        <div className={styles.inlineActions}>
+          {user.status === 'blocked' ? (
+            <button type="button" className={styles.smallPrimaryButton} disabled={actionLoading} onClick={() => void runUserAction('restore')}>恢复用户</button>
+          ) : (
+            <button type="button" className={styles.smallDangerButton} disabled={actionLoading} onClick={() => void runUserAction('block')}>禁用用户</button>
+          )}
+          <Link href="/management/users" className={styles.secondaryLink}>返回用户管理</Link>
+        </div>
       </div>
     </div>
   );
 
-  const renderFavorites = () => {
-    const favorites = user.favoriteLists || [];
-    if (favorites.length === 0) {
-      return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>暂无收藏</div>;
-    }
+  const renderPostsTab = () => {
+    if (detail.posts.length === 0) return renderEmpty('暂无帖子');
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {favorites.map((f: any, i: number) => (
-          <div key={i} style={{ padding: 12, background: '#f9fafb', borderRadius: 8, fontSize: 14 }}>
-            <div><strong>{f.title || '未知地点'}</strong> <span style={{ color: '#9ca3af', fontSize: 12 }}>(ID: {f.listItemId})</span></div>
-            <div style={{ color: '#6b7280', fontSize: 12 }}>收藏时间: {f.addedAt ? new Date(f.addedAt).toLocaleString('zh-CN') : '-'}</div>
+      <div className={styles.stack}>
+        {detail.posts.map((post) => (
+          <div key={post.id} className={styles.contentCard}>
+            <h3 className={styles.contentTitle}>{post.title || `帖子 #${post.id}`}</h3>
+            {post.coverImageUrl ? <img src={post.coverImageUrl} alt="" className={styles.contentImage} /> : null}
+            <div className={styles.contentMeta}>
+              <span>状态: {post.status || 'normal'}</span>
+              <span>主题: {post.topic || '推荐'}</span>
+              <span>评论: {post.commentsCnt || 0}</span>
+              <span>收藏: {post.favoritesCnt || 0}</span>
+              <span>发布时间: {post.createdAt ? new Date(post.createdAt).toLocaleString('zh-CN') : '-'}</span>
+            </div>
+            <div className={styles.actionRow}>
+              <Link href={`/management/posts`} className={styles.secondaryLink}>前往帖子管理</Link>
+            </div>
+            <div className={styles.inlineActions}>
+              {post.status !== 'blocked' ? (
+                <button type="button" className={styles.smallButton} disabled={actionLoading} onClick={() => void runPostAction(post.id, 'block')}>屏蔽</button>
+              ) : (
+                <button type="button" className={styles.smallPrimaryButton} disabled={actionLoading} onClick={() => void runPostAction(post.id, 'restore')}>恢复</button>
+              )}
+              {post.status !== 'deleted' ? (
+                <button type="button" className={styles.smallDangerButton} disabled={actionLoading} onClick={() => void runPostAction(post.id, 'soft-delete')}>删除</button>
+              ) : null}
+              <button type="button" className={styles.smallDangerButton} disabled={actionLoading} onClick={() => void runPostAction(post.id, 'permanent-delete')}>彻底删除</button>
+            </div>
           </div>
         ))}
       </div>
     );
   };
 
-  const renderVisited = () => {
-    if (fpLoading) {
-      return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>加载中...</div>;
-    }
+  const renderFavoritesTab = () => {
+    if (user.favoriteLists.length === 0) return renderEmpty('暂无地点收藏');
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <a
-          href="#"
-          onClick={async (e) => {
-            e.preventDefault();
-            try {
-              const token = localStorage.getItem('admin_token');
-              if (!token) { alert('请先登录管理后台'); return; }
-              const res = await fetch('/api/footprints/view', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ user_id: userId }),
-              });
-              const data = await res.json();
-              if (data.url) window.open(data.url, '_blank');
-              else alert(data.error || '生成链接失败');
-            } catch { alert('请求失败'); }
-          }}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '8px 16px', background: '#6366f1', color: '#fff',
-            borderRadius: 8, textDecoration: 'none', fontSize: 14,
-            alignSelf: 'flex-start',
-          }}
-        >
-          🗺 查看足迹地图
-        </a>
-        {fpGroups.length === 0 && (
-          <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>暂无足迹分类组</div>
-        )}
-        {fpGroups.map((g: any) => (
-          <div key={g.id}>
-            <div
+      <div className={styles.stack}>
+        {user.favoriteLists.map((item, index) => (
+          <div key={`${item.listItemId}-${index}`} className={styles.contentCard}>
+            <h3 className={styles.contentTitle}>{item.title || `地点 #${item.listItemId}`}</h3>
+            <div className={styles.contentMeta}>
+              <span>ID: {item.listItemId}</span>
+              <span>收藏时间: {item.addedAt ? new Date(item.addedAt).toLocaleString('zh-CN') : '-'}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderFavoritePostsTab = () => {
+    if (detail.favoritePosts.length === 0) return renderEmpty('暂无帖子收藏');
+    return (
+      <div className={styles.stack}>
+        {detail.favoritePosts.map((item) => (
+          <div key={item.id} className={styles.contentCard}>
+            <h3 className={styles.contentTitle}>{item.postTitle || `帖子 #${item.postId}`}</h3>
+            <div className={styles.contentMeta}>
+              <span>帖子状态: {item.postStatus || 'normal'}</span>
+              <span>收藏时间: {item.createdAt ? new Date(item.createdAt).toLocaleString('zh-CN') : '-'}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderPlansTab = () => {
+    if (detail.plans.length === 0) return renderEmpty('暂无计划');
+    return (
+      <div className={styles.stack}>
+        {detail.plans.map((plan) => (
+          <div key={plan.id} className={styles.contentCard}>
+            <h3 className={styles.contentTitle}>{plan.name}</h3>
+            <div className={styles.contentMeta}>
+              <span>状态: {plan.status || 'normal'}</span>
+              <span>开始日期: {plan.startDate || '-'}</span>
+              <span>结束日期: {plan.endDate || '-'}</span>
+              <span>创建时间: {plan.createdAt ? new Date(plan.createdAt).toLocaleString('zh-CN') : '-'}</span>
+            </div>
+            <div className={styles.inlineActions}>
+              {plan.status !== 'deleted' ? (
+                <button type="button" className={styles.smallDangerButton} disabled={actionLoading} onClick={() => void runPlanAction(plan.id, 'soft-delete')}>删除</button>
+              ) : null}
+              <button type="button" className={styles.smallDangerButton} disabled={actionLoading} onClick={() => void runPlanAction(plan.id, 'permanent-delete')}>彻底删除</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderCommentsTab = () => {
+    if (detail.comments.length === 0) return renderEmpty('暂无评论');
+    return (
+      <div className={styles.stack}>
+        {detail.comments.map((comment) => (
+          <div key={comment.id} className={styles.contentCard}>
+            <h3 className={styles.contentTitle}>{comment.postTitle || `帖子 #${comment.postId}`}</h3>
+            <p className={styles.contentText}>{comment.content}</p>
+            <div className={styles.contentMeta}>
+              <span>状态: {comment.status || 'normal'}</span>
+              <span>评论时间: {comment.createdAt ? new Date(comment.createdAt).toLocaleString('zh-CN') : '-'}</span>
+            </div>
+            <div className={styles.inlineActions}>
+              {comment.status !== 'deleted' ? (
+                <button type="button" className={styles.smallDangerButton} disabled={actionLoading} onClick={() => void runCommentAction(comment.id, 'soft-delete')}>删除</button>
+              ) : null}
+              <button type="button" className={styles.smallDangerButton} disabled={actionLoading} onClick={() => void runCommentAction(comment.id, 'permanent-delete')}>彻底删除</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderFriendsTab = () => {
+    if (detail.friends.length === 0) return renderEmpty('暂无好友');
+    return (
+      <div className={styles.friendGrid}>
+        {detail.friends.map((friend) => (
+          <div key={friend.id} className={styles.friendCard}>
+            {friend.avatar ? (
+              <img src={friend.avatar} alt="" className={styles.friendAvatar} />
+            ) : (
+              <div className={styles.friendAvatarPlaceholder}>好友</div>
+            )}
+            <div>
+              <div className={styles.friendName}>{friend.nickname || `用户 ${friend.id}`}</div>
+              <div className={styles.friendMeta}>用户ID: {friend.id}</div>
+              <div className={styles.friendMeta}>手机号: {friend.phone || '-'}</div>
+              <div className={styles.friendMeta}>添加时间: {friend.createdAt ? new Date(friend.createdAt).toLocaleString('zh-CN') : '-'}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderRatingsTab = () => {
+    if (user.ratingDetails.length === 0) return renderEmpty('暂无评分');
+    return (
+      <div className={styles.stack}>
+        {user.ratingDetails.map((rating) => (
+          <div key={rating.id} className={styles.contentCard}>
+            <h3 className={styles.contentTitle}>
+              {rating.targetTitle || `${rating.targetType} #${rating.targetId}`}
+            </h3>
+            <div className={styles.contentMeta}>
+              <span>类型: {rating.targetType}</span>
+              <span>评分: {rating.rating}</span>
+              <span>时间: {rating.createdAt ? new Date(rating.createdAt).toLocaleString('zh-CN') : '-'}</span>
+            </div>
+            {rating.comment ? <p className={styles.contentText}>{rating.comment}</p> : null}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderMessagesTab = () => {
+    if (detail.recentConversations.length === 0) return renderEmpty('暂无最近会话');
+    return (
+      <div className={styles.stack}>
+        {detail.recentConversations.map((chat) => (
+          <div key={chat.userId} className={styles.contentCard}>
+            <h3 className={styles.contentTitle}>{chat.nickname || `用户 ${chat.userId}`}</h3>
+            <div className={styles.contentMeta}>
+              <span>对方ID: {chat.userId}</span>
+              <span>手机号: {chat.phone || '-'}</span>
+              <span>
+                最近消息时间:
+                {' '}
+                {chat.lastMessage?.createdAt ? new Date(chat.lastMessage.createdAt).toLocaleString('zh-CN') : '-'}
+              </span>
+            </div>
+            {chat.lastMessage ? <p className={styles.contentText}>{chat.lastMessage.content}</p> : null}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderVisitedTab = () => {
+    if (fpLoading) return renderEmpty('加载中...');
+    return (
+      <div className={styles.stack}>
+        <div className={styles.actionRow}>
+          <button className={styles.secondaryButton} type="button" onClick={openFootprintMap}>查看足迹地图</button>
+        </div>
+        {fpGroups.length === 0 ? renderEmpty('暂无足迹分类组') : null}
+        {fpGroups.map((group) => (
+          <div key={group.id} className={styles.footprintGroup}>
+            <button
+              type="button"
+              className={styles.footprintGroupButton}
               onClick={() => {
-                if (expandedFpGroup === g.id) {
+                if (expandedFpGroup === group.id) {
                   setExpandedFpGroup(null);
                   setExpandedFpItems([]);
-                } else {
-                  setExpandedFpGroup(g.id);
-                  fetchFootprintItems(g.id);
+                  return;
                 }
-              }}
-              style={{
-                padding: 12,
-                background: '#f9fafb',
-                borderRadius: 8,
-                fontSize: 14,
-                cursor: 'pointer',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
+                setExpandedFpGroup(group.id);
+                void fetchFootprintItems(group.id);
               }}
             >
-              <span>
-                {expandedFpGroup === g.id ? '▾ ' : '▸ '}
-                <strong>{g.name}</strong>
-                {g.isDefault === 1 && <span style={{ marginLeft: 8, padding: '1px 6px', fontSize: 11, background: '#dbeafe', color: '#3b82f6', borderRadius: 4 }}>默认</span>}
+              <span className={styles.rowTitle}>
+                {expandedFpGroup === group.id ? '收起' : '展开'}
+                {' '}
+                {group.name}
               </span>
-              <span style={{ color: '#9ca3af', fontSize: 12 }}>{g.itemCount} 个地点</span>
-            </div>
-            {expandedFpGroup === g.id && (
-              <div style={{ marginLeft: 24, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {expandedFpItems.length === 0 ? (
-                  <div style={{ padding: 12, color: '#9ca3af', fontSize: 13 }}>暂无地点</div>
-                ) : (
-                  expandedFpItems.map((item: any) => (
-                    <div key={item.id}>
-                      <div
-                        onClick={() => handleToggleItemPhotos(item)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center', gap: 8,
-                          padding: '8px 12px', background: '#fff', borderRadius: 6,
-                          fontSize: 13, cursor: 'pointer',
-                          border: expandedItemId === item.listItemId ? '1px solid #3b82f6' : '1px solid #f3f4f6',
-                        }}
-                      >
-                        {item.coverImage ? (
-                          <img src={item.coverImage} alt="" width={36} height={36} style={{ borderRadius: 4, objectFit: 'cover' }} />
-                        ) : (
-                          <div style={{ width: 36, height: 36, borderRadius: 4, background: '#f3f4f6' }} />
-                        )}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 500 }}>{item.title || `#${item.listItemId}`}</div>
-                          {item.address && <div style={{ color: '#6b7280', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.address}</div>}
-                        </div>
-                        {photoCounts.get(item.title) > 0 && (
-                          <span style={{ fontSize: 11, background: '#ecfdf5', color: '#059669', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>
-                            {photoCounts.get(item.title)} 张
-                          </span>
-                        )}
-                        <span style={{ color: '#9ca3af', fontSize: 11, whiteSpace: 'nowrap' }}>
-                          {item.addedAt ? new Date(item.addedAt).toLocaleDateString('zh-CN') : ''}
-                        </span>
-                      </div>
-
-                      {expandedItemId === item.listItemId && (
-                        <div style={{ marginLeft: 44, marginTop: 4, marginBottom: 8 }}>
-                          {photosLoading ? (
-                            <div style={{ color: '#9ca3af', fontSize: 12, padding: 8 }}>加载中...</div>
-                          ) : expandedItemPhotos.length === 0 ? (
-                            <div style={{ color: '#9ca3af', fontSize: 12, padding: 8 }}>该地点暂无上传照片</div>
-                          ) : (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                              {expandedItemPhotos.map((p: any) => (
-                                <div key={p.id} style={{
-                                  position: 'relative', width: 72, height: 72,
-                                  borderRadius: 6, overflow: 'hidden', background: '#f3f4f6',
-                                }}>
-                                  <img
-                                    src={`/api/storage/file?uid=${userId}&place=${encodeURIComponent(p.placeTitle)}&file=${encodeURIComponent(p.filename)}`}
-                                    alt={p.filename}
-                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                  />
-                                  <div style={{
-                                    position: 'absolute', bottom: 0, left: 0, right: 0,
-                                    background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 9,
-                                    padding: '1px 4px', textAlign: 'center',
-                                  }}>
-                                    {p.filename.length > 10 ? p.filename.slice(0, 8) + '..' : p.filename}
-                                  </div>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleDeletePhoto(p.id); }}
-                                    style={{
-                                      position: 'absolute', top: 2, right: 2,
-                                      width: 16, height: 16, borderRadius: '50%',
-                                      border: 'none', background: 'rgba(255,0,0,0.7)',
-                                      color: '#fff', fontSize: 10, cursor: 'pointer',
-                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    }}
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+              <span className={styles.rowMeta}>{group.itemCount} 个地点</span>
+            </button>
+            {expandedFpGroup === group.id ? (
+              <div className={styles.footprintGroupItems}>
+                {expandedFpItems.length === 0 ? renderEmpty('暂无地点') : null}
+                {expandedFpItems.map((item) => (
+                  <div key={item.id}>
+                    <button
+                      type="button"
+                      className={`${styles.footprintItemButton} ${expandedItemId === item.listItemId ? styles.footprintItemActive : ''}`}
+                      onClick={() => handleToggleItemPhotos(item)}
+                    >
+                      {item.coverImage ? (
+                        <img src={item.coverImage} alt="" className={styles.footprintThumb} />
+                      ) : (
+                        <div className={styles.footprintThumbPlaceholder} />
                       )}
-                    </div>
-                  ))
-                )}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className={styles.rowTitle}>{item.title || `地点 #${item.listItemId}`}</div>
+                        <div className={styles.rowMeta}>{item.address || '-'}</div>
+                      </div>
+                      <span className={styles.rowMeta}>{photoCounts.get(item.title || String(item.listItemId)) || 0} 张</span>
+                    </button>
+                    {expandedItemId === item.listItemId ? (
+                      <div className={styles.footprintPhotos}>
+                        {photosLoading ? renderEmpty('加载中...') : null}
+                        {!photosLoading && expandedItemPhotos.length === 0 ? renderEmpty('该地点暂无上传照片') : null}
+                        {!photosLoading && expandedItemPhotos.map((photo) => (
+                          <div key={photo.id} className={styles.photoCard}>
+                            <img
+                              src={`/api/storage/file?uid=${userId}&place=${encodeURIComponent(photo.placeTitle)}&file=${encodeURIComponent(photo.filename)}`}
+                              alt={photo.filename}
+                            />
+                            <div className={styles.photoName}>
+                              {photo.filename.length > 10 ? `${photo.filename.slice(0, 8)}..` : photo.filename}
+                            </div>
+                            <button type="button" className={styles.photoDelete} onClick={() => void handleDeletePhoto(photo.id)}>
+                              删除
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
               </div>
-            )}
+            ) : null}
           </div>
         ))}
       </div>
     );
   };
 
-  const renderRatings = () => {
-    const ratings = (user as any).ratingDetails || [];
-    if (ratings.length === 0) {
-      return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>暂无评分</div>;
-    }
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {ratings.map((r: any, i: number) => (
-          <div key={i} style={{ padding: 12, background: '#f9fafb', borderRadius: 8, fontSize: 14 }}>
-            <div>类型: {r.targetType}
-              {r.targetTitle ? <span> / <strong>{r.targetTitle}</strong></span> : ''}
-              {' '}<span style={{ color: '#9ca3af', fontSize: 12 }}>(ID: {r.targetId})</span>
-            </div>
-            <div>评分: {'★'.repeat(r.rating / 2)}{'☆'.repeat(5 - r.rating / 2)} ({r.rating})</div>
-            {r.comment && <div style={{ color: '#374151', marginTop: 4 }}>评论: {r.comment}</div>}
-            <div style={{ color: '#6b7280', fontSize: 12, marginTop: 4 }}>评分时间: {r.createdAt ? new Date(r.createdAt).toLocaleString('zh-CN') : '-'}</div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderBookmarkedPosts = () => {
-    if (bookmarksLoading) {
-      return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>加载中...</div>;
-    }
-    if (bookmarkedPosts.length === 0) {
-      return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>暂无收藏的帖子</div>;
-    }
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {bookmarkedPosts.map((b: any) => (
-          <div key={b.id} style={{ padding: 12, background: '#f9fafb', borderRadius: 8, fontSize: 14 }}>
-            <div style={{ fontWeight: 500 }}>{b.postTitle || `帖子 #${b.postId}`}</div>
-            <div style={{ color: '#6b7280', fontSize: 12, marginTop: 4 }}>
-              收藏时间: {b.createdAt ? new Date(b.createdAt).toLocaleString('zh-CN') : '-'}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderPosts = () => {
-    if (postsLoading) {
-      return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>加载中...</div>;
-    }
-    if (posts.length === 0) {
-      return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>暂无帖子</div>;
-    }
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {posts.map(p => (
-          <div key={p.id} style={{ padding: 12, background: '#f9fafb', borderRadius: 8, fontSize: 14 }}>
-            <div style={{ fontWeight: 500 }}>{p.title}</div>
-            {p.coverImageUrl && (
-              <img src={p.coverImageUrl} alt="" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 4, marginTop: 8 }} />
-            )}
-            <div style={{ display: 'flex', gap: 16, marginTop: 8, color: '#6b7280', fontSize: 12 }}>
-              <span>主题: {p.topic || '推荐'}</span>
-              <span>评论: {p.commentsCnt}</span>
-              <span>收藏: {p.favoritesCnt}</span>
-            </div>
-            <div style={{ color: '#6b7280', fontSize: 12, marginTop: 4 }}>
-              发布时间: {p.createdAt ? new Date(p.createdAt).toLocaleString('zh-CN') : '-'}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
+  const tabContent: Record<DetailTab, React.ReactNode> = {
+    profile: renderProfileTab(),
+    posts: renderPostsTab(),
+    favorites: renderFavoritesTab(),
+    favoritePosts: renderFavoritePostsTab(),
+    plans: renderPlansTab(),
+    comments: renderCommentsTab(),
+    friends: renderFriendsTab(),
+    visited: renderVisitedTab(),
+    ratings: renderRatingsTab(),
+    messages: renderMessagesTab(),
   };
 
   return (
-    <div style={{ padding: 20, maxWidth: 800 }}>
-      <h1 style={{ margin: '0 0 20px', fontSize: 24 }}>用户详情</h1>
-      
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, borderBottom: '1px solid #e5e7eb' }}>
-        {(['profile', 'posts', 'favorites', 'favoritesPosts', 'visited', 'ratings'] as const).map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              background: activeTab === tab ? '#3b82f6' : 'transparent',
-              color: activeTab === tab ? '#fff' : '#4b5563',
-              borderRadius: '4px 4px 0 0',
-              cursor: 'pointer',
-            }}
-          >
-            {tab === 'profile' && '基本信息'}
-            {tab === 'posts' && '帖子'}
-            {tab === 'favorites' && '地点收藏'}
-            {tab === 'favoritesPosts' && '帖子收藏'}
-            {tab === 'visited' && '足迹'}
-            {tab === 'ratings' && '评分'}
-          </button>
-        ))}
-      </div>
+    <div className={styles.page}>
+      <section className={styles.hero}>
+        <div className={styles.heroCard}>
+          <div className={styles.heroTop}>
+            {user.avatar ? (
+              <img src={user.avatar} alt="" className={styles.avatar} />
+            ) : (
+              <div className={styles.avatarPlaceholder}>无图</div>
+            )}
+            <div className={styles.heroMeta}>
+              <h1 className={styles.title}>{user.nickname || '未设置昵称'}</h1>
+              <p className={styles.subtitle}>用户 ID: {user.id}，可在此集中查看该用户的内容、计划、社交与足迹数据。</p>
+              <div className={styles.badgeRow}>
+                <span className={styles.badge}>账号状态: {user.status || 'normal'}</span>
+                <span className={`${styles.badge} ${styles.badgeMuted}`}>注册时间: {user.createdAt ? new Date(user.createdAt).toLocaleDateString('zh-CN') : '-'}</span>
+              </div>
+            </div>
+          </div>
 
-      <div style={{ padding: 16, background: '#fff', borderRadius: 8 }}>
-        {activeTab === 'profile' && renderProfile()}
-        {activeTab === 'posts' && renderPosts()}
-        {activeTab === 'favorites' && renderFavorites()}
-        {activeTab === 'favoritesPosts' && renderBookmarkedPosts()}
-        {activeTab === 'visited' && renderVisited()}
-        {activeTab === 'ratings' && renderRatings()}
-      </div>
+          <div className={styles.detailGrid}>
+            <div className={styles.detailItem}>
+              <span className={styles.detailLabel}>手机号</span>
+              <span className={styles.detailValue}>{user.phone}</span>
+            </div>
+            <div className={styles.detailItem}>
+              <span className={styles.detailLabel}>性别</span>
+              <span className={styles.detailValue}>{genderText}</span>
+            </div>
+            <div className={styles.detailItem}>
+              <span className={styles.detailLabel}>地区</span>
+              <span className={styles.detailValue}>{user.region || '-'}</span>
+            </div>
+            <div className={styles.detailItem}>
+              <span className={styles.detailLabel}>生日</span>
+              <span className={styles.detailValue}>{user.birthday || '-'}</span>
+            </div>
+          </div>
+        </div>
+
+        <aside className={`${styles.heroCard} ${styles.statsCard}`}>
+          <h2 className={styles.sectionTitle}>用户统计</h2>
+          <p className={styles.sectionDesc}>汇总该用户在后台主要业务域内的活跃情况。</p>
+          <div className={styles.statsGrid}>
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>帖子</span>
+              <span className={styles.statValue}>{stats.postsCount}</span>
+            </div>
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>计划</span>
+              <span className={styles.statValue}>{stats.plansCount}</span>
+            </div>
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>好友</span>
+              <span className={styles.statValue}>{stats.friendsCount}</span>
+            </div>
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>评论</span>
+              <span className={styles.statValue}>{stats.commentsCount}</span>
+            </div>
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>地点收藏</span>
+              <span className={styles.statValue}>{stats.favoritePlacesCount}</span>
+            </div>
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>帖子收藏</span>
+              <span className={styles.statValue}>{stats.favoritePostsCount}</span>
+            </div>
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>足迹照片</span>
+              <span className={styles.statValue}>{stats.footprintPhotoCount}</span>
+            </div>
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>消息会话</span>
+              <span className={styles.statValue}>{stats.conversationCount}</span>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <section className={styles.quickPanels}>
+        <div className={styles.panel}>
+          <h2 className={styles.sectionTitle}>最近计划</h2>
+          <p className={styles.sectionDesc}>快速查看该用户的计划状态与时间范围。</p>
+          <div className={styles.panelList}>
+            {detail.plans.slice(0, 3).map((plan) => (
+              <div key={plan.id} className={styles.rowItem}>
+                <span className={styles.rowTitle}>{plan.name}</span>
+                <span className={styles.rowMeta}>
+                  {plan.startDate || '-'} 至 {plan.endDate || '-'} / {plan.status || 'normal'}
+                </span>
+              </div>
+            ))}
+            {detail.plans.length === 0 ? renderEmpty('暂无计划') : null}
+          </div>
+          <div className={styles.actionRow}>
+            <button type="button" className={styles.secondaryButton} onClick={() => setActiveTab('plans')}>查看全部计划</button>
+          </div>
+        </div>
+
+        <div className={styles.panel}>
+          <h2 className={styles.sectionTitle}>最近好友</h2>
+          <p className={styles.sectionDesc}>展示该用户已建立的好友关系。</p>
+          <div className={styles.panelList}>
+            {detail.friends.slice(0, 3).map((friend) => (
+              <div key={friend.id} className={styles.rowItem}>
+                <span className={styles.rowTitle}>{friend.nickname || `用户 ${friend.id}`}</span>
+                <span className={styles.rowMeta}>{friend.phone || '-'} / {friend.createdAt ? new Date(friend.createdAt).toLocaleDateString('zh-CN') : '-'}</span>
+              </div>
+            ))}
+            {detail.friends.length === 0 ? renderEmpty('暂无好友') : null}
+          </div>
+          <div className={styles.actionRow}>
+            <button type="button" className={styles.secondaryButton} onClick={() => setActiveTab('friends')}>查看全部好友</button>
+          </div>
+        </div>
+
+        <div className={styles.panel}>
+          <h2 className={styles.sectionTitle}>最近消息</h2>
+          <p className={styles.sectionDesc}>展示最近消息会话摘要，便于后台快速判断社交活跃度。</p>
+          <div className={styles.panelList}>
+            {detail.recentConversations.slice(0, 3).map((chat) => (
+              <div key={chat.userId} className={styles.rowItem}>
+                <span className={styles.rowTitle}>{chat.nickname || `用户 ${chat.userId}`}</span>
+                <span className={styles.rowMeta}>
+                  {chat.lastMessage?.content || '暂无消息'}
+                </span>
+              </div>
+            ))}
+            {detail.recentConversations.length === 0 ? renderEmpty('暂无消息会话') : null}
+          </div>
+          <div className={styles.actionRow}>
+            <button type="button" className={styles.secondaryButton} onClick={() => setActiveTab('messages')}>查看全部会话</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div className={styles.tabs}>
+          {(Object.keys(tabLabels) as DetailTab[]).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              className={`${styles.tab} ${activeTab === tab ? styles.tabActive : ''}`}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tabLabels[tab]}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className={styles.tabPanel}>
+        {tabContent[activeTab]}
+      </section>
     </div>
   );
 }

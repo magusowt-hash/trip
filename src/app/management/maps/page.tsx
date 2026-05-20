@@ -2,38 +2,32 @@
 
 import Link from 'next/link';
 import { mapPackages } from '@/modules/maps';
+import styles from './page.module.css';
 
 export default function MapsManagementPage() {
   const items = mapPackages
     .filter((item) => item.admin.enabled)
     .map((item) => ({
       path: item.admin.entryPath,
-      icon: item.slug === 'rail' ? '🚂' : '🗺️',
+      shortLabel: item.slug === 'rail' ? 'TL' : item.slug.slice(0, 2).toUpperCase(),
       label: item.name,
       desc: item.description,
     }));
 
   return (
-    <div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 8px', color: '#1f2937' }}>地图管理</h1>
-      <p style={{ fontSize: 14, color: '#6b7280', margin: '0 0 24px' }}>管理各地图模块的显示设置与数据</p>
+    <div className={styles.page}>
+      <div className={styles.header}>
+        <h1 className={styles.title}>地图管理</h1>
+        <p className={styles.description}>管理各地图模块的显示设置、渲染策略和专题数据入口。</p>
+      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
+      <div className={styles.grid}>
         {items.map((item) => (
-          <Link
-            key={item.path}
-            href={item.path}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 14,
-              padding: '20px 24px', borderRadius: 10,
-              background: '#fff', border: '1px solid #e5e7eb',
-              textDecoration: 'none', transition: 'all 0.15s',
-            }}
-          >
-            <span style={{ fontSize: 28 }}>{item.icon}</span>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: '#1f2937' }}>{item.label}</div>
-              <div style={{ fontSize: 13, color: '#9ca3af', marginTop: 2 }}>{item.desc}</div>
+          <Link key={item.path} href={item.path} className={styles.card}>
+            <span className={styles.mark}>{item.shortLabel}</span>
+            <div className={styles.cardText}>
+              <span className={styles.cardTitle}>{item.label}</span>
+              <span className={styles.cardDescription}>{item.desc}</span>
             </div>
           </Link>
         ))}

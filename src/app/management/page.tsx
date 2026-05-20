@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAdminAuth } from './admin-auth';
+import styles from './page.module.css';
+import { getGroupedManagementNav } from './nav-config';
 
 interface Stats {
   totalUsers: number;
@@ -39,12 +41,12 @@ function MiniChart({ data, labels, color, title }: { data: number[]; labels: str
   const total = data.reduce((s, v) => s + v, 0);
 
   return (
-    <div className="chart-card">
-      <div className="chart-header">
-        <span className="chart-title">{title}</span>
-        <span className="chart-total" style={{ color }}>{total}</span>
+    <div className={styles.chartCard}>
+      <div className={styles.chartHeader}>
+        <span className={styles.chartTitle}>{title}</span>
+        <span className={styles.chartTotal} style={{ color }}>{total}</span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg">
+      <svg viewBox={`0 0 ${W} ${H}`} className={styles.chartSvg}>
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.2" />
@@ -67,27 +69,12 @@ function MiniChart({ data, labels, color, title }: { data: number[]; labels: str
   );
 }
 
-const quickNav = [
-  { path: '/management/users', icon: '👥', label: '用户管理', desc: '管理注册用户' },
-  { path: '/management/posts', icon: '📝', label: '帖子管理', desc: '审核与管理帖子' },
-  { path: '/management/comments', icon: '💬', label: '评论管理', desc: '管理用户评论' },
-  { path: '/management/plans', icon: '✈️', label: '旅行计划', desc: '查看旅行计划' },
-  { path: '/management/keys', icon: '🔑', label: '密钥管理', desc: '管理系统密钥' },
-  { path: '/management/markers', icon: '📍', label: '标记点', desc: '地图标记管理' },
-  { path: '/management/lists', icon: '🏆', label: '榜单管理', desc: '管理推荐榜单' },
-  { path: '/management/list_items', icon: '📋', label: '榜单项', desc: '管理榜单内容' },
-  { path: '/management/packing', icon: '🎒', label: '行李清单', desc: '行李模板管理' },
-  { path: '/management/embed-logs', icon: '📈', label: '嵌入访问', desc: '嵌入页访问统计' },
-  { path: '/management/alist', icon: '☁️', label: '网盘配置', desc: 'AList 云存储' },
-  { path: '/management/maps', icon: '🗺️', label: '地图管理', desc: '地图显示与数据管理' },
-  { path: '/management/footprints', icon: '👣', label: '足迹分组', desc: '足迹数据管理' },
-];
-
 export default function DashboardPage() {
   const { logout } = useAdminAuth();
   const [stats, setStats] = useState<Stats | null>(null);
   const [weekly, setWeekly] = useState<WeeklyData | null>(null);
   const [loading, setLoading] = useState(true);
+  const groupedNav = getGroupedManagementNav();
 
   useEffect(() => {
     const token = localStorage.getItem('admin_token');
@@ -116,50 +103,55 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="dash-loading">
-        <div className="loading-spinner" />
-        <style>{`
-          .dash-loading { display: flex; align-items: center; justify-content: center; min-height: 60vh; }
-          .loading-spinner {
-            width: 32px; height: 32px; border: 3px solid var(--color-border, #e5e7eb);
-            border-top-color: var(--color-primary, #2563eb); border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-          }
-          @keyframes spin { to { transform: rotate(360deg); } }
-        `}</style>
+      <div className={styles.loading}>
+        <div className={styles.loadingSpinner} />
       </div>
     );
   }
 
   return (
-    <div className="dash">
-      <header className="dash-header">
+    <div className={styles.page}>
+      <section className={styles.hero}>
         <div>
-          <h1 className="dash-title">管理后台</h1>
-          <p className="dash-subtitle">数据概览与快捷入口</p>
+          <h1 className={styles.heroTitle}>后台总览</h1>
+          <p className={styles.heroSubtitle}>
+            通过统一入口管理系统配置、内容数据与运营模块。首页保留关键指标和趋势信息，具体功能通过左侧分组导航进入。
+          </p>
         </div>
-        <button className="dash-logout" onClick={logout}>退出登录</button>
-      </header>
+        <div className={styles.heroMeta}>
+          <span className={styles.heroMetaLabel}>活跃密钥</span>
+          <span className={styles.heroMetaValue}>{(stats?.activeKeys ?? 0).toLocaleString()}</span>
+        </div>
+      </section>
 
-      <section className="dash-section">
-        <h2 className="section-title">数据概览</h2>
-        <div className="stats-grid">
+      <section className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <h2 className={styles.sectionTitle}>数据概览</h2>
+            <p className={styles.sectionDescription}>优先观察用户、内容和基础配置的核心运行数据。</p>
+          </div>
+          <button type="button" onClick={logout} className={styles.sectionAction}>退出当前登录</button>
+        </div>
+        <div className={styles.statsGrid}>
           {statCards.map((card) => (
-            <div key={card.title} className="stat-card">
-              <div className="stat-accent" style={{ background: card.color }} />
-              <div className="stat-body">
-                <span className="stat-label">{card.title}</span>
-                <span className="stat-value" style={{ color: card.color }}>{card.value.toLocaleString()}</span>
-              </div>
+            <div key={card.title} className={styles.statCard}>
+              <div className={styles.statAccent} style={{ background: card.color }} />
+              <span className={styles.statLabel}>{card.title}</span>
+              <span className={styles.statValue} style={{ color: card.color }}>{card.value.toLocaleString()}</span>
             </div>
           ))}
         </div>
       </section>
 
       {weekly && (
-        <section className="dash-section">
-          <h2 className="section-title">近 7 天趋势</h2>
-          <div className="charts-grid">
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <h2 className={styles.sectionTitle}>近 7 天趋势</h2>
+              <p className={styles.sectionDescription}>快速识别新增用户、帖子和计划的变化节奏。</p>
+            </div>
+          </div>
+          <div className={styles.chartsGrid}>
             <MiniChart data={weekly.users} labels={weekly.dates} color="#2563eb" title="新增用户" />
             <MiniChart data={weekly.posts} labels={weekly.dates} color="#d97706" title="新增帖子" />
             <MiniChart data={weekly.plans} labels={weekly.dates} color="#db2777" title="新增计划" />
@@ -167,122 +159,34 @@ export default function DashboardPage() {
         </section>
       )}
 
-      <section className="dash-section">
-        <h2 className="section-title">快捷入口</h2>
-        <div className="nav-grid">
-          {quickNav.map((item) => (
-            <Link key={item.path} href={item.path} className="nav-card">
-              <span className="nav-icon">{item.icon}</span>
-              <span className="nav-label">{item.label}</span>
-              <span className="nav-desc">{item.desc}</span>
-            </Link>
+      <section className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <h2 className={styles.sectionTitle}>模块导航</h2>
+            <p className={styles.sectionDescription}>后台入口按系统与用户两个域划分，首页只保留摘要，完整导航在左侧栏。</p>
+          </div>
+        </div>
+        <div className={styles.groupGrid}>
+          {groupedNav.map((group) => (
+            <section key={group.key} className={styles.groupCard}>
+              <span className={styles.groupEyebrow}>{group.label}</span>
+              <h3 className={styles.groupTitle}>{group.label}</h3>
+              <p className={styles.groupDescription}>{group.description}</p>
+              <div className={styles.groupLinks}>
+                {group.items.map((item) => (
+                  <Link key={item.path} href={item.path} className={styles.groupLink}>
+                    <span className={styles.groupLinkMark}>{item.shortLabel}</span>
+                    <span className={styles.groupLinkText}>
+                      <span className={styles.groupLinkLabel}>{item.label}</span>
+                      {item.description ? <span className={styles.groupLinkDesc}>{item.description}</span> : null}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       </section>
-
-      <style>{`
-        .dash { padding: 0; }
-        .dash-header {
-          display: flex; align-items: flex-start; justify-content: space-between;
-          margin-bottom: 32px;
-        }
-        .dash-title {
-          margin: 0; font-size: 26px; font-weight: 700;
-          color: var(--color-text, #1f2937); letter-spacing: -0.02em;
-        }
-        .dash-subtitle {
-          margin: 4px 0 0; font-size: 14px;
-          color: var(--color-text-muted, #6b7280);
-        }
-        .dash-logout {
-          background: none; border: 1px solid var(--color-border, #e5e7eb);
-          color: var(--color-text-muted, #6b7280); padding: 8px 16px;
-          border-radius: 8px; font-size: 13px; cursor: pointer;
-          transition: all 0.15s; white-space: nowrap;
-        }
-        .dash-logout:hover {
-          border-color: var(--color-danger, #dc2626);
-          color: var(--color-danger, #dc2626);
-        }
-
-        .dash-section { margin-bottom: 36px; }
-        .section-title {
-          margin: 0 0 16px; font-size: 16px; font-weight: 600;
-          color: var(--color-text, #1f2937);
-        }
-
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 14px;
-        }
-        .stat-card {
-          display: flex; overflow: hidden;
-          background: var(--color-surface, #fff);
-          border: 1px solid var(--color-border, #e5e7eb);
-          border-radius: 10px; transition: box-shadow 0.15s;
-        }
-        .stat-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
-        .stat-accent { width: 4px; flex-shrink: 0; }
-        .stat-body {
-          display: flex; flex-direction: column; padding: 16px 18px; gap: 4px;
-        }
-        .stat-label { font-size: 13px; color: var(--color-text-muted, #6b7280); }
-        .stat-value { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
-
-        .charts-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 14px;
-        }
-        .chart-card {
-          background: var(--color-surface, #fff);
-          border: 1px solid var(--color-border, #e5e7eb);
-          border-radius: 10px; padding: 16px 18px 12px; transition: box-shadow 0.15s;
-        }
-        .chart-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
-        .chart-header {
-          display: flex; align-items: center; justify-content: space-between;
-          margin-bottom: 8px;
-        }
-        .chart-title { font-size: 14px; font-weight: 600; color: var(--color-text, #1f2937); }
-        .chart-total { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
-        .chart-svg { width: 100%; height: auto; display: block; }
-
-        .nav-grid {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 14px;
-        }
-        .nav-card {
-          display: flex; flex-direction: column; align-items: flex-start;
-          padding: 20px; gap: 6px;
-          background: var(--color-surface, #fff);
-          border: 1px solid var(--color-border, #e5e7eb);
-          border-radius: 10px; text-decoration: none; color: inherit;
-          transition: all 0.15s;
-        }
-        .nav-card:hover {
-          border-color: var(--color-primary, #2563eb);
-          box-shadow: 0 4px 16px rgba(37,99,235,0.08);
-          transform: translateY(-2px);
-        }
-        .nav-icon { font-size: 24px; margin-bottom: 2px; }
-        .nav-label { font-size: 15px; font-weight: 600; color: var(--color-text, #1f2937); }
-        .nav-desc { font-size: 12px; color: var(--color-text-muted, #6b7280); }
-
-        @media (max-width: 1024px) {
-          .stats-grid { grid-template-columns: repeat(3, 1fr); }
-          .charts-grid { grid-template-columns: repeat(2, 1fr); }
-          .nav-grid { grid-template-columns: repeat(3, 1fr); }
-        }
-        @media (max-width: 768px) {
-          .stats-grid { grid-template-columns: repeat(2, 1fr); }
-          .charts-grid { grid-template-columns: 1fr; }
-          .nav-grid { grid-template-columns: repeat(2, 1fr); }
-          .dash-header { flex-direction: column; gap: 12px; }
-        }
-      `}</style>
     </div>
   );
 }

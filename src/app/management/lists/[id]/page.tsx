@@ -666,21 +666,21 @@ const itemsRes = await fetch(`/api/admin/list_items?list_id=${listId}`, { header
                       <textarea 
                         value={itemForms[item.id].transport_plane || ''} 
                         onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], transport_plane: e.target.value }}))} 
-                        placeholder="✈️ 飞机（多个用逗号分隔）" 
+                        placeholder="飞机（多个用逗号分隔）" 
                         rows={2}
                         style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} 
                       />
                       <textarea 
                         value={itemForms[item.id].transport_train || ''} 
                         onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], transport_train: e.target.value }}))} 
-                        placeholder="🚄 火车（多个用逗号分隔）" 
+                        placeholder="火车（多个用逗号分隔）" 
                         rows={2}
                         style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} 
                       />
                       <textarea 
                         value={itemForms[item.id].transport_bus || ''} 
                         onChange={e => setItemForms(p => ({ ...p, [item.id]: {...p[item.id], transport_bus: e.target.value }}))} 
-                        placeholder="🚌 大巴（多个用逗号分隔）" 
+                        placeholder="大巴（多个用逗号分隔）" 
                         rows={2}
                         style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} 
                       />

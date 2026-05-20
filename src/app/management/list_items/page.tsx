@@ -147,7 +147,7 @@ export default function ListItemsPage() {
                 style={{ backgroundImage: item.cover_image ? `url(${item.cover_image})` : undefined }}
               >
                 {!item.cover_image && <span className="placeholder">添加封面图</span>}
-                {item.lng && item.lat && <span className="coord-badge">✓</span>}
+                {item.lng && item.lat && <span className="coord-badge">已定位</span>}
               </div>
               <div className="card-body">
                 <h3 className="card-title">{item.title}</h3>
@@ -168,7 +168,7 @@ export default function ListItemsPage() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{editItem ? '编辑' : '添加'}数据</h2>
-              <button onClick={() => setShowModal(false)}>×</button>
+              <button onClick={() => setShowModal(false)}>关闭</button>
             </div>
             <div className="modal-body">
               <div className="form-field">
@@ -220,7 +220,7 @@ export default function ListItemsPage() {
         .card { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         .card-cover { height: 140px; background-size: cover; background-position: center; background-color: #f3f4f6; position: relative; display: flex; align-items: center; justify-content: center; }
         .card-cover .placeholder { color: #9ca3af; font-size: 14px; }
-        .card-cover .coord-badge { position: absolute; top: 8px; right: 8px; background: #10b981; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+        .card-cover .coord-badge { position: absolute; top: 8px; right: 8px; background: #10b981; color: white; min-width: 44px; height: 22px; padding: 0 8px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-size: 11px; }
         .card-body { padding: 10px; }
         .card-title { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
         .card-desc { margin: 0; font-size: 12px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -233,7 +233,7 @@ export default function ListItemsPage() {
         .modal { background: white; border-radius: 12px; width: 90%; max-width: 450px; max-height: 90vh; overflow: auto; }
         .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid #e5e7eb; }
         .modal-header h2 { margin: 0; font-size: 18px; }
-        .modal-header button { background: none; border: none; font-size: 24px; cursor: pointer; color: #6b7280; }
+        .modal-header button { background: none; border: none; font-size: 14px; cursor: pointer; color: #6b7280; }
         .modal-body { padding: 16px; }
         .form-field { margin-bottom: 12px; }
         .form-field label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 500; }
