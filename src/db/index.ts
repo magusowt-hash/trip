@@ -23,15 +23,32 @@ if (!databaseUrl) {
 
 const config = parseDatabaseUrl(databaseUrl);
 
-const pool = mysql.createPool({
-  host: config.host,
-  port: config.port,
-  user: config.user,
-  password: config.password,
-  database: config.database,
-  waitForConnections: true,
-  connectionLimit: 10,
-});
+type DbPool = ReturnType<typeof mysql.createPool>;
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __tripMysqlPool: DbPool | undefined;
+}
+
+const pool =
+  globalThis.__tripMysqlPool ??
+  mysql.createPool({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: config.database,
+    waitForConnections: true,
+    connectionLimit: 10,
+    maxIdle: 10,
+    idleTimeout: 60000,
+    queueLimit: 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0,
+  });
+
+if (!globalThis.__tripMysqlPool) {
+  globalThis.__tripMysqlPool = pool;
+}
 
 export const db = drizzle(pool, { schema, mode: 'default' });
-
