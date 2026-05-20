@@ -31,6 +31,14 @@ function getCount(result: any): number {
   return Number(rows[0]?.count || 0);
 }
 
+async function getFriendCount() {
+  try {
+    return await db.execute(sql`SELECT count(*) as count FROM friendships`);
+  } catch {
+    return db.execute(sql`SELECT count(*) as count FROM friends`);
+  }
+}
+
 export async function GET(request: NextRequest) {
   const authError = verifyAdminToken(request);
   if (authError) return authError;
@@ -39,7 +47,7 @@ export async function GET(request: NextRequest) {
     const postsResult = await db.execute(sql`SELECT count(*) as count FROM posts`);
     const commentsResult = await db.execute(sql`SELECT count(*) as count FROM comments`);
     const favoritesResult = await db.execute(sql`SELECT count(*) as count FROM favorites`);
-    const friendsResult = await db.execute(sql`SELECT count(*) as count FROM friends`);
+    const friendsResult = await getFriendCount();
     const plansResult = await db.execute(sql`SELECT count(*) as count FROM plans`);
     const keysResult = await db.execute(sql`SELECT count(*) as count FROM admin_keys WHERE is_active = 1`);
 

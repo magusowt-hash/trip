@@ -25,6 +25,28 @@ function verifyAdminToken(req: NextRequest): NextResponse | null {
   return null;
 }
 
+function extractRows<T>(result: unknown): T[] {
+  if (Array.isArray(result) && Array.isArray(result[0])) {
+    return result[0] as T[];
+  }
+  if (Array.isArray(result)) {
+    return result as T[];
+  }
+  return [];
+}
+
+async function hasPostsStatusColumn() {
+  const result = await db.execute(sql`
+    SELECT 1 AS present
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'posts'
+      AND COLUMN_NAME = 'status'
+    LIMIT 1
+  `);
+  return extractRows<{ present: number }>(result).length > 0;
+}
+
 export async function GET(request: NextRequest) {
   const authError = verifyAdminToken(request);
   if (authError) return authError;
@@ -36,8 +58,9 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * pageSize;
     const statusParam = searchParams.get('status');
     const allowedStatuses = ['normal', 'blocked', 'deleted'];
+    const statusSupported = await hasPostsStatusColumn();
     let whereCondition = undefined;
-    if (statusParam && statusParam !== 'all' && allowedStatuses.includes(statusParam)) {
+    if (statusSupported && statusParam && statusParam !== 'all' && allowedStatuses.includes(statusParam)) {
       whereCondition = eq(posts.status, statusParam);
     }
 
@@ -49,6 +72,7 @@ export async function GET(request: NextRequest) {
         content: posts.content,
         privacy: posts.privacy,
         topic: posts.topic,
+        status: statusSupported ? posts.status : sql<string | null>`NULL`.as('status'),
         createdAt: posts.createdAt,
         userNickname: users.nickname,
         userPhone: users.phone,
@@ -88,6 +112,11 @@ export async function PATCH(request: NextRequest) {
     }
 
     const postId = parseInt(id);
+    const statusSupported = await hasPostsStatusColumn();
+
+    if (!statusSupported && ['block', 'restore', 'soft-delete'].includes(action)) {
+      return NextResponse.json({ error: '当前数据库 posts 表未包含 status 列，暂不支持该操作' }, { status: 400 });
+    }
 
     if (action === 'block') {
       await db.update(posts)

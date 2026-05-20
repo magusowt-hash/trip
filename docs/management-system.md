@@ -170,8 +170,8 @@ export const comments = mysqlTable('comments', {...});
 // favorites 表
 export const favorites = mysqlTable('favorites', {...});
 
-// friendships 表 (表名为 friends)
-export const friendships = mysqlTable('friends', {...});
+// friendships 表
+export const friendships = mysqlTable('friendships', {...});
 
 // plans 表
 export const plans = mysqlTable('plans', {...});

@@ -44,6 +44,40 @@ function extractRows<T>(result: unknown): T[] {
   return [];
 }
 
+async function loadFriendRows(userId: number) {
+  try {
+    return await db.execute(sql`
+      SELECT
+        f.id,
+        f.user_id AS userId,
+        f.friend_user_id AS friendUserId,
+        f.created_at AS createdAt,
+        u.nickname AS friendNickname,
+        u.avatar AS friendAvatar,
+        u.phone AS friendPhone
+      FROM friendships f
+      LEFT JOIN users u ON u.id = f.friend_user_id
+      WHERE f.user_id = ${userId}
+      ORDER BY f.created_at DESC
+    `);
+  } catch {
+    return db.execute(sql`
+      SELECT
+        f.id,
+        f.user_id AS userId,
+        f.friend_id AS friendUserId,
+        f.created_at AS createdAt,
+        u.nickname AS friendNickname,
+        u.avatar AS friendAvatar,
+        u.phone AS friendPhone
+      FROM friends f
+      LEFT JOIN users u ON u.id = f.friend_id
+      WHERE f.user_id = ${userId}
+      ORDER BY f.created_at DESC
+    `).catch(() => [] as unknown);
+  }
+}
+
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const authError = verifyAdminToken(req);
   if (authError) return authError;
@@ -94,7 +128,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           topic: posts.topic,
           commentsCnt: posts.commentsCnt,
           favoritesCnt: posts.favoritesCnt,
-          status: posts.status,
+          status: sql<string | null>`NULL`.as('status'),
           createdAt: posts.createdAt,
         })
         .from(posts)
@@ -158,23 +192,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         GROUP BY CASE WHEN sender_id = ${userId} THEN receiver_id ELSE sender_id END
         ORDER BY MAX(id) DESC
         LIMIT 8
-      `),
+      `).catch(() => [] as unknown),
     ]);
 
-    const friendRowsResult = await db.execute(sql`
-      SELECT
-        f.id,
-        f.user_id AS userId,
-        f.friend_id AS friendUserId,
-        f.created_at AS createdAt,
-        u.nickname AS friendNickname,
-        u.avatar AS friendAvatar,
-        u.phone AS friendPhone
-      FROM friends f
-      LEFT JOIN users u ON u.id = f.friend_id
-      WHERE f.user_id = ${userId}
-      ORDER BY f.created_at DESC
-    `);
+    const friendRowsResult = await loadFriendRows(userId);
     const friendLinks = extractRows<{
       id: number | string;
       userId: number | string;
@@ -236,7 +257,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
             SELECT id, sender_id, receiver_id, content, is_read, created_at
             FROM messages
             WHERE id IN (${sql.join(messageIds.map((id) => sql`${id}`), sql`, `)})
-          `)
+          `).catch(() => [] as unknown)
         : Promise.resolve([] as unknown),
       otherUserIds.length
         ? db
