@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import OuterFrame from '@/components/OuterFrame';
 import FootprintGroupPanel from '@/components/FootprintGroupPanel';
 import PhotoAlbumModal from '@/components/PhotoAlbumModal';
+import FootprintCloudMountModal from '@/components/FootprintCloudMountModal';
 import LegendPanel from '@/components/LegendPanel';
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
@@ -33,6 +34,24 @@ interface FootprintItem {
   addedAt: string;
   cloudCover: string | null;
   cloudFolder: string | null;
+}
+
+interface CloudStatusMeta {
+  itemId: string;
+  itemName: string;
+  mountState: 'unmounted' | 'mounted';
+  connectionState: 'unknown' | 'connected' | 'disconnected';
+  syncState: 'idle' | 'syncing' | 'success' | 'failed';
+  unboundFolderCount: number;
+  unboundAssetCount: number;
+  lastSyncAt: string | null;
+  lastSyncStatus: 'success' | 'failed' | null;
+  lastSyncSummary: {
+    importedAssetCount: number;
+    skippedAssetCount: number;
+    matchedFolderCount: number;
+    unboundFolderCount: number;
+  } | null;
 }
 
 export default function UserFootprintsPage() {
@@ -74,6 +93,9 @@ function UserFootprintsPageInner() {
   const [photosLoaded, setPhotosLoaded] = useState(false);
   const [focusPosition, setFocusPosition] = useState<[number, number] | null>(null);
   const [albumItem, setAlbumItem] = useState<FootprintItem | null>(null);
+  const [cloudMountItem, setCloudMountItem] = useState<FootprintItem | null>(null);
+  const [cloudStatusMap, setCloudStatusMap] = useState<Record<number, CloudStatusMeta>>({});
+  const [pendingHintCount, setPendingHintCount] = useState(0);
   const [viewerPhoto, setViewerPhoto] = useState<{ url: string; title: string } | null>(null);
   const [hasMovedPhotos, setHasMovedPhotos] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -169,6 +191,47 @@ function UserFootprintsPageInner() {
       loadAllPhotos();
     }
   }, [items, photosLoaded]);
+
+  useEffect(() => {
+    if (isViewMode || items.length === 0) {
+      setCloudStatusMap({});
+      setPendingHintCount(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadCloudStatuses() {
+      try {
+        const pairs = await Promise.all(items.map(async item => {
+          const res = await fetch(`/api/footprints/cloud/mount/status?itemId=${item.id}`, { credentials: 'include' });
+          if (!res.ok) return [item.id, null] as const;
+          const data = await res.json();
+          return [item.id, data as CloudStatusMeta] as const;
+        }));
+
+        if (cancelled) return;
+
+        const nextMap: Record<number, CloudStatusMeta> = {};
+        let totalUnbound = 0;
+        for (const [itemId, data] of pairs) {
+          if (!data) continue;
+          nextMap[itemId] = data;
+          totalUnbound += data.unboundFolderCount || 0;
+        }
+        setCloudStatusMap(nextMap);
+        setPendingHintCount(totalUnbound);
+      } catch {
+        if (!cancelled) {
+          setCloudStatusMap({});
+          setPendingHintCount(0);
+        }
+      }
+    }
+
+    void loadCloudStatuses();
+    return () => { cancelled = true; };
+  }, [items, isViewMode]);
 
   useEffect(() => {
     const ms: MapMarker[] = items
@@ -409,6 +472,19 @@ function UserFootprintsPageInner() {
     }
   }, []);
 
+  const handleOpenCloudMount = useCallback((item: FootprintItem) => {
+    setCloudMountItem(item);
+  }, []);
+
+  const handleCloudStatusChange = useCallback((itemId: number, status: CloudStatusMeta) => {
+    setCloudStatusMap(prev => {
+      const next = { ...prev, [itemId]: status };
+      const total = Object.values(next).reduce((sum, entry) => sum + (entry.unboundFolderCount || 0), 0);
+      setPendingHintCount(total);
+      return next;
+    });
+  }, []);
+
   // --- Group panel handlers ---
 
   async function handleCreateGroup(name: string) {
@@ -489,6 +565,17 @@ function UserFootprintsPageInner() {
       />
 
       {/* Bottom-right panels */}
+      {!isViewMode && pendingHintCount > 0 && (
+        <button
+          className={styles.pendingHint}
+          onClick={() => {
+            const target = items.find(item => (cloudStatusMap[item.id]?.unboundFolderCount || 0) > 0) || items[0];
+            if (target) setCloudMountItem(target);
+          }}
+        >
+          待匹配 {pendingHintCount}
+        </button>
+      )}
       {(panelCollapsed && legendCollapsed) || (
         <div className={styles.panelBackdrop} onClick={() => { setPanelCollapsed(true); setLegendCollapsed(true); }} />
       )}
@@ -507,7 +594,9 @@ function UserFootprintsPageInner() {
           onRemoveItem={handleRemoveItem}
           onOpenAlbum={handleOpenAlbum}
           onUploadPhoto={handleUploadPhotoForItem}
+          onOpenCloudMount={handleOpenCloudMount}
           onItemClick={handleItemClick}
+          cloudStatusMap={cloudStatusMap}
         />
 
         <LegendPanel
@@ -545,6 +634,13 @@ function UserFootprintsPageInner() {
         open={!!albumItem}
         placeTitle={albumItem?.title || ''}
         onClose={() => setAlbumItem(null)}
+      />
+
+      <FootprintCloudMountModal
+        open={!!cloudMountItem}
+        item={cloudMountItem ? { id: cloudMountItem.id, title: cloudMountItem.title } : null}
+        onClose={() => setCloudMountItem(null)}
+        onStatusChange={handleCloudStatusChange}
       />
 
       {/* Image viewer modal */}

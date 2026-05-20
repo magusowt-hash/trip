@@ -29,6 +29,27 @@
       "when": 1767560000000,
       "tag": "0008_zoom_refinement",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1779000000000,
+      "tag": "0009_cloud_storage_extension",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779000000001,
+      "tag": "0010_cloud_mounts_and_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779000000002,
+      "tag": "0011_cloud_assets",
+      "breakpoints": true
     }
   ]
 }

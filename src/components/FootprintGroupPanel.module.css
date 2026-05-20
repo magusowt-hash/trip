@@ -194,6 +194,22 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
+.menuItemSuccess {
+  color: #86efac;
+}
+
+.menuItemSuccess:hover {
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.menuItemDangerSoft {
+  color: #fda4af;
+}
+
+.menuItemDangerSoft:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
 .menuItemDanger {
   background: none;
   border: none;

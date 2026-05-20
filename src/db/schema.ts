@@ -456,6 +456,7 @@ export const stationOverrides = mysqlTable(
 
 // Footprints classification
 export { footprintGroups, footprintGroupItems } from './schema.footprints';
+export { cloudMounts, cloudSyncLogs, cloudAssets } from './schema.cloud';
 export { alistConfig } from './schema.alist';
 
 export { storageFiles } from './schema.storage';

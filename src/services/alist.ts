@@ -8,6 +8,20 @@ interface AlistFile {
   type: number;
 }
 
+export interface AlistFolderSummary {
+  name: string;
+  path: string;
+  file_count: number;
+}
+
+export interface AlistImageFile {
+  name: string;
+  url: string;
+  thumb: string;
+  size: number;
+  path: string;
+}
+
 let cachedConfig: { url: string; username: string; password: string; rootPath: string; enabled: boolean } | null = null;
 let cachedToken: string | null = null;
 let tokenExpiry = 0;
@@ -65,13 +79,22 @@ function buildUserPath(config: { rootPath: string } | null, userId: number, subP
   return `${root}user_${userId}/${safe}`.replace(/\/+/g, '/');
 }
 
+function normalizePath(input: string): string {
+  if (!input) return '/';
+  return input.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+}
+
+async function listPath(config: Config, fullPath: string) {
+  const data = await alistFetch(config, `/fs/list?path=${encodeURIComponent(normalizePath(fullPath))}&password=`);
+  if ((data as any).code !== 200 || !(data as any).data?.content) return [];
+  return (data as any).data.content as AlistFile[];
+}
+
 export async function searchFolders(userId: number, name: string) {
   const config = await getConfig();
   if (!config) return [];
   const userPath = buildUserPath(config, userId, '');
-  const data = await alistFetch(config, `/fs/list?path=${encodeURIComponent(userPath)}&password=`);
-  if ((data as any).code !== 200 || !(data as any).data?.content) return [];
-  return ((data as any).data.content as AlistFile[])
+  return (await listPath(config, userPath))
     .filter(f => f.is_dir && f.name.includes(name))
     .map(f => ({ name: f.name, path: userPath + f.name, file_count: 0 }));
 }
@@ -80,10 +103,9 @@ export async function listFiles(userId: number, subPath: string) {
   const config = await getConfig();
   if (!config) return [];
   const fullPath = buildUserPath(config, userId, subPath);
-  const data = await alistFetch(config, `/fs/list?path=${encodeURIComponent(fullPath)}&password=`);
-  if ((data as any).code !== 200 || !(data as any).data?.content) return [];
+  const data = await listPath(config, fullPath);
   const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
-  return ((data as any).data.content as AlistFile[])
+  return data
     .filter(f => !f.is_dir && imageExts.some(ext => f.name.toLowerCase().endsWith(ext)))
     .map(f => ({
       name: f.name,
@@ -93,14 +115,42 @@ export async function listFiles(userId: number, subPath: string) {
     }));
 }
 
+export async function listRootFolders(userId: number): Promise<AlistFolderSummary[]> {
+  const config = await getConfig();
+  if (!config) return [];
+  const userPath = buildUserPath(config, userId, '');
+  return (await listPath(config, userPath))
+    .filter(f => f.is_dir)
+    .map(f => ({
+      name: f.name,
+      path: normalizePath(`${userPath}/${f.name}`),
+      file_count: 0,
+    }));
+}
+
+export async function listFilesByFullPath(fullPath: string): Promise<AlistImageFile[]> {
+  const config = await getConfig();
+  if (!config) return [];
+  const normalized = normalizePath(fullPath);
+  const data = await listPath(config, normalized);
+  const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
+  return data
+    .filter(f => !f.is_dir && imageExts.some(ext => f.name.toLowerCase().endsWith(ext)))
+    .map(f => ({
+      name: f.name,
+      url: f.sign ? `${config.url}/d${normalized}/${f.name}?sign=${f.sign}` : '',
+      thumb: f.thumb ? `${config.url}/d${normalized}/${f.name}?sign=${f.thumb}` : '',
+      size: f.size,
+      path: `${normalized}/${f.name}`.replace(/\/+/g, '/'),
+    }));
+}
+
 export async function getFirstImage(userId: number, subPath: string): Promise<string | null> {
   const config = await getConfig();
   if (!config) return null;
   const fullPath = buildUserPath(config, userId, subPath);
-  const data = await alistFetch(config, `/fs/list?path=${encodeURIComponent(fullPath)}&password=`);
-  if ((data as any).code !== 200 || !(data as any).data?.content) return null;
   const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
-  const first = ((data as any).data.content as AlistFile[]).find(
+  const first = (await listPath(config, fullPath)).find(
     f => !f.is_dir && imageExts.some(ext => f.name.toLowerCase().endsWith(ext)),
   );
   if (!first || !first.sign) return null;

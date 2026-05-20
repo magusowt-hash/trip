@@ -24,6 +24,12 @@ interface FootprintItem {
   addedAt: string;
 }
 
+interface CloudStatusMeta {
+  mountState: 'unmounted' | 'mounted';
+  connectionState: 'unknown' | 'connected' | 'disconnected';
+  unboundFolderCount?: number;
+}
+
 interface Props {
   groups: FootprintGroup[];
   selectedGroupId: number | null;
@@ -38,7 +44,9 @@ interface Props {
   onRemoveItem: (item: FootprintItem) => void;
   onOpenAlbum: (item: FootprintItem) => void;
   onUploadPhoto: (item: FootprintItem) => void;
+  onOpenCloudMount: (item: FootprintItem) => void;
   onItemClick: (item: FootprintItem) => void;
+  cloudStatusMap?: Record<number, CloudStatusMeta>;
 }
 
 export default function FootprintGroupPanel({
@@ -55,7 +63,9 @@ export default function FootprintGroupPanel({
   onRemoveItem,
   onOpenAlbum,
   onUploadPhoto,
+  onOpenCloudMount,
   onItemClick,
+  cloudStatusMap = {},
 }: Props) {
   const [showNewInput, setShowNewInput] = useState(false);
   const [newName, setNewName] = useState('');
@@ -82,6 +92,14 @@ export default function FootprintGroupPanel({
     e.stopPropagation();
     setMenuItem(item);
     setMenuPos({ x: e.clientX, y: e.clientY });
+  };
+
+  const getMountClassName = (item: FootprintItem) => {
+    const status = cloudStatusMap[item.id];
+    if (!status || status.mountState === 'unmounted') return styles.menuItemBtn;
+    if (status.connectionState === 'connected') return `${styles.menuItemBtn} ${styles.menuItemSuccess}`;
+    if (status.connectionState === 'disconnected') return `${styles.menuItemBtn} ${styles.menuItemDangerSoft}`;
+    return styles.menuItemBtn;
   };
 
   return (
@@ -194,6 +212,9 @@ export default function FootprintGroupPanel({
             </button>
             <button className={styles.menuItemBtn} onClick={() => { onUploadPhoto(menuItem); setMenuItem(null); }}>
               上传照片
+            </button>
+            <button className={getMountClassName(menuItem)} onClick={() => { onOpenCloudMount(menuItem); setMenuItem(null); }}>
+              挂载网盘
             </button>
             <button className={styles.menuItemDanger} onClick={() => { onRemoveItem(menuItem); setMenuItem(null); }}>
               删除
