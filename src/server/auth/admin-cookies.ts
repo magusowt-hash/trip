@@ -5,6 +5,10 @@ const ADMIN_COOKIE_SECURE = process.env.ADMIN_COOKIE_SECURE?.toLowerCase() === '
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 export function getAdminTokenFromRequest(req: NextRequest): string | null {
+  const bearerToken = req.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (bearerToken) {
+    return bearerToken;
+  }
   return req.cookies.get(ADMIN_COOKIE_NAME)?.value ?? null;
 }
 

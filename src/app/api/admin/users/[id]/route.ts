@@ -64,7 +64,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         birthday: users.birthday,
         region: users.region,
         favoriteLists: users.favoriteLists,
-      status: users.status,
+        status: users.status,
         createdAt: users.createdAt,
         updatedAt: users.updatedAt,
       })

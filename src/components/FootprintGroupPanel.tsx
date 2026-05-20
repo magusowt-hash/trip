@@ -73,6 +73,7 @@ export default function FootprintGroupPanel({
   const [editName, setEditName] = useState('');
   const [menuItem, setMenuItem] = useState<FootprintItem | null>(null);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
+  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -101,6 +102,10 @@ export default function FootprintGroupPanel({
     if (status.connectionState === 'disconnected') return `${styles.menuItemBtn} ${styles.menuItemDangerSoft}`;
     return styles.menuItemBtn;
   };
+
+  const selectedPanelItem = selectedGroupId
+    ? items.find(item => cloudStatusMap[item.id] || item.id === items[0]?.id) ?? items[0] ?? null
+    : null;
 
   return (
     <>
@@ -139,6 +144,17 @@ export default function FootprintGroupPanel({
                         <span className={styles.groupName}>{g.name}</span>
                         <span className={styles.groupCount}>{g.itemCount}</span>
                         {g.isDefault === 1 && <span className={styles.defaultBadge}>默认</span>}
+                        {selectedGroupId === g.id && (
+                          <button
+                            className={styles.groupMoreBtn}
+                            onClick={e => {
+                              e.stopPropagation();
+                              setGroupMenuOpen(v => !v);
+                            }}
+                          >
+                            ⋯
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
@@ -188,21 +204,44 @@ export default function FootprintGroupPanel({
               <button className={styles.addBtn} onClick={() => setShowNewInput(true)}>＋ 新建分类</button>
             )}
 
-            {selectedGroupId && (
-              <div className={styles.actions}>
-                <button onClick={() => {
-                  const g = groups.find(x => x.id === selectedGroupId);
-                  if (g) { setEditingId(g.id); setEditName(g.name); }
-                }}>重命名</button>
-                <button onClick={() => onSetDefault(selectedGroupId)}>设为默认</button>
-                <button className={styles.danger} onClick={() => onDeleteGroup(selectedGroupId)}>删除</button>
-              </div>
-            )}
           </>
         )}
       </div>
 
       {/* Item context menu (portal to body to escape stacking context) */}
+      {groupMenuOpen && selectedGroupId && createPortal(
+        <>
+          <div className={styles.menuBackdrop} onClick={() => setGroupMenuOpen(false)} />
+          <div className={styles.itemMenu} style={{ right: 24, bottom: 24, left: 'auto', top: 'auto', transform: 'none' }} onClick={e => e.stopPropagation()}>
+            <button className={styles.menuItemBtn} onClick={() => { onSetDefault(selectedGroupId); setGroupMenuOpen(false); }}>
+              设为默认
+            </button>
+            <button className={styles.menuItemBtn} onClick={() => {
+              const g = groups.find(x => x.id === selectedGroupId);
+              if (g) { setEditingId(g.id); setEditName(g.name); }
+              setGroupMenuOpen(false);
+            }}>
+              重命名
+            </button>
+            <button
+              className={selectedPanelItem ? getMountClassName(selectedPanelItem) : styles.menuItemBtn}
+              onClick={() => {
+                if (selectedPanelItem) onOpenCloudMount(selectedPanelItem);
+                setGroupMenuOpen(false);
+              }}
+              disabled={!selectedPanelItem}
+            >
+              挂载网盘
+            </button>
+            <button className={styles.menuItemDanger} onClick={() => { onDeleteGroup(selectedGroupId); setGroupMenuOpen(false); }}>
+              删除
+            </button>
+          </div>
+        </>,
+        document.body,
+      )}
+
+      {/* Place context menu */}
       {menuItem && createPortal(
         <>
           <div className={styles.menuBackdrop} onClick={() => setMenuItem(null)} />
@@ -212,9 +251,6 @@ export default function FootprintGroupPanel({
             </button>
             <button className={styles.menuItemBtn} onClick={() => { onUploadPhoto(menuItem); setMenuItem(null); }}>
               上传照片
-            </button>
-            <button className={getMountClassName(menuItem)} onClick={() => { onOpenCloudMount(menuItem); setMenuItem(null); }}>
-              挂载网盘
             </button>
             <button className={styles.menuItemDanger} onClick={() => { onRemoveItem(menuItem); setMenuItem(null); }}>
               删除

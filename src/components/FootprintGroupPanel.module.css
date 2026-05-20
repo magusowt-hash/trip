@@ -95,6 +95,20 @@
   white-space: nowrap;
 }
 
+.groupMoreBtn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.groupMoreBtn:hover {
+  color: #e2e8f0;
+}
+
 .groupCount {
   font-size: 12px;
   color: #64748b;
