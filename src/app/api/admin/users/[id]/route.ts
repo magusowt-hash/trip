@@ -4,7 +4,6 @@ import { db } from '@/db';
 import {
   comments,
   favorites,
-  friendships,
   listItems,
   plans,
   posts,
@@ -33,6 +32,16 @@ function verifyAdminToken(req: NextRequest): NextResponse | null {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
   return null;
+}
+
+function extractRows<T>(result: unknown): T[] {
+  if (Array.isArray(result) && Array.isArray(result[0])) {
+    return result[0] as T[];
+  }
+  if (Array.isArray(result)) {
+    return result as T[];
+  }
+  return [];
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -73,7 +82,6 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       userFavorites,
       userPlans,
       userComments,
-      friendLinks,
       footprintStorage,
       messageRows,
     ] = await Promise.all([
@@ -136,20 +144,6 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         .orderBy(desc(comments.createdAt)),
       db
         .select({
-          id: friendships.id,
-          userId: friendships.userId,
-          friendUserId: friendships.friendUserId,
-          createdAt: friendships.createdAt,
-          friendNickname: users.nickname,
-          friendAvatar: users.avatar,
-          friendPhone: users.phone,
-        })
-        .from(friendships)
-        .leftJoin(users, eq(friendships.friendUserId, users.id))
-        .where(eq(friendships.userId, userId))
-        .orderBy(desc(friendships.createdAt)),
-      db
-        .select({
           id: storageFiles.id,
           placeTitle: storageFiles.placeTitle,
           filename: storageFiles.filename,
@@ -167,6 +161,30 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         LIMIT 8
       `),
     ]);
+
+    const friendRowsResult = await db.execute(sql`
+      SELECT
+        f.id,
+        f.user_id AS userId,
+        f.friend_id AS friendUserId,
+        f.created_at AS createdAt,
+        u.nickname AS friendNickname,
+        u.avatar AS friendAvatar,
+        u.phone AS friendPhone
+      FROM friends f
+      LEFT JOIN users u ON u.id = f.friend_id
+      WHERE f.user_id = ${userId}
+      ORDER BY f.created_at DESC
+    `);
+    const friendLinks = extractRows<{
+      id: number | string;
+      userId: number | string;
+      friendUserId: number | string;
+      createdAt: string;
+      friendNickname: string | null;
+      friendAvatar: string | null;
+      friendPhone: string | null;
+    }>(friendRowsResult);
 
     const ratingTargetIds = new Set<number>();
     for (const rating of userRatings) {
@@ -205,7 +223,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       storageCountByTitle.set(file.placeTitle, (storageCountByTitle.get(file.placeTitle) || 0) + 1);
     }
 
-    const messageIdRows = (messageRows as unknown as Array<{ last_message_id: number | string; other_user_id: number | string }>) || [];
+    const messageIdRows = extractRows<{ last_message_id: number | string; other_user_id: number | string }>(messageRows);
     const messageIds = messageIdRows
       .map((row) => Number(row.last_message_id))
       .filter((value) => Number.isFinite(value));
@@ -235,7 +253,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     ]);
 
     const messageMap = new Map<number, any>();
-    for (const row of (lastMessages as unknown as Array<any>) || []) {
+    for (const row of extractRows<any>(lastMessages)) {
       messageMap.set(Number(row.id), row);
     }
     const peerMap = new Map(messagePeers.map((peer) => [peer.id, peer]));
@@ -287,7 +305,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       plans: userPlans,
       comments: userComments,
       friends: friendLinks.map((item) => ({
-        id: item.friendUserId,
+        id: Number(item.friendUserId),
         nickname: item.friendNickname,
         avatar: item.friendAvatar,
         phone: item.friendPhone,
