@@ -10,6 +10,15 @@ export type RequestOptions = {
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
 
+function resolveRequestUrl(path: string): string {
+  // Next.js app 内部 API 必须保持同源，避免浏览器直连外部后端触发 CORS。
+  if (path === '/health' || path.startsWith('/api/')) {
+    return path;
+  }
+
+  return `${BASE_URL}${path}`;
+}
+
 function getAuthToken(): string | null {
   if (typeof document === 'undefined') return null;
   const match = document.cookie.match(/trip_auth=([^;]+)/);
@@ -28,7 +37,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     requestHeaders['Authorization'] = `Bearer ${token}`;
   }
 
-  const fullUrl = `${BASE_URL}${path}`;
+  const fullUrl = resolveRequestUrl(path);
 
   try {
     const response = await fetch(fullUrl, {
