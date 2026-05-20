@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { AdminAuthCtx } from './admin-auth';
 import styles from './layout.module.css';
 import {
+  type ManagementNavGroup,
   getDashboardNavItem,
   getGroupedManagementNav,
   getManagementNavItem,
@@ -59,6 +60,30 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const dashboardItem = getDashboardNavItem();
   const groupedNav = getGroupedManagementNav();
   const currentTitle = currentItem?.label ?? '管理后台';
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<ManagementNavGroup['key'], boolean>>({
+    system: false,
+    user: false,
+  });
+
+  useEffect(() => {
+    const nextCollapsed: Record<ManagementNavGroup['key'], boolean> = {
+      system: currentItem?.group === 'user',
+      user: currentItem?.group === 'system',
+    };
+    setCollapsedGroups((prev) => {
+      if (prev.system === nextCollapsed.system && prev.user === nextCollapsed.user) {
+        return prev;
+      }
+      return nextCollapsed;
+    });
+  }, [currentItem?.group]);
+
+  const toggleGroup = (groupKey: ManagementNavGroup['key']) => {
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [groupKey]: !prev[groupKey],
+    }));
+  };
 
   if (isLoginPage) {
     return (
@@ -85,51 +110,68 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   </Link>
                 </div>
 
-                <div className={styles.sidebarSection}>
-                  <div className={styles.navList}>
-                    <Link
-                      href={dashboardItem.path}
-                      className={`${styles.dashboardLink} ${pathname === dashboardItem.path ? styles.dashboardLinkActive : ''}`}
-                    >
-                      <span className={styles.navInitial}>{dashboardItem.shortLabel}</span>
-                      <span className={styles.navText}>
-                        <span className={styles.navLabel}>{dashboardItem.label}</span>
-                        {dashboardItem.description ? (
-                          <span className={styles.navDescription}>{dashboardItem.description}</span>
-                        ) : null}
-                      </span>
-                    </Link>
-                  </div>
-                </div>
-
-                {groupedNav.map((group) => (
-                  <section key={group.key} className={styles.sidebarSection}>
-                    <div className={styles.sectionHeading}>
-                      <span className={styles.sectionTitle}>{group.label}</span>
-                      <span className={styles.sectionDescription}>{group.description}</span>
+                <div className={styles.sidebarScrollArea}>
+                  <div className={styles.sidebarSection}>
+                    <div className={styles.navList}>
+                      <Link
+                        href={dashboardItem.path}
+                        className={`${styles.dashboardLink} ${pathname === dashboardItem.path ? styles.dashboardLinkActive : ''}`}
+                      >
+                        <span className={styles.navInitial}>{dashboardItem.shortLabel}</span>
+                        <span className={styles.navText}>
+                          <span className={styles.navLabel}>{dashboardItem.label}</span>
+                          {dashboardItem.description ? (
+                            <span className={styles.navDescription}>{dashboardItem.description}</span>
+                          ) : null}
+                        </span>
+                      </Link>
                     </div>
-                    <nav className={styles.navList}>
-                      {group.items.map((item) => {
-                        const isActive = currentItem?.path === item.path;
-                        return (
-                          <Link
-                            key={item.path}
-                            href={item.path}
-                            className={`${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}
-                          >
-                            <span className={styles.navInitial}>{item.shortLabel}</span>
-                            <span className={styles.navText}>
-                              <span className={styles.navLabel}>{item.label}</span>
-                              {item.description ? (
-                                <span className={styles.navDescription}>{item.description}</span>
-                              ) : null}
-                            </span>
-                          </Link>
-                        );
-                      })}
-                    </nav>
-                  </section>
-                ))}
+                  </div>
+
+                  {groupedNav.map((group) => {
+                    const isCollapsed = collapsedGroups[group.key];
+                    return (
+                      <section key={group.key} className={styles.sidebarSection}>
+                        <button
+                          type="button"
+                          className={styles.sectionToggle}
+                          onClick={() => toggleGroup(group.key)}
+                          aria-expanded={!isCollapsed}
+                        >
+                          <span className={styles.sectionHeading}>
+                            <span className={styles.sectionTitle}>{group.label}</span>
+                            <span className={styles.sectionDescription}>{group.description}</span>
+                          </span>
+                          <span className={`${styles.sectionChevron} ${isCollapsed ? styles.sectionChevronCollapsed : ''}`}>
+                            ▾
+                          </span>
+                        </button>
+                        {!isCollapsed ? (
+                          <nav className={styles.navList}>
+                            {group.items.map((item) => {
+                              const isActive = currentItem?.path === item.path;
+                              return (
+                                <Link
+                                  key={item.path}
+                                  href={item.path}
+                                  className={`${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}
+                                >
+                                  <span className={styles.navInitial}>{item.shortLabel}</span>
+                                  <span className={styles.navText}>
+                                    <span className={styles.navLabel}>{item.label}</span>
+                                    {item.description ? (
+                                      <span className={styles.navDescription}>{item.description}</span>
+                                    ) : null}
+                                  </span>
+                                </Link>
+                              );
+                            })}
+                          </nav>
+                        ) : null}
+                      </section>
+                    );
+                  })}
+                </div>
               </div>
             </aside>
           )}

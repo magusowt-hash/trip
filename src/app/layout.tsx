@@ -33,7 +33,11 @@ export default async function RootLayout({
 }>) {
   const headersList = await headers();
   const pathname = headersList.get('x-current-path') || '';
-  const hideActions = pathname === '/login' || pathname === '/register' || pathname.startsWith('/lists-embed');
+  const hideActions =
+    pathname === '/login' ||
+    pathname === '/register' ||
+    pathname.startsWith('/lists-embed') ||
+    pathname.startsWith('/management');
   
   return (
     <html lang="zh-CN">
