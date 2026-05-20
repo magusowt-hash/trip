@@ -23,6 +23,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     checkSession();
   }, []);
 
+  const clearStoredAdminToken = () => {
+    localStorage.removeItem('admin_token');
+    setToken(null);
+  };
+
   async function checkSession() {
     try {
       const res = await fetch('/api/admin/auth/session');
@@ -30,9 +35,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       if (data.authenticated) {
         setIsAuthenticated(true);
         setToken(localStorage.getItem('admin_token'));
+      } else {
+        clearStoredAdminToken();
+        setIsAuthenticated(false);
       }
     } catch {
-      // ignore
+      clearStoredAdminToken();
+      setIsAuthenticated(false);
     } finally {
       setLoading(false);
     }
@@ -51,7 +60,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       // ignore
     }
     setIsAuthenticated(false);
-    setToken(null);
+    clearStoredAdminToken();
     router.push('/management/login');
   };
 
