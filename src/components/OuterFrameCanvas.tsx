@@ -4,12 +4,18 @@ import { useRef, useEffect, useCallback } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 
 export interface PhotoItem {
-  id: number;
+  id: number | string;
   url: string;
   frameX: number | undefined;
   frameY: number | undefined;
   placeTitle: string;
   filename: string;
+  size?: number;
+  lastModified?: number;
+  sourceType?: 'uploaded' | 'local-mapped';
+  relativePath?: string;
+  rootName?: string;
+  missing?: boolean;
 }
 
 export interface PoiPoint {
@@ -32,8 +38,8 @@ interface Props {
   transform: OuterFrameTransform;
   photos: PhotoItem[];
   showLabels: boolean;
-  onPhotoDragEnd?: (photoId: number, x: number, y: number) => void;
-  onPhotoClick?: (photoId: number) => void;
+  onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
+  onPhotoClick?: (photoId: number | string) => void;
   onPhotoMoved?: () => void;
 }
 
@@ -89,16 +95,16 @@ export default function OuterFrameCanvas({
   onPhotoMoved,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imageCache = useRef<Map<number, HTMLImageElement>>(new Map());
+  const imageCache = useRef<Map<number | string, HTMLImageElement>>(new Map());
   const dragRef = useRef<{
-    photoId: number;
+    photoId: number | string;
     startX: number;
     startY: number;
     origFrameX: number;
     origFrameY: number;
     placeTitle: string;
   } | null>(null);
-  const hoveredPhotoRef = useRef<number | null>(null);
+  const hoveredPhotoRef = useRef<number | string | null>(null);
   const placeRectsRef = useRef<PlaceRect[]>([]);
   const didDragRef = useRef(false);
 
@@ -154,7 +160,7 @@ export default function OuterFrameCanvas({
   }, []);
 
   // --- Hit test ---
-  const hitTest = useCallback((sx: number, sy: number): number | null => {
+  const hitTest = useCallback((sx: number, sy: number): number | string | null => {
     const half = (PHOTO_SIZE / 2) * transform.scale;
     const margin = 10 * transform.scale;
     for (let i = photos.length - 1; i >= 0; i--) {

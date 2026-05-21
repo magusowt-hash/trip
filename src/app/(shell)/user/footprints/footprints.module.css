@@ -74,6 +74,46 @@
   background: rgba(146, 64, 14, 0.94);
 }
 
+.localMapBtn {
+  position: fixed;
+  top: 20px;
+  left: 24px;
+  z-index: 120;
+  border: 1px solid rgba(249, 115, 22, 0.34);
+  background: rgba(194, 65, 12, 0.86);
+  color: #ffedd5;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 12px 30px rgba(124, 45, 18, 0.35);
+}
+
+.localMapBtn:hover {
+  background: rgba(154, 52, 18, 0.94);
+}
+
+.localRecordHint {
+  position: fixed;
+  top: 62px;
+  left: 24px;
+  z-index: 120;
+  border: 1px solid rgba(59, 130, 246, 0.34);
+  background: rgba(30, 64, 175, 0.86);
+  color: #dbeafe;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 12px 30px rgba(30, 64, 175, 0.28);
+}
+
+.localRecordHint:hover {
+  background: rgba(29, 78, 216, 0.94);
+}
+
 /* Batch bar */
 .batchBar {
   position: absolute;

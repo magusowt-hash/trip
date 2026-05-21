@@ -6,6 +6,7 @@ import OuterFrame from '@/components/OuterFrame';
 import FootprintGroupPanel from '@/components/FootprintGroupPanel';
 import PhotoAlbumModal from '@/components/PhotoAlbumModal';
 import LegendPanel from '@/components/LegendPanel';
+import LocalMapModal, { type LocalMappedAssetDraft } from '@/components/LocalMapModal';
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import type { PhotoItem } from '@/components/OuterFrameCanvas';
@@ -74,6 +75,10 @@ function UserFootprintsPageInner() {
   const [albumItem, setAlbumItem] = useState<FootprintItem | null>(null);
   const [viewerPhoto, setViewerPhoto] = useState<{ url: string; title: string } | null>(null);
   const [hasMovedPhotos, setHasMovedPhotos] = useState(false);
+  const [localMapOpen, setLocalMapOpen] = useState(false);
+  const [localRootName, setLocalRootName] = useState<string | null>(null);
+  const [localUnmatchedFolders, setLocalUnmatchedFolders] = useState<string[]>([]);
+  const [knownLocalRoots, setKnownLocalRoots] = useState<string[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstanceRef = useRef<any>(null);
   const movedPhotosRef = useRef<boolean>(false);
@@ -181,6 +186,20 @@ function UserFootprintsPageInner() {
     setMarkers(ms);
   }, [items]);
 
+  useEffect(() => {
+    if (isViewMode) return;
+    fetch('/api/footprints/local-map', {
+      credentials: 'include',
+      cache: 'no-store',
+    })
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (!data) return;
+        setKnownLocalRoots(Array.isArray(data.knownRootNames) ? data.knownRootNames : []);
+      })
+      .catch(() => {});
+  }, [isViewMode]);
+
   // --- API calls ---
 
   async function loadGroups() {
@@ -219,14 +238,17 @@ function UserFootprintsPageInner() {
     if (items.length === 0 || photosLoaded) return;
     setPhotosLoaded(true);
 
-    const allPhotos: PhotoItem[] = [];
+    const itemTitles = new Set(items.map((item) => item.title));
+    const allPhotos: PhotoItem[] = photos
+      .filter((photo) => photo.sourceType === 'local-mapped')
+      .filter((photo) => itemTitles.has(photo.placeTitle))
+      .map((photo) => ({ ...photo }));
 
     if (isViewMode) {
       try {
         const res = await fetch(`${viewApiBase}&type=photos`);
         if (res.ok) {
           const data = await res.json();
-          const itemTitles = new Set(items.map(it => it.title));
           for (const f of data.files || []) {
             if (!itemTitles.has(f.placeTitle)) continue;
             const uid = f.userId || 0;
@@ -237,6 +259,9 @@ function UserFootprintsPageInner() {
               frameY: f.frameY ?? undefined,
               placeTitle: f.placeTitle,
               filename: f.filename,
+              size: f.size ?? undefined,
+              lastModified: f.createdAt ? new Date(f.createdAt).getTime() : undefined,
+              sourceType: 'uploaded',
             });
           }
         }
@@ -258,6 +283,9 @@ function UserFootprintsPageInner() {
               frameY: p.frameY ?? undefined,
               placeTitle: item.title,
               filename: p.filename,
+              size: p.size ?? undefined,
+              lastModified: p.createdAt ? new Date(p.createdAt).getTime() : undefined,
+              sourceType: 'uploaded',
             });
           }
         } catch { /* skip */ }
@@ -269,17 +297,21 @@ function UserFootprintsPageInner() {
     if (unplaced.length > 0) {
       autoPlacePhotos(unplaced);
       // Persist auto-placed positions
-      const updates = unplaced.map(p => ({ id: p.id, frameX: p.frameX, frameY: p.frameY }));
-      fetch('/api/storage/photos/0/position', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ updates }),
-      }).catch(() => {});
+      const uploadedUnplaced = unplaced
+        .filter((photo) => photo.sourceType !== 'local-mapped')
+        .map(p => ({ id: p.id, frameX: p.frameX, frameY: p.frameY }));
+      if (uploadedUnplaced.length > 0) {
+        fetch('/api/storage/photos/0/position', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ updates: uploadedUnplaced }),
+        }).catch(() => {});
+      }
     }
 
     setPhotos(allPhotos);
-  }, [items, photosLoaded]);
+  }, [items, photosLoaded, photos, isViewMode, viewApiBase]);
 
   function autoPlacePhotos(unplaced: PhotoItem[]) {
     if (unplaced.length === 0) return;
@@ -322,7 +354,7 @@ function UserFootprintsPageInner() {
 
   // --- Photo handlers ---
 
-  const handlePhotoDragEnd = useCallback(async (photoId: number, x: number, y: number) => {
+  const handlePhotoDragEnd = useCallback(async (photoId: number | string, x: number, y: number) => {
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
   }, []);
@@ -334,28 +366,64 @@ function UserFootprintsPageInner() {
 
   const handleSavePositions = useCallback(async () => {
     if (!movedPhotosRef.current) return;
-    const updates = photos
+    const uploadedUpdates = photos
+      .filter(p => p.sourceType !== 'local-mapped')
       .filter(p => p.frameX != null && p.frameY != null)
       .map(p => ({ id: p.id, frameX: p.frameX!, frameY: p.frameY! }));
-    if (updates.length === 0) return;
+    const localAssets = photos
+      .filter(p => p.sourceType === 'local-mapped')
+      .filter(p => p.frameX != null && p.frameY != null)
+      .map(p => ({
+        relativePath: p.relativePath,
+        folderName: p.placeTitle,
+        name: p.filename,
+        size: p.size ?? 0,
+        lastModified: p.lastModified ?? 0,
+        matchedPlaceTitle: p.placeTitle,
+        frameX: p.frameX!,
+        frameY: p.frameY!,
+        missing: false,
+      }));
+
+    if (uploadedUpdates.length === 0 && localAssets.length === 0) return;
     try {
-      const res = await fetch('/api/storage/photos/0/position', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ updates }),
-      });
-      if (!res.ok) {
-        const d = await res.json();
-        alert(d.error || '保存失败');
-        return;
+      if (uploadedUpdates.length > 0) {
+        const res = await fetch('/api/storage/photos/0/position', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ updates: uploadedUpdates }),
+        });
+        if (!res.ok) {
+          const d = await res.json();
+          alert(d.error || '保存失败');
+          return;
+        }
+      }
+
+      if (localRootName) {
+        const res = await fetch('/api/footprints/local-map', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            rootName: localRootName,
+            assets: localAssets,
+            unmatchedFolders: localUnmatchedFolders,
+          }),
+        });
+        if (!res.ok) {
+          const d = await res.json();
+          alert(d.error || '本地映射保存失败');
+          return;
+        }
       }
       movedPhotosRef.current = false;
       setHasMovedPhotos(false);
     } catch { alert('保存失败'); }
-  }, [photos]);
+  }, [photos, localRootName, localUnmatchedFolders]);
 
-  const handlePhotoClick = useCallback((photoId: number) => {
+  const handlePhotoClick = useCallback((photoId: number | string) => {
     const p = photos.find(x => x.id === photoId);
     if (p) setViewerPhoto({ url: p.url, title: p.filename });
   }, [photos]);
@@ -393,7 +461,7 @@ function UserFootprintsPageInner() {
         const res = await fetch('/api/storage/upload', { method: 'POST', credentials: 'include', body: form });
         if (!res.ok) { const d = await res.json(); alert(d.error || '上传失败'); return; }
         setPhotosLoaded(false);
-        setPhotos([]);
+        setPhotos((current) => current.filter((photo) => photo.sourceType === 'local-mapped'));
         void loadAllPhotos();
       } catch { alert('上传失败'); }
       finally { document.body.removeChild(input); }
@@ -455,6 +523,54 @@ function UserFootprintsPageInner() {
     } catch { alert('设置默认失败'); }
   }
 
+  const handleApplyLocalMap = useCallback((payload: {
+    rootName: string;
+    matchedAssets: LocalMappedAssetDraft[];
+    unmatchedFolders: string[];
+    missingAssets: Array<{ relativePath: string; name: string }>;
+  }) => {
+    const currentItemTitles = new Set(items.map((item) => item.title));
+    const mappedPhotos: PhotoItem[] = payload.matchedAssets.map((asset) => ({
+      id: `local:${asset.relativePath}`,
+      url: asset.url,
+      frameX: asset.frameX ?? undefined,
+      frameY: asset.frameY ?? undefined,
+      placeTitle: asset.matchedPlaceTitle,
+      filename: asset.name,
+      size: asset.size,
+      lastModified: asset.lastModified,
+      sourceType: 'local-mapped',
+      relativePath: asset.relativePath,
+      rootName: payload.rootName,
+      missing: false,
+    })).filter((photo) => currentItemTitles.has(photo.placeTitle));
+
+    const unplaced = mappedPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
+    if (unplaced.length > 0) {
+      autoPlacePhotos(unplaced);
+      movedPhotosRef.current = true;
+      setHasMovedPhotos(true);
+    }
+
+    setPhotos((current) => {
+      current
+        .filter((photo) => photo.sourceType === 'local-mapped')
+        .forEach((photo) => {
+          try {
+            URL.revokeObjectURL(photo.url);
+          } catch {}
+        });
+      const uploaded = current.filter((photo) => photo.sourceType !== 'local-mapped');
+      return [...uploaded, ...mappedPhotos];
+    });
+    setLocalRootName(payload.rootName);
+    setLocalUnmatchedFolders(payload.unmatchedFolders);
+    if (payload.missingAssets.length > 0) {
+      alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。若本次保存，这些文件的位置记录将被删除。`);
+    }
+    setLocalMapOpen(false);
+  }, [items]);
+
   return (
     <div className={styles.rootFull}>
       {/* Title */}
@@ -463,6 +579,24 @@ function UserFootprintsPageInner() {
           {groups.find(g => g.id === selectedGroupId)?.name || ''}
         </div>
       )}
+
+      {!isViewMode && (
+        <button className={styles.localMapBtn} onClick={() => setLocalMapOpen(true)}>
+          映射本地
+        </button>
+      )}
+
+      {localUnmatchedFolders.length > 0 && !isViewMode ? (
+        <button className={styles.pendingHint} onClick={() => setLocalMapOpen(true)}>
+          存在 {localUnmatchedFolders.length} 个未匹配目录
+        </button>
+      ) : null}
+
+      {!isViewMode && !localRootName && knownLocalRoots.length > 0 ? (
+        <button className={styles.localRecordHint} onClick={() => setLocalMapOpen(true)}>
+          已存在 {knownLocalRoots.length} 份本地映射记录，需重新选择主文件夹后恢复
+        </button>
+      ) : null}
 
       {/* Main OuterFrame */}
       <OuterFrame
@@ -557,6 +691,15 @@ function UserFootprintsPageInner() {
           />
           <div className={styles.viewerTitle}>{viewerPhoto.title}</div>
         </div>
+      )}
+
+      {!isViewMode && (
+        <LocalMapModal
+          open={localMapOpen}
+          placeTitles={items.map((item) => item.title)}
+          onClose={() => setLocalMapOpen(false)}
+          onApply={handleApplyLocalMap}
+        />
       )}
     </div>
   );

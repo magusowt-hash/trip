@@ -14,8 +14,8 @@ interface Props {
   photos: PhotoItem[];
   focusPosition?: [number, number] | null;
   onMarkerClick?: (marker: MapMarker) => void;
-  onPhotoDragEnd?: (photoId: number, x: number, y: number) => void;
-  onPhotoClick?: (photoId: number) => void;
+  onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
+  onPhotoClick?: (photoId: number | string) => void;
   onPhotoMoved?: () => void;
   mapRef?: React.MutableRefObject<unknown>;
   showPhotos: boolean;
