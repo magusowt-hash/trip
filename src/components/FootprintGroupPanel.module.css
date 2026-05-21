@@ -231,9 +231,9 @@
   z-index: 200;
   left: 50%;
   top: 50%;
-  width: min(480px, calc(100vw - 32px));
+  width: min(1180px, calc(100vw - 32px));
   transform: translate(-50%, -50%);
-  background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+  background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 18px;
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
@@ -276,36 +276,33 @@
   width: 32px;
   height: 32px;
   border-radius: 10px;
-  border: none;
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
   color: #cbd5e1;
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .managementClose:hover {
-  background: rgba(255, 255, 255, 0.12);
   color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .managementBody {
   padding: 18px;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 14px;
+  align-items: start;
 }
 
 .managementHero {
   display: flex;
-  align-items: stretch;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 12px;
   border-radius: 18px;
   padding: 18px;
-  background:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.28), transparent 40%),
-    radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.2), transparent 42%),
-    rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -351,20 +348,13 @@
   border-radius: 999px;
   font-size: 12px;
   color: #dbeafe;
-  background: rgba(30, 41, 59, 0.68);
+  background: transparent;
   border: 1px solid rgba(148, 163, 184, 0.24);
 }
 
 .managementBadgeActive {
   color: #ecfeff;
-  background: rgba(8, 145, 178, 0.26);
   border-color: rgba(34, 211, 238, 0.28);
-}
-
-.managementGrid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
 }
 
 .managementGroupList {
@@ -379,7 +369,7 @@
 .managementGroupCard {
   border-radius: 16px;
   padding: 14px;
-  background: rgba(15, 23, 42, 0.72);
+  background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -420,13 +410,6 @@
   justify-content: flex-end;
 }
 
-.managementCard {
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 14px;
-}
-
 .managementLabel {
   font-size: 12px;
   color: #94a3b8;
@@ -439,13 +422,6 @@
   font-weight: 600;
 }
 
-.managementHint {
-  margin-top: 8px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #cbd5e1;
-}
-
 .managementActions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -455,8 +431,9 @@
 .managementListCard {
   border-radius: 16px;
   padding: 16px;
-  background: rgba(255, 255, 255, 0.04);
+  background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.08);
+  min-width: 0;
 }
 
 .managementListHeader {
@@ -486,7 +463,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(99, 102, 241, 0.18);
+  background: transparent;
+  border: 1px solid rgba(99, 102, 241, 0.28);
   color: #e0e7ff;
   font-size: 12px;
   font-weight: 600;
@@ -497,7 +475,7 @@
   padding: 0 14px;
   border-radius: 999px;
   border: 1px solid rgba(99, 102, 241, 0.36);
-  background: rgba(99, 102, 241, 0.18);
+  background: transparent;
   color: #eef2ff;
   cursor: pointer;
   font-size: 12px;
@@ -505,14 +483,15 @@
 }
 
 .managementPrimaryBtn:hover {
-  background: rgba(99, 102, 241, 0.28);
+  border-color: rgba(129, 140, 248, 0.6);
 }
 
 .managementEmpty {
   margin-top: 16px;
   padding: 18px;
   border-radius: 14px;
-  background: rgba(15, 23, 42, 0.72);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: #94a3b8;
   text-align: center;
   font-size: 13px;
@@ -534,7 +513,7 @@
   gap: 12px;
   padding: 12px 14px;
   border-radius: 14px;
-  background: rgba(15, 23, 42, 0.72);
+  background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -604,7 +583,8 @@
   margin-top: 12px;
   padding: 12px 14px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: #94a3b8;
   font-size: 12px;
 }
@@ -614,7 +594,7 @@
   min-height: 42px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.06);
+  background: transparent;
   color: #e2e8f0;
   cursor: pointer;
   font-size: 13px;
@@ -623,17 +603,16 @@
 }
 
 .managementBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.22);
 }
 
 .managementDanger {
   color: #fecaca;
-  background: rgba(127, 29, 29, 0.32);
   border-color: rgba(248, 113, 113, 0.2);
 }
 
 .managementDanger:hover {
-  background: rgba(127, 29, 29, 0.48);
+  border-color: rgba(248, 113, 113, 0.42);
 }
 
 @media (max-width: 640px) {
@@ -643,11 +622,14 @@
     overflow-y: auto;
   }
 
+  .managementBody {
+    grid-template-columns: 1fr;
+  }
+
   .managementHero {
     flex-direction: column;
   }
 
-  .managementGrid,
   .managementActions {
     grid-template-columns: 1fr;
   }

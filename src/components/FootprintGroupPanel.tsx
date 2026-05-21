@@ -271,9 +271,7 @@ export default function FootprintGroupPanel({
             <div className={styles.managementHeader}>
               <div className={styles.managementTitleWrap}>
                 <div className={styles.managementEyebrow}>足迹管理</div>
-                <h3 className={styles.managementTitle}>
-                  全部足迹项
-                </h3>
+                <h3 className={styles.managementTitle}>足迹组与地点</h3>
                 <div className={styles.managementDate}>
                   足迹日期：{formatDate(overallFirstDate)} 至 {formatDate(overallLastDate)}
                 </div>
@@ -302,19 +300,6 @@ export default function FootprintGroupPanel({
                 </div>
               </div>
 
-              <div className={styles.managementGrid}>
-                <div className={styles.managementCard}>
-                  <div className={styles.managementLabel}>最早足迹日期</div>
-                  <div className={styles.managementValue}>{formatDate(overallFirstDate)}</div>
-                  <div className={styles.managementHint}>全部足迹项中的最早加入时间</div>
-                </div>
-                <div className={styles.managementCard}>
-                  <div className={styles.managementLabel}>最近足迹日期</div>
-                  <div className={styles.managementValue}>{formatDate(overallLastDate)}</div>
-                  <div className={styles.managementHint}>全部足迹项中的最近加入时间</div>
-                </div>
-              </div>
-
               <div className={styles.managementListCard}>
                 <div className={styles.managementListHeader}>
                   <div>
@@ -335,7 +320,7 @@ export default function FootprintGroupPanel({
                   </div>
                 </div>
                 {managementLoading ? (
-                  <div className={styles.managementEmpty}>正在加载全部足迹项...</div>
+                  <div className={styles.managementEmpty}>正在加载足迹内容...</div>
                 ) : groups.length === 0 ? (
                   <div className={styles.managementEmpty}>当前还没有足迹组</div>
                 ) : (
