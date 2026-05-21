@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import styles from './PhotoAlbumModal.module.css';
 import { buildFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 
@@ -89,7 +90,7 @@ export default function PhotoAlbumModal({ open, footprintItemId, placeTitle, onC
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ position: 'relative' }}>
         {uploading && (
@@ -130,6 +131,7 @@ export default function PhotoAlbumModal({ open, footprintItemId, placeTitle, onC
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

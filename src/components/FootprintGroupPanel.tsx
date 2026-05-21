@@ -82,6 +82,9 @@ export default function FootprintGroupPanel({
   const [managementGroupId, setManagementGroupId] = useState<number | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
   const [inlineAddMenuItemId, setInlineAddMenuItemId] = useState<number | null>(null);
+  const [bulkAddMenuOpen, setBulkAddMenuOpen] = useState(false);
+  const [bulkAddMenuPos, setBulkAddMenuPos] = useState({ x: 0, y: 0 });
+  const [inlineAddMenuPos, setInlineAddMenuPos] = useState({ x: 0, y: 0 });
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -143,6 +146,7 @@ export default function FootprintGroupPanel({
   useEffect(() => {
     setSelectedItemIds([]);
     setInlineAddMenuItemId(null);
+    setBulkAddMenuOpen(false);
   }, [managementGroupId, managementOpen]);
 
   const formatDate = (value?: string | null) => {
@@ -219,6 +223,21 @@ export default function FootprintGroupPanel({
       await onAddItemToGroup(item, targetGroupId);
     }
     setSelectedItemIds([]);
+    setBulkAddMenuOpen(false);
+  };
+
+  const openBulkAddMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setBulkAddMenuPos({ x: rect.left, y: rect.bottom + 8 });
+    setBulkAddMenuOpen((current) => !current);
+    setInlineAddMenuItemId(null);
+  };
+
+  const openInlineAddMenu = (itemId: number, e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setInlineAddMenuPos({ x: rect.left, y: rect.bottom + 8 });
+    setInlineAddMenuItemId((current) => current === itemId ? null : itemId);
+    setBulkAddMenuOpen(false);
   };
 
   return (
@@ -445,21 +464,13 @@ export default function FootprintGroupPanel({
                         </label>
                         <span className={styles.managementBulkCount}>已选 {selectedItems.length}</span>
                         {bulkTargetGroups.length > 0 && onAddItemToGroup ? (
-                          <div className={styles.managementAddMenu}>
-                            <span className={styles.managementAddLabel}>添加到</span>
-                            <div className={styles.managementAddTargets}>
-                              {bulkTargetGroups.map((group) => (
-                                <button
-                                  key={group.id}
-                                  className={styles.managementTextBtn}
-                                  disabled={selectedItems.length === 0}
-                                  onClick={() => void handleBulkAddToGroup(group.id)}
-                                >
-                                  {group.name}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
+                          <button
+                            className={styles.managementTextBtn}
+                            disabled={selectedItems.length === 0}
+                            onClick={openBulkAddMenu}
+                          >
+                            添加到
+                          </button>
                         ) : null}
                         <button
                           className={styles.managementTextDanger}
@@ -508,26 +519,10 @@ export default function FootprintGroupPanel({
                                   <div className={styles.managementInlineMenuWrap}>
                                     <button
                                       className={styles.managementTextBtn}
-                                      onClick={() => setInlineAddMenuItemId((current) => current === item.id ? null : item.id)}
+                                      onClick={(e) => openInlineAddMenu(item.id, e)}
                                     >
                                       添加到
                                     </button>
-                                    {inlineAddMenuItemId === item.id ? (
-                                      <div className={styles.managementInlineMenu}>
-                                        {bulkTargetGroups.map((group) => (
-                                          <button
-                                            key={group.id}
-                                            className={styles.managementInlineMenuBtn}
-                                            onClick={() => {
-                                              void onAddItemToGroup(item, group.id);
-                                              setInlineAddMenuItemId(null);
-                                            }}
-                                          >
-                                            {group.name}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    ) : null}
                                   </div>
                                 ) : null}
                                 {onRemoveItemFromGroup ? (
@@ -586,6 +581,55 @@ export default function FootprintGroupPanel({
             <button className={styles.menuItemDanger} onClick={() => { onRemoveItem(menuItem); setMenuItem(null); }}>
               删除
             </button>
+          </div>
+        </>,
+        document.body,
+      )}
+
+      {managementOpen && bulkAddMenuOpen && bulkTargetGroups.length > 0 && createPortal(
+        <>
+          <div className={styles.menuBackdrop} onClick={() => setBulkAddMenuOpen(false)} />
+          <div
+            className={styles.managementFloatingMenu}
+            style={{ left: bulkAddMenuPos.x, top: bulkAddMenuPos.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {bulkTargetGroups.map((group) => (
+              <button
+                key={group.id}
+                className={styles.managementInlineMenuBtn}
+                onClick={() => void handleBulkAddToGroup(group.id)}
+              >
+                {group.name}
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body,
+      )}
+
+      {managementOpen && inlineAddMenuItemId != null && bulkTargetGroups.length > 0 && onAddItemToGroup && createPortal(
+        <>
+          <div className={styles.menuBackdrop} onClick={() => setInlineAddMenuItemId(null)} />
+          <div
+            className={styles.managementFloatingMenu}
+            style={{ left: inlineAddMenuPos.x, top: inlineAddMenuPos.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {bulkTargetGroups.map((group) => (
+              <button
+                key={group.id}
+                className={styles.managementInlineMenuBtn}
+                onClick={() => {
+                  const item = managedItems.find((candidate) => candidate.id === inlineAddMenuItemId);
+                  if (!item) return;
+                  void onAddItemToGroup(item, group.id);
+                  setInlineAddMenuItemId(null);
+                }}
+              >
+                {group.name}
+              </button>
+            ))}
           </div>
         </>,
         document.body,
