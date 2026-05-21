@@ -122,17 +122,13 @@ export default function TestCssPage() {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [rootName, setRootName] = useState('');
   const [persistedSession, setPersistedSession] = useState<PersistedSession | null>(null);
+  const [knownRootNames, setKnownRootNames] = useState<string[]>([]);
   const [diffSummary, setDiffSummary] = useState<DiffSummary | null>(null);
-  const [isRootMismatch, setIsRootMismatch] = useState(false);
-  const [loadMessage, setLoadMessage] = useState('正在读取已保存记录...');
+  const [loadMessage, setLoadMessage] = useState('选择主文件夹后会按主文件夹名称读取记录');
   const [saveMessage, setSaveMessage] = useState('');
   const directoryInputProps = {
     webkitdirectory: '',
   } as InputHTMLAttributes<HTMLInputElement> & { webkitdirectory: string };
-
-  useEffect(() => {
-    void loadSession();
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -171,22 +167,35 @@ export default function TestCssPage() {
     };
   }, [groups.length, images]);
 
-  async function loadSession() {
+  async function loadSession(nextRootName: string): Promise<PersistedSession | null> {
+    const normalizedRootName = nextRootName.trim().replace(/\\/g, '/');
+    if (!normalizedRootName) {
+      setPersistedSession(null);
+      setDiffSummary(null);
+      setLoadMessage('选择主文件夹后会按主文件夹名称读取记录');
+      return null;
+    }
+
     try {
-      const res = await fetch('/api/test-css/session', { cache: 'no-store' });
+      const res = await fetch(`/api/test-css/session?rootName=${encodeURIComponent(normalizedRootName)}`, {
+        cache: 'no-store',
+      });
       if (!res.ok) {
         setLoadMessage('读取已保存记录失败');
         return;
       }
       const data = await res.json();
       setPersistedSession(data.session ?? null);
-      setLoadMessage(data.session ? '已读取已保存记录' : '当前还没有已保存记录');
+      setKnownRootNames(Array.isArray(data.knownRootNames) ? data.knownRootNames : []);
+      setLoadMessage(data.session ? '已读取该主文件夹名称的保存记录' : '该主文件夹名称当前还没有保存记录');
+      return data.session ?? null;
     } catch {
       setLoadMessage('读取已保存记录失败');
+      return null;
     }
   }
 
-  function handleFolderPick(event: ChangeEvent<HTMLInputElement>) {
+  async function handleFolderPick(event: ChangeEvent<HTMLInputElement>) {
     const selectedFiles = Array.from(event.target.files ?? []);
 
     for (const image of images) {
@@ -206,7 +215,7 @@ export default function TestCssPage() {
     const firstPath = (selectedFiles[0] as File & { webkitRelativePath?: string }).webkitRelativePath || '';
     const nextRootName = firstPath.split('/').filter(Boolean)[0] || '';
     setRootName(nextRootName);
-    setIsRootMismatch(Boolean(persistedSession?.rootName && persistedSession.rootName !== nextRootName));
+    const sessionForRoot = await loadSession(nextRootName);
 
     const baseRecords = selectedFiles
       .filter((file) => IMAGE_EXT_RE.test(file.name))
@@ -226,16 +235,13 @@ export default function TestCssPage() {
         };
       });
 
-    const sessionForRoot =
-      persistedSession && persistedSession.rootName === nextRootName ? persistedSession : null;
-    const sortedRecords = sessionForRoot
-      ? baseRecords.map((record) => ({
-          ...record,
-          sortOrder:
-            sessionForRoot.files.find((saved) => saved.relativePath === record.relativePath)?.sortOrder ??
-            record.sortOrder,
-        }))
-      : baseRecords;
+    const savedSortMap = new Map(
+      (sessionForRoot?.files ?? []).map((saved) => [saved.relativePath, saved.sortOrder]),
+    );
+    const sortedRecords = baseRecords.map((record) => ({
+      ...record,
+      sortOrder: savedSortMap.get(record.relativePath) ?? record.sortOrder,
+    }));
 
     const nextImages = sortedRecords.map((record, index) => ({
       id: `${record.relativePath}-${record.size}-${record.lastModified}-${index}`,
@@ -312,8 +318,8 @@ export default function TestCssPage() {
       }
 
       setPersistedSession(data.session);
+      setKnownRootNames(Array.isArray(data.knownRootNames) ? data.knownRootNames : []);
       setDiffSummary(diffWithSession(images, data.session));
-      setIsRootMismatch(false);
       setSaveMessage(`已保存，时间：${formatTime(new Date(data.session.savedAt).getTime())}`);
     } catch {
       setSaveMessage('保存失败');
@@ -325,13 +331,35 @@ export default function TestCssPage() {
       <section className={styles.hero}>
         <div className={styles.heroCopy}>
           <p className={styles.eyebrow}>Folder Preview Lab</p>
-          <h1>选择本地文件夹，按子文件夹分组展示并保存排序</h1>
+          <h1>按主文件夹名称保存文本记录，同名目录复用上次位置</h1>
           <p className={styles.description}>
-            当前版本只通过接口把扫描结果和排序写入仓库内 `test/test-css-workspace` 的文本文件，不使用数据库。
+            当前测试版直接用所选主文件夹名称作为记录键。同名主文件夹会复用上次位置，不同主文件夹分别保存。
           </p>
         </div>
 
         <div className={styles.pickerCard}>
+          <div className={styles.persistBox}>
+            <span className={styles.persistLabel}>主文件夹记录键</span>
+            <strong>{rootName || '未选择主文件夹'}</strong>
+            <p>{loadMessage}</p>
+            {knownRootNames.length > 0 ? (
+              <div className={styles.knownPaths}>
+                {knownRootNames.map((item) => (
+                  <button
+                    key={item}
+                    className={styles.pathChip}
+                    type="button"
+                    onClick={() => {
+                      void loadSession(item);
+                    }}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
           <label className={styles.pickerLabel}>
             <span className={styles.pickerTitle}>选择目录</span>
             <span className={styles.pickerHint}>建议目录结构：根目录 / 地点名 / 图片文件</span>
@@ -348,7 +376,7 @@ export default function TestCssPage() {
           <div className={styles.persistBox}>
             <span className={styles.persistLabel}>文本记录状态</span>
             <strong>{persistedSession?.rootName || '暂无'}</strong>
-            <p>{loadMessage}</p>
+            <p>当前以主文件夹名称作为记录键</p>
             {persistedSession?.savedAt ? (
               <p>上次保存：{formatTime(new Date(persistedSession.savedAt).getTime())}</p>
             ) : null}
@@ -358,20 +386,20 @@ export default function TestCssPage() {
 
       <section className={styles.summaryRow}>
         <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>当前根目录</span>
+          <span className={styles.summaryLabel}>当前主文件夹名称</span>
           <strong>{rootName || '未选择'}</strong>
+        </div>
+        <div className={styles.summaryCard}>
+          <span className={styles.summaryLabel}>已命中记录</span>
+          <strong>{persistedSession?.rootName || '暂无'}</strong>
         </div>
         <div className={styles.summaryCard}>
           <span className={styles.summaryLabel}>地点分组</span>
           <strong>{summary.folderCount}</strong>
         </div>
         <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>图片数量</span>
-          <strong>{summary.imageCount}</strong>
-        </div>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>总大小</span>
-          <strong>{formatBytes(summary.totalSize)}</strong>
+          <span className={styles.summaryLabel}>图片数量 / 总大小</span>
+          <strong>{summary.imageCount} / {formatBytes(summary.totalSize)}</strong>
         </div>
       </section>
 
@@ -381,15 +409,6 @@ export default function TestCssPage() {
         </button>
         {saveMessage ? <span className={styles.saveMessage}>{saveMessage}</span> : null}
       </section>
-
-      {isRootMismatch ? (
-        <section className={styles.warningBox}>
-          <h2>检测到根目录名称与上次记录不同</h2>
-          <p>
-            已保存记录为 <strong>{persistedSession?.rootName}</strong>，当前选择为 <strong>{rootName}</strong>。如果继续保存，将覆盖原文本记录。
-          </p>
-        </section>
-      ) : null}
 
       {diffSummary ? (
         <section className={styles.diffPanel}>

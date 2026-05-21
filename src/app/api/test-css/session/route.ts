@@ -18,6 +18,11 @@ type PersistedSession = {
   files: PersistedImageRecord[];
 };
 
+type SessionStore = {
+  version: number;
+  sessions: PersistedSession[];
+};
+
 const WORKSPACE_DIR = path.join(process.cwd(), 'test', 'test-css-workspace');
 const SESSION_FILE = path.join(WORKSPACE_DIR, 'folder-preview-session.json');
 
@@ -25,20 +30,43 @@ async function ensureWorkspace() {
   await fs.mkdir(WORKSPACE_DIR, { recursive: true });
 }
 
-async function readSession(): Promise<PersistedSession | null> {
+async function readStore(): Promise<SessionStore> {
   try {
     const raw = await fs.readFile(SESSION_FILE, 'utf8');
-    return JSON.parse(raw) as PersistedSession;
+    const parsed = JSON.parse(raw) as Partial<SessionStore>;
+    return {
+      version: 1,
+      sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+    };
   } catch (error: any) {
-    if (error?.code === 'ENOENT') return null;
+    if (error?.code === 'ENOENT') {
+      return {
+        version: 1,
+        sessions: [],
+      };
+    }
     throw error;
   }
 }
 
-export async function GET() {
+function normalizeRootName(input: unknown): string {
+  if (typeof input !== 'string') return '';
+  return input.trim().replace(/\\/g, '/');
+}
+
+export async function GET(req: NextRequest) {
   try {
-    const session = await readSession();
-    return NextResponse.json({ session });
+    const { searchParams } = new URL(req.url);
+    const rootName = normalizeRootName(searchParams.get('rootName'));
+    const store = await readStore();
+    const session = rootName
+      ? store.sessions.find((item) => item.rootName === rootName) ?? null
+      : null;
+
+    return NextResponse.json({
+      session,
+      knownRootNames: store.sessions.map((item) => item.rootName),
+    });
   } catch (error) {
     console.error('GET /api/test-css/session error:', error);
     return NextResponse.json({ error: '读取测试记录失败' }, { status: 500 });
@@ -48,7 +76,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as Partial<PersistedSession>;
-    const rootName = typeof body.rootName === 'string' ? body.rootName.trim() : '';
+    const rootName = normalizeRootName(body.rootName);
     const files = Array.isArray(body.files) ? body.files : [];
 
     if (!rootName) {
@@ -73,13 +101,25 @@ export async function POST(req: NextRequest) {
       files: normalizedFiles,
     };
 
-    await ensureWorkspace();
-    await fs.writeFile(SESSION_FILE, JSON.stringify(payload, null, 2), 'utf8');
+    const store = await readStore();
+    const nextSessions = store.sessions.filter((item) => item.rootName !== rootName);
+    nextSessions.push(payload);
+    nextSessions.sort((a, b) => a.rootName.localeCompare(b.rootName, 'zh-CN'));
 
-    return NextResponse.json({ ok: true, session: payload });
+    await ensureWorkspace();
+    await fs.writeFile(
+      SESSION_FILE,
+      JSON.stringify({ version: 1, sessions: nextSessions }, null, 2),
+      'utf8',
+    );
+
+    return NextResponse.json({
+      ok: true,
+      session: payload,
+      knownRootNames: nextSessions.map((item) => item.rootName),
+    });
   } catch (error) {
     console.error('POST /api/test-css/session error:', error);
     return NextResponse.json({ error: '保存测试记录失败' }, { status: 500 });
   }
 }
-

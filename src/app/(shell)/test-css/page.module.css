@@ -107,6 +107,22 @@
   padding: 20px 24px;
 }
 
+.knownPaths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.pathChip {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #f0dfc9;
+  color: #7c5735;
+  cursor: pointer;
+}
+
 .persistLabel,
 .summaryLabel {
   display: block;
