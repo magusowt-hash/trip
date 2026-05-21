@@ -94,6 +94,7 @@ export async function GET(req: Request) {
           name: footprintGroups.name,
           isDefault: footprintGroups.isDefault,
           itemCount: sql<number>`count(${footprintGroupItems.id})`,
+          createdAt: footprintGroups.createdAt,
         })
         .from(footprintGroups)
         .leftJoin(footprintGroupItems, sql`${footprintGroups.id} = ${footprintGroupItems.groupId}`)

@@ -19,6 +19,7 @@ interface FootprintGroup {
   isDefault: number;
   sortOrder: number;
   itemCount: number;
+  createdAt?: string;
 }
 
 interface FootprintItem {

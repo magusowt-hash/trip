@@ -226,6 +226,316 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
+.managementModal {
+  position: fixed;
+  z-index: 200;
+  left: 50%;
+  top: 50%;
+  width: min(480px, calc(100vw - 32px));
+  transform: translate(-50%, -50%);
+  background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.managementHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 18px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.managementTitleWrap {
+  min-width: 0;
+}
+
+.managementEyebrow {
+  font-size: 11px;
+  color: #94a3b8;
+  letter-spacing: 0.08em;
+}
+
+.managementTitle {
+  margin: 6px 0 0;
+  font-size: 20px;
+  line-height: 1.2;
+  color: #f8fafc;
+}
+
+.managementDate {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.managementClose {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.managementClose:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.managementBody {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.managementHero {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 18px;
+  padding: 18px;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.28), transparent 40%),
+    radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.2), transparent 42%),
+    rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.managementHeroMain {
+  min-width: 0;
+}
+
+.managementHeroLabel {
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.managementHeroValue {
+  margin-top: 10px;
+  font-size: 34px;
+  line-height: 1;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.managementHeroValue span {
+  font-size: 14px;
+  font-weight: 500;
+  color: #cbd5e1;
+}
+
+.managementHeroSub {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.managementBadgeWrap {
+  display: flex;
+  align-items: flex-start;
+}
+
+.managementBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #dbeafe;
+  background: rgba(30, 41, 59, 0.68);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+}
+
+.managementBadgeActive {
+  color: #ecfeff;
+  background: rgba(8, 145, 178, 0.26);
+  border-color: rgba(34, 211, 238, 0.28);
+}
+
+.managementGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.managementCard {
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 14px;
+}
+
+.managementLabel {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.managementValue {
+  margin-top: 8px;
+  font-size: 16px;
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.managementHint {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #cbd5e1;
+}
+
+.managementActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.managementListCard {
+  border-radius: 16px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.managementListHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.managementListHint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.managementListCount {
+  min-width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(99, 102, 241, 0.18);
+  color: #e0e7ff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.managementEmpty {
+  margin-top: 16px;
+  padding: 18px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #94a3b8;
+  text-align: center;
+  font-size: 13px;
+}
+
+.managementList {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.managementListItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.managementListMain {
+  min-width: 0;
+}
+
+.managementListTitle {
+  color: #f8fafc;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.managementListMeta {
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.managementListDate {
+  flex-shrink: 0;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.managementBtn,
+.managementDanger {
+  min-height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 14px;
+  text-align: left;
+}
+
+.managementBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.managementDanger {
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.32);
+  border-color: rgba(248, 113, 113, 0.2);
+}
+
+.managementDanger:hover {
+  background: rgba(127, 29, 29, 0.48);
+}
+
+@media (max-width: 640px) {
+  .managementModal {
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+
+  .managementHero {
+    flex-direction: column;
+  }
+
+  .managementGrid,
+  .managementActions {
+    grid-template-columns: 1fr;
+  }
+
+  .managementListItem {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 .menuItemBtn {
   background: none;
   border: none;

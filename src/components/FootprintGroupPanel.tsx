@@ -10,6 +10,7 @@ interface FootprintGroup {
   isDefault: number;
   sortOrder: number;
   itemCount: number;
+  createdAt?: string;
 }
 
 interface FootprintItem {
@@ -69,8 +70,7 @@ export default function FootprintGroupPanel({
   const [editName, setEditName] = useState('');
   const [menuItem, setMenuItem] = useState<FootprintItem | null>(null);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
-  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
-  const [groupMenuPos, setGroupMenuPos] = useState({ x: 0, y: 0 });
+  const [managementOpen, setManagementOpen] = useState(false);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -92,6 +92,25 @@ export default function FootprintGroupPanel({
     setMenuPos({ x: e.clientX, y: e.clientY });
   };
 
+  const selectedGroup = groups.find((group) => group.id === selectedGroupId) || null;
+  const itemDates = items
+    .map((item) => item.addedAt)
+    .filter((value): value is string => !!value)
+    .sort();
+  const firstAddedAt = itemDates[0] || selectedGroup?.createdAt || null;
+  const lastAddedAt = itemDates[itemDates.length - 1] || selectedGroup?.createdAt || null;
+
+  const formatDate = (value?: string | null) => {
+    if (!value) return '未记录';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '未记录';
+    return new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    }).format(date);
+  };
+
   return (
     <>
       <div className={`${styles.panel} ${collapsed ? styles.collapsed : ''}`}>
@@ -104,8 +123,7 @@ export default function FootprintGroupPanel({
               className={styles.settingsBtn}
               onClick={(e) => {
                 e.stopPropagation();
-                setGroupMenuPos({ x: e.clientX, y: e.clientY });
-                setGroupMenuOpen(v => !v);
+                setManagementOpen(true);
               }}
               disabled={!selectedGroupId}
               title="足迹管理"
@@ -199,32 +217,110 @@ export default function FootprintGroupPanel({
       </div>
 
       {/* Item context menu (portal to body to escape stacking context) */}
-      {groupMenuOpen && selectedGroupId && createPortal(
+      {managementOpen && selectedGroupId && createPortal(
         <>
-          <div className={styles.menuBackdrop} onClick={() => setGroupMenuOpen(false)} />
-          <div
-            className={styles.itemMenu}
-            style={{ left: groupMenuPos.x, top: groupMenuPos.y, transform: 'translate(-100%, 0)' }}
-            onClick={e => e.stopPropagation()}
-          >
-            {onOpenLocalMapForGroup ? (
-              <button className={styles.menuItemBtn} onClick={() => { onOpenLocalMapForGroup(); setGroupMenuOpen(false); }}>
-                映射本地
+          <div className={styles.menuBackdrop} onClick={() => setManagementOpen(false)} />
+          <div className={styles.managementModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.managementHeader}>
+              <div className={styles.managementTitleWrap}>
+                <div className={styles.managementEyebrow}>足迹管理</div>
+                <h3 className={styles.managementTitle}>
+                  {selectedGroup?.name || '当前足迹组'}
+                </h3>
+                <div className={styles.managementDate}>
+                  足迹日期：{formatDate(firstAddedAt)} 至 {formatDate(lastAddedAt)}
+                </div>
+              </div>
+              <button className={styles.managementClose} onClick={() => setManagementOpen(false)}>
+                ✕
               </button>
-            ) : null}
-            <button className={styles.menuItemBtn} onClick={() => { onSetDefault(selectedGroupId); setGroupMenuOpen(false); }}>
-              设为默认
-            </button>
-            <button className={styles.menuItemBtn} onClick={() => {
-              const g = groups.find(x => x.id === selectedGroupId);
-              if (g) { setEditingId(g.id); setEditName(g.name); }
-              setGroupMenuOpen(false);
-            }}>
-              重命名
-            </button>
-            <button className={styles.menuItemDanger} onClick={() => { onDeleteGroup(selectedGroupId); setGroupMenuOpen(false); }}>
-              删除
-            </button>
+            </div>
+
+            <div className={styles.managementBody}>
+              <div className={styles.managementHero}>
+                <div className={styles.managementHeroMain}>
+                  <div className={styles.managementHeroLabel}>组内概况</div>
+                  <div className={styles.managementHeroValue}>
+                    {selectedGroup?.itemCount || 0}
+                    <span> 个地点</span>
+                  </div>
+                  <div className={styles.managementHeroSub}>
+                    分组创建于 {formatDate(selectedGroup?.createdAt)}
+                  </div>
+                </div>
+                <div className={styles.managementBadgeWrap}>
+                  <span className={`${styles.managementBadge} ${selectedGroup?.isDefault === 1 ? styles.managementBadgeActive : ''}`}>
+                    {selectedGroup?.isDefault === 1 ? '默认足迹组' : '普通足迹组'}
+                  </span>
+                </div>
+              </div>
+
+              <div className={styles.managementGrid}>
+                <div className={styles.managementCard}>
+                  <div className={styles.managementLabel}>起始日期</div>
+                  <div className={styles.managementValue}>{formatDate(firstAddedAt)}</div>
+                  <div className={styles.managementHint}>当前组内最早加入的足迹项时间</div>
+                </div>
+                <div className={styles.managementCard}>
+                  <div className={styles.managementLabel}>最近日期</div>
+                  <div className={styles.managementValue}>{formatDate(lastAddedAt)}</div>
+                  <div className={styles.managementHint}>当前组内最近加入的足迹项时间</div>
+                </div>
+              </div>
+
+              <div className={styles.managementActions}>
+                {onOpenLocalMapForGroup ? (
+                  <button className={styles.managementBtn} onClick={() => { onOpenLocalMapForGroup(); setManagementOpen(false); }}>
+                    映射本地
+                  </button>
+                ) : null}
+                <button className={styles.managementBtn} onClick={() => { onSetDefault(selectedGroupId); setManagementOpen(false); }}>
+                  设为默认
+                </button>
+                <button
+                  className={styles.managementBtn}
+                  onClick={() => {
+                    const g = groups.find(x => x.id === selectedGroupId);
+                    if (g) { setEditingId(g.id); setEditName(g.name); }
+                    setManagementOpen(false);
+                  }}
+                >
+                  重命名
+                </button>
+                <button className={styles.managementDanger} onClick={() => { onDeleteGroup(selectedGroupId); setManagementOpen(false); }}>
+                  删除此足迹组
+                </button>
+              </div>
+
+              <div className={styles.managementListCard}>
+                <div className={styles.managementListHeader}>
+                  <div>
+                    <div className={styles.managementLabel}>足迹地点</div>
+                    <div className={styles.managementListHint}>这里只展示当前足迹组内的地点与加入日期</div>
+                  </div>
+                  <div className={styles.managementListCount}>{items.length}</div>
+                </div>
+                {items.length === 0 ? (
+                  <div className={styles.managementEmpty}>当前足迹组还没有地点</div>
+                ) : (
+                  <div className={styles.managementList}>
+                    {items.map((item) => (
+                      <div key={item.id} className={styles.managementListItem}>
+                        <div className={styles.managementListMain}>
+                          <div className={styles.managementListTitle}>{item.title}</div>
+                          <div className={styles.managementListMeta}>
+                            {item.address || '未记录地点描述'}
+                          </div>
+                        </div>
+                        <div className={styles.managementListDate}>
+                          {formatDate(item.addedAt)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </>,
         document.body,
