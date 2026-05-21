@@ -81,6 +81,7 @@ export default function FootprintGroupPanel({
   const [groupItemsMap, setGroupItemsMap] = useState<Record<number, FootprintItem[]>>({});
   const [managementGroupId, setManagementGroupId] = useState<number | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
+  const [inlineAddMenuItemId, setInlineAddMenuItemId] = useState<number | null>(null);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -141,6 +142,7 @@ export default function FootprintGroupPanel({
 
   useEffect(() => {
     setSelectedItemIds([]);
+    setInlineAddMenuItemId(null);
   }, [managementGroupId, managementOpen]);
 
   const formatDate = (value?: string | null) => {
@@ -183,7 +185,7 @@ export default function FootprintGroupPanel({
   const allSelected = managedItems.length > 0 && selectedItemIds.length === managedItems.length;
   const bulkTargetGroups = groups.filter((group) => group.id !== managementGroupId);
   const managementModalStyle = backgroundColor
-    ? { background: `${backgroundColor}f2` }
+    ? { background: `${backgroundColor}d6` }
     : undefined;
 
   const toggleItemSelection = (itemId: number) => {
@@ -503,23 +505,30 @@ export default function FootprintGroupPanel({
                                   上传图片
                                 </button>
                                 {onAddItemToGroup && bulkTargetGroups.length > 0 ? (
-                                  <div className={styles.managementInlineAdd}>
-                                    <span className={styles.managementInlineAddLabel}>添加到</span>
-                                    {bulkTargetGroups.map((group) => (
-                                      <button
-                                        key={group.id}
-                                        className={styles.managementTextBtn}
-                                        onClick={() => void onAddItemToGroup(item, group.id)}
-                                      >
-                                        {group.name}
-                                      </button>
-                                    ))}
+                                  <div className={styles.managementInlineMenuWrap}>
+                                    <button
+                                      className={styles.managementTextBtn}
+                                      onClick={() => setInlineAddMenuItemId((current) => current === item.id ? null : item.id)}
+                                    >
+                                      添加到
+                                    </button>
+                                    {inlineAddMenuItemId === item.id ? (
+                                      <div className={styles.managementInlineMenu}>
+                                        {bulkTargetGroups.map((group) => (
+                                          <button
+                                            key={group.id}
+                                            className={styles.managementInlineMenuBtn}
+                                            onClick={() => {
+                                              void onAddItemToGroup(item, group.id);
+                                              setInlineAddMenuItemId(null);
+                                            }}
+                                          >
+                                            {group.name}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    ) : null}
                                   </div>
-                                ) : null}
-                                {onOpenLocalMapForItem ? (
-                                  <button className={styles.managementTextBtn} onClick={() => onOpenLocalMapForItem(item)}>
-                                    映射本地
-                                  </button>
                                 ) : null}
                                 {onRemoveItemFromGroup ? (
                                   <button
@@ -552,11 +561,6 @@ export default function FootprintGroupPanel({
             style={{ left: menuPos.x - 10, top: menuPos.y, transform: 'translate(-100%, 0)' }}
             onClick={(e) => e.stopPropagation()}
           >
-            {onOpenLocalMapForItem ? (
-              <button className={styles.menuItemBtn} onClick={() => { onOpenLocalMapForItem(menuItem); setMenuItem(null); }}>
-                映射本地
-              </button>
-            ) : null}
             <button className={styles.menuItemBtn} onClick={() => { onOpenAlbum(menuItem); setMenuItem(null); }}>
               相册
             </button>

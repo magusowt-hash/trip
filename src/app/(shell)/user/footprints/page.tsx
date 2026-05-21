@@ -161,6 +161,8 @@ function UserFootprintsPageInner() {
 
   useEffect(() => {
     if (selectedGroupId) {
+      setItems([]);
+      setPhotos([]);
       loadItems(selectedGroupId);
       setPhotosLoaded(false);
     } else {

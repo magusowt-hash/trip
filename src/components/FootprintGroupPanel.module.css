@@ -233,7 +233,7 @@
   top: 50%;
   width: min(1180px, calc(100vw - 32px));
   transform: translate(-50%, -50%);
-  background: rgba(12, 18, 28, 0.96);
+  background: rgba(12, 18, 28, 0.84);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 18px;
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
@@ -507,6 +507,41 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.managementInlineMenuWrap {
+  position: relative;
+}
+
+.managementInlineMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 120px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+  z-index: 4;
+}
+
+.managementInlineMenuBtn {
+  border: none;
+  background: transparent;
+  color: #e2e8f0;
+  text-align: left;
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.managementInlineMenuBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .managementPrimaryBtn:hover {
