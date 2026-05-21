@@ -88,8 +88,8 @@ function buildStaggeredOffsets(count: number, gapX: number, gapY: number, axis: 
 function buildRandomOffsets(count: number) {
   const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
   const rows = Math.max(1, Math.ceil(count / cols));
-  const colWidths = Array.from({ length: cols }, () => CARD_SIZE + randomInt(1, 20));
-  const rowHeights = Array.from({ length: rows }, () => CARD_SIZE + randomInt(1, 20));
+  const colWidths = Array.from({ length: cols }, () => CARD_SIZE + randomInt(1, 100));
+  const rowHeights = Array.from({ length: rows }, () => CARD_SIZE + randomInt(1, 100));
 
   const xStarts: number[] = [];
   const yStarts: number[] = [];
@@ -393,7 +393,7 @@ export default function TestCssPage() {
             ) : (
               <div className={styles.optionGroup}>
                 <span className={styles.optionLabel}>随机规则</span>
-                <p className={styles.ruleText}>每张图片相对横向 / 竖向相邻图片的附加距离在 1-20 中随机。</p>
+                <p className={styles.ruleText}>每张图片相对横向 / 竖向相邻图片的附加距离在 1-100 中随机。</p>
               </div>
             )}
 
