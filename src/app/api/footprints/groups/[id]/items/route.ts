@@ -136,27 +136,32 @@ export async function POST(
 
       await ensureScopedStorageForItem(auth.userId, sourceItem.id, sourceItem.title || '');
       const sourceScopeKey = await getAlbumScopeKeyForItem(auth.userId, sourceItem.id) || buildFootprintPhotoScopeKey(sourceItem.id);
-      let sourcePhotos = await listPhotos(auth.userId, sourceScopeKey);
+      const siblingItems = await db
+        .select({
+          id: footprintGroupItems.id,
+          albumScopeKey: footprintGroupItems.albumScopeKey,
+        })
+        .from(footprintGroupItems)
+        .innerJoin(footprintGroups, eq(footprintGroupItems.groupId, footprintGroups.id))
+        .where(and(
+          eq(footprintGroups.userId, auth.userId),
+          eq(footprintGroupItems.listItemId, list_item_id),
+          ne(footprintGroupItems.id, sourceItem.id),
+        ));
 
-      if (sourcePhotos.length === 0) {
-        const siblingItems = await db
-          .select({
-            id: footprintGroupItems.id,
-            albumScopeKey: footprintGroupItems.albumScopeKey,
-          })
-          .from(footprintGroupItems)
-          .innerJoin(footprintGroups, eq(footprintGroupItems.groupId, footprintGroups.id))
-          .where(and(
-            eq(footprintGroups.userId, auth.userId),
-            eq(footprintGroupItems.listItemId, list_item_id),
-            ne(footprintGroupItems.id, sourceItem.id),
-          ));
+      const candidateScopes = Array.from(new Set([
+        sourceScopeKey,
+        sourceItem.title || '',
+        ...siblingItems.flatMap((siblingItem) => [
+          siblingItem.albumScopeKey || '',
+          buildFootprintPhotoScopeKey(siblingItem.id),
+        ]),
+      ].filter(Boolean)));
 
-        for (const siblingItem of siblingItems) {
-          const siblingScopeKey = siblingItem.albumScopeKey || buildFootprintPhotoScopeKey(siblingItem.id);
-          sourcePhotos = await listPhotos(auth.userId, siblingScopeKey);
-          if (sourcePhotos.length > 0) break;
-        }
+      let sourcePhotos: Awaited<ReturnType<typeof listPhotos>> = [];
+      for (const candidateScope of candidateScopes) {
+        sourcePhotos = await listPhotos(auth.userId, candidateScope);
+        if (sourcePhotos.length > 0) break;
       }
 
       return NextResponse.json({
