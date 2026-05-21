@@ -83,8 +83,8 @@ function buildRandomOffsets(count: number, cardSize: number) {
     for (let col = 0; col < cols; col++) {
       const index = row * cols + col;
       if (index >= count) continue;
-      if (col > 0) xMatrix[row][col] = xMatrix[row][col - 1] + cardSize + randomInt(1, 100);
-      if (row > 0) yMatrix[row][col] = yMatrix[row - 1][col] + cardSize + randomInt(1, 100);
+      if (col > 0) xMatrix[row][col] = xMatrix[row][col - 1] + cardSize * 2 + randomInt(1, 100);
+      if (row > 0) yMatrix[row][col] = yMatrix[row - 1][col] + cardSize * 2 + randomInt(1, 100);
     }
   }
   const points = Array.from({ length: count }, (_, index) => {
@@ -102,6 +102,54 @@ function buildRandomOffsets(count: number, cardSize: number) {
     offsetX: point.x - centerX,
     offsetY: point.y - centerY,
   }));
+}
+
+function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, height: number, photoSize: number) {
+  if (placePhotos.length === 0) return;
+
+  const mapHalfW = (width * 0.6) / 2;
+  const mapHalfH = (height * 0.8) / 2;
+  const photoHalf = photoSize / 2;
+
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+
+  for (const photo of placePhotos) {
+    if (photo.frameX == null || photo.frameY == null) continue;
+    left = Math.min(left, photo.frameX - photoHalf);
+    right = Math.max(right, photo.frameX + photoHalf);
+    top = Math.min(top, photo.frameY - photoHalf);
+    bottom = Math.max(bottom, photo.frameY + photoHalf);
+  }
+
+  const overlapsMap =
+    right > -mapHalfW &&
+    left < mapHalfW &&
+    bottom > -mapHalfH &&
+    top < mapHalfH;
+
+  if (!overlapsMap) return;
+
+  const dl = right - (-mapHalfW);
+  const dr = mapHalfW - left;
+  const dt = bottom - (-mapHalfH);
+  const db = mapHalfH - top;
+  const minD = Math.min(dl, dr, dt, db);
+
+  let shiftX = 0;
+  let shiftY = 0;
+  if (minD === dl) shiftX = -dl;
+  else if (minD === dr) shiftX = dr;
+  else if (minD === dt) shiftY = -dt;
+  else shiftY = db;
+
+  for (const photo of placePhotos) {
+    if (photo.frameX == null || photo.frameY == null) continue;
+    photo.frameX += shiftX;
+    photo.frameY += shiftY;
+  }
 }
 
 export default function UserFootprintsPage() {
@@ -458,6 +506,8 @@ function UserFootprintsPageInner() {
         placePhotos[i].frameX = centerX + vectorX * forwardOffset + perpendicularX * lateralOffset;
         placePhotos[i].frameY = centerY + vectorY * forwardOffset + perpendicularY * lateralOffset;
       }
+
+      clampPlacePhotosAwayFromMap(placePhotos, 1200, 800, cardSize);
 
       angle += ANGLE_STEP;
     }
