@@ -148,7 +148,7 @@
 |------|------|------|--------|------|
 | id | SERIAL | NO | 自增 | 主键 |
 | user_id | INT | NO | - | 用户 ID（关联 users.id） |
-| place_title | VARCHAR(255) | NO | - | 地点标题（存储位置标识） |
+| place_title | VARCHAR(255) | NO | - | 地点作用域键；新足迹相册使用 `fpgi_{footprint_group_items.id}`，旧数据可能仍为地点标题 |
 | filename | VARCHAR(500) | NO | - | 文件名 |
 | size | BIGINT | NO | 0 | 文件大小（字节） |
 | frame_x | DOUBLE | YES | NULL | 帧坐标 X |
@@ -164,7 +164,7 @@
 - `sf_user_source_idx`：user_id, source_type
 - `sf_user_source_ref_unique`（UNIQUE）：user_id, source_type, source_ref
 
-**说明：** 存储用户上传到各地点的文件（如照片、视频），支持多来源。
+**说明：** 存储用户上传到各地点的文件（如照片、视频），支持多来源。足迹页的正式相册隔离以 `footprint_group_items.id` 为作用域，同名地点在不同足迹组下不再共享同一批文件。
 
 ---
 

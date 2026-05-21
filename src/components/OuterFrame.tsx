@@ -17,6 +17,7 @@ interface Props {
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
   onPhotoClick?: (photoId: number | string) => void;
   onPhotoMoved?: () => void;
+  onGroupLabelDragEnd?: (placeKey: string, dx: number, dy: number) => void;
   mapRef?: React.MutableRefObject<unknown>;
   showPhotos: boolean;
   showLines: boolean;
@@ -38,6 +39,7 @@ export default function OuterFrame({
   onPhotoDragEnd,
   onPhotoClick,
   onPhotoMoved,
+  onGroupLabelDragEnd,
   mapRef,
   showPhotos,
   showLines,
@@ -113,6 +115,7 @@ export default function OuterFrame({
         const logicalY = (screenY - containerSize.h / 2 - transform.ty) / transform.scale;
 
         points.push({
+          placeKey: m.id ? String(m.id) : m.title || '',
           placeTitle: m.title || '',
           logicalX,
           logicalY,
@@ -206,6 +209,7 @@ export default function OuterFrame({
           onPhotoDragEnd={onPhotoDragEnd}
           onPhotoClick={onPhotoClick}
           onPhotoMoved={onPhotoMoved}
+          onGroupLabelDragEnd={onGroupLabelDragEnd}
         />
       )}
     </div>

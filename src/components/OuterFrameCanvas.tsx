@@ -8,7 +8,9 @@ export interface PhotoItem {
   url: string;
   frameX: number | undefined;
   frameY: number | undefined;
+  placeKey: string;
   placeTitle: string;
+  footprintItemId?: number;
   filename: string;
   size?: number;
   lastModified?: number;
@@ -16,15 +18,18 @@ export interface PhotoItem {
   relativePath?: string;
   rootName?: string;
   missing?: boolean;
+  isGroupLabel?: boolean;
 }
 
 export interface PoiPoint {
+  placeKey: string;
   placeTitle: string;
   logicalX: number;
   logicalY: number;
 }
 
 export interface PlaceRect {
+  placeKey: string;
   placeTitle: string;
   left: number;
   top: number;
@@ -41,6 +46,7 @@ interface Props {
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
   onPhotoClick?: (photoId: number | string) => void;
   onPhotoMoved?: () => void;
+  onGroupLabelDragEnd?: (placeKey: string, dx: number, dy: number) => void;
 }
 
 const PHOTO_SIZE = 80;
@@ -70,6 +76,60 @@ function rectContains(r: PlaceRect, x: number, y: number): boolean {
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 }
 
+function clampGroupAwayFromMap(
+  photos: PhotoItem[],
+  placeKey: string,
+  width: number,
+  height: number,
+) {
+  const group = photos.filter(
+    (photo) => photo.placeKey === placeKey && photo.frameX != null && photo.frameY != null,
+  );
+  if (group.length === 0) return;
+
+  const mapHalfW = (width * MAP_AREA_RATIO_W) / 2;
+  const mapHalfH = (height * MAP_AREA_RATIO_H) / 2;
+  const photoHalf = PHOTO_SIZE / 2;
+
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+
+  for (const photo of group) {
+    left = Math.min(left, photo.frameX! - photoHalf);
+    right = Math.max(right, photo.frameX! + photoHalf);
+    top = Math.min(top, photo.frameY! - photoHalf);
+    bottom = Math.max(bottom, photo.frameY! + photoHalf);
+  }
+
+  const overlapsMap =
+    right > -mapHalfW &&
+    left < mapHalfW &&
+    bottom > -mapHalfH &&
+    top < mapHalfH;
+
+  if (!overlapsMap) return;
+
+  const dl = right - (-mapHalfW);
+  const dr = mapHalfW - left;
+  const dt = bottom - (-mapHalfH);
+  const db = mapHalfH - top;
+  const minD = Math.min(dl, dr, dt, db);
+
+  let shiftX = 0;
+  let shiftY = 0;
+  if (minD === dl) shiftX = -dl;
+  else if (minD === dr) shiftX = dr;
+  else if (minD === dt) shiftY = -dt;
+  else shiftY = db;
+
+  for (const photo of group) {
+    photo.frameX = (photo.frameX ?? 0) + shiftX;
+    photo.frameY = (photo.frameY ?? 0) + shiftY;
+  }
+}
+
 const COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e',
   '#f97316', '#eab308', '#22c55e', '#14b8a6',
@@ -93,6 +153,7 @@ export default function OuterFrameCanvas({
   onPhotoDragEnd,
   onPhotoClick,
   onPhotoMoved,
+  onGroupLabelDragEnd,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageCache = useRef<Map<number | string, HTMLImageElement>>(new Map());
@@ -103,6 +164,8 @@ export default function OuterFrameCanvas({
     origFrameX: number;
     origFrameY: number;
     placeTitle: string;
+    placeKey: string;
+    dragKind: 'photo' | 'group';
   } | null>(null);
   const hoveredPhotoRef = useRef<number | string | null>(null);
   const placeRectsRef = useRef<PlaceRect[]>([]);
@@ -113,12 +176,12 @@ export default function OuterFrameCanvas({
     const groups = new Map<string, PhotoItem[]>();
     for (const p of photos) {
       if (p.frameX == null || p.frameY == null) continue;
-      const arr = groups.get(p.placeTitle) || [];
+      const arr = groups.get(p.placeKey) || [];
       arr.push(p);
-      groups.set(p.placeTitle, arr);
+      groups.set(p.placeKey, arr);
     }
     const rects: PlaceRect[] = [];
-    for (const [placeTitle, items] of groups) {
+    for (const [placeKey, items] of groups) {
       let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
       for (const p of items) {
         left = Math.min(left, p.frameX! - PHOTO_SIZE / 2);
@@ -127,7 +190,8 @@ export default function OuterFrameCanvas({
         bottom = Math.max(bottom, p.frameY! + PHOTO_SIZE / 2);
       }
       rects.push({
-        placeTitle,
+        placeKey,
+        placeTitle: items[0]?.placeTitle || '',
         left: left - RECT_PADDING,
         top: top - RECT_PADDING,
         right: right + RECT_PADDING,
@@ -236,7 +300,7 @@ export default function OuterFrameCanvas({
     }
 
     // --- Draw place labels (one per rectangle) ---
-    if (showLabels) {
+      if (showLabels) {
       for (const rect of currentRects) {
         const left = logicalToScreen(rect.left, rect.bottom);
         const right = logicalToScreen(rect.right, rect.bottom);
@@ -305,12 +369,41 @@ export default function OuterFrameCanvas({
           startY: pos.y,
           origFrameX: photo.frameX,
           origFrameY: photo.frameY,
+          placeKey: photo.placeKey,
           placeTitle: photo.placeTitle,
+          dragKind: 'photo',
         };
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
       }
+      return;
     }
-  }, [getCanvasPos, hitTest, photos]);
+
+    if (showLabels) {
+      for (const rect of placeRectsRef.current) {
+        const left = logicalToScreen(rect.left, rect.bottom);
+        const right = logicalToScreen(rect.right, rect.bottom);
+        const cx = (left.x + right.x) / 2;
+        const cy = logicalToScreen(rect.left, rect.bottom).y + 4 * transform.scale;
+        if (Math.abs(pos.x - cx) <= 60 && Math.abs(pos.y - cy) <= 18) {
+          e.stopPropagation();
+          e.preventDefault();
+          didDragRef.current = false;
+          dragRef.current = {
+            photoId: `group:${rect.placeTitle}`,
+            startX: pos.x,
+            startY: pos.y,
+            origFrameX: 0,
+            origFrameY: 0,
+            placeKey: rect.placeKey,
+            placeTitle: rect.placeTitle,
+            dragKind: 'group',
+          };
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          return;
+        }
+      }
+    }
+  }, [getCanvasPos, hitTest, photos, showLabels, logicalToScreen]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) {
@@ -324,30 +417,42 @@ export default function OuterFrameCanvas({
       const newX = dragRef.current.origFrameX + dx;
       const newY = dragRef.current.origFrameY + dy;
 
-      const photo = photos.find(p => p.id === dragRef.current!.photoId);
-      if (photo) {
-        photo.frameX = newX;
-        photo.frameY = newY;
+      if (dragRef.current.dragKind === 'group') {
+        for (const photo of photos) {
+          if (photo.placeKey !== dragRef.current.placeKey) continue;
+          if (photo.frameX == null || photo.frameY == null) continue;
+          photo.frameX += dx - ((dragRef.current as any)._lastDx ?? 0);
+          photo.frameY += dy - ((dragRef.current as any)._lastDy ?? 0);
+        }
+        clampGroupAwayFromMap(photos, dragRef.current.placeKey, width, height);
+        (dragRef.current as any)._lastDx = dx;
+        (dragRef.current as any)._lastDy = dy;
+      } else {
+        const photo = photos.find(p => p.id === dragRef.current!.photoId);
+        if (photo) {
+          photo.frameX = newX;
+          photo.frameY = newY;
 
-        // Prevent dragging into map area (fixed logical size, independent of zoom)
-        const mapHalfW = (width * MAP_AREA_RATIO_W) / 2;
-        const mapHalfH = (height * MAP_AREA_RATIO_H) / 2;
-        const photoHalf = PHOTO_SIZE / 2;
-        const photoLeft = photo.frameX - photoHalf;
-        const photoRight = photo.frameX + photoHalf;
-        const photoTop = photo.frameY - photoHalf;
-        const photoBottom = photo.frameY + photoHalf;
-        if (photoRight > -mapHalfW && photoLeft < mapHalfW &&
-            photoBottom > -mapHalfH && photoTop < mapHalfH) {
-          const dl = photoRight - (-mapHalfW);
-          const dr = mapHalfW - photoLeft;
-          const dt = photoBottom - (-mapHalfH);
-          const db = mapHalfH - photoTop;
-          const minD = Math.min(dl, dr, dt, db);
-          if (minD === dl) photo.frameX = -mapHalfW - photoHalf;
-          else if (minD === dr) photo.frameX = mapHalfW + photoHalf;
-          else if (minD === dt) photo.frameY = -mapHalfH - photoHalf;
-          else photo.frameY = mapHalfH + photoHalf;
+          // Prevent dragging into map area (fixed logical size, independent of zoom)
+          const mapHalfW = (width * MAP_AREA_RATIO_W) / 2;
+          const mapHalfH = (height * MAP_AREA_RATIO_H) / 2;
+          const photoHalf = PHOTO_SIZE / 2;
+          const photoLeft = photo.frameX - photoHalf;
+          const photoRight = photo.frameX + photoHalf;
+          const photoTop = photo.frameY - photoHalf;
+          const photoBottom = photo.frameY + photoHalf;
+          if (photoRight > -mapHalfW && photoLeft < mapHalfW &&
+              photoBottom > -mapHalfH && photoTop < mapHalfH) {
+            const dl = photoRight - (-mapHalfW);
+            const dr = mapHalfW - photoLeft;
+            const dt = photoBottom - (-mapHalfH);
+            const db = mapHalfH - photoTop;
+            const minD = Math.min(dl, dr, dt, db);
+            if (minD === dl) photo.frameX = -mapHalfW - photoHalf;
+            else if (minD === dr) photo.frameX = mapHalfW + photoHalf;
+            else if (minD === dt) photo.frameY = -mapHalfH - photoHalf;
+            else photo.frameY = mapHalfH + photoHalf;
+          }
         }
       }
       dirtyRef.current = true;
@@ -360,15 +465,22 @@ export default function OuterFrameCanvas({
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) {
-      const photo = photos.find(p => p.id === dragRef.current!.photoId);
-      if (photo && photo.frameX != null && photo.frameY != null) {
-        onPhotoDragEnd?.(dragRef.current.photoId, photo.frameX, photo.frameY);
+      if (dragRef.current.dragKind === 'group') {
+        const dx = (dragRef.current as any)._lastDx ?? 0;
+        const dy = (dragRef.current as any)._lastDy ?? 0;
+        onGroupLabelDragEnd?.(dragRef.current.placeKey, dx, dy);
         onPhotoMoved?.();
+      } else {
+        const photo = photos.find(p => p.id === dragRef.current!.photoId);
+        if (photo && photo.frameX != null && photo.frameY != null) {
+          onPhotoDragEnd?.(dragRef.current.photoId, photo.frameX, photo.frameY);
+          onPhotoMoved?.();
+        }
       }
       dragRef.current = null;
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     }
-  }, [photos, onPhotoDragEnd, onPhotoMoved]);
+  }, [photos, onPhotoDragEnd, onPhotoMoved, onGroupLabelDragEnd]);
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (didDragRef.current) return;

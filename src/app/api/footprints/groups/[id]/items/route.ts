@@ -5,6 +5,12 @@ import { db } from '@/db';
 import { footprintGroups, footprintGroupItems } from '@/db/schema';
 import { listItems, lists } from '@/db/schema';
 import { authenticateFootprintRequest } from '../../../_auth';
+import {
+  cloneScopedPhotos,
+  ensureScopedStorageForItem,
+  listPhotos,
+} from '@/services/storage';
+import { buildFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 
 export async function GET(
   req: NextRequest,
@@ -38,8 +44,6 @@ export async function GET(
         lng: listItems.lng,
         lat: listItems.lat,
         address: listItems.address,
-        cloudCover: footprintGroupItems.cloudCover,
-        cloudFolder: footprintGroupItems.cloudFolder,
         listId: listItems.listId,
         listName: lists.name,
       })
@@ -77,7 +81,17 @@ export async function POST(
       return NextResponse.json({ error: '分类组不存在' }, { status: 404 });
     }
 
-    const { list_item_id } = (await req.json()) as { list_item_id?: number };
+    const {
+      list_item_id,
+      source_item_id,
+      share_photos,
+      probe_only,
+    } = (await req.json()) as {
+      list_item_id?: number;
+      source_item_id?: number;
+      share_photos?: boolean;
+      probe_only?: boolean;
+    };
     if (!list_item_id || !Number.isFinite(list_item_id)) {
       return NextResponse.json({ error: '无效的地点ID' }, { status: 400 });
     }
@@ -96,12 +110,75 @@ export async function POST(
       return NextResponse.json({ error: '该地点已在此分类组中' }, { status: 409 });
     }
 
+    if (probe_only) {
+      if (!source_item_id || !Number.isFinite(source_item_id)) {
+        return NextResponse.json({ hasPhotos: false, count: 0 }, { status: 200 });
+      }
+
+      const [sourceItem] = await db
+        .select({
+          id: footprintGroupItems.id,
+          title: listItems.title,
+        })
+        .from(footprintGroupItems)
+        .innerJoin(listItems, eq(footprintGroupItems.listItemId, listItems.id))
+        .innerJoin(footprintGroups, eq(footprintGroupItems.groupId, footprintGroups.id))
+        .where(and(
+          eq(footprintGroupItems.id, source_item_id),
+          eq(footprintGroups.userId, auth.userId),
+        ))
+        .limit(1);
+
+      if (!sourceItem) {
+        return NextResponse.json({ error: '源地点不存在' }, { status: 404 });
+      }
+
+      await ensureScopedStorageForItem(auth.userId, sourceItem.id, sourceItem.title || '');
+      const sourcePhotos = await listPhotos(auth.userId, buildFootprintPhotoScopeKey(sourceItem.id));
+      return NextResponse.json({
+        hasPhotos: sourcePhotos.length > 0,
+        count: sourcePhotos.length,
+      }, { status: 200 });
+    }
+
     const result = await db.insert(footprintGroupItems).values({
       groupId,
       listItemId: list_item_id,
     });
 
-    return NextResponse.json({ id: result[0].insertId }, { status: 201 });
+    const createdItemId = result[0].insertId;
+    let clonedPhotoCount = 0;
+
+    if (share_photos && source_item_id && Number.isFinite(source_item_id)) {
+      const [sourceItem] = await db
+        .select({
+          id: footprintGroupItems.id,
+          title: listItems.title,
+        })
+        .from(footprintGroupItems)
+        .innerJoin(listItems, eq(footprintGroupItems.listItemId, listItems.id))
+        .innerJoin(footprintGroups, eq(footprintGroupItems.groupId, footprintGroups.id))
+        .where(and(
+          eq(footprintGroupItems.id, source_item_id),
+          eq(footprintGroups.userId, auth.userId),
+        ))
+        .limit(1);
+
+      if (sourceItem) {
+        await ensureScopedStorageForItem(auth.userId, sourceItem.id, sourceItem.title || '');
+        const cloneResult = await cloneScopedPhotos(
+          auth.userId,
+          buildFootprintPhotoScopeKey(sourceItem.id),
+          buildFootprintPhotoScopeKey(createdItemId),
+        );
+        clonedPhotoCount = cloneResult.clonedCount;
+      }
+    }
+
+    return NextResponse.json({
+      id: createdItemId,
+      clonedPhotoCount,
+    }, { status: 201 });
   } catch (err) {
     console.error('POST /api/footprints/groups/[id]/items error:', err);
     return NextResponse.json({ error: '添加地点失败' }, { status: 500 });

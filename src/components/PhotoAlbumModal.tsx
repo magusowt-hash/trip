@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import styles from './PhotoAlbumModal.module.css';
+import { buildFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 
 interface PhotoData {
   id: number;
@@ -13,21 +14,26 @@ interface PhotoData {
 
 interface Props {
   open: boolean;
+  footprintItemId: number | null;
   placeTitle: string;
   onClose: () => void;
 }
 
-export default function PhotoAlbumModal({ open, placeTitle, onClose }: Props) {
+export default function PhotoAlbumModal({ open, footprintItemId, placeTitle, onClose }: Props) {
   const [photos, setPhotos] = useState<PhotoData[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const scopeKey = useMemo(
+    () => (footprintItemId ? buildFootprintPhotoScopeKey(footprintItemId) : ''),
+    [footprintItemId],
+  );
 
   const loadPhotos = useCallback(async () => {
-    if (!placeTitle) return;
+    if (!scopeKey) return;
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/storage/photos?place_title=${encodeURIComponent(placeTitle)}`,
+        `/api/storage/photos?scope_key=${encodeURIComponent(scopeKey)}&footprint_item_id=${encodeURIComponent(String(footprintItemId ?? ''))}&place_title=${encodeURIComponent(placeTitle)}`,
         { credentials: 'include' },
       );
       if (!res.ok) return;
@@ -35,7 +41,7 @@ export default function PhotoAlbumModal({ open, placeTitle, onClose }: Props) {
       setPhotos(data.photos || []);
     } catch { /* ignore */ }
     finally { setLoading(false); }
-  }, [placeTitle]);
+  }, [footprintItemId, placeTitle, scopeKey]);
 
   useEffect(() => {
     if (open) loadPhotos();
@@ -52,6 +58,8 @@ export default function PhotoAlbumModal({ open, placeTitle, onClose }: Props) {
       if (!input.files?.length) { document.body.removeChild(input); return; }
       setUploading(true);
       const form = new FormData();
+      form.append('scope_key', scopeKey);
+      form.append('footprint_item_id', String(footprintItemId ?? ''));
       form.append('place_title', placeTitle);
       for (const f of Array.from(input.files)) form.append('files', f);
       try {
@@ -67,7 +75,7 @@ export default function PhotoAlbumModal({ open, placeTitle, onClose }: Props) {
       }
     };
     input.click();
-  }, [placeTitle, loadPhotos]);
+  }, [footprintItemId, placeTitle, scopeKey, loadPhotos]);
 
   const handleDelete = useCallback(async (photoId: number) => {
     if (!confirm('确定删除该照片？')) return;

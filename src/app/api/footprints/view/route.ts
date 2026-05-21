@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { sql } from 'drizzle-orm';
 import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
+import { buildFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
+import { ensureScopedStorageForItem, listPhotos } from '@/services/storage';
 
 const crypto = await import('crypto');
 
@@ -125,13 +127,32 @@ export async function GET(req: Request) {
     }
 
     if (type === 'photos') {
-      const { storageFiles } = await import('@/db/schema');
-      const files = await db
-        .select()
-        .from(storageFiles)
-        .where(sql`${storageFiles.userId} = ${auth.userId}`);
+      const groupId = parseInt(url.searchParams.get('group_id') || '0');
+      if (!groupId) return NextResponse.json({ error: '缺少group_id' }, { status: 400 });
 
-      return NextResponse.json({ files });
+      const { footprintGroupItems, listItems } = await import('@/db/schema');
+      const items = await db
+        .select({
+          id: footprintGroupItems.id,
+          title: listItems.title,
+        })
+        .from(footprintGroupItems)
+        .leftJoin(listItems, sql`${footprintGroupItems.listItemId} = ${listItems.id}`)
+        .where(sql`${footprintGroupItems.groupId} = ${groupId}`);
+
+      const groupedFiles = await Promise.all(items.map(async (item) => {
+        await ensureScopedStorageForItem(auth.userId!, item.id, item.title || '');
+        const photos = await listPhotos(auth.userId!, buildFootprintPhotoScopeKey(item.id));
+        return photos.map((photo) => ({
+          ...photo,
+          userId: auth.userId,
+          scopeKey: buildFootprintPhotoScopeKey(item.id),
+          footprintItemId: item.id,
+          displayTitle: item.title,
+        }));
+      }));
+
+      return NextResponse.json({ files: groupedFiles.flat() });
     }
 
     if (type === 'settings') {

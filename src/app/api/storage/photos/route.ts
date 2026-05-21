@@ -1,6 +1,11 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { listPhotos, deletePhoto, getUserUsage } from '@/services/storage';
+import {
+  listPhotos,
+  deletePhoto,
+  getUserUsage,
+  ensureScopedStorageForItem,
+} from '@/services/storage';
 import { authenticate } from '../_auth';
 
 export async function GET(req: NextRequest) {
@@ -8,11 +13,16 @@ export async function GET(req: NextRequest) {
   if (!auth.authorized) return auth.response;
 
   const { searchParams } = new URL(req.url);
+  const scopeKey = searchParams.get('scope_key') || searchParams.get('place_title');
   const placeTitle = searchParams.get('place_title');
-  if (!placeTitle) return NextResponse.json({ error: '缺少地点名称' }, { status: 400 });
+  const footprintItemId = Number(searchParams.get('footprint_item_id') || '');
+  if (!scopeKey) return NextResponse.json({ error: '缺少地点范围' }, { status: 400 });
 
   try {
-    const photos = await listPhotos(auth.userId, placeTitle);
+    if (placeTitle && Number.isFinite(footprintItemId)) {
+      await ensureScopedStorageForItem(auth.userId, footprintItemId, placeTitle);
+    }
+    const photos = await listPhotos(auth.userId, scopeKey);
     const usage = await getUserUsage(auth.userId);
     return NextResponse.json({ photos, usage });
   } catch (err) {

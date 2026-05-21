@@ -10,6 +10,7 @@ import LocalMapModal, { type LocalMappedAssetDraft } from '@/components/LocalMap
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import type { PhotoItem } from '@/components/OuterFrameCanvas';
+import { buildFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 import styles from './footprints.module.css';
 
 interface FootprintGroup {
@@ -76,6 +77,7 @@ function UserFootprintsPageInner() {
   const [viewerPhoto, setViewerPhoto] = useState<{ url: string; title: string } | null>(null);
   const [hasMovedPhotos, setHasMovedPhotos] = useState(false);
   const [localMapOpen, setLocalMapOpen] = useState(false);
+  const [localMapTargetItem, setLocalMapTargetItem] = useState<FootprintItem | null>(null);
   const [localRootName, setLocalRootName] = useState<string | null>(null);
   const [localUnmatchedFolders, setLocalUnmatchedFolders] = useState<string[]>([]);
   const [knownLocalRoots, setKnownLocalRoots] = useState<string[]>([]);
@@ -177,7 +179,7 @@ function UserFootprintsPageInner() {
     const ms: MapMarker[] = items
       .filter(it => it.lng && it.lat)
       .map(it => ({
-        id: it.listItemId,
+        id: buildFootprintPhotoScopeKey(it.id),
         position: [parseFloat(it.lng!), parseFloat(it.lat!)] as [number, number],
         title: it.title,
         address: it.address || undefined,
@@ -238,26 +240,28 @@ function UserFootprintsPageInner() {
     if (items.length === 0 || photosLoaded) return;
     setPhotosLoaded(true);
 
-    const itemTitles = new Set(items.map((item) => item.title));
+    const itemKeys = new Set(items.map((item) => buildFootprintPhotoScopeKey(item.id)));
     const allPhotos: PhotoItem[] = photos
       .filter((photo) => photo.sourceType === 'local-mapped')
-      .filter((photo) => itemTitles.has(photo.placeTitle))
+      .filter((photo) => itemKeys.has(photo.placeKey))
       .map((photo) => ({ ...photo }));
 
     if (isViewMode) {
       try {
-        const res = await fetch(`${viewApiBase}&type=photos`);
+        const res = await fetch(`${viewApiBase}&type=photos&group_id=${selectedGroupId ?? ''}`);
         if (res.ok) {
           const data = await res.json();
           for (const f of data.files || []) {
-            if (!itemTitles.has(f.placeTitle)) continue;
+            if (!f.scopeKey || !itemKeys.has(f.scopeKey)) continue;
             const uid = f.userId || 0;
             allPhotos.push({
               id: f.id,
-              url: `/api/storage/file?uid=${uid}&place=${encodeURIComponent(f.placeTitle)}&file=${encodeURIComponent(f.filename)}`,
+              url: `/api/storage/file?uid=${uid}&place=${encodeURIComponent(f.scopeKey)}&file=${encodeURIComponent(f.filename)}`,
               frameX: f.frameX ?? undefined,
               frameY: f.frameY ?? undefined,
-              placeTitle: f.placeTitle,
+              placeKey: f.scopeKey,
+              placeTitle: f.displayTitle || f.placeTitle,
+              footprintItemId: f.footprintItemId ?? undefined,
               filename: f.filename,
               size: f.size ?? undefined,
               lastModified: f.createdAt ? new Date(f.createdAt).getTime() : undefined,
@@ -268,9 +272,10 @@ function UserFootprintsPageInner() {
       } catch { /* skip */ }
     } else {
       for (const item of items) {
+        const scopeKey = buildFootprintPhotoScopeKey(item.id);
         try {
           const res = await fetch(
-            `/api/storage/photos?place_title=${encodeURIComponent(item.title)}`,
+            `/api/storage/photos?scope_key=${encodeURIComponent(scopeKey)}&footprint_item_id=${encodeURIComponent(String(item.id))}&place_title=${encodeURIComponent(item.title)}`,
             { credentials: 'include' },
           );
           if (!res.ok) continue;
@@ -281,7 +286,9 @@ function UserFootprintsPageInner() {
               url: p.url,
               frameX: p.frameX ?? undefined,
               frameY: p.frameY ?? undefined,
+              placeKey: p.scopeKey || scopeKey,
               placeTitle: item.title,
+              footprintItemId: item.id,
               filename: p.filename,
               size: p.size ?? undefined,
               lastModified: p.createdAt ? new Date(p.createdAt).getTime() : undefined,
@@ -311,16 +318,16 @@ function UserFootprintsPageInner() {
     }
 
     setPhotos(allPhotos);
-  }, [items, photosLoaded, photos, isViewMode, viewApiBase]);
+  }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId]);
 
-  function autoPlacePhotos(unplaced: PhotoItem[]) {
+  function autoPlacePhotos(unplaced: PhotoItem[], referencePhotos: PhotoItem[] = photos) {
     if (unplaced.length === 0) return;
 
     const byPlace = new Map<string, PhotoItem[]>();
     for (const p of unplaced) {
-      const arr = byPlace.get(p.placeTitle) || [];
+      const arr = byPlace.get(p.placeKey) || [];
       arr.push(p);
-      byPlace.set(p.placeTitle, arr);
+      byPlace.set(p.placeKey, arr);
     }
 
     let angle = 0;
@@ -329,17 +336,43 @@ function UserFootprintsPageInner() {
     const ANGLE_STEP = (2 * Math.PI) / PLACE_COUNT;
 
     for (const [, placePhotos] of byPlace) {
-      const cx = Math.cos(angle) * RADIUS;
-      const cy = Math.sin(angle) * RADIUS;
+      const placedPhotos = referencePhotos.filter((photo) => {
+        if (photo.placeKey !== placePhotos[0].placeKey) return false;
+        if (photo.frameX == null || photo.frameY == null) return false;
+        return !placePhotos.some((candidate) => candidate.id === photo.id);
+      });
 
-      // Spread photos within the cluster in a grid
+      let centerX = Math.cos(angle) * RADIUS;
+      let centerY = Math.sin(angle) * RADIUS;
+      if (placedPhotos.length > 0) {
+        centerX = placedPhotos.reduce((sum, photo) => sum + (photo.frameX ?? 0), 0) / placedPhotos.length;
+        centerY = placedPhotos.reduce((sum, photo) => sum + (photo.frameY ?? 0), 0) / placedPhotos.length;
+      }
+
+      let vectorX = centerX;
+      let vectorY = centerY;
+      const vectorLen = Math.hypot(vectorX, vectorY);
+      if (vectorLen < 1) {
+        vectorX = Math.cos(angle);
+        vectorY = Math.sin(angle);
+      } else {
+        vectorX /= vectorLen;
+        vectorY /= vectorLen;
+      }
+
+      const perpendicularX = -vectorY;
+      const perpendicularY = vectorX;
+
       const cols = Math.ceil(Math.sqrt(placePhotos.length));
       const spacing = 100;
+      const baseDistance = placedPhotos.length > 0 ? 120 : 0;
       for (let i = 0; i < placePhotos.length; i++) {
         const col = i % cols;
         const row = Math.floor(i / cols);
-        placePhotos[i].frameX = cx + (col - (cols - 1) / 2) * spacing;
-        placePhotos[i].frameY = cy + (row - (cols - 1) / 2) * spacing;
+        const forwardOffset = baseDistance + (col + 1) * spacing;
+        const lateralOffset = (row - (cols - 1) / 2) * spacing * 0.75;
+        placePhotos[i].frameX = centerX + vectorX * forwardOffset + perpendicularX * lateralOffset;
+        placePhotos[i].frameY = centerY + vectorY * forwardOffset + perpendicularY * lateralOffset;
       }
 
       angle += ANGLE_STEP;
@@ -360,6 +393,12 @@ function UserFootprintsPageInner() {
   }, []);
 
   const handlePhotoMoved = useCallback(() => {
+    movedPhotosRef.current = true;
+    setHasMovedPhotos(true);
+  }, []);
+
+  const handleGroupLabelDragEnd = useCallback((_placeKey: string, dx: number, dy: number) => {
+    if (dx === 0 && dy === 0) return;
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
   }, []);
@@ -443,9 +482,10 @@ function UserFootprintsPageInner() {
 
   const handleOpenAlbum = useCallback((item: FootprintItem) => {
     setAlbumItem(item);
-  }, []);
+  }, [loadAllPhotos]);
 
   const handleUploadPhotoForItem = useCallback(async (item: FootprintItem) => {
+    const scopeKey = buildFootprintPhotoScopeKey(item.id);
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
@@ -455,6 +495,8 @@ function UserFootprintsPageInner() {
     input.onchange = async () => {
       if (!input.files?.length) { document.body.removeChild(input); return; }
       const form = new FormData();
+      form.append('scope_key', scopeKey);
+      form.append('footprint_item_id', String(item.id));
       form.append('place_title', item.title);
       for (const f of Array.from(input.files)) form.append('files', f);
       try {
@@ -476,6 +518,54 @@ function UserFootprintsPageInner() {
   }, []);
 
   // --- Group panel handlers ---
+
+  const handleAddItemToGroup = useCallback(async (item: FootprintItem, groupId: number) => {
+    try {
+      const probeRes = await fetch(`/api/footprints/groups/${groupId}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          list_item_id: item.listItemId,
+          source_item_id: item.id,
+          probe_only: true,
+        }),
+      });
+      const probeData = probeRes.ok ? await probeRes.json() : { hasPhotos: false, count: 0 };
+      let sharePhotos = false;
+
+      if (probeData?.hasPhotos) {
+        sharePhotos = confirm(`该地点当前已有 ${probeData.count} 张相册图片。是否在添加到目标组时一并共享这些图片？`);
+      }
+
+      const res = await fetch(`/api/footprints/groups/${groupId}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          list_item_id: item.listItemId,
+          source_item_id: item.id,
+          share_photos: sharePhotos,
+        }),
+      });
+      if (res.status === 409) {
+        alert('该地点已在目标分类组中');
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.error || '添加失败');
+        return;
+      }
+      const data = await res.json();
+      if (data.clonedPhotoCount > 0) {
+        alert(`已添加地点，并共享 ${data.clonedPhotoCount} 张相册图片到目标组。`);
+      }
+      await loadGroups();
+    } catch {
+      alert('添加失败');
+    }
+  }, []);
 
   async function handleCreateGroup(name: string) {
     try {
@@ -529,25 +619,38 @@ function UserFootprintsPageInner() {
     unmatchedFolders: string[];
     missingAssets: Array<{ relativePath: string; name: string }>;
   }) => {
-    const currentItemTitles = new Set(items.map((item) => item.title));
-    const mappedPhotos: PhotoItem[] = payload.matchedAssets.map((asset) => ({
-      id: `local:${asset.relativePath}`,
-      url: asset.url,
-      frameX: asset.frameX ?? undefined,
-      frameY: asset.frameY ?? undefined,
-      placeTitle: asset.matchedPlaceTitle,
-      filename: asset.name,
-      size: asset.size,
-      lastModified: asset.lastModified,
-      sourceType: 'local-mapped',
-      relativePath: asset.relativePath,
-      rootName: payload.rootName,
-      missing: false,
-    })).filter((photo) => currentItemTitles.has(photo.placeTitle));
+    const itemByTitle = new Map(items.map((item) => [item.title, item]));
+    const currentItemKeys = new Set(items.map((item) => buildFootprintPhotoScopeKey(item.id)));
+    const mappedPhotos: PhotoItem[] = payload.matchedAssets
+      .map((asset) => {
+        const matchedItem = itemByTitle.get(asset.matchedPlaceTitle);
+        if (!matchedItem) return null;
+        return {
+          id: `local:${asset.relativePath}`,
+          url: asset.url,
+          frameX: asset.frameX ?? undefined,
+          frameY: asset.frameY ?? undefined,
+          placeKey: buildFootprintPhotoScopeKey(matchedItem.id),
+          placeTitle: matchedItem.title,
+          footprintItemId: matchedItem.id,
+          filename: asset.name,
+          size: asset.size,
+          lastModified: asset.lastModified,
+          sourceType: 'local-mapped',
+          relativePath: asset.relativePath,
+          rootName: payload.rootName,
+          missing: false,
+        } satisfies PhotoItem;
+      })
+      .filter((photo): photo is PhotoItem => !!photo)
+      .filter((photo) => currentItemKeys.has(photo.placeKey));
 
     const unplaced = mappedPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
     if (unplaced.length > 0) {
-      autoPlacePhotos(unplaced);
+      autoPlacePhotos(
+        unplaced,
+        [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
+      );
       movedPhotosRef.current = true;
       setHasMovedPhotos(true);
     }
@@ -568,8 +671,9 @@ function UserFootprintsPageInner() {
     if (payload.missingAssets.length > 0) {
       alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。若本次保存，这些文件的位置记录将被删除。`);
     }
+    setLocalMapTargetItem(null);
     setLocalMapOpen(false);
-  }, [items]);
+  }, [items, photos]);
 
   return (
     <div className={styles.rootFull}>
@@ -578,12 +682,6 @@ function UserFootprintsPageInner() {
         <div className={styles.pageTitle}>
           {groups.find(g => g.id === selectedGroupId)?.name || ''}
         </div>
-      )}
-
-      {!isViewMode && (
-        <button className={styles.localMapBtn} onClick={() => setLocalMapOpen(true)}>
-          映射本地
-        </button>
       )}
 
       {localUnmatchedFolders.length > 0 && !isViewMode ? (
@@ -607,6 +705,7 @@ function UserFootprintsPageInner() {
         onPhotoDragEnd={handlePhotoDragEnd}
         onPhotoClick={handlePhotoClick}
         onPhotoMoved={handlePhotoMoved}
+        onGroupLabelDragEnd={handleGroupLabelDragEnd}
         mapRef={mapInstanceRef}
         showPhotos={showPhotos}
         showLines={showLines}
@@ -637,9 +736,18 @@ function UserFootprintsPageInner() {
           onDeleteGroup={handleDeleteGroup}
           onSetDefault={handleSetDefault}
           onRemoveItem={handleRemoveItem}
+          onAddItemToGroup={handleAddItemToGroup}
           onOpenAlbum={handleOpenAlbum}
           onUploadPhoto={handleUploadPhotoForItem}
           onItemClick={handleItemClick}
+          onOpenLocalMapForGroup={() => {
+            setLocalMapTargetItem(null);
+            setLocalMapOpen(true);
+          }}
+          onOpenLocalMapForItem={(item) => {
+            setLocalMapTargetItem(item);
+            setLocalMapOpen(true);
+          }}
         />
 
         <LegendPanel
@@ -675,6 +783,7 @@ function UserFootprintsPageInner() {
       {/* Photo album modal */}
       <PhotoAlbumModal
         open={!!albumItem}
+        footprintItemId={albumItem?.id ?? null}
         placeTitle={albumItem?.title || ''}
         onClose={() => setAlbumItem(null)}
       />
@@ -696,7 +805,7 @@ function UserFootprintsPageInner() {
       {!isViewMode && (
         <LocalMapModal
           open={localMapOpen}
-          placeTitles={items.map((item) => item.title)}
+          placeTitles={localMapTargetItem ? [localMapTargetItem.title] : items.map((item) => item.title)}
           onClose={() => setLocalMapOpen(false)}
           onApply={handleApplyLocalMap}
         />

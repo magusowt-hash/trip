@@ -43,7 +43,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
       const poiScreen = logicalToScreen(poi.logicalX, poi.logicalY);
 
       const poiPhotos = photos.filter(
-        p => p.placeTitle === poi.placeTitle && p.frameX != null && p.frameY != null,
+        p => p.placeKey === poi.placeKey && p.frameX != null && p.frameY != null,
       );
       if (poiPhotos.length === 0) continue;
 

@@ -131,6 +131,8 @@ interface FootprintItem {
 interface FootprintPhoto {
   id: number;
   placeTitle: string;
+  displayTitle?: string;
+  footprintItemId?: number | null;
   filename: string;
 }
 
@@ -209,7 +211,8 @@ export default function UserDetailPage() {
 
       const countsByTitle = new Map<string, number>();
       for (const file of filesData.files || []) {
-        countsByTitle.set(file.placeTitle, (countsByTitle.get(file.placeTitle) || 0) + 1);
+        const key = file.footprintItemId ? `item:${file.footprintItemId}` : `legacy:${file.placeTitle}`;
+        countsByTitle.set(key, (countsByTitle.get(key) || 0) + 1);
       }
       setPhotoCounts(countsByTitle);
     } finally {
@@ -240,8 +243,10 @@ export default function UserDetailPage() {
         headers: buildAdminHeaders(token),
       });
       const data = await res.json();
-      const placeTitle = item.title || String(item.listItemId);
-      setExpandedItemPhotos((data.files || []).filter((file: FootprintPhoto) => file.placeTitle === placeTitle));
+      setExpandedItemPhotos((data.files || []).filter((file: FootprintPhoto) => {
+        if (file.footprintItemId) return file.footprintItemId === item.id;
+        return file.placeTitle === (item.title || String(item.listItemId));
+      }));
     } finally {
       setPhotosLoading(false);
     }
@@ -673,7 +678,7 @@ export default function UserDetailPage() {
                         <div className={styles.rowTitle}>{item.title || `地点 #${item.listItemId}`}</div>
                         <div className={styles.rowMeta}>{item.address || '-'}</div>
                       </div>
-                      <span className={styles.rowMeta}>{photoCounts.get(item.title || String(item.listItemId)) || 0} 张</span>
+                      <span className={styles.rowMeta}>{photoCounts.get(`item:${item.id}`) || photoCounts.get(`legacy:${item.title || String(item.listItemId)}`) || 0} 张</span>
                     </button>
                     {expandedItemId === item.listItemId ? (
                       <div className={styles.footprintPhotos}>

@@ -36,7 +36,7 @@
 | user_map_footprints | id | user_id, poi_id | 用户打卡足迹 |
 | footprint_groups | id | user_id | 足迹分组 |
 | footprint_group_items | id | group_id, list_item_id | 足迹分组中的地点 |
-| storage_files | id | user_id | 用户存储文件记录 |
+| storage_files | id | user_id | 用户存储文件记录，足迹相册按 `footprint_group_items.id` 作用域隔离 |
 | uploaded_files | id | user_id | 上传文件记录 |
 | lists | id | - | 榜单主表 |
 | list_images | id | list_id | 榜单图片 |

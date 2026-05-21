@@ -2,7 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { storageFiles } from '@/db/schema';
+import { footprintGroupItems, footprintGroups, listItems, storageFiles } from '@/db/schema';
+import { buildFootprintPhotoScopeKey, parseFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 
 const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads');
 const MAX_QUOTA = 5 * 1024 * 1024 * 1024; // 5GB
@@ -17,11 +18,174 @@ function sanitize(name: string): string {
   return name.replace(/[<>:"/\\|?*]/g, '_').trim();
 }
 
-function userDir(userId: number, placeTitle: string): string {
-  const dir = path.resolve(UPLOAD_ROOT, `user_${userId}`, sanitize(placeTitle));
+function userDir(userId: number, scopeKey: string): string {
+  const dir = path.resolve(UPLOAD_ROOT, `user_${userId}`, sanitize(scopeKey));
   // Path traversal guard
   if (!dir.startsWith(UPLOAD_ROOT + path.sep)) throw new Error('路径非法');
   return dir;
+}
+
+function ensureUniqueFilename(dir: string, preferredName: string): string {
+  let finalName = sanitize(preferredName) || `file_${Date.now()}`;
+  let counter = 1;
+  while (fs.existsSync(path.join(dir, finalName))) {
+    const ext = path.extname(preferredName);
+    const base = path.basename(preferredName, ext);
+    finalName = `${sanitize(base) || 'file'}_${counter}${ext}`;
+    counter++;
+  }
+  return finalName;
+}
+
+function cleanupDirIfEmpty(dir: string) {
+  if (!fs.existsSync(dir)) return;
+  if (fs.readdirSync(dir).length === 0) {
+    fs.rmdirSync(dir);
+  }
+}
+
+export async function ensureScopedStorageForItem(
+  userId: number,
+  footprintItemId: number,
+  legacyPlaceTitle: string,
+) {
+  if (!legacyPlaceTitle) return;
+
+  const scopeKey = buildFootprintPhotoScopeKey(footprintItemId);
+  const sanitizedScopeKey = sanitize(scopeKey);
+  const sanitizedLegacyTitle = sanitize(legacyPlaceTitle);
+
+  const [existingScoped] = await db
+    .select({ id: storageFiles.id })
+    .from(storageFiles)
+    .where(and(
+      eq(storageFiles.userId, userId),
+      eq(storageFiles.placeTitle, sanitizedScopeKey),
+    ))
+    .limit(1);
+
+  const siblingRows = await db
+    .select({ id: footprintGroupItems.id })
+    .from(footprintGroupItems)
+    .innerJoin(footprintGroups, eq(footprintGroupItems.groupId, footprintGroups.id))
+    .innerJoin(listItems, eq(footprintGroupItems.listItemId, listItems.id))
+    .where(and(
+      eq(footprintGroups.userId, userId),
+      eq(listItems.title, legacyPlaceTitle),
+    ));
+
+  const targetItemIds = Array.from(new Set(
+    [footprintItemId, ...siblingRows.map((row) => row.id)]
+      .filter((value) => Number.isFinite(value)),
+  ));
+
+  const allCandidateScopeKeys = [
+    sanitizedLegacyTitle,
+    ...targetItemIds.map((id) => sanitize(buildFootprintPhotoScopeKey(id))),
+  ];
+
+  let seedScopeKey: string | null = null;
+  let seedRows = await db
+    .select()
+    .from(storageFiles)
+    .where(and(
+      eq(storageFiles.userId, userId),
+      eq(storageFiles.placeTitle, sanitizedLegacyTitle),
+    ));
+
+  if (seedRows.length > 0) {
+    seedScopeKey = sanitizedLegacyTitle;
+  } else {
+    for (const candidateScopeKey of allCandidateScopeKeys) {
+      const scopedRows = await db
+        .select()
+        .from(storageFiles)
+        .where(and(
+          eq(storageFiles.userId, userId),
+          eq(storageFiles.placeTitle, candidateScopeKey),
+        ))
+        .limit(1);
+      if (scopedRows.length > 0) {
+        seedScopeKey = candidateScopeKey;
+        seedRows = await db
+          .select()
+          .from(storageFiles)
+          .where(and(
+            eq(storageFiles.userId, userId),
+            eq(storageFiles.placeTitle, candidateScopeKey),
+          ));
+        break;
+      }
+    }
+  }
+
+  if (seedRows.length === 0 || !seedScopeKey) return;
+  if (existingScoped) return;
+
+  const sourceDir = userDir(userId, seedScopeKey);
+  let copiedSourceDir = sourceDir;
+  const preparedRows = seedRows.map((row) => ({ ...row }));
+
+  for (let index = 0; index < targetItemIds.length; index += 1) {
+    const targetScopeKey = sanitize(buildFootprintPhotoScopeKey(targetItemIds[index]));
+    const [targetExisting] = await db
+      .select({ id: storageFiles.id })
+      .from(storageFiles)
+      .where(and(
+        eq(storageFiles.userId, userId),
+        eq(storageFiles.placeTitle, targetScopeKey),
+      ))
+      .limit(1);
+
+    if (targetExisting) {
+      copiedSourceDir = userDir(userId, targetScopeKey);
+      continue;
+    }
+
+    const targetDir = userDir(userId, targetScopeKey);
+    ensureDir(targetDir);
+
+    if (index === 0 && seedScopeKey === sanitizedLegacyTitle) {
+      for (const row of preparedRows) {
+        const legacyFilePath = path.join(sourceDir, row.filename);
+        const finalName = ensureUniqueFilename(targetDir, row.filename);
+        const targetPath = path.join(targetDir, finalName);
+        if (fs.existsSync(legacyFilePath)) {
+          fs.renameSync(legacyFilePath, targetPath);
+        }
+        await db
+          .update(storageFiles)
+          .set({
+            placeTitle: targetScopeKey,
+            filename: finalName,
+          })
+          .where(eq(storageFiles.id, row.id));
+        row.placeTitle = targetScopeKey;
+        row.filename = finalName;
+      }
+      cleanupDirIfEmpty(sourceDir);
+      copiedSourceDir = targetDir;
+      continue;
+    }
+
+    for (const row of preparedRows) {
+      const sourceFilePath = path.join(copiedSourceDir, row.filename);
+      const finalName = ensureUniqueFilename(targetDir, row.filename);
+      const targetPath = path.join(targetDir, finalName);
+      if (fs.existsSync(sourceFilePath)) {
+        fs.copyFileSync(sourceFilePath, targetPath);
+      }
+      await db.insert(storageFiles).values({
+        userId,
+        placeTitle: targetScopeKey,
+        filename: finalName,
+        size: row.size,
+        frameX: row.frameX,
+        frameY: row.frameY,
+        createdAt: row.createdAt,
+      });
+    }
+  }
 }
 
 export async function getUserUsage(userId: number): Promise<number> {
@@ -34,7 +198,7 @@ export async function getUserUsage(userId: number): Promise<number> {
 
 export async function saveFile(
   userId: number,
-  placeTitle: string,
+  scopeKey: string,
   filename: string,
   buffer: Buffer,
 ): Promise<{ url: string; size: number }> {
@@ -45,21 +209,11 @@ export async function saveFile(
   const usage = await getUserUsage(userId);
   if (usage + buffer.length > MAX_QUOTA) throw new Error('存储空间已满（5GB）');
 
-  const dir = userDir(userId, placeTitle);
+  const dir = userDir(userId, scopeKey);
   ensureDir(dir);
 
   const safeName = sanitize(filename) || `file_${Date.now()}`;
-  const filePath = path.join(dir, safeName);
-
-  // Avoid overwrite
-  let finalName = safeName;
-  let counter = 1;
-  while (fs.existsSync(path.join(dir, finalName))) {
-    const ext = path.extname(safeName);
-    const base = path.basename(safeName, ext);
-    finalName = `${base}_${counter}${ext}`;
-    counter++;
-  }
+  const finalName = ensureUniqueFilename(dir, safeName);
 
   fs.writeFileSync(path.join(dir, finalName), buffer);
 
@@ -67,22 +221,24 @@ export async function saveFile(
 
   await db.insert(storageFiles).values({
     userId,
-    placeTitle: sanitize(placeTitle),
+    placeTitle: sanitize(scopeKey),
     filename: finalName,
     size: stats.size,
   });
 
   return {
-    url: `/api/storage/file?uid=${userId}&place=${encodeURIComponent(sanitize(placeTitle))}&file=${encodeURIComponent(finalName)}`,
+    url: `/api/storage/file?uid=${userId}&place=${encodeURIComponent(sanitize(scopeKey))}&file=${encodeURIComponent(finalName)}`,
     size: stats.size,
   };
 }
 
-export async function listPhotos(userId: number, placeTitle: string) {
+export async function listPhotos(userId: number, scopeKey: string) {
+  const sanitizedScopeKey = sanitize(scopeKey);
+  const footprintItemId = parseFootprintPhotoScopeKey(sanitizedScopeKey);
   const files = await db
     .select()
     .from(storageFiles)
-    .where(and(eq(storageFiles.userId, userId), eq(storageFiles.placeTitle, sanitize(placeTitle))))
+    .where(and(eq(storageFiles.userId, userId), eq(storageFiles.placeTitle, sanitizedScopeKey)))
     .orderBy(storageFiles.createdAt);
 
   return files.map(f => {
@@ -92,11 +248,64 @@ export async function listPhotos(userId: number, placeTitle: string) {
       size: f.size,
       frameX: f.frameX ?? null,
       frameY: f.frameY ?? null,
-      url: `/api/storage/file?uid=${userId}&place=${encodeURIComponent(sanitize(placeTitle))}&file=${encodeURIComponent(f.filename)}`,
+      scopeKey: sanitizedScopeKey,
+      footprintItemId,
+      url: `/api/storage/file?uid=${userId}&place=${encodeURIComponent(sanitizedScopeKey)}&file=${encodeURIComponent(f.filename)}`,
       thumbnailUrl: null,
       createdAt: f.createdAt,
     };
   });
+}
+
+export async function cloneScopedPhotos(
+  userId: number,
+  sourceScopeKey: string,
+  targetScopeKey: string,
+) {
+  const safeSourceScopeKey = sanitize(sourceScopeKey);
+  const safeTargetScopeKey = sanitize(targetScopeKey);
+  if (safeSourceScopeKey === safeTargetScopeKey) return { clonedCount: 0 };
+
+  const sourceRows = await db
+    .select()
+    .from(storageFiles)
+    .where(and(
+      eq(storageFiles.userId, userId),
+      eq(storageFiles.placeTitle, safeSourceScopeKey),
+    ))
+    .orderBy(storageFiles.createdAt);
+
+  if (sourceRows.length === 0) {
+    return { clonedCount: 0 };
+  }
+
+  const sourceDir = userDir(userId, safeSourceScopeKey);
+  const targetDir = userDir(userId, safeTargetScopeKey);
+  ensureDir(targetDir);
+
+  let clonedCount = 0;
+  for (const row of sourceRows) {
+    const sourcePath = path.join(sourceDir, row.filename);
+    const finalName = ensureUniqueFilename(targetDir, row.filename);
+    const targetPath = path.join(targetDir, finalName);
+
+    if (fs.existsSync(sourcePath)) {
+      fs.copyFileSync(sourcePath, targetPath);
+    }
+
+    await db.insert(storageFiles).values({
+      userId,
+      placeTitle: safeTargetScopeKey,
+      filename: finalName,
+      size: row.size,
+      frameX: row.frameX,
+      frameY: row.frameY,
+      createdAt: row.createdAt,
+    });
+    clonedCount += 1;
+  }
+
+  return { clonedCount };
 }
 
 export async function deletePhoto(userId: number, fileId: number) {

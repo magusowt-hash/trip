@@ -16,6 +16,8 @@ interface StorageFile {
   id: number;
   userId: number;
   placeTitle: string;
+  displayTitle?: string;
+  footprintItemId?: number | null;
   filename: string;
   size: number;
   createdAt: string;
@@ -150,7 +152,7 @@ export default function FootprintsPage() {
                                   display: 'flex', alignItems: 'center', gap: 12,
                                   padding: '6px 10px', background: '#f9fafb', borderRadius: 4, fontSize: 12,
                                 }}>
-                                  <span style={{ fontWeight: 500, minWidth: 100 }}>{f.placeTitle}</span>
+                                  <span style={{ fontWeight: 500, minWidth: 100 }}>{f.displayTitle || f.placeTitle}</span>
                                   <span style={{ color: '#6b7280', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.filename}</span>
                                   <span style={{ color: '#9ca3af', whiteSpace: 'nowrap' }}>{formatSize(f.size)}</span>
                                   <span style={{ color: '#9ca3af', whiteSpace: 'nowrap' }}>{new Date(f.createdAt).toLocaleDateString()}</span>

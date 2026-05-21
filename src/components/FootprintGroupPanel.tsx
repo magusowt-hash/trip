@@ -36,9 +36,12 @@ interface Props {
   onDeleteGroup: (id: number) => Promise<void>;
   onSetDefault: (id: number) => Promise<void>;
   onRemoveItem: (item: FootprintItem) => void;
+  onAddItemToGroup?: (item: FootprintItem, groupId: number) => void;
   onOpenAlbum: (item: FootprintItem) => void;
   onUploadPhoto: (item: FootprintItem) => void;
   onItemClick: (item: FootprintItem) => void;
+  onOpenLocalMapForGroup?: () => void;
+  onOpenLocalMapForItem?: (item: FootprintItem) => void;
 }
 
 export default function FootprintGroupPanel({
@@ -53,9 +56,12 @@ export default function FootprintGroupPanel({
   onDeleteGroup,
   onSetDefault,
   onRemoveItem,
+  onAddItemToGroup,
   onOpenAlbum,
   onUploadPhoto,
   onItemClick,
+  onOpenLocalMapForGroup,
+  onOpenLocalMapForItem,
 }: Props) {
   const [showNewInput, setShowNewInput] = useState(false);
   const [newName, setNewName] = useState('');
@@ -64,6 +70,7 @@ export default function FootprintGroupPanel({
   const [menuItem, setMenuItem] = useState<FootprintItem | null>(null);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+  const [groupMenuPos, setGroupMenuPos] = useState({ x: 0, y: 0 });
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -88,9 +95,25 @@ export default function FootprintGroupPanel({
   return (
     <>
       <div className={`${styles.panel} ${collapsed ? styles.collapsed : ''}`}>
-        <button className={styles.toggle} onClick={() => onCollapsedChange(!collapsed)}>
-          {collapsed ? '◀' : '▶'} 足迹
-        </button>
+        <div className={styles.headerRow}>
+          <button className={styles.toggle} onClick={() => onCollapsedChange(!collapsed)}>
+            {collapsed ? '◀' : '▶'} 足迹
+          </button>
+          {!collapsed && (
+            <button
+              className={styles.settingsBtn}
+              onClick={(e) => {
+                e.stopPropagation();
+                setGroupMenuPos({ x: e.clientX, y: e.clientY });
+                setGroupMenuOpen(v => !v);
+              }}
+              disabled={!selectedGroupId}
+              title="足迹管理"
+            >
+              ⚙
+            </button>
+          )}
+        </div>
 
         {!collapsed && (
           <>
@@ -122,23 +145,12 @@ export default function FootprintGroupPanel({
                         <span className={styles.groupName}>{g.name}</span>
                         <span className={styles.groupCount}>{g.itemCount}</span>
                         {g.isDefault === 1 && <span className={styles.defaultBadge}>默认</span>}
-                        {selectedGroupId === g.id && (
-                          <button
-                            className={styles.groupMoreBtn}
-                            onClick={e => {
-                              e.stopPropagation();
-                              setGroupMenuOpen(v => !v);
-                            }}
-                          >
-                            ⋯
-                          </button>
-                        )}
                       </>
                     )}
                   </div>
 
                   {/* Expanded items list */}
-                  {selectedGroupId === g.id && items.length > 0 && (
+                  {selectedGroupId === g.id && (
                     <div className={styles.itemList}>
                       {items.map(item => (
                         <div
@@ -190,7 +202,16 @@ export default function FootprintGroupPanel({
       {groupMenuOpen && selectedGroupId && createPortal(
         <>
           <div className={styles.menuBackdrop} onClick={() => setGroupMenuOpen(false)} />
-          <div className={styles.itemMenu} style={{ right: 24, bottom: 24, left: 'auto', top: 'auto', transform: 'none' }} onClick={e => e.stopPropagation()}>
+          <div
+            className={styles.itemMenu}
+            style={{ left: groupMenuPos.x, top: groupMenuPos.y, transform: 'translate(-100%, 0)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {onOpenLocalMapForGroup ? (
+              <button className={styles.menuItemBtn} onClick={() => { onOpenLocalMapForGroup(); setGroupMenuOpen(false); }}>
+                映射本地
+              </button>
+            ) : null}
             <button className={styles.menuItemBtn} onClick={() => { onSetDefault(selectedGroupId); setGroupMenuOpen(false); }}>
               设为默认
             </button>
@@ -214,14 +235,35 @@ export default function FootprintGroupPanel({
         <>
           <div className={styles.menuBackdrop} onClick={() => setMenuItem(null)} />
           <div className={styles.itemMenu} style={{ left: menuPos.x - 10, top: menuPos.y, transform: 'translate(-100%, 0)' }} onClick={e => e.stopPropagation()}>
+            {onOpenLocalMapForItem ? (
+              <button className={styles.menuItemBtn} onClick={() => { onOpenLocalMapForItem(menuItem); setMenuItem(null); }}>
+                映射本地
+              </button>
+            ) : null}
             <button className={styles.menuItemBtn} onClick={() => { onOpenAlbum(menuItem); setMenuItem(null); }}>
               相册
             </button>
             <button className={styles.menuItemBtn} onClick={() => { onUploadPhoto(menuItem); setMenuItem(null); }}>
               上传照片
             </button>
+            {onAddItemToGroup && groups.filter((group) => group.id !== selectedGroupId).length > 0 ? (
+              <>
+                <div className={styles.menuSectionLabel}>添加到其他组</div>
+                {groups
+                  .filter((group) => group.id !== selectedGroupId)
+                  .map((group) => (
+                    <button
+                      key={group.id}
+                      className={styles.menuItemBtn}
+                      onClick={() => { onAddItemToGroup(menuItem, group.id); setMenuItem(null); }}
+                    >
+                      {group.name}
+                    </button>
+                  ))}
+              </>
+            ) : null}
             <button className={styles.menuItemDanger} onClick={() => { onRemoveItem(menuItem); setMenuItem(null); }}>
-              删除
+              从本组移除
             </button>
           </div>
         </>,

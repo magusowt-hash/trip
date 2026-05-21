@@ -1,9 +1,10 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { eq, sql, desc, and } from 'drizzle-orm';
+import { eq, sql, desc, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { footprintGroups, footprintGroupItems, users, listItems, storageFiles, userFootprintSettings } from '@/db/schema';
 import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
+import { parseFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 
 function verifyAdminToken(req: NextRequest): NextResponse | null {
   const token = getAdminTokenFromRequest(req);
@@ -61,7 +62,39 @@ export async function GET(req: NextRequest) {
         .where(eq(storageFiles.userId, parseInt(userId)))
         .orderBy(desc(storageFiles.createdAt));
 
-      return NextResponse.json({ files });
+      const footprintItemIds = Array.from(new Set(
+        files
+          .map((file) => parseFootprintPhotoScopeKey(file.placeTitle))
+          .filter((value): value is number => Number.isFinite(value)),
+      ));
+
+      const titleMap = new Map<number, string>();
+      if (footprintItemIds.length > 0) {
+        const scopedItems = await db
+          .select({
+            id: footprintGroupItems.id,
+            title: listItems.title,
+          })
+          .from(footprintGroupItems)
+          .leftJoin(listItems, eq(footprintGroupItems.listItemId, listItems.id))
+          .where(inArray(footprintGroupItems.id, footprintItemIds));
+
+        for (const item of scopedItems) {
+          titleMap.set(item.id, item.title || `足迹项 #${item.id}`);
+        }
+      }
+
+      return NextResponse.json({
+        files: files.map((file) => {
+          const footprintItemId = parseFootprintPhotoScopeKey(file.placeTitle);
+          return {
+            ...file,
+            footprintItemId,
+            displayTitle: footprintItemId ? (titleMap.get(footprintItemId) || file.placeTitle) : file.placeTitle,
+            scopeKey: file.placeTitle,
+          };
+        }),
+      });
     }
 
     if (type === 'settings' && userId) {
