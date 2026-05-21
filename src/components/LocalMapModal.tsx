@@ -71,6 +71,15 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
     changedCount: changedAssets.length,
   }), [matchedAssets.length, unmatchedFolders.length, addedAssets.length, missingAssets.length, changedAssets.length]);
 
+  const matchedPlaceCount = useMemo(() => {
+    const matchedPlaces = new Set(matchedAssets.map((asset) => asset.matchedPlaceTitle));
+    return placeTitles.filter((title) => matchedPlaces.has(title)).length;
+  }, [matchedAssets, placeTitles]);
+
+  const unmatchedPlaceCount = Math.max(placeTitles.length - matchedPlaceCount, 0);
+  const knownRootSummary = knownRootNames.length > 0 ? knownRootNames.join(' / ') : '无';
+  const savedRecordSummary = savedRecord?.rootName || '无';
+
   useEffect(() => {
     if (!open) return;
     setRootName('');
@@ -207,28 +216,30 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
 
         <div className={styles.body}>
           <div className={styles.card}>
-            <h3 className={styles.cardTitle}>选择主文件夹</h3>
-            <p className={styles.hint}>当前会使用主文件夹名称作为唯一记录键。同名主文件夹会命中同一份位置记录。</p>
-            <label>
-              <input
-                {...directoryInputProps}
-                type="file"
-                multiple
-                style={{ display: 'none' }}
-                onChange={handleFolderPick}
-              />
-              <span className={styles.pickerButton}>选择主文件夹</span>
-            </label>
-            {knownRootNames.length > 0 ? (
-              <div className={styles.knownWrap}>
-                <p className={styles.hint}>已有历史记录的主文件夹：</p>
-                <div className={styles.list}>
-                  {knownRootNames.map((item) => (
-                    <code key={item}>{item}</code>
-                  ))}
+            <h3 className={styles.cardTitle}>主文件夹记录</h3>
+            <div className={styles.recordGrid}>
+              <div className={styles.recordBox}>
+                <span>主文件夹记录</span>
+                <strong>{knownRootSummary}</strong>
+              </div>
+              <div className={styles.recordBox}>
+                <span>保存记录</span>
+                <strong>{savedRecordSummary}</strong>
+              </div>
+            </div>
+            {(rootName && (summary.addedCount > 0 || summary.changedCount > 0)) ? (
+              <div className={styles.recordGrid}>
+                <div className={styles.recordBox}>
+                  <span>新增文件</span>
+                  <strong>{summary.addedCount}</strong>
+                </div>
+                <div className={styles.recordBox}>
+                  <span>变化文件</span>
+                  <strong>{summary.changedCount}</strong>
                 </div>
               </div>
             ) : null}
+            <p className={styles.hint}>当前会使用主文件夹名称作为唯一记录键。同名主文件夹会命中同一份位置记录。</p>
           </div>
 
           <div className={styles.summaryGrid}>
@@ -241,8 +252,9 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
               <strong>{summary.matchedCount}</strong>
             </div>
             <div className={styles.summaryBox}>
-              <span>未匹配目录</span>
-              <strong>{summary.unmatchedCount}</strong>
+              <span>已匹配目录</span>
+              <strong>{matchedPlaceCount}/{placeTitles.length}</strong>
+              <em className={styles.summaryMeta}>未匹配地点 {unmatchedPlaceCount}</em>
             </div>
             <div className={styles.summaryBox}>
               <span>缺失文件</span>
@@ -250,28 +262,9 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
             </div>
           </div>
 
-          <div className={styles.summaryGrid}>
-            <div className={styles.summaryBox}>
-              <span>新增文件</span>
-              <strong>{summary.addedCount}</strong>
-            </div>
-            <div className={styles.summaryBox}>
-              <span>变化文件</span>
-              <strong>{summary.changedCount}</strong>
-            </div>
-            <div className={styles.summaryBox}>
-              <span>已知主文件夹</span>
-              <strong>{knownRootNames.length}</strong>
-            </div>
-            <div className={styles.summaryBox}>
-              <span>旧记录</span>
-              <strong>{savedRecord ? '已存在' : '无'}</strong>
-            </div>
-          </div>
-
           {unmatchedFolders.length > 0 ? (
             <div className={styles.card}>
-              <h3 className={styles.cardTitle}>未匹配目录</h3>
+              <h3 className={styles.cardTitle}>未匹配目录列表</h3>
               <div className={styles.list}>
                 {unmatchedFolders.map((item) => (
                   <code key={item}>{item}</code>
@@ -296,6 +289,16 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
         </div>
 
         <div className={styles.footer}>
+          <label className={styles.footerPicker}>
+            <input
+              {...directoryInputProps}
+              type="file"
+              multiple
+              style={{ display: 'none' }}
+              onChange={handleFolderPick}
+            />
+            <span className={styles.pickerButton}>选择主文件夹</span>
+          </label>
           <button className={styles.secondaryBtn} type="button" onClick={onClose}>取消</button>
           <button className={styles.actionBtn} type="button" onClick={handleApply} disabled={!rootName || matchedAssets.length === 0}>
             确认映射
