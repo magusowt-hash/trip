@@ -21,35 +21,10 @@ interface StorageFile {
   createdAt: string;
 }
 
-interface CloudHintItem {
-  folderId: string;
-  folderName: string;
-  assetCount: number;
-  status: string;
-  reason: string;
-  sampleThumbnailUrl: string | null;
-}
-
-interface UserCloudHintGroup {
-  mountId: number;
-  footprintItemId: number;
-  itemName: string;
-  rootPath: string;
-  connectionState: string;
-  totalFolders: number;
-  totalAssets: number;
-  hints: CloudHintItem[];
-}
-
 export default function FootprintsPage() {
   const [storage, setStorage] = useState<StorageStat[]>([]);
   const [storageDetail, setStorageDetail] = useState<StorageFile[]>([]);
   const [detailUser, setDetailUser] = useState<number | null>(null);
-  const [cloudHints, setCloudHints] = useState<UserCloudHintGroup[]>([]);
-  const [cloudHintUser, setCloudHintUser] = useState<number | null>(null);
-  const [syncingMountId, setSyncingMountId] = useState<number | null>(null);
-  const [bindingHintKey, setBindingHintKey] = useState<string | null>(null);
-  const [rollingBackItemId, setRollingBackItemId] = useState<number | null>(null);
   const { token } = useAdminAuth();
 
   useEffect(() => { loadStorage(); }, [token]);
@@ -76,96 +51,6 @@ export default function FootprintsPage() {
     await fetch(`/api/admin/footprints?type=storage_delete&file_id=${fileId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
     loadStorage();
     if (detailUser) loadStorageDetail(detailUser);
-  }
-
-  async function loadCloudHints(uid: number) {
-    try {
-      const res = await fetch(`/api/admin/footprints?type=cloud_hints&user_id=${uid}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      setCloudHints(data.hints || []);
-      setCloudHintUser(uid);
-    } catch (err) { console.error(err); }
-  }
-
-  async function handleAdminSync(uid: number, itemId: number) {
-    try {
-      setSyncingMountId(itemId);
-      const res = await fetch('/api/admin/footprints', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ type: 'cloud_sync', user_id: uid, item_id: itemId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || '同步失败');
-        return;
-      }
-      await loadStorage();
-      await loadCloudHints(uid);
-    } catch (err) {
-      console.error(err);
-      alert('同步失败');
-    } finally {
-      setSyncingMountId(null);
-    }
-  }
-
-  async function handleAdminBindHint(uid: number, itemId: number, folderId: string) {
-    const key = `${itemId}:${folderId}`;
-    try {
-      setBindingHintKey(key);
-      const res = await fetch('/api/admin/footprints', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ type: 'cloud_bind_hint', user_id: uid, item_id: itemId, folder_id: folderId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || '绑定失败');
-        return;
-      }
-      await loadStorage();
-      await loadCloudHints(uid);
-    } catch (err) {
-      console.error(err);
-      alert('绑定失败');
-    } finally {
-      setBindingHintKey(null);
-    }
-  }
-
-  async function handleAdminRollback(uid: number, itemId: number) {
-    try {
-      setRollingBackItemId(itemId);
-      const res = await fetch('/api/admin/footprints', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ type: 'cloud_rollback_hint', user_id: uid, item_id: itemId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || '回退失败');
-        return;
-      }
-      await loadStorage();
-      await loadCloudHints(uid);
-    } catch (err) {
-      console.error(err);
-      alert('回退失败');
-    } finally {
-      setRollingBackItemId(null);
-    }
   }
 
   function formatSize(bytes: number): string {
@@ -250,12 +135,6 @@ export default function FootprintsPage() {
                           >
                             {detailUser === s.userId ? '收起文件' : '文件详情'}
                           </button>
-                          <button
-                            onClick={() => cloudHintUser === s.userId ? (setCloudHintUser(null), setCloudHints([])) : loadCloudHints(s.userId)}
-                            style={{ padding: '4px 10px', fontSize: 11, background: '#fef3c7', color: '#92400e', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-                          >
-                            {cloudHintUser === s.userId ? '收起挂载网盘提示' : '挂载网盘提示'}
-                          </button>
                         </div>
                       </td>
                     </tr>
@@ -281,77 +160,6 @@ export default function FootprintsPage() {
                                   >
                                     删除
                                   </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                    {cloudHintUser === s.userId && (
-                      <tr>
-                        <td colSpan={6} style={{ padding: '0 16px 16px' }}>
-                          {cloudHints.length === 0 ? (
-                            <p style={{ color: '#9ca3af', fontSize: 12, padding: 8 }}>当前没有未匹配目录</p>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                              {cloudHints.map(group => (
-                                <div key={group.mountId} style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: 12 }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8, fontSize: 12 }}>
-                                    <div>
-                                      <div style={{ fontWeight: 600, color: '#78350f' }}>{group.itemName}</div>
-                                      <div style={{ color: '#a16207', marginTop: 2 }}>当前挂载网盘：{group.rootPath}</div>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-                                      <div style={{ color: group.connectionState === 'connected' ? '#15803d' : '#b91c1c', whiteSpace: 'nowrap' }}>
-                                        {group.connectionState === 'connected' ? '连接正常' : '连接异常'}
-                                      </div>
-                                      <button
-                                        onClick={() => handleAdminSync(s.userId, group.footprintItemId)}
-                                        disabled={syncingMountId === group.footprintItemId}
-                                        style={{ padding: '4px 10px', fontSize: 11, background: '#dcfce7', color: '#166534', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-                                      >
-                                        {syncingMountId === group.footprintItemId ? '同步中...' : '重试同步挂载网盘'}
-                                      </button>
-                                      <button
-                                        onClick={() => handleAdminRollback(s.userId, group.footprintItemId)}
-                                        disabled={rollingBackItemId === group.footprintItemId}
-                                        style={{ padding: '4px 10px', fontSize: 11, background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-                                      >
-                                        {rollingBackItemId === group.footprintItemId ? '回退中...' : '回退已绑定图片'}
-                                      </button>
-                                    </div>
-                                  </div>
-                                  <div style={{ fontSize: 12, color: '#92400e', marginBottom: 8 }}>
-                                    当前挂载网盘下有 {group.totalFolders} 条未匹配提示，涉及 {group.totalAssets} 张图片
-                                  </div>
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    {group.hints.map(hint => (
-                                      <div key={`${group.mountId}-${hint.folderId}`} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 8, padding: 8 }}>
-                                        {hint.sampleThumbnailUrl ? (
-                                          <img src={hint.sampleThumbnailUrl} alt={hint.folderName} style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
-                                        ) : (
-                                          <div style={{ width: 44, height: 44, borderRadius: 6, background: '#f3f4f6', flexShrink: 0 }} />
-                                        )}
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                          <div style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{hint.folderName}</div>
-                                          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
-                                            {hint.assetCount} 张 · {hint.reason === 'no_place_match' ? '未匹配地点' : hint.reason}
-                                          </div>
-                                        </div>
-                                        <button
-                                          onClick={() => handleAdminBindHint(s.userId, group.footprintItemId, hint.folderId)}
-                                          disabled={bindingHintKey === `${group.footprintItemId}:${hint.folderId}`}
-                                          style={{ padding: '5px 10px', fontSize: 11, background: '#eff6ff', color: '#1d4ed8', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-                                        >
-                                          {bindingHintKey === `${group.footprintItemId}:${hint.folderId}` ? '绑定中...' : '绑定到当前足迹项'}
-                                        </button>
-                                        <span style={{ fontSize: 10, color: '#b45309', background: '#fef3c7', borderRadius: 999, padding: '3px 8px' }}>
-                                          {hint.status}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
                                 </div>
                               ))}
                             </div>

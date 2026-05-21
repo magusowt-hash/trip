@@ -24,12 +24,6 @@ interface FootprintItem {
   addedAt: string;
 }
 
-interface CloudStatusMeta {
-  mountState: 'unmounted' | 'mounted';
-  connectionState: 'unknown' | 'connected' | 'disconnected';
-  unboundFolderCount?: number;
-}
-
 interface Props {
   groups: FootprintGroup[];
   selectedGroupId: number | null;
@@ -44,9 +38,7 @@ interface Props {
   onRemoveItem: (item: FootprintItem) => void;
   onOpenAlbum: (item: FootprintItem) => void;
   onUploadPhoto: (item: FootprintItem) => void;
-  onOpenCloudMount: (item: FootprintItem) => void;
   onItemClick: (item: FootprintItem) => void;
-  cloudStatusMap?: Record<number, CloudStatusMeta>;
 }
 
 export default function FootprintGroupPanel({
@@ -63,9 +55,7 @@ export default function FootprintGroupPanel({
   onRemoveItem,
   onOpenAlbum,
   onUploadPhoto,
-  onOpenCloudMount,
   onItemClick,
-  cloudStatusMap = {},
 }: Props) {
   const [showNewInput, setShowNewInput] = useState(false);
   const [newName, setNewName] = useState('');
@@ -94,18 +84,6 @@ export default function FootprintGroupPanel({
     setMenuItem(item);
     setMenuPos({ x: e.clientX, y: e.clientY });
   };
-
-  const getMountClassName = (item: FootprintItem) => {
-    const status = cloudStatusMap[item.id];
-    if (!status || status.mountState === 'unmounted') return styles.menuItemBtn;
-    if (status.connectionState === 'connected') return `${styles.menuItemBtn} ${styles.menuItemSuccess}`;
-    if (status.connectionState === 'disconnected') return `${styles.menuItemBtn} ${styles.menuItemDangerSoft}`;
-    return styles.menuItemBtn;
-  };
-
-  const selectedPanelItem = selectedGroupId
-    ? items.find(item => cloudStatusMap[item.id] || item.id === items[0]?.id) ?? items[0] ?? null
-    : null;
 
   return (
     <>
@@ -222,16 +200,6 @@ export default function FootprintGroupPanel({
               setGroupMenuOpen(false);
             }}>
               重命名
-            </button>
-            <button
-              className={selectedPanelItem ? getMountClassName(selectedPanelItem) : styles.menuItemBtn}
-              onClick={() => {
-                if (selectedPanelItem) onOpenCloudMount(selectedPanelItem);
-                setGroupMenuOpen(false);
-              }}
-              disabled={!selectedPanelItem}
-            >
-              挂载网盘
             </button>
             <button className={styles.menuItemDanger} onClick={() => { onDeleteGroup(selectedGroupId); setGroupMenuOpen(false); }}>
               删除

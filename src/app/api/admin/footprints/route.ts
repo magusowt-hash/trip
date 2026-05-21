@@ -4,7 +4,6 @@ import { eq, sql, desc, and } from 'drizzle-orm';
 import { db } from '@/db';
 import { footprintGroups, footprintGroupItems, users, listItems, storageFiles, userFootprintSettings } from '@/db/schema';
 import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
-import { bindUnmatchedFolderToItem, listAdminCloudHints, rollbackBoundFolderFromItem, syncCloudMount } from '@/services/footprint-cloud';
 
 function verifyAdminToken(req: NextRequest): NextResponse | null {
   const token = getAdminTokenFromRequest(req);
@@ -89,11 +88,6 @@ export async function GET(req: NextRequest) {
         lineWidth: row.lineWidth,
         lineDashed: !!row.lineDashed,
       });
-    }
-
-    if (type === 'cloud_hints' && userId) {
-      const hints = await listAdminCloudHints(parseInt(userId));
-      return NextResponse.json({ hints });
     }
 
     if (groupId) {
@@ -186,38 +180,7 @@ export async function POST(req: NextRequest) {
   const authError = verifyAdminToken(req);
   if (authError) return authError;
 
-  const { type, user_id, item_id, folder_id } = await req.json() as {
-    type?: string;
-    user_id?: number;
-    item_id?: number;
-    folder_id?: string;
-  };
-
   try {
-    if (type === 'cloud_sync') {
-      if (!Number.isFinite(user_id) || !Number.isFinite(item_id)) {
-        return NextResponse.json({ error: '参数不完整' }, { status: 400 });
-      }
-      const result = await syncCloudMount(item_id, user_id);
-      return NextResponse.json(result);
-    }
-
-    if (type === 'cloud_bind_hint') {
-      if (!Number.isFinite(user_id) || !Number.isFinite(item_id) || !folder_id?.trim()) {
-        return NextResponse.json({ error: '参数不完整' }, { status: 400 });
-      }
-      const result = await bindUnmatchedFolderToItem(item_id, user_id, folder_id.trim());
-      return NextResponse.json(result);
-    }
-
-    if (type === 'cloud_rollback_hint') {
-      if (!Number.isFinite(user_id) || !Number.isFinite(item_id)) {
-        return NextResponse.json({ error: '参数不完整' }, { status: 400 });
-      }
-      const result = await rollbackBoundFolderFromItem(item_id, user_id);
-      return NextResponse.json(result);
-    }
-
     return NextResponse.json({ error: '不支持的操作' }, { status: 400 });
   } catch (err) {
     console.error('Admin POST /api/admin/footprints error:', err);

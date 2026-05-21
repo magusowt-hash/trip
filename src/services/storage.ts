@@ -3,7 +3,6 @@ import path from 'path';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { storageFiles } from '@/db/schema';
-import { listFilesByFullPath } from '@/services/alist';
 
 const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads');
 const MAX_QUOTA = 5 * 1024 * 1024 * 1024; // 5GB
@@ -79,81 +78,22 @@ export async function saveFile(
   };
 }
 
-export async function saveCloudFileRecord(params: {
-  userId: number;
-  placeTitle: string;
-  filename: string;
-  size: number;
-  sourceRef: string;
-  sourceFolder: string;
-}): Promise<'created' | 'updated'> {
-  const [existing] = await db
-    .select({ id: storageFiles.id })
-    .from(storageFiles)
-    .where(and(
-      eq(storageFiles.userId, params.userId),
-      eq(storageFiles.sourceType, 'cloud'),
-      eq(storageFiles.sourceRef, params.sourceRef),
-    ));
-
-  if (existing) {
-    await db
-      .update(storageFiles)
-      .set({
-        placeTitle: sanitize(params.placeTitle),
-        filename: sanitize(params.filename),
-        size: params.size,
-        sourceFolder: params.sourceFolder,
-      })
-      .where(eq(storageFiles.id, existing.id));
-    return 'updated';
-  }
-
-  await db.insert(storageFiles).values({
-    userId: params.userId,
-    placeTitle: sanitize(params.placeTitle),
-    filename: sanitize(params.filename),
-    size: params.size,
-    sourceType: 'cloud',
-    sourceRef: params.sourceRef,
-    sourceFolder: params.sourceFolder,
-  });
-  return 'created';
-}
-
 export async function listPhotos(userId: number, placeTitle: string) {
   const files = await db
     .select()
     .from(storageFiles)
     .where(and(eq(storageFiles.userId, userId), eq(storageFiles.placeTitle, sanitize(placeTitle))))
     .orderBy(storageFiles.createdAt);
-  const cloudFolders = Array.from(new Set(files.filter(f => f.sourceType === 'cloud' && f.sourceFolder).map(f => f.sourceFolder!)));
-  const cloudFileMap = new Map<string, { url: string; thumb: string }>();
-
-  await Promise.all(cloudFolders.map(async folder => {
-    try {
-      const assets = await listFilesByFullPath(folder);
-      for (const asset of assets) {
-        cloudFileMap.set(`${folder}::${asset.name}`, { url: asset.url, thumb: asset.thumb });
-      }
-    } catch {
-      // Remote fetch failure leaves cloud asset inaccessible but does not break local listing.
-    }
-  }));
 
   return files.map(f => {
-    const remote = f.sourceType === 'cloud' && f.sourceFolder
-      ? cloudFileMap.get(`${f.sourceFolder}::${f.filename}`)
-      : null;
     return {
       id: f.id,
       filename: f.filename,
       size: f.size,
       frameX: f.frameX ?? null,
       frameY: f.frameY ?? null,
-      sourceType: f.sourceType,
-      url: remote?.url || `/api/storage/file?uid=${userId}&place=${encodeURIComponent(sanitize(placeTitle))}&file=${encodeURIComponent(f.filename)}`,
-      thumbnailUrl: remote?.thumb || null,
+      url: `/api/storage/file?uid=${userId}&place=${encodeURIComponent(sanitize(placeTitle))}&file=${encodeURIComponent(f.filename)}`,
+      thumbnailUrl: null,
       createdAt: f.createdAt,
     };
   });
