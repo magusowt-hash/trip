@@ -88,38 +88,47 @@ function buildStaggeredOffsets(count: number, gapX: number, gapY: number, axis: 
 function buildRandomOffsets(count: number) {
   const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
   const rows = Math.max(1, Math.ceil(count / cols));
-  const colWidths = Array.from({ length: cols }, () => CARD_SIZE + randomInt(1, 100));
-  const rowHeights = Array.from({ length: rows }, () => CARD_SIZE + randomInt(1, 100));
+  const xMatrix: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0));
+  const yMatrix: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0));
 
-  const xStarts: number[] = [];
-  const yStarts: number[] = [];
-  let currentX = 0;
-  let currentY = 0;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const index = row * cols + col;
+      if (index >= count) continue;
 
-  for (let i = 0; i < cols; i++) {
-    xStarts.push(currentX);
-    currentX += colWidths[i];
+      if (col > 0) {
+        xMatrix[row][col] = xMatrix[row][col - 1] + CARD_SIZE + randomInt(1, 100);
+      }
+      if (row > 0) {
+        yMatrix[row][col] = yMatrix[row - 1][col] + CARD_SIZE + randomInt(1, 100);
+      }
+    }
   }
-  for (let i = 0; i < rows; i++) {
-    yStarts.push(currentY);
-    currentY += rowHeights[i];
-  }
 
-  const totalWidth = colWidths.reduce((sum, value) => sum + value, 0);
-  const totalHeight = rowHeights.reduce((sum, value) => sum + value, 0);
-  const centerX = totalWidth / 2;
-  const centerY = totalHeight / 2;
-
-  return Array.from({ length: count }, (_, index) => {
+  const points = Array.from({ length: count }, (_, index) => {
     const col = index % cols;
     const row = Math.floor(index / cols);
     return {
       col,
       row,
-      offsetX: xStarts[col] + colWidths[col] / 2 - centerX,
-      offsetY: yStarts[row] + rowHeights[row] / 2 - centerY,
+      x: xMatrix[row][col],
+      y: yMatrix[row][col],
     };
   });
+
+  const minX = Math.min(...points.map((point) => point.x));
+  const maxX = Math.max(...points.map((point) => point.x));
+  const minY = Math.min(...points.map((point) => point.y));
+  const maxY = Math.max(...points.map((point) => point.y));
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+
+  return points.map((point) => ({
+    col: point.col,
+    row: point.row,
+    offsetX: point.x - centerX,
+    offsetY: point.y - centerY,
+  }));
 }
 
 function formatBytes(bytes: number): string {
