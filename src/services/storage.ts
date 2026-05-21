@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { footprintGroupItems, footprintGroups, listItems, storageFiles } from '@/db/schema';
+import { footprintGroupItems, storageFiles } from '@/db/schema';
 import { buildFootprintPhotoScopeKey, parseFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 
 const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads');
@@ -64,25 +64,8 @@ export async function ensureScopedStorageForItem(
     ))
     .limit(1);
 
-  const siblingRows = await db
-    .select({ id: footprintGroupItems.id })
-    .from(footprintGroupItems)
-    .innerJoin(footprintGroups, eq(footprintGroupItems.groupId, footprintGroups.id))
-    .innerJoin(listItems, eq(footprintGroupItems.listItemId, listItems.id))
-    .where(and(
-      eq(footprintGroups.userId, userId),
-      eq(listItems.title, legacyPlaceTitle),
-    ));
-
-  const targetItemIds = Array.from(new Set(
-    [footprintItemId, ...siblingRows.map((row) => row.id)]
-      .filter((value) => Number.isFinite(value)),
-  ));
-
-  const allCandidateScopeKeys = [
-    sanitizedLegacyTitle,
-    ...targetItemIds.map((id) => sanitize(buildFootprintPhotoScopeKey(id))),
-  ];
+  const targetItemIds = [footprintItemId].filter((value) => Number.isFinite(value));
+  const allCandidateScopeKeys = [sanitizedLegacyTitle, sanitizedScopeKey];
 
   let seedScopeKey: string | null = null;
   let seedRows = await db
@@ -127,7 +110,8 @@ export async function ensureScopedStorageForItem(
   const preparedRows = seedRows.map((row) => ({ ...row }));
 
   for (let index = 0; index < targetItemIds.length; index += 1) {
-    const targetScopeKey = sanitize(buildFootprintPhotoScopeKey(targetItemIds[index]));
+    const targetItemId = targetItemIds[index];
+    const targetScopeKey = sanitize(buildFootprintPhotoScopeKey(targetItemId));
     const [targetExisting] = await db
       .select({ id: storageFiles.id })
       .from(storageFiles)

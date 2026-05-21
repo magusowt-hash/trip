@@ -173,10 +173,12 @@ export async function POST(
       }
     }
 
-    await db
-      .update(footprintGroupItems)
-      .set({ albumScopeKey: nextAlbumScopeKey })
-      .where(eq(footprintGroupItems.id, createdItemId));
+    if (nextAlbumScopeKey !== defaultScopeKey) {
+      await db
+        .update(footprintGroupItems)
+        .set({ albumScopeKey: nextAlbumScopeKey })
+        .where(eq(footprintGroupItems.id, createdItemId));
+    }
 
     return NextResponse.json({
       id: createdItemId,

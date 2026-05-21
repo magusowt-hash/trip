@@ -323,23 +323,6 @@ export default function FootprintGroupPanel({
                 </div>
               ))}
             </div>
-
-            {showNewInput ? (
-              <div className={styles.newRow}>
-                <input
-                  placeholder="分类组名称"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && void handleCreate()}
-                  className={styles.newInput}
-                  autoFocus
-                />
-                <button className={styles.miniBtn} onClick={() => void handleCreate()}>✓</button>
-                <button className={styles.miniBtn} onClick={() => { setShowNewInput(false); setNewName(''); }}>✕</button>
-              </div>
-            ) : (
-              <button className={styles.addBtn} onClick={() => setShowNewInput(true)}>＋ 新建分类</button>
-            )}
           </>
         )}
       </div>
@@ -375,13 +358,24 @@ export default function FootprintGroupPanel({
                   </div>
                   <button
                     className={styles.managementPrimaryBtn}
-                    onClick={() => {
-                      setManagementOpen(false);
-                      setShowNewInput(true);
-                    }}
+                    onClick={() => setShowNewInput(true)}
                   >
                     新建足迹组
                   </button>
+                  {showNewInput ? (
+                    <div className={styles.newRow}>
+                      <input
+                        placeholder="分类组名称"
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && void handleCreate()}
+                        className={styles.newInput}
+                        autoFocus
+                      />
+                      <button className={styles.miniBtn} onClick={() => void handleCreate()}>✓</button>
+                      <button className={styles.miniBtn} onClick={() => { setShowNewInput(false); setNewName(''); }}>✕</button>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className={styles.managementGroupTabs}>

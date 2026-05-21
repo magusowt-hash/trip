@@ -1,5 +1,6 @@
 'use client';
 
+import { createPortal } from 'react-dom';
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import OuterFrame from '@/components/OuterFrame';
@@ -890,7 +891,7 @@ function UserFootprintsPageInner() {
         />
       )}
 
-      {shareAlbumPrompt ? (
+      {shareAlbumPrompt ? createPortal(
         <div className={styles.modalOverlay} onClick={() => setShareAlbumPrompt(null)}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <h3 className={styles.modalTitle}>是否共享相册</h3>
@@ -909,7 +910,8 @@ function UserFootprintsPageInner() {
               取消
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );
