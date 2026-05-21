@@ -23,8 +23,7 @@ export const footprintGroupItems = mysqlTable(
     id: serial('id').primaryKey(),
     groupId: int('group_id').notNull(),
     listItemId: int('list_item_id').notNull(),
-    cloudFolder: varchar('cloud_folder', { length: 255 }),
-    cloudCover: varchar('cloud_cover', { length: 500 }),
+    albumScopeKey: varchar('album_scope_key', { length: 255 }),
     addedAt: timestamp('added_at').notNull().defaultNow(),
   },
   (t) => ({

@@ -11,22 +11,35 @@ interface PhotoData {
   filename: string;
   frameX: number | null;
   frameY: number | null;
+  shared?: boolean;
 }
 
 interface Props {
   open: boolean;
   footprintItemId: number | null;
   placeTitle: string;
+  albumScopeKey?: string | null;
+  shared?: boolean;
   onClose: () => void;
+  onPhotosDeleted?: (photoIds: number[]) => void;
 }
 
-export default function PhotoAlbumModal({ open, footprintItemId, placeTitle, onClose }: Props) {
+export default function PhotoAlbumModal({
+  open,
+  footprintItemId,
+  placeTitle,
+  albumScopeKey,
+  shared,
+  onClose,
+  onPhotosDeleted,
+}: Props) {
   const [photos, setPhotos] = useState<PhotoData[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<number[]>([]);
   const scopeKey = useMemo(
-    () => (footprintItemId ? buildFootprintPhotoScopeKey(footprintItemId) : ''),
-    [footprintItemId],
+    () => albumScopeKey || (footprintItemId ? buildFootprintPhotoScopeKey(footprintItemId) : ''),
+    [albumScopeKey, footprintItemId],
   );
 
   const loadPhotos = useCallback(async () => {
@@ -40,6 +53,7 @@ export default function PhotoAlbumModal({ open, footprintItemId, placeTitle, onC
       if (!res.ok) return;
       const data = await res.json();
       setPhotos(data.photos || []);
+      setSelectedPhotoIds([]);
     } catch { /* ignore */ }
     finally { setLoading(false); }
   }, [footprintItemId, placeTitle, scopeKey]);
@@ -78,15 +92,32 @@ export default function PhotoAlbumModal({ open, footprintItemId, placeTitle, onC
     input.click();
   }, [footprintItemId, placeTitle, scopeKey, loadPhotos]);
 
-  const handleDelete = useCallback(async (photoId: number) => {
-    if (!confirm('确定删除该照片？')) return;
+  const handleDelete = useCallback(async (photoIds: number[]) => {
+    if (photoIds.length === 0) return;
+    if (!confirm(`确定删除选中的 ${photoIds.length} 张照片？`)) return;
     try {
-      await fetch(`/api/storage/photos?id=${photoId}`, {
-        method: 'DELETE', credentials: 'include',
-      });
-      loadPhotos();
-    } catch { alert('删除失败'); }
-  }, [loadPhotos]);
+      await Promise.all(photoIds.map((photoId) => (
+        fetch(`/api/storage/photos?id=${photoId}`, {
+          method: 'DELETE', credentials: 'include',
+        })
+      )));
+      setPhotos((current) => current.filter((photo) => !photoIds.includes(photo.id)));
+      setSelectedPhotoIds((current) => current.filter((id) => !photoIds.includes(id)));
+      onPhotosDeleted?.(photoIds);
+    } catch {
+      alert('删除失败');
+    }
+  }, [onPhotosDeleted]);
+
+  const togglePhotoSelection = useCallback((photoId: number) => {
+    setSelectedPhotoIds((current) => (
+      current.includes(photoId)
+        ? current.filter((id) => id !== photoId)
+        : [...current, photoId]
+    ));
+  }, []);
+
+  const allSelected = photos.length > 0 && selectedPhotoIds.length === photos.length;
 
   if (!open) return null;
 
@@ -99,10 +130,33 @@ export default function PhotoAlbumModal({ open, footprintItemId, placeTitle, onC
           </div>
         )}
         <div className={styles.header}>
-          <h2 className={styles.title}>{placeTitle}</h2>
+          <h2 className={styles.title}>
+            {placeTitle}
+            {shared ? <span className={styles.sharedBadge}>共享</span> : null}
+          </h2>
           <div className={styles.headerActions}>
             <button className={styles.actionBtn} onClick={handleUpload} disabled={uploading}>
               {uploading ? '⏳ 上传中...' : '＋ 上传'}
+            </button>
+            <button
+              className={styles.secondaryBtn}
+              onClick={() => {
+                if (allSelected) {
+                  setSelectedPhotoIds([]);
+                  return;
+                }
+                setSelectedPhotoIds(photos.map((photo) => photo.id));
+              }}
+              disabled={photos.length === 0}
+            >
+              {allSelected ? '取消全选' : '全选'}
+            </button>
+            <button
+              className={styles.dangerBtn}
+              onClick={() => void handleDelete(selectedPhotoIds)}
+              disabled={selectedPhotoIds.length === 0}
+            >
+              批量删除
             </button>
             <button className={styles.closeBtn} onClick={onClose}>✕</button>
           </div>
@@ -117,12 +171,16 @@ export default function PhotoAlbumModal({ open, footprintItemId, placeTitle, onC
             <div className={styles.grid}>
               {photos.map(p => (
                 <div key={p.id} className={styles.photoCard}>
+                  <button
+                    className={`${styles.selectBtn} ${selectedPhotoIds.includes(p.id) ? styles.selectBtnActive : ''}`}
+                    onClick={() => togglePhotoSelection(p.id)}
+                  />
                   <img src={p.url} alt={p.filename} loading="lazy" />
                   <button
                     className={styles.deleteBtn}
-                    onClick={() => handleDelete(p.id)}
+                    onClick={() => void handleDelete([p.id])}
                   >
-                    🗑
+                    删除
                   </button>
                   <span className={styles.photoName}>{p.filename}</span>
                 </div>

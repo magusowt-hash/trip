@@ -25,6 +25,7 @@ interface FootprintGroup {
 interface FootprintItem {
   id: number;
   listItemId: number;
+  albumScopeKey?: string | null;
   title: string;
   coverImage: string | null;
   description: string | null;
@@ -82,6 +83,11 @@ function UserFootprintsPageInner() {
   const [localRootName, setLocalRootName] = useState<string | null>(null);
   const [localUnmatchedFolders, setLocalUnmatchedFolders] = useState<string[]>([]);
   const [knownLocalRoots, setKnownLocalRoots] = useState<string[]>([]);
+  const [shareAlbumPrompt, setShareAlbumPrompt] = useState<{
+    item: FootprintItem;
+    groupId: number;
+    count: number;
+  } | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstanceRef = useRef<any>(null);
   const movedPhotosRef = useRef<boolean>(false);
@@ -243,7 +249,8 @@ function UserFootprintsPageInner() {
     if (items.length === 0 || photosLoaded) return;
     setPhotosLoaded(true);
 
-    const itemKeys = new Set(items.map((item) => buildFootprintPhotoScopeKey(item.id)));
+    const itemScopes = new Map(items.map((item) => [item.id, item.albumScopeKey || buildFootprintPhotoScopeKey(item.id)]));
+    const itemKeys = new Set(itemScopes.values());
     const allPhotos: PhotoItem[] = photos
       .filter((photo) => photo.sourceType === 'local-mapped')
       .filter((photo) => itemKeys.has(photo.placeKey))
@@ -275,7 +282,7 @@ function UserFootprintsPageInner() {
       } catch { /* skip */ }
     } else {
       for (const item of items) {
-        const scopeKey = buildFootprintPhotoScopeKey(item.id);
+        const scopeKey = item.albumScopeKey || buildFootprintPhotoScopeKey(item.id);
         try {
           const res = await fetch(
             `/api/storage/photos?scope_key=${encodeURIComponent(scopeKey)}&footprint_item_id=${encodeURIComponent(String(item.id))}&place_title=${encodeURIComponent(item.title)}`,
@@ -500,8 +507,12 @@ function UserFootprintsPageInner() {
     setAlbumItem(item);
   }, [loadAllPhotos]);
 
+  const handleAlbumPhotosDeleted = useCallback((photoIds: number[]) => {
+    setPhotos((current) => current.filter((photo) => !photoIds.includes(Number(photo.id))));
+  }, []);
+
   const handleUploadPhotoForItem = useCallback(async (item: FootprintItem) => {
-    const scopeKey = buildFootprintPhotoScopeKey(item.id);
+    const scopeKey = item.albumScopeKey || buildFootprintPhotoScopeKey(item.id);
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
@@ -566,12 +577,44 @@ function UserFootprintsPageInner() {
         }),
       });
       const probeData = probeRes.ok ? await probeRes.json() : { hasPhotos: false, count: 0 };
-      let sharePhotos = false;
-
       if (probeData?.hasPhotos) {
-        sharePhotos = confirm(`该地点当前已有 ${probeData.count} 张相册图片。是否在添加到目标组时一并共享这些图片？`);
+        setShareAlbumPrompt({
+          item,
+          groupId,
+          count: probeData.count || 0,
+        });
+        return;
       }
+      const res = await fetch(`/api/footprints/groups/${groupId}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          list_item_id: item.listItemId,
+          source_item_id: item.id,
+          share_photos: false,
+        }),
+      });
+      if (res.status === 409) {
+        alert('该地点已在目标分类组中');
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.error || '添加失败');
+        return;
+      }
+      await loadGroups();
+    } catch {
+      alert('添加失败');
+    }
+  }, []);
 
+  const handleConfirmShareAlbum = useCallback(async (sharePhotos: boolean) => {
+    if (!shareAlbumPrompt) return;
+    const { item, groupId } = shareAlbumPrompt;
+    setShareAlbumPrompt(null);
+    try {
       const res = await fetch(`/api/footprints/groups/${groupId}/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -591,15 +634,11 @@ function UserFootprintsPageInner() {
         alert(err.error || '添加失败');
         return;
       }
-      const data = await res.json();
-      if (data.clonedPhotoCount > 0) {
-        alert(`已添加地点，并共享 ${data.clonedPhotoCount} 张相册图片到目标组。`);
-      }
       await loadGroups();
     } catch {
       alert('添加失败');
     }
-  }, []);
+  }, [shareAlbumPrompt]);
 
   async function handleCreateGroup(name: string) {
     try {
@@ -821,8 +860,11 @@ function UserFootprintsPageInner() {
       <PhotoAlbumModal
         open={!!albumItem}
         footprintItemId={albumItem?.id ?? null}
+        albumScopeKey={albumItem?.albumScopeKey ?? null}
         placeTitle={albumItem?.title || ''}
+        shared={!!albumItem?.albumScopeKey && albumItem.albumScopeKey !== buildFootprintPhotoScopeKey(albumItem.id)}
         onClose={() => setAlbumItem(null)}
+        onPhotosDeleted={handleAlbumPhotosDeleted}
       />
 
       {/* Image viewer modal */}
@@ -847,6 +889,28 @@ function UserFootprintsPageInner() {
           onApply={handleApplyLocalMap}
         />
       )}
+
+      {shareAlbumPrompt ? (
+        <div className={styles.modalOverlay} onClick={() => setShareAlbumPrompt(null)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3 className={styles.modalTitle}>是否共享相册</h3>
+            <div className={styles.modalList}>
+              <div className={styles.modalHint}>
+                当前地点已有 {shareAlbumPrompt.count} 张图片。选择“是”后，两个足迹将共同操作同一相册。
+              </div>
+              <button className={styles.modalBtn} onClick={() => void handleConfirmShareAlbum(true)}>
+                是
+              </button>
+              <button className={styles.modalBtn} onClick={() => void handleConfirmShareAlbum(false)}>
+                否
+              </button>
+            </div>
+            <button className={styles.modalClose} onClick={() => setShareAlbumPrompt(null)}>
+              取消
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -6,8 +6,8 @@ import { footprintGroups, footprintGroupItems } from '@/db/schema';
 import { listItems, lists } from '@/db/schema';
 import { authenticateFootprintRequest } from '../../../_auth';
 import {
-  cloneScopedPhotos,
   ensureScopedStorageForItem,
+  getAlbumScopeKeyForItem,
   listPhotos,
 } from '@/services/storage';
 import { buildFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
@@ -37,6 +37,7 @@ export async function GET(
       .select({
         id: footprintGroupItems.id,
         listItemId: footprintGroupItems.listItemId,
+        albumScopeKey: footprintGroupItems.albumScopeKey,
         addedAt: footprintGroupItems.addedAt,
         title: listItems.title,
         coverImage: listItems.coverImage,
@@ -134,7 +135,8 @@ export async function POST(
       }
 
       await ensureScopedStorageForItem(auth.userId, sourceItem.id, sourceItem.title || '');
-      const sourcePhotos = await listPhotos(auth.userId, buildFootprintPhotoScopeKey(sourceItem.id));
+      const sourceScopeKey = await getAlbumScopeKeyForItem(auth.userId, sourceItem.id) || buildFootprintPhotoScopeKey(sourceItem.id);
+      const sourcePhotos = await listPhotos(auth.userId, sourceScopeKey);
       return NextResponse.json({
         hasPhotos: sourcePhotos.length > 0,
         count: sourcePhotos.length,
@@ -147,7 +149,8 @@ export async function POST(
     });
 
     const createdItemId = result[0].insertId;
-    let clonedPhotoCount = 0;
+    const defaultScopeKey = buildFootprintPhotoScopeKey(createdItemId);
+    let nextAlbumScopeKey = defaultScopeKey;
 
     if (share_photos && source_item_id && Number.isFinite(source_item_id)) {
       const [sourceItem] = await db
@@ -166,18 +169,18 @@ export async function POST(
 
       if (sourceItem) {
         await ensureScopedStorageForItem(auth.userId, sourceItem.id, sourceItem.title || '');
-        const cloneResult = await cloneScopedPhotos(
-          auth.userId,
-          buildFootprintPhotoScopeKey(sourceItem.id),
-          buildFootprintPhotoScopeKey(createdItemId),
-        );
-        clonedPhotoCount = cloneResult.clonedCount;
+        nextAlbumScopeKey = await getAlbumScopeKeyForItem(auth.userId, sourceItem.id) || buildFootprintPhotoScopeKey(sourceItem.id);
       }
     }
 
+    await db
+      .update(footprintGroupItems)
+      .set({ albumScopeKey: nextAlbumScopeKey })
+      .where(eq(footprintGroupItems.id, createdItemId));
+
     return NextResponse.json({
       id: createdItemId,
-      clonedPhotoCount,
+      shared: nextAlbumScopeKey !== defaultScopeKey,
     }, { status: 201 });
   } catch (err) {
     console.error('POST /api/footprints/groups/[id]/items error:', err);

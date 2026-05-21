@@ -188,6 +188,36 @@ export async function ensureScopedStorageForItem(
   }
 }
 
+export async function getAlbumScopeKeyForItem(
+  userId: number,
+  footprintItemId: number,
+) {
+  const [row] = await db
+    .select({
+      id: footprintGroupItems.id,
+      albumScopeKey: footprintGroupItems.albumScopeKey,
+    })
+    .from(footprintGroupItems)
+    .innerJoin(footprintGroups, eq(footprintGroupItems.groupId, footprintGroups.id))
+    .where(and(
+      eq(footprintGroupItems.id, footprintItemId),
+      eq(footprintGroups.userId, userId),
+    ))
+    .limit(1);
+
+  if (!row) return null;
+  const nextScopeKey = row.albumScopeKey || buildFootprintPhotoScopeKey(row.id);
+
+  if (!row.albumScopeKey) {
+    await db
+      .update(footprintGroupItems)
+      .set({ albumScopeKey: nextScopeKey })
+      .where(eq(footprintGroupItems.id, row.id));
+  }
+
+  return nextScopeKey;
+}
+
 export async function getUserUsage(userId: number): Promise<number> {
   const [row] = await db
     .select({ total: sql<number>`coalesce(sum(${storageFiles.size}), 0)` })
@@ -255,57 +285,6 @@ export async function listPhotos(userId: number, scopeKey: string) {
       createdAt: f.createdAt,
     };
   });
-}
-
-export async function cloneScopedPhotos(
-  userId: number,
-  sourceScopeKey: string,
-  targetScopeKey: string,
-) {
-  const safeSourceScopeKey = sanitize(sourceScopeKey);
-  const safeTargetScopeKey = sanitize(targetScopeKey);
-  if (safeSourceScopeKey === safeTargetScopeKey) return { clonedCount: 0 };
-
-  const sourceRows = await db
-    .select()
-    .from(storageFiles)
-    .where(and(
-      eq(storageFiles.userId, userId),
-      eq(storageFiles.placeTitle, safeSourceScopeKey),
-    ))
-    .orderBy(storageFiles.createdAt);
-
-  if (sourceRows.length === 0) {
-    return { clonedCount: 0 };
-  }
-
-  const sourceDir = userDir(userId, safeSourceScopeKey);
-  const targetDir = userDir(userId, safeTargetScopeKey);
-  ensureDir(targetDir);
-
-  let clonedCount = 0;
-  for (const row of sourceRows) {
-    const sourcePath = path.join(sourceDir, row.filename);
-    const finalName = ensureUniqueFilename(targetDir, row.filename);
-    const targetPath = path.join(targetDir, finalName);
-
-    if (fs.existsSync(sourcePath)) {
-      fs.copyFileSync(sourcePath, targetPath);
-    }
-
-    await db.insert(storageFiles).values({
-      userId,
-      placeTitle: safeTargetScopeKey,
-      filename: finalName,
-      size: row.size,
-      frameX: row.frameX,
-      frameY: row.frameY,
-      createdAt: row.createdAt,
-    });
-    clonedCount += 1;
-  }
-
-  return { clonedCount };
 }
 
 export async function deletePhoto(userId: number, fileId: number) {

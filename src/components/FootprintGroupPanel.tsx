@@ -16,6 +16,7 @@ interface FootprintGroup {
 interface FootprintItem {
   id: number;
   listItemId: number;
+  albumScopeKey?: string | null;
   title: string;
   coverImage: string | null;
   description: string | null;
@@ -506,6 +507,9 @@ export default function FootprintGroupPanel({
                                 }}
                               >
                                 {item.title}
+                                {item.albumScopeKey && item.albumScopeKey !== `fpgi_${item.id}` ? (
+                                  <span className={styles.managementSharedBadge}>共享</span>
+                                ) : null}
                               </button>
                               <div className={styles.managementDateCell}>{formatDate(item.addedAt)}</div>
                               <div className={styles.managementRowActions}>

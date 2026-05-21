@@ -62,14 +62,6 @@ export const managementNavItems: ManagementNavItem[] = [
     shortLabel: 'QR',
   },
   {
-    path: '/management/alist',
-    label: '网盘配置',
-    description: '管理 AList 云存储配置',
-    group: 'system',
-    order: 40,
-    shortLabel: 'WP',
-  },
-  {
     path: '/management/users',
     label: '用户管理',
     description: '管理注册用户',
