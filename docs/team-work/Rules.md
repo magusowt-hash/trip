@@ -156,6 +156,16 @@ docs/team-work/maps/to-do list/
 ## 数据库协作规则
 
 - 以后所有数据库相关字段、表结构、关系定义，必须以 `docs/team-work/database/` 为准
+- 所有“数据库相关待办 / schema 草案 / migration 草案 / 结构收敛方案 / 数据模型草案 / 存储结构兼容方案”，也必须统一放在 `docs/team-work/database/` 下维护
+- 如果某个模块存在数据库专题待办，不要继续放在该模块自己的 `to-do list/` 中，应归档到 `docs/team-work/database/` 下对应子目录
+- 数据库相关待办也必须遵守 `to-do list / done list` 机制：
+  - 未完成的数据库事项放入 `docs/team-work/database/.../to-do list/`
+  - 完成后的数据库事项迁入 `docs/team-work/database/.../done list/`
+  - 不允许把未完成和已完成的数据库事项混放在同一层目录
+- 例如 footprint 的数据库待办应放在：
+  - `docs/team-work/database/footprint/to-do list/`
+  - `docs/team-work/database/footprint/done list/`
+- 模块自己的 `to-do list/` 只保留交互、流程、接口表现、联调、手测、业务拆分等非数据库主题
 - 服务器端做任何数据库相关增删改，包括但不限于：
   - 新增字段
   - 删除字段
