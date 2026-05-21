@@ -470,16 +470,22 @@ function UserFootprintsPageInner() {
 
   // --- Item actions from panel ---
 
-  const handleRemoveItem = useCallback((item: FootprintItem) => {
-    if (!selectedGroupId) return;
+  const handleRemoveItemFromGroup = useCallback((groupId: number, item: FootprintItem) => {
     if (!confirm(`确定从本组移除「${item.title}」？`)) return;
-    fetch(`/api/footprints/groups/${selectedGroupId}/items?item_id=${item.listItemId}`, {
+    fetch(`/api/footprints/groups/${groupId}/items?item_id=${item.listItemId}`, {
       method: 'DELETE', credentials: 'include',
     }).then(() => {
-      loadItems(selectedGroupId);
+      if (selectedGroupId === groupId) {
+        loadItems(groupId);
+      }
       loadGroups();
     }).catch(() => alert('移除失败'));
   }, [selectedGroupId]);
+
+  const handleRemoveItem = useCallback((item: FootprintItem) => {
+    if (!selectedGroupId) return;
+    handleRemoveItemFromGroup(selectedGroupId, item);
+  }, [selectedGroupId, handleRemoveItemFromGroup]);
 
   const handleOpenAlbum = useCallback((item: FootprintItem) => {
     setAlbumItem(item);
@@ -519,6 +525,24 @@ function UserFootprintsPageInner() {
   }, []);
 
   // --- Group panel handlers ---
+
+  const handleLoadGroupItemsForManagement = useCallback(async (groupId: number) => {
+    if (groupId === selectedGroupId && items.length > 0) {
+      return items;
+    }
+
+    try {
+      const url = isViewMode
+        ? `${viewApiBase}&type=items&group_id=${groupId}`
+        : `/api/footprints/groups/${groupId}/items`;
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.items || [];
+    } catch {
+      return [];
+    }
+  }, [selectedGroupId, items, isViewMode, viewApiBase]);
 
   const handleAddItemToGroup = useCallback(async (item: FootprintItem, groupId: number) => {
     try {
@@ -737,10 +761,12 @@ function UserFootprintsPageInner() {
           onDeleteGroup={handleDeleteGroup}
           onSetDefault={handleSetDefault}
           onRemoveItem={handleRemoveItem}
+          onRemoveItemFromGroup={handleRemoveItemFromGroup}
           onAddItemToGroup={handleAddItemToGroup}
           onOpenAlbum={handleOpenAlbum}
           onUploadPhoto={handleUploadPhotoForItem}
           onItemClick={handleItemClick}
+          onLoadGroupItems={handleLoadGroupItemsForManagement}
           onOpenLocalMapForGroup={() => {
             setLocalMapTargetItem(null);
             setLocalMapOpen(true);

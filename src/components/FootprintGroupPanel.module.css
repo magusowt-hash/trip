@@ -367,6 +367,59 @@
   gap: 12px;
 }
 
+.managementGroupList {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.managementGroupCard {
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.managementGroupHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.managementGroupTitleWrap {
+  min-width: 0;
+}
+
+.managementGroupTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.managementGroupTitle {
+  color: #f8fafc;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.managementGroupMeta {
+  margin-top: 6px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.managementGroupActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .managementCard {
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.05);
@@ -413,6 +466,13 @@
   gap: 12px;
 }
 
+.managementListHeaderSide {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 .managementListHint {
   margin-top: 4px;
   font-size: 12px;
@@ -430,6 +490,22 @@
   color: #e0e7ff;
   font-size: 12px;
   font-weight: 600;
+}
+
+.managementPrimaryBtn {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(99, 102, 241, 0.36);
+  background: rgba(99, 102, 241, 0.18);
+  color: #eef2ff;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.managementPrimaryBtn:hover {
+  background: rgba(99, 102, 241, 0.28);
 }
 
 .managementEmpty {
@@ -487,6 +563,52 @@
   font-size: 12px;
 }
 
+.managementListAside {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.managementItemActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.managementTextBtn,
+.managementTextDanger {
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+
+.managementTextBtn:hover {
+  color: #fff;
+}
+
+.managementTextDanger {
+  color: #fca5a5;
+}
+
+.managementTextDanger:hover {
+  color: #fecaca;
+}
+
+.managementEmptyInline {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #94a3b8;
+  font-size: 12px;
+}
+
 .managementBtn,
 .managementDanger {
   min-height: 42px;
@@ -530,9 +652,18 @@
     grid-template-columns: 1fr;
   }
 
+  .managementGroupHeader,
   .managementListItem {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .managementGroupActions,
+  .managementListAside,
+  .managementItemActions,
+  .managementListHeaderSide {
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 

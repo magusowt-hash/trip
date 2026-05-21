@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import styles from './FootprintGroupPanel.module.css';
 
@@ -37,10 +37,12 @@ interface Props {
   onDeleteGroup: (id: number) => Promise<void>;
   onSetDefault: (id: number) => Promise<void>;
   onRemoveItem: (item: FootprintItem) => void;
+  onRemoveItemFromGroup?: (groupId: number, item: FootprintItem) => void;
   onAddItemToGroup?: (item: FootprintItem, groupId: number) => void;
   onOpenAlbum: (item: FootprintItem) => void;
   onUploadPhoto: (item: FootprintItem) => void;
   onItemClick: (item: FootprintItem) => void;
+  onLoadGroupItems?: (groupId: number) => Promise<FootprintItem[]>;
   onOpenLocalMapForGroup?: () => void;
   onOpenLocalMapForItem?: (item: FootprintItem) => void;
 }
@@ -57,10 +59,12 @@ export default function FootprintGroupPanel({
   onDeleteGroup,
   onSetDefault,
   onRemoveItem,
+  onRemoveItemFromGroup,
   onAddItemToGroup,
   onOpenAlbum,
   onUploadPhoto,
   onItemClick,
+  onLoadGroupItems,
   onOpenLocalMapForGroup,
   onOpenLocalMapForItem,
 }: Props) {
@@ -71,6 +75,8 @@ export default function FootprintGroupPanel({
   const [menuItem, setMenuItem] = useState<FootprintItem | null>(null);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const [managementOpen, setManagementOpen] = useState(false);
+  const [managementLoading, setManagementLoading] = useState(false);
+  const [groupItemsMap, setGroupItemsMap] = useState<Record<number, FootprintItem[]>>({});
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -100,6 +106,34 @@ export default function FootprintGroupPanel({
   const firstAddedAt = itemDates[0] || selectedGroup?.createdAt || null;
   const lastAddedAt = itemDates[itemDates.length - 1] || selectedGroup?.createdAt || null;
 
+  useEffect(() => {
+    if (!managementOpen || !onLoadGroupItems || groups.length === 0) return;
+    let alive = true;
+    setManagementLoading(true);
+
+    Promise.all(
+      groups.map(async (group) => {
+        const loadedItems = await onLoadGroupItems(group.id);
+        return [group.id, loadedItems] as const;
+      }),
+    )
+      .then((entries) => {
+        if (!alive) return;
+        const nextMap: Record<number, FootprintItem[]> = {};
+        for (const [groupId, loadedItems] of entries) {
+          nextMap[groupId] = loadedItems;
+        }
+        setGroupItemsMap(nextMap);
+      })
+      .finally(() => {
+        if (alive) setManagementLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [managementOpen, onLoadGroupItems, groups]);
+
   const formatDate = (value?: string | null) => {
     if (!value) return '未记录';
     const date = new Date(value);
@@ -110,6 +144,19 @@ export default function FootprintGroupPanel({
       day: 'numeric',
     }).format(date);
   };
+
+  const allManagedItems = groups.flatMap((group) => {
+    if (group.id === selectedGroupId && items.length > 0) return items;
+    return groupItemsMap[group.id] || [];
+  });
+  const allItemDates = allManagedItems
+    .map((item) => item.addedAt)
+    .filter((value): value is string => !!value)
+    .sort();
+  const overallFirstDate = allItemDates[0] || groups.map((group) => group.createdAt).filter(Boolean).sort()[0] || null;
+  const overallLastDate = allItemDates[allItemDates.length - 1] || groups.map((group) => group.createdAt).filter(Boolean).sort().slice(-1)[0] || null;
+  const totalItemCount = allManagedItems.length;
+  const activeGroupCount = groups.length;
 
   return (
     <>
@@ -125,7 +172,7 @@ export default function FootprintGroupPanel({
                 e.stopPropagation();
                 setManagementOpen(true);
               }}
-              disabled={!selectedGroupId}
+              disabled={groups.length === 0}
               title="足迹管理"
             >
               ⚙
@@ -217,7 +264,7 @@ export default function FootprintGroupPanel({
       </div>
 
       {/* Item context menu (portal to body to escape stacking context) */}
-      {managementOpen && selectedGroupId && createPortal(
+      {managementOpen && groups.length > 0 && createPortal(
         <>
           <div className={styles.menuBackdrop} onClick={() => setManagementOpen(false)} />
           <div className={styles.managementModal} onClick={e => e.stopPropagation()}>
@@ -225,10 +272,10 @@ export default function FootprintGroupPanel({
               <div className={styles.managementTitleWrap}>
                 <div className={styles.managementEyebrow}>足迹管理</div>
                 <h3 className={styles.managementTitle}>
-                  {selectedGroup?.name || '当前足迹组'}
+                  全部足迹项
                 </h3>
                 <div className={styles.managementDate}>
-                  足迹日期：{formatDate(firstAddedAt)} 至 {formatDate(lastAddedAt)}
+                  足迹日期：{formatDate(overallFirstDate)} 至 {formatDate(overallLastDate)}
                 </div>
               </div>
               <button className={styles.managementClose} onClick={() => setManagementOpen(false)}>
@@ -239,84 +286,176 @@ export default function FootprintGroupPanel({
             <div className={styles.managementBody}>
               <div className={styles.managementHero}>
                 <div className={styles.managementHeroMain}>
-                  <div className={styles.managementHeroLabel}>组内概况</div>
+                  <div className={styles.managementHeroLabel}>整体概况</div>
                   <div className={styles.managementHeroValue}>
-                    {selectedGroup?.itemCount || 0}
-                    <span> 个地点</span>
+                    {totalItemCount}
+                    <span> 个足迹项</span>
                   </div>
                   <div className={styles.managementHeroSub}>
-                    分组创建于 {formatDate(selectedGroup?.createdAt)}
+                    共 {activeGroupCount} 个足迹组
                   </div>
                 </div>
                 <div className={styles.managementBadgeWrap}>
                   <span className={`${styles.managementBadge} ${selectedGroup?.isDefault === 1 ? styles.managementBadgeActive : ''}`}>
-                    {selectedGroup?.isDefault === 1 ? '默认足迹组' : '普通足迹组'}
+                    当前查看：{selectedGroup?.name || '未选择'}
                   </span>
                 </div>
               </div>
 
               <div className={styles.managementGrid}>
                 <div className={styles.managementCard}>
-                  <div className={styles.managementLabel}>起始日期</div>
-                  <div className={styles.managementValue}>{formatDate(firstAddedAt)}</div>
-                  <div className={styles.managementHint}>当前组内最早加入的足迹项时间</div>
+                  <div className={styles.managementLabel}>最早足迹日期</div>
+                  <div className={styles.managementValue}>{formatDate(overallFirstDate)}</div>
+                  <div className={styles.managementHint}>全部足迹项中的最早加入时间</div>
                 </div>
                 <div className={styles.managementCard}>
-                  <div className={styles.managementLabel}>最近日期</div>
-                  <div className={styles.managementValue}>{formatDate(lastAddedAt)}</div>
-                  <div className={styles.managementHint}>当前组内最近加入的足迹项时间</div>
+                  <div className={styles.managementLabel}>最近足迹日期</div>
+                  <div className={styles.managementValue}>{formatDate(overallLastDate)}</div>
+                  <div className={styles.managementHint}>全部足迹项中的最近加入时间</div>
                 </div>
-              </div>
-
-              <div className={styles.managementActions}>
-                {onOpenLocalMapForGroup ? (
-                  <button className={styles.managementBtn} onClick={() => { onOpenLocalMapForGroup(); setManagementOpen(false); }}>
-                    映射本地
-                  </button>
-                ) : null}
-                <button className={styles.managementBtn} onClick={() => { onSetDefault(selectedGroupId); setManagementOpen(false); }}>
-                  设为默认
-                </button>
-                <button
-                  className={styles.managementBtn}
-                  onClick={() => {
-                    const g = groups.find(x => x.id === selectedGroupId);
-                    if (g) { setEditingId(g.id); setEditName(g.name); }
-                    setManagementOpen(false);
-                  }}
-                >
-                  重命名
-                </button>
-                <button className={styles.managementDanger} onClick={() => { onDeleteGroup(selectedGroupId); setManagementOpen(false); }}>
-                  删除此足迹组
-                </button>
               </div>
 
               <div className={styles.managementListCard}>
                 <div className={styles.managementListHeader}>
                   <div>
-                    <div className={styles.managementLabel}>足迹地点</div>
-                    <div className={styles.managementListHint}>这里只展示当前足迹组内的地点与加入日期</div>
+                    <div className={styles.managementLabel}>全部足迹组</div>
+                    <div className={styles.managementListHint}>在这里集中管理所有足迹组与足迹项</div>
                   </div>
-                  <div className={styles.managementListCount}>{items.length}</div>
+                  <div className={styles.managementListHeaderSide}>
+                    <div className={styles.managementListCount}>{groups.length}</div>
+                    <button
+                      className={styles.managementPrimaryBtn}
+                      onClick={() => {
+                        setManagementOpen(false);
+                        setShowNewInput(true);
+                      }}
+                    >
+                      新建足迹组
+                    </button>
+                  </div>
                 </div>
-                {items.length === 0 ? (
-                  <div className={styles.managementEmpty}>当前足迹组还没有地点</div>
+                {managementLoading ? (
+                  <div className={styles.managementEmpty}>正在加载全部足迹项...</div>
+                ) : groups.length === 0 ? (
+                  <div className={styles.managementEmpty}>当前还没有足迹组</div>
                 ) : (
-                  <div className={styles.managementList}>
-                    {items.map((item) => (
-                      <div key={item.id} className={styles.managementListItem}>
-                        <div className={styles.managementListMain}>
-                          <div className={styles.managementListTitle}>{item.title}</div>
-                          <div className={styles.managementListMeta}>
-                            {item.address || '未记录地点描述'}
+                  <div className={styles.managementGroupList}>
+                    {groups.map((group) => {
+                      const managedItems = group.id === selectedGroupId && items.length > 0
+                        ? items
+                        : (groupItemsMap[group.id] || []);
+                      const managedDates = managedItems
+                        .map((item) => item.addedAt)
+                        .filter((value): value is string => !!value)
+                        .sort();
+                      const groupFirstDate = managedDates[0] || group.createdAt || null;
+                      const groupLastDate = managedDates[managedDates.length - 1] || group.createdAt || null;
+
+                      return (
+                        <div key={group.id} className={styles.managementGroupCard}>
+                          <div className={styles.managementGroupHeader}>
+                            <div className={styles.managementGroupTitleWrap}>
+                              <div className={styles.managementGroupTitleRow}>
+                                <div className={styles.managementGroupTitle}>{group.name}</div>
+                                {group.isDefault === 1 ? (
+                                  <span className={`${styles.managementBadge} ${styles.managementBadgeActive}`}>默认</span>
+                                ) : null}
+                              </div>
+                              <div className={styles.managementGroupMeta}>
+                                {formatDate(groupFirstDate)} 至 {formatDate(groupLastDate)} · {managedItems.length} 个地点
+                              </div>
+                            </div>
+                            <div className={styles.managementGroupActions}>
+                              <button
+                                className={styles.managementBtn}
+                                onClick={() => {
+                                  onSelectGroup(group.id);
+                                  setManagementOpen(false);
+                                }}
+                              >
+                                查看此组
+                              </button>
+                              {onOpenLocalMapForGroup ? (
+                                <button
+                                  className={styles.managementBtn}
+                                  onClick={() => {
+                                    onSelectGroup(group.id);
+                                    onOpenLocalMapForGroup();
+                                    setManagementOpen(false);
+                                  }}
+                                >
+                                  映射本地
+                                </button>
+                              ) : null}
+                              <button className={styles.managementBtn} onClick={() => onSetDefault(group.id)}>
+                                设为默认
+                              </button>
+                              <button
+                                className={styles.managementBtn}
+                                onClick={() => {
+                                  setEditingId(group.id);
+                                  setEditName(group.name);
+                                  setManagementOpen(false);
+                                  onSelectGroup(group.id);
+                                }}
+                              >
+                                重命名
+                              </button>
+                              <button className={styles.managementDanger} onClick={() => onDeleteGroup(group.id)}>
+                                删除组
+                              </button>
+                            </div>
                           </div>
+                          {managedItems.length === 0 ? (
+                            <div className={styles.managementEmptyInline}>当前组还没有足迹项</div>
+                          ) : (
+                            <div className={styles.managementList}>
+                              {managedItems.map((item) => (
+                                <div key={item.id} className={styles.managementListItem}>
+                                  <div className={styles.managementListMain}>
+                                    <div className={styles.managementListTitle}>{item.title}</div>
+                                    <div className={styles.managementListMeta}>
+                                      {item.address || '未记录地点描述'}
+                                    </div>
+                                  </div>
+                                  <div className={styles.managementListAside}>
+                                    <div className={styles.managementListDate}>
+                                      {formatDate(item.addedAt)}
+                                    </div>
+                                    <div className={styles.managementItemActions}>
+                                      <button
+                                        className={styles.managementTextBtn}
+                                        onClick={() => {
+                                          onSelectGroup(group.id);
+                                          onItemClick(item);
+                                          setManagementOpen(false);
+                                        }}
+                                      >
+                                        定位
+                                      </button>
+                                      <button className={styles.managementTextBtn} onClick={() => onOpenAlbum(item)}>
+                                        相册
+                                      </button>
+                                      <button className={styles.managementTextBtn} onClick={() => onUploadPhoto(item)}>
+                                        上传
+                                      </button>
+                                      {onRemoveItemFromGroup ? (
+                                        <button
+                                          className={styles.managementTextDanger}
+                                          onClick={() => onRemoveItemFromGroup(group.id, item)}
+                                        >
+                                          移出
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div className={styles.managementListDate}>
-                          {formatDate(item.addedAt)}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
