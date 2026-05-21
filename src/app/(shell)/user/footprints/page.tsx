@@ -110,6 +110,7 @@ function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, he
   const mapHalfW = (width * 0.6) / 2;
   const mapHalfH = (height * 0.8) / 2;
   const photoHalf = photoSize / 2;
+  const safetyGap = photoSize;
 
   let left = Infinity;
   let right = -Infinity;
@@ -140,10 +141,10 @@ function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, he
 
   let shiftX = 0;
   let shiftY = 0;
-  if (minD === dl) shiftX = -dl;
-  else if (minD === dr) shiftX = dr;
-  else if (minD === dt) shiftY = -dt;
-  else shiftY = db;
+  if (minD === dl) shiftX = -(dl + safetyGap);
+  else if (minD === dr) shiftX = dr + safetyGap;
+  else if (minD === dt) shiftY = -(dt + safetyGap);
+  else shiftY = db + safetyGap;
 
   for (const photo of placePhotos) {
     if (photo.frameX == null || photo.frameY == null) continue;
@@ -452,6 +453,9 @@ function UserFootprintsPageInner() {
   ) {
     if (unplaced.length === 0) return;
 
+    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
+
     const byPlace = new Map<string, PhotoItem[]>();
     for (const p of unplaced) {
       const arr = byPlace.get(p.placeKey) || [];
@@ -507,7 +511,7 @@ function UserFootprintsPageInner() {
         placePhotos[i].frameY = centerY + vectorY * forwardOffset + perpendicularY * lateralOffset;
       }
 
-      clampPlacePhotosAwayFromMap(placePhotos, 1200, 800, cardSize);
+      clampPlacePhotosAwayFromMap(placePhotos, viewportWidth, viewportHeight, cardSize);
 
       angle += ANGLE_STEP;
     }
