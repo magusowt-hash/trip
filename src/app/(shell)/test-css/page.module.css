@@ -12,7 +12,7 @@
   max-width: 1200px;
   margin: 0 auto 28px;
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 360px);
+  grid-template-columns: minmax(0, 1.3fr) minmax(300px, 380px);
   gap: 24px;
   align-items: stretch;
 }
@@ -43,14 +43,29 @@
 .pickerCard {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 12px;
-  padding: 24px;
+  gap: 16px;
+}
+
+.pickerLabel,
+.persistBox,
+.summaryCard,
+.warningBox,
+.diffCard,
+.emptyState,
+.groupCard,
+.diffList {
   border-radius: 28px;
   background: rgba(255, 252, 245, 0.82);
   border: 1px solid rgba(143, 77, 39, 0.12);
   box-shadow: 0 18px 50px rgba(95, 70, 37, 0.12);
   backdrop-filter: blur(14px);
+}
+
+.pickerLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px;
   cursor: pointer;
 }
 
@@ -59,7 +74,8 @@
   font-weight: 700;
 }
 
-.pickerHint {
+.pickerHint,
+.persistBox p {
   font-size: 14px;
   line-height: 1.6;
   color: #6b7280;
@@ -69,38 +85,29 @@
   display: none;
 }
 
-.pickerButton {
+.pickerButton,
+.primaryAction,
+.sortButton {
   width: fit-content;
-  padding: 12px 18px;
+  border: 0;
   border-radius: 999px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pickerButton,
+.primaryAction {
+  padding: 12px 18px;
   background: #c96f32;
   color: #fffdf8;
-  font-weight: 700;
   box-shadow: 0 12px 24px rgba(201, 111, 50, 0.28);
 }
 
-.summaryRow {
-  max-width: 1200px;
-  margin: 0 auto 28px;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+.persistBox {
+  padding: 20px 24px;
 }
 
-.summaryCard {
-  padding: 18px 20px;
-  border-radius: 22px;
-  background: rgba(255, 250, 242, 0.82);
-  border: 1px solid rgba(31, 41, 55, 0.08);
-  box-shadow: 0 12px 30px rgba(91, 77, 57, 0.08);
-}
-
-.summaryCard strong {
-  display: block;
-  font-size: 28px;
-  line-height: 1.1;
-}
-
+.persistLabel,
 .summaryLabel {
   display: block;
   margin-bottom: 10px;
@@ -110,24 +117,87 @@
   color: #9a6b4a;
 }
 
+.persistBox strong,
+.summaryCard strong,
+.diffCard strong {
+  display: block;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.summaryRow,
+.diffPanel {
+  max-width: 1200px;
+  margin: 0 auto 24px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.summaryCard,
+.diffCard {
+  padding: 18px 20px;
+}
+
+.toolbar {
+  max-width: 1200px;
+  margin: 0 auto 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.saveMessage {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.warningBox,
 .emptyState {
   max-width: 1200px;
-  margin: 0 auto;
-  padding: 56px 24px;
-  border-radius: 28px;
-  text-align: center;
-  background: rgba(255, 251, 245, 0.8);
-  border: 1px dashed rgba(31, 41, 55, 0.18);
+  margin: 0 auto 24px;
+  padding: 22px 24px;
 }
 
-.emptyState h2 {
+.warningBox h2,
+.emptyState h2,
+.diffList h3 {
   margin: 0 0 10px;
-  font-size: 28px;
 }
 
+.warningBox p,
 .emptyState p {
   margin: 0;
-  color: #6b7280;
+  line-height: 1.7;
+  color: #4b5563;
+}
+
+.diffDetails {
+  max-width: 1200px;
+  margin: 0 auto 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.diffList {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.diffList code,
+.meta code {
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: #f4efe6;
+  font-size: 11px;
+  color: #7c5735;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .groupList {
@@ -140,10 +210,6 @@
 
 .groupCard {
   padding: 22px;
-  border-radius: 30px;
-  background: rgba(255, 252, 247, 0.86);
-  border: 1px solid rgba(31, 41, 55, 0.08);
-  box-shadow: 0 18px 45px rgba(98, 77, 51, 0.1);
 }
 
 .groupHeader {
@@ -215,21 +281,28 @@
   color: #6b7280;
 }
 
-.meta code {
-  padding: 6px 8px;
-  border-radius: 10px;
-  background: #f4efe6;
-  font-size: 11px;
+.actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.sortButton {
+  padding: 8px 12px;
+  background: #f0dfc9;
   color: #7c5735;
 }
 
-@media (max-width: 900px) {
-  .hero {
-    grid-template-columns: 1fr;
-  }
+.sortButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
-  .summaryRow {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 900px) {
+  .hero,
+  .summaryRow,
+  .diffPanel {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -238,15 +311,15 @@
     padding: 24px 16px 48px;
   }
 
-  .summaryRow {
-    grid-template-columns: 1fr;
-  }
-
   .groupCard {
     padding: 18px;
   }
 
   .grid {
     grid-template-columns: 1fr;
+  }
+
+  .actions {
+    flex-wrap: wrap;
   }
 }
