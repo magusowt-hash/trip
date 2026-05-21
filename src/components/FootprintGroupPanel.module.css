@@ -245,7 +245,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 18px 18px 12px;
+  padding: 20px 22px 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -253,15 +253,9 @@
   min-width: 0;
 }
 
-.managementEyebrow {
-  font-size: 11px;
-  color: #94a3b8;
-  letter-spacing: 0.08em;
-}
-
 .managementTitle {
-  margin: 6px 0 0;
-  font-size: 20px;
+  margin: 0;
+  font-size: 28px;
   line-height: 1.2;
   color: #f8fafc;
 }
@@ -289,56 +283,36 @@
 }
 
 .managementBody {
-  padding: 18px;
+  padding: 18px 22px 22px;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
 }
 
-.managementHero {
+.managementSidebar {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
+  gap: 14px;
+}
+
+.managementSidebarTop {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.managementStatRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.managementStatBlock {
   border-radius: 18px;
-  padding: 18px;
+  padding: 14px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.managementHeroMain {
-  min-width: 0;
-}
-
-.managementHeroLabel {
-  font-size: 12px;
-  color: #cbd5e1;
-}
-
-.managementHeroValue {
-  margin-top: 10px;
-  font-size: 34px;
-  line-height: 1;
-  font-weight: 700;
-  color: #f8fafc;
-}
-
-.managementHeroValue span {
-  font-size: 14px;
-  font-weight: 500;
-  color: #cbd5e1;
-}
-
-.managementHeroSub {
-  margin-top: 12px;
-  font-size: 12px;
-  color: #cbd5e1;
-}
-
-.managementBadgeWrap {
-  display: flex;
-  align-items: flex-start;
 }
 
 .managementBadge {
@@ -359,57 +333,65 @@
   border-color: rgba(34, 211, 238, 0.28);
 }
 
-.managementGroupList {
-  margin-top: 14px;
+.managementGroupTabs {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  max-height: 380px;
+  gap: 8px;
+  max-height: 560px;
   overflow-y: auto;
 }
 
-.managementGroupCard {
-  border-radius: 16px;
-  padding: 14px;
+.managementGroupTab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border-radius: 14px;
+  padding: 12px 14px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  cursor: pointer;
+  text-align: left;
 }
 
-.managementGroupHeader {
+.managementGroupTab:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.managementGroupTabActive {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.managementGroupTabMain {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.managementGroupTitleWrap {
+  flex-direction: column;
+  gap: 6px;
   min-width: 0;
 }
 
-.managementGroupTitleRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.managementGroupTitle {
+.managementGroupTabName {
   color: #f8fafc;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.managementGroupMeta {
-  margin-top: 6px;
-  color: #94a3b8;
+.managementGroupTabCount {
+  min-width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #cbd5e1;
   font-size: 12px;
-}
-
-.managementGroupActions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .managementLabel {
@@ -419,57 +401,54 @@
 
 .managementValue {
   margin-top: 8px;
-  font-size: 16px;
+  font-size: 22px;
   color: #f8fafc;
   font-weight: 600;
 }
 
-.managementActions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.managementListCard {
-  border-radius: 16px;
+.managementContent {
+  min-width: 0;
+  border-radius: 18px;
   padding: 16px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.managementToolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.managementToolbarMain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.managementContentTitleRow {
   min-width: 0;
 }
 
-.managementListHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+.managementContentTitle {
+  color: #f8fafc;
+  font-size: 22px;
+  font-weight: 700;
 }
 
-.managementListHeaderSide {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.managementListHint {
-  margin-top: 4px;
+.managementContentMeta {
+  margin-top: 6px;
   font-size: 12px;
   color: #94a3b8;
 }
 
-.managementListCount {
-  min-width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  display: inline-flex;
+.managementToolbarActions {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(99, 102, 241, 0.28);
-  color: #e0e7ff;
-  font-size: 12px;
-  font-weight: 600;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .managementPrimaryBtn {
@@ -484,12 +463,57 @@
   white-space: nowrap;
 }
 
+.managementBulkBar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.managementCheckboxLabel,
+.managementCheckboxCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.managementBulkCount {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.managementAddMenu {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.managementAddLabel,
+.managementInlineAddLabel {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.managementAddTargets,
+.managementInlineAdd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .managementPrimaryBtn:hover {
   border-color: rgba(129, 140, 248, 0.6);
 }
 
 .managementEmpty {
-  margin-top: 16px;
   padding: 18px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
@@ -499,19 +523,19 @@
   font-size: 13px;
 }
 
-.managementList {
+.managementTable {
   margin-top: 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 240px;
+  max-height: 520px;
   overflow-y: auto;
 }
 
-.managementListItem {
-  display: flex;
+.managementRow {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 140px auto;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
   border-radius: 14px;
@@ -519,42 +543,29 @@
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.managementListMain {
-  min-width: 0;
-}
-
-.managementListTitle {
+.managementPlaceCell {
+  border: none;
+  background: transparent;
   color: #f8fafc;
   font-size: 14px;
   font-weight: 600;
+  text-align: left;
+  cursor: pointer;
 }
 
-.managementListMeta {
-  margin-top: 4px;
-  color: #94a3b8;
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.managementPlaceCell:hover {
+  color: #ffffff;
 }
 
-.managementListDate {
-  flex-shrink: 0;
+.managementDateCell {
   color: #cbd5e1;
   font-size: 12px;
 }
 
-.managementListAside {
+.managementRowActions {
   display: flex;
   align-items: center;
-  gap: 14px;
-  flex-shrink: 0;
-}
-
-.managementItemActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: 12px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
@@ -575,6 +586,12 @@
 
 .managementTextDanger {
   color: #fca5a5;
+}
+
+.managementTextBtn:disabled,
+.managementTextDanger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .managementTextDanger:hover {
@@ -628,24 +645,20 @@
     grid-template-columns: 1fr;
   }
 
-  .managementHero {
-    flex-direction: column;
-  }
-
-  .managementActions {
+  .managementStatRow,
+  .managementRow {
     grid-template-columns: 1fr;
   }
 
-  .managementGroupHeader,
-  .managementListItem {
+  .managementToolbarMain,
+  .managementRow {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .managementGroupActions,
-  .managementListAside,
-  .managementItemActions,
-  .managementListHeaderSide {
+  .managementToolbarActions,
+  .managementRowActions,
+  .managementBulkBar {
     width: 100%;
     justify-content: flex-start;
   }

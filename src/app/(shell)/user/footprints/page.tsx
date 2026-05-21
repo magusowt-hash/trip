@@ -470,16 +470,23 @@ function UserFootprintsPageInner() {
 
   // --- Item actions from panel ---
 
-  const handleRemoveItemFromGroup = useCallback((groupId: number, item: FootprintItem) => {
-    if (!confirm(`确定从本组移除「${item.title}」？`)) return;
-    fetch(`/api/footprints/groups/${groupId}/items?item_id=${item.listItemId}`, {
-      method: 'DELETE', credentials: 'include',
-    }).then(() => {
+  const handleRemoveItemFromGroup = useCallback(async (
+    groupId: number,
+    item: FootprintItem,
+    options?: { skipConfirm?: boolean },
+  ) => {
+    if (!options?.skipConfirm && !confirm(`确定从本组移除「${item.title}」？`)) return;
+    try {
+      await fetch(`/api/footprints/groups/${groupId}/items?item_id=${item.listItemId}`, {
+        method: 'DELETE', credentials: 'include',
+      });
       if (selectedGroupId === groupId) {
-        loadItems(groupId);
+        await loadItems(groupId);
       }
-      loadGroups();
-    }).catch(() => alert('移除失败'));
+      await loadGroups();
+    } catch {
+      alert('移除失败');
+    }
   }, [selectedGroupId]);
 
   const handleRemoveItem = useCallback((item: FootprintItem) => {
@@ -754,6 +761,7 @@ function UserFootprintsPageInner() {
           selectedGroupId={selectedGroupId}
           items={items}
           collapsed={panelCollapsed}
+          backgroundColor={backgroundColor}
           onCollapsedChange={setPanelCollapsed}
           onSelectGroup={setSelectedGroupId}
           onNewGroup={handleCreateGroup}
