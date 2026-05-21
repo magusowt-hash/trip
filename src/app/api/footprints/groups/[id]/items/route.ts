@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, ne } from 'drizzle-orm';
 import { db } from '@/db';
 import { footprintGroups, footprintGroupItems } from '@/db/schema';
 import { listItems, lists } from '@/db/schema';
@@ -136,7 +136,29 @@ export async function POST(
 
       await ensureScopedStorageForItem(auth.userId, sourceItem.id, sourceItem.title || '');
       const sourceScopeKey = await getAlbumScopeKeyForItem(auth.userId, sourceItem.id) || buildFootprintPhotoScopeKey(sourceItem.id);
-      const sourcePhotos = await listPhotos(auth.userId, sourceScopeKey);
+      let sourcePhotos = await listPhotos(auth.userId, sourceScopeKey);
+
+      if (sourcePhotos.length === 0) {
+        const siblingItems = await db
+          .select({
+            id: footprintGroupItems.id,
+            albumScopeKey: footprintGroupItems.albumScopeKey,
+          })
+          .from(footprintGroupItems)
+          .innerJoin(footprintGroups, eq(footprintGroupItems.groupId, footprintGroups.id))
+          .where(and(
+            eq(footprintGroups.userId, auth.userId),
+            eq(footprintGroupItems.listItemId, list_item_id),
+            ne(footprintGroupItems.id, sourceItem.id),
+          ));
+
+        for (const siblingItem of siblingItems) {
+          const siblingScopeKey = siblingItem.albumScopeKey || buildFootprintPhotoScopeKey(siblingItem.id);
+          sourcePhotos = await listPhotos(auth.userId, siblingScopeKey);
+          if (sourcePhotos.length > 0) break;
+        }
+      }
+
       return NextResponse.json({
         hasPhotos: sourcePhotos.length > 0,
         count: sourcePhotos.length,
