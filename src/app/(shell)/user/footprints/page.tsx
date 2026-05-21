@@ -7,7 +7,7 @@ import OuterFrame from '@/components/OuterFrame';
 import FootprintGroupPanel from '@/components/FootprintGroupPanel';
 import PhotoAlbumModal from '@/components/PhotoAlbumModal';
 import LegendPanel from '@/components/LegendPanel';
-import LocalMapModal, { type LocalMappedAssetDraft } from '@/components/LocalMapModal';
+import LocalMapModal, { type LocalMappedAssetDraft, type LocalMapLayoutSettings } from '@/components/LocalMapModal';
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import type { PhotoItem } from '@/components/OuterFrameCanvas';
@@ -36,6 +36,72 @@ interface FootprintItem {
   listId: number | null;
   listName: string | null;
   addedAt: string;
+}
+
+function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function buildGridOffsets(count: number, gapX: number, gapY: number, cardSize: number) {
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const rows = Math.max(1, Math.ceil(count / cols));
+  const stepX = cardSize + gapX;
+  const stepY = cardSize + gapY;
+  return Array.from({ length: count }, (_, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    return {
+      offsetX: (col - (cols - 1) / 2) * stepX,
+      offsetY: (row - (rows - 1) / 2) * stepY,
+    };
+  });
+}
+
+function buildStaggeredOffsets(count: number, gapX: number, gapY: number, cardSize: number, axis: 'horizontal' | 'vertical') {
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const rows = Math.max(1, Math.ceil(count / cols));
+  const stepX = cardSize + gapX;
+  const stepY = cardSize + gapY;
+  return Array.from({ length: count }, (_, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    const baseX = (col - (cols - 1) / 2) * stepX;
+    const baseY = (row - (rows - 1) / 2) * stepY;
+    if (axis === 'horizontal') {
+      return { offsetX: baseX, offsetY: baseY + (col % 2 === 1 ? stepY / 2 : 0) };
+    }
+    return { offsetX: baseX + (row % 2 === 1 ? stepX / 2 : 0), offsetY: baseY };
+  });
+}
+
+function buildRandomOffsets(count: number, cardSize: number) {
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const rows = Math.max(1, Math.ceil(count / cols));
+  const xMatrix: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0));
+  const yMatrix: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0));
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const index = row * cols + col;
+      if (index >= count) continue;
+      if (col > 0) xMatrix[row][col] = xMatrix[row][col - 1] + cardSize + randomInt(1, 100);
+      if (row > 0) yMatrix[row][col] = yMatrix[row - 1][col] + cardSize + randomInt(1, 100);
+    }
+  }
+  const points = Array.from({ length: count }, (_, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    return { x: xMatrix[row][col], y: yMatrix[row][col] };
+  });
+  const minX = Math.min(...points.map((point) => point.x));
+  const maxX = Math.max(...points.map((point) => point.x));
+  const minY = Math.min(...points.map((point) => point.y));
+  const maxY = Math.max(...points.map((point) => point.y));
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  return points.map((point) => ({
+    offsetX: point.x - centerX,
+    offsetY: point.y - centerY,
+  }));
 }
 
 export default function UserFootprintsPage() {
@@ -331,7 +397,11 @@ function UserFootprintsPageInner() {
     setPhotos(allPhotos);
   }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId]);
 
-  function autoPlacePhotos(unplaced: PhotoItem[], referencePhotos: PhotoItem[] = photos) {
+  function autoPlacePhotos(
+    unplaced: PhotoItem[],
+    referencePhotos: PhotoItem[] = photos,
+    layout: LocalMapLayoutSettings = { mode: 'grid', gapX: 20, gapY: 20, staggerAxis: 'horizontal' },
+  ) {
     if (unplaced.length === 0) return;
 
     const byPlace = new Map<string, PhotoItem[]>();
@@ -374,14 +444,17 @@ function UserFootprintsPageInner() {
       const perpendicularX = -vectorY;
       const perpendicularY = vectorX;
 
-      const cols = Math.ceil(Math.sqrt(placePhotos.length));
-      const spacing = 100;
-      const baseDistance = placedPhotos.length > 0 ? 120 : 0;
+      const cardSize = 80;
+      const baseDistance = placedPhotos.length > 0 ? cardSize * 1.5 : 0;
+      const offsets = layout.mode === 'grid'
+        ? buildGridOffsets(placePhotos.length, layout.gapX, layout.gapY, cardSize)
+        : layout.mode === 'staggered'
+          ? buildStaggeredOffsets(placePhotos.length, layout.gapX, layout.gapY, cardSize, layout.staggerAxis)
+          : buildRandomOffsets(placePhotos.length, cardSize);
+
       for (let i = 0; i < placePhotos.length; i++) {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        const forwardOffset = baseDistance + (col + 1) * spacing;
-        const lateralOffset = (row - (cols - 1) / 2) * spacing * 0.75;
+        const forwardOffset = baseDistance + offsets[i].offsetY;
+        const lateralOffset = offsets[i].offsetX;
         placePhotos[i].frameX = centerX + vectorX * forwardOffset + perpendicularX * lateralOffset;
         placePhotos[i].frameY = centerY + vectorY * forwardOffset + perpendicularY * lateralOffset;
       }
@@ -692,6 +765,7 @@ function UserFootprintsPageInner() {
     matchedAssets: LocalMappedAssetDraft[];
     unmatchedFolders: string[];
     missingAssets: Array<{ relativePath: string; name: string }>;
+    layout: LocalMapLayoutSettings;
   }) => {
     const itemByTitle = new Map(items.map((item) => [item.title, item]));
     const currentItemKeys = new Set(items.map((item) => buildFootprintPhotoScopeKey(item.id)));
@@ -724,6 +798,7 @@ function UserFootprintsPageInner() {
       autoPlacePhotos(
         unplaced,
         [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
+        payload.layout,
       );
       movedPhotosRef.current = true;
       setHasMovedPhotos(true);

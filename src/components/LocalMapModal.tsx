@@ -16,6 +16,16 @@ export type LocalMappedAssetDraft = {
   url: string;
 };
 
+export type LocalMapLayoutMode = 'grid' | 'staggered' | 'random';
+export type LocalMapStaggerAxis = 'horizontal' | 'vertical';
+
+export type LocalMapLayoutSettings = {
+  mode: LocalMapLayoutMode;
+  gapX: number;
+  gapY: number;
+  staggerAxis: LocalMapStaggerAxis;
+};
+
 type SavedRecord = {
   rootName: string;
   savedAt: string;
@@ -42,10 +52,16 @@ type Props = {
     matchedAssets: LocalMappedAssetDraft[];
     unmatchedFolders: string[];
     missingAssets: Array<{ relativePath: string; name: string }>;
+    layout: LocalMapLayoutSettings;
   }) => void;
 };
 
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|bmp|svg|avif)$/i;
+
+function clampNonNegative(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, value);
+}
 
 export default function LocalMapModal({ open, placeTitles, onClose, onApply }: Props) {
   const [rootName, setRootName] = useState('');
@@ -58,6 +74,10 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
   const [changedAssets, setChangedAssets] = useState<string[]>([]);
   const [statusText, setStatusText] = useState('选择主文件夹后开始扫描');
   const [needsOverwriteConfirm, setNeedsOverwriteConfirm] = useState(false);
+  const [layoutMode, setLayoutMode] = useState<LocalMapLayoutMode>('grid');
+  const [layoutGapX, setLayoutGapX] = useState(24);
+  const [layoutGapY, setLayoutGapY] = useState(24);
+  const [layoutStaggerAxis, setLayoutStaggerAxis] = useState<LocalMapStaggerAxis>('horizontal');
 
   const directoryInputProps = {
     webkitdirectory: '',
@@ -91,6 +111,10 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
     setChangedAssets([]);
     setStatusText('选择主文件夹后开始扫描');
     setNeedsOverwriteConfirm(false);
+    setLayoutMode('grid');
+    setLayoutGapX(24);
+    setLayoutGapY(24);
+    setLayoutStaggerAxis('horizontal');
   }, [open]);
 
   useEffect(() => {
@@ -203,6 +227,12 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
       matchedAssets,
       unmatchedFolders,
       missingAssets,
+      layout: {
+        mode: layoutMode,
+        gapX: clampNonNegative(layoutGapX),
+        gapY: clampNonNegative(layoutGapY),
+        staggerAxis: layoutStaggerAxis,
+      },
     });
   }
 
@@ -260,6 +290,79 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
               <span>缺失文件</span>
               <strong>{summary.missingCount}</strong>
             </div>
+          </div>
+
+          <div className={styles.card}>
+            <h3 className={styles.cardTitle}>排列方案</h3>
+            <div className={styles.toggleRow}>
+              <button
+                type="button"
+                className={`${styles.toggleBtn} ${layoutMode === 'grid' ? styles.toggleBtnActive : ''}`}
+                onClick={() => setLayoutMode('grid')}
+              >
+                整齐排列
+              </button>
+              <button
+                type="button"
+                className={`${styles.toggleBtn} ${layoutMode === 'staggered' ? styles.toggleBtnActive : ''}`}
+                onClick={() => setLayoutMode('staggered')}
+              >
+                错位排列
+              </button>
+              <button
+                type="button"
+                className={`${styles.toggleBtn} ${layoutMode === 'random' ? styles.toggleBtnActive : ''}`}
+                onClick={() => setLayoutMode('random')}
+              >
+                随机排列
+              </button>
+            </div>
+
+            {layoutMode === 'staggered' ? (
+              <div className={styles.optionBlock}>
+                <div className={styles.toggleRow}>
+                  <button
+                    type="button"
+                    className={`${styles.toggleBtn} ${layoutStaggerAxis === 'horizontal' ? styles.toggleBtnActive : ''}`}
+                    onClick={() => setLayoutStaggerAxis('horizontal')}
+                  >
+                    横向错位
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.toggleBtn} ${layoutStaggerAxis === 'vertical' ? styles.toggleBtnActive : ''}`}
+                    onClick={() => setLayoutStaggerAxis('vertical')}
+                  >
+                    竖向错位
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {layoutMode !== 'random' ? (
+              <div className={styles.fieldsRow}>
+                <label className={styles.field}>
+                  <span>横向距离</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={layoutGapX}
+                    onChange={(event) => setLayoutGapX(clampNonNegative(Number(event.target.value)))}
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span>竖向距离</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={layoutGapY}
+                    onChange={(event) => setLayoutGapY(clampNonNegative(Number(event.target.value)))}
+                  />
+                </label>
+              </div>
+            ) : (
+              <p className={styles.hint}>随机排列会让每张图片相对于相邻图片产生 1-100 的随机附加距离。</p>
+            )}
           </div>
 
           {unmatchedFolders.length > 0 ? (
