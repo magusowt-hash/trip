@@ -3,6 +3,9 @@
 import { ChangeEvent, InputHTMLAttributes, useEffect, useMemo, useState } from 'react';
 import styles from './page.module.css';
 
+type LayoutMode = 'grid' | 'staggered' | 'random';
+type StaggerAxis = 'horizontal' | 'vertical';
+
 type ImageItem = {
   id: string;
   name: string;
@@ -11,41 +14,113 @@ type ImageItem = {
   size: number;
   lastModified: number;
   url: string;
-  sortOrder: number;
 };
 
-type PersistedImageRecord = {
-  relativePath: string;
-  folderName: string;
-  name: string;
-  size: number;
-  lastModified: number;
-  sortOrder: number;
-};
-
-type PersistedSession = {
-  version: number;
-  rootName: string;
-  savedAt: string;
-  files: PersistedImageRecord[];
-};
-
-type FolderGroup = {
-  name: string;
-  images: ImageItem[];
-};
-
-type DiffSummary = {
-  unchanged: number;
-  added: PersistedImageRecord[];
-  removed: PersistedImageRecord[];
-  changed: Array<{
-    previous: PersistedImageRecord;
-    current: PersistedImageRecord;
-  }>;
+type PositionedImage = ImageItem & {
+  x: number;
+  y: number;
+  row: number;
+  col: number;
 };
 
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|bmp|svg|avif)$/i;
+const CARD_SIZE = 88;
+const STAGE_WIDTH = 980;
+const STAGE_HEIGHT = 640;
+
+function clampNonNegative(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, value);
+}
+
+function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function buildGridOffsets(count: number, gapX: number, gapY: number) {
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const rows = Math.max(1, Math.ceil(count / cols));
+  const stepX = CARD_SIZE + gapX;
+  const stepY = CARD_SIZE + gapY;
+
+  return Array.from({ length: count }, (_, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    return {
+      col,
+      row,
+      offsetX: (col - (cols - 1) / 2) * stepX,
+      offsetY: (row - (rows - 1) / 2) * stepY,
+    };
+  });
+}
+
+function buildStaggeredOffsets(count: number, gapX: number, gapY: number, axis: StaggerAxis) {
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const rows = Math.max(1, Math.ceil(count / cols));
+  const stepX = CARD_SIZE + gapX;
+  const stepY = CARD_SIZE + gapY;
+
+  return Array.from({ length: count }, (_, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    const baseX = (col - (cols - 1) / 2) * stepX;
+    const baseY = (row - (rows - 1) / 2) * stepY;
+
+    if (axis === 'horizontal') {
+      return {
+        col,
+        row,
+        offsetX: baseX,
+        offsetY: baseY + (col % 2 === 1 ? stepY / 2 : 0),
+      };
+    }
+
+    return {
+      col,
+      row,
+      offsetX: baseX + (row % 2 === 1 ? stepX / 2 : 0),
+      offsetY: baseY,
+    };
+  });
+}
+
+function buildRandomOffsets(count: number) {
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const rows = Math.max(1, Math.ceil(count / cols));
+  const colWidths = Array.from({ length: cols }, () => CARD_SIZE + randomInt(1, 20));
+  const rowHeights = Array.from({ length: rows }, () => CARD_SIZE + randomInt(1, 20));
+
+  const xStarts: number[] = [];
+  const yStarts: number[] = [];
+  let currentX = 0;
+  let currentY = 0;
+
+  for (let i = 0; i < cols; i++) {
+    xStarts.push(currentX);
+    currentX += colWidths[i];
+  }
+  for (let i = 0; i < rows; i++) {
+    yStarts.push(currentY);
+    currentY += rowHeights[i];
+  }
+
+  const totalWidth = colWidths.reduce((sum, value) => sum + value, 0);
+  const totalHeight = rowHeights.reduce((sum, value) => sum + value, 0);
+  const centerX = totalWidth / 2;
+  const centerY = totalHeight / 2;
+
+  return Array.from({ length: count }, (_, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    return {
+      col,
+      row,
+      offsetX: xStarts[col] + colWidths[col] / 2 - centerX,
+      offsetY: yStarts[row] + rowHeights[row] / 2 - centerY,
+    };
+  });
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -53,79 +128,15 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function formatTime(timestamp: number): string {
-  try {
-    return new Intl.DateTimeFormat('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(timestamp);
-  } catch {
-    return '-';
-  }
-}
-
-function buildRecordFromImage(image: ImageItem): PersistedImageRecord {
-  return {
-    relativePath: image.relativePath,
-    folderName: image.folderName,
-    name: image.name,
-    size: image.size,
-    lastModified: image.lastModified,
-    sortOrder: image.sortOrder,
-  };
-}
-
-function diffWithSession(images: ImageItem[], session: PersistedSession | null): DiffSummary | null {
-  if (!session) return null;
-
-  const currentRecords = images.map(buildRecordFromImage);
-  const currentMap = new Map(currentRecords.map((record) => [record.relativePath, record]));
-  const previousMap = new Map(session.files.map((record) => [record.relativePath, record]));
-
-  const added: PersistedImageRecord[] = [];
-  const removed: PersistedImageRecord[] = [];
-  const changed: Array<{ previous: PersistedImageRecord; current: PersistedImageRecord }> = [];
-  let unchanged = 0;
-
-  for (const record of currentRecords) {
-    const previous = previousMap.get(record.relativePath);
-    if (!previous) {
-      added.push(record);
-      continue;
-    }
-
-    if (
-      previous.size === record.size &&
-      previous.lastModified === record.lastModified &&
-      previous.folderName === record.folderName &&
-      previous.name === record.name
-    ) {
-      unchanged += 1;
-    } else {
-      changed.push({ previous, current: record });
-    }
-  }
-
-  for (const record of session.files) {
-    if (!currentMap.has(record.relativePath)) {
-      removed.push(record);
-    }
-  }
-
-  return { unchanged, added, removed, changed };
-}
-
 export default function TestCssPage() {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [rootName, setRootName] = useState('');
-  const [persistedSession, setPersistedSession] = useState<PersistedSession | null>(null);
-  const [knownRootNames, setKnownRootNames] = useState<string[]>([]);
-  const [diffSummary, setDiffSummary] = useState<DiffSummary | null>(null);
-  const [loadMessage, setLoadMessage] = useState('选择主文件夹后会按主文件夹名称读取记录');
-  const [saveMessage, setSaveMessage] = useState('');
+  const [selectedFolder, setSelectedFolder] = useState<string>('');
+  const [mode, setMode] = useState<LayoutMode>('grid');
+  const [gapX, setGapX] = useState(24);
+  const [gapY, setGapY] = useState(24);
+  const [staggerAxis, setStaggerAxis] = useState<StaggerAxis>('horizontal');
+
   const directoryInputProps = {
     webkitdirectory: '',
   } as InputHTMLAttributes<HTMLInputElement> & { webkitdirectory: string };
@@ -138,25 +149,56 @@ export default function TestCssPage() {
     };
   }, [images]);
 
-  const groups = useMemo<FolderGroup[]>(() => {
-    const map = new Map<string, ImageItem[]>();
-
+  const groups = useMemo(() => {
+    const grouped = new Map<string, ImageItem[]>();
     for (const image of images) {
-      const list = map.get(image.folderName) ?? [];
-      list.push(image);
-      map.set(image.folderName, list);
+      const bucket = grouped.get(image.folderName) ?? [];
+      bucket.push(image);
+      grouped.set(image.folderName, bucket);
     }
-
-    return Array.from(map.entries())
+    return Array.from(grouped.entries())
       .sort((a, b) => a[0].localeCompare(b[0], 'zh-CN'))
-      .map(([name, items]) => ({
-        name,
-        images: [...items].sort((a, b) => {
-          if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-          return a.name.localeCompare(b.name, 'zh-CN');
-        }),
+      .map(([folderName, items]) => ({
+        folderName,
+        items: items.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')),
       }));
   }, [images]);
+
+  useEffect(() => {
+    if (!selectedFolder && groups[0]) {
+      setSelectedFolder(groups[0].folderName);
+      return;
+    }
+    if (selectedFolder && !groups.some((group) => group.folderName === selectedFolder)) {
+      setSelectedFolder(groups[0]?.folderName || '');
+    }
+  }, [groups, selectedFolder]);
+
+  const activeGroup = groups.find((group) => group.folderName === selectedFolder) || null;
+
+  const positionedImages = useMemo<PositionedImage[]>(() => {
+    if (!activeGroup) return [];
+
+    const safeGapX = clampNonNegative(gapX);
+    const safeGapY = clampNonNegative(gapY);
+    let offsets: Array<{ offsetX: number; offsetY: number; row: number; col: number }> = [];
+
+    if (mode === 'grid') {
+      offsets = buildGridOffsets(activeGroup.items.length, safeGapX, safeGapY);
+    } else if (mode === 'staggered') {
+      offsets = buildStaggeredOffsets(activeGroup.items.length, safeGapX, safeGapY, staggerAxis);
+    } else {
+      offsets = buildRandomOffsets(activeGroup.items.length);
+    }
+
+    return activeGroup.items.map((image, index) => ({
+      ...image,
+      x: STAGE_WIDTH / 2 + offsets[index].offsetX,
+      y: STAGE_HEIGHT / 2 + offsets[index].offsetY,
+      row: offsets[index].row,
+      col: offsets[index].col,
+    }));
+  }, [activeGroup, gapX, gapY, mode, staggerAxis]);
 
   const summary = useMemo(() => {
     const totalSize = images.reduce((sum, image) => sum + image.size, 0);
@@ -167,202 +209,61 @@ export default function TestCssPage() {
     };
   }, [groups.length, images]);
 
-  async function loadSession(nextRootName: string): Promise<PersistedSession | null> {
-    const normalizedRootName = nextRootName.trim().replace(/\\/g, '/');
-    if (!normalizedRootName) {
-      setPersistedSession(null);
-      setDiffSummary(null);
-      setLoadMessage('选择主文件夹后会按主文件夹名称读取记录');
-      return null;
-    }
-
-    try {
-      const res = await fetch(`/api/test-css/session?rootName=${encodeURIComponent(normalizedRootName)}`, {
-        cache: 'no-store',
-      });
-      if (!res.ok) {
-        setLoadMessage('读取已保存记录失败');
-        return;
-      }
-      const data = await res.json();
-      setPersistedSession(data.session ?? null);
-      setKnownRootNames(Array.isArray(data.knownRootNames) ? data.knownRootNames : []);
-      setLoadMessage(data.session ? '已读取该主文件夹名称的保存记录' : '该主文件夹名称当前还没有保存记录');
-      return data.session ?? null;
-    } catch {
-      setLoadMessage('读取已保存记录失败');
-      return null;
-    }
-  }
-
-  async function handleFolderPick(event: ChangeEvent<HTMLInputElement>) {
+  function handleFolderPick(event: ChangeEvent<HTMLInputElement>) {
     const selectedFiles = Array.from(event.target.files ?? []);
-
     for (const image of images) {
       URL.revokeObjectURL(image.url);
     }
 
-    setSaveMessage('');
-
     if (selectedFiles.length === 0) {
       setImages([]);
       setRootName('');
-      setDiffSummary(null);
-      setIsRootMismatch(false);
+      setSelectedFolder('');
       return;
     }
 
     const firstPath = (selectedFiles[0] as File & { webkitRelativePath?: string }).webkitRelativePath || '';
     const nextRootName = firstPath.split('/').filter(Boolean)[0] || '';
     setRootName(nextRootName);
-    const sessionForRoot = await loadSession(nextRootName);
 
-    const baseRecords = selectedFiles
+    const nextImages = selectedFiles
       .filter((file) => IMAGE_EXT_RE.test(file.name))
       .map((file, index) => {
         const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
         const segments = relativePath.split('/').filter(Boolean);
         const folderName = segments.length >= 3 ? segments[1] : '根目录';
-
         return {
+          id: `${relativePath}-${file.size}-${file.lastModified}-${index}`,
+          name: file.name,
           relativePath,
           folderName,
-          name: file.name,
           size: file.size,
           lastModified: file.lastModified,
-          sortOrder: index,
-          file,
+          url: URL.createObjectURL(file),
         };
       });
 
-    const savedSortMap = new Map(
-      (sessionForRoot?.files ?? []).map((saved) => [saved.relativePath, saved.sortOrder]),
-    );
-    const sortedRecords = baseRecords.map((record) => ({
-      ...record,
-      sortOrder: savedSortMap.get(record.relativePath) ?? record.sortOrder,
-    }));
-
-    const nextImages = sortedRecords.map((record, index) => ({
-      id: `${record.relativePath}-${record.size}-${record.lastModified}-${index}`,
-      name: record.name,
-      relativePath: record.relativePath,
-      folderName: record.folderName,
-      size: record.size,
-      lastModified: record.lastModified,
-      url: URL.createObjectURL(record.file),
-      sortOrder: record.sortOrder,
-    }));
-
     setImages(nextImages);
-    setDiffSummary(diffWithSession(nextImages, sessionForRoot));
+    setSelectedFolder('');
     event.target.value = '';
-  }
-
-  function moveImage(folderName: string, imageId: string, direction: -1 | 1) {
-    setImages((current) => {
-      const folderImages = current
-        .filter((image) => image.folderName === folderName)
-        .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'zh-CN'));
-      const index = folderImages.findIndex((image) => image.id === imageId);
-      const targetIndex = index + direction;
-
-      if (index < 0 || targetIndex < 0 || targetIndex >= folderImages.length) {
-        return current;
-      }
-
-      const reordered = [...folderImages];
-      const [moved] = reordered.splice(index, 1);
-      reordered.splice(targetIndex, 0, moved);
-
-      const orderMap = new Map(reordered.map((image, nextIndex) => [image.id, nextIndex]));
-
-      return current.map((image) => {
-        if (image.folderName !== folderName) return image;
-        const nextOrder = orderMap.get(image.id);
-        return nextOrder == null ? image : { ...image, sortOrder: nextOrder };
-      });
-    });
-  }
-
-  async function handleSave() {
-    if (!rootName || images.length === 0) {
-      setSaveMessage('当前没有可保存的目录内容');
-      return;
-    }
-
-    setSaveMessage('保存中...');
-
-    const orderedFiles = [...images]
-      .sort((a, b) => {
-        if (a.folderName !== b.folderName) return a.folderName.localeCompare(b.folderName, 'zh-CN');
-        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-        return a.name.localeCompare(b.name, 'zh-CN');
-      })
-      .map(buildRecordFromImage);
-
-    try {
-      const res = await fetch('/api/test-css/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rootName,
-          files: orderedFiles,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setSaveMessage(data.error || '保存失败');
-        return;
-      }
-
-      setPersistedSession(data.session);
-      setKnownRootNames(Array.isArray(data.knownRootNames) ? data.knownRootNames : []);
-      setDiffSummary(diffWithSession(images, data.session));
-      setSaveMessage(`已保存，时间：${formatTime(new Date(data.session.savedAt).getTime())}`);
-    } catch {
-      setSaveMessage('保存失败');
-    }
   }
 
   return (
     <main className={styles.page}>
       <section className={styles.hero}>
         <div className={styles.heroCopy}>
-          <p className={styles.eyebrow}>Folder Preview Lab</p>
-          <h1>按主文件夹名称保存文本记录，同名目录复用上次位置</h1>
+          <p className={styles.eyebrow}>Photo Layout Playground</p>
+          <h1>三种可选排列方案测试页</h1>
           <p className={styles.description}>
-            当前测试版直接用所选主文件夹名称作为记录键。同名主文件夹会复用上次位置，不同主文件夹分别保存。
+            当前页面专门验证图片自动排布逻辑。支持整齐排列、错位排列、随机排列，并允许实时切换参数观察结果。
           </p>
         </div>
 
-        <div className={styles.pickerCard}>
-          <div className={styles.persistBox}>
-            <span className={styles.persistLabel}>主文件夹记录键</span>
-            <strong>{rootName || '未选择主文件夹'}</strong>
-            <p>{loadMessage}</p>
-            {knownRootNames.length > 0 ? (
-              <div className={styles.knownPaths}>
-                {knownRootNames.map((item) => (
-                  <button
-                    key={item}
-                    className={styles.pathChip}
-                    type="button"
-                    onClick={() => {
-                      void loadSession(item);
-                    }}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
+        <div className={styles.uploadCard}>
+          <span className={styles.cardLabel}>测试素材</span>
+          <strong>{rootName || '未选择主文件夹'}</strong>
+          <p>目录建议使用“主文件夹 / 地点名 / 图片文件”结构，页面会按地点自动分组。</p>
           <label className={styles.pickerLabel}>
-            <span className={styles.pickerTitle}>选择目录</span>
-            <span className={styles.pickerHint}>建议目录结构：根目录 / 地点名 / 图片文件</span>
             <input
               {...directoryInputProps}
               className={styles.fileInput}
@@ -370,150 +271,180 @@ export default function TestCssPage() {
               multiple
               onChange={handleFolderPick}
             />
-            <span className={styles.pickerButton}>打开文件夹</span>
+            <span className={styles.pickerButton}>选择测试文件夹</span>
           </label>
-
-          <div className={styles.persistBox}>
-            <span className={styles.persistLabel}>文本记录状态</span>
-            <strong>{persistedSession?.rootName || '暂无'}</strong>
-            <p>当前以主文件夹名称作为记录键</p>
-            {persistedSession?.savedAt ? (
-              <p>上次保存：{formatTime(new Date(persistedSession.savedAt).getTime())}</p>
-            ) : null}
-          </div>
         </div>
       </section>
 
       <section className={styles.summaryRow}>
         <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>当前主文件夹名称</span>
-          <strong>{rootName || '未选择'}</strong>
-        </div>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>已命中记录</span>
-          <strong>{persistedSession?.rootName || '暂无'}</strong>
-        </div>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>地点分组</span>
+          <span className={styles.summaryLabel}>地点组数</span>
           <strong>{summary.folderCount}</strong>
         </div>
         <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>图片数量 / 总大小</span>
-          <strong>{summary.imageCount} / {formatBytes(summary.totalSize)}</strong>
+          <span className={styles.summaryLabel}>图片总数</span>
+          <strong>{summary.imageCount}</strong>
+        </div>
+        <div className={styles.summaryCard}>
+          <span className={styles.summaryLabel}>素材体积</span>
+          <strong>{formatBytes(summary.totalSize)}</strong>
+        </div>
+        <div className={styles.summaryCard}>
+          <span className={styles.summaryLabel}>当前地点</span>
+          <strong>{activeGroup?.folderName || '未选择'}</strong>
         </div>
       </section>
 
-      <section className={styles.toolbar}>
-        <button className={styles.primaryAction} onClick={handleSave} type="button">
-          保存当前排序
-        </button>
-        {saveMessage ? <span className={styles.saveMessage}>{saveMessage}</span> : null}
-      </section>
-
-      {diffSummary ? (
-        <section className={styles.diffPanel}>
-          <div className={styles.diffCard}>
-            <span className={styles.summaryLabel}>无差异</span>
-            <strong>{diffSummary.unchanged}</strong>
-          </div>
-          <div className={styles.diffCard}>
-            <span className={styles.summaryLabel}>新增文件</span>
-            <strong>{diffSummary.added.length}</strong>
-          </div>
-          <div className={styles.diffCard}>
-            <span className={styles.summaryLabel}>缺失文件</span>
-            <strong>{diffSummary.removed.length}</strong>
-          </div>
-          <div className={styles.diffCard}>
-            <span className={styles.summaryLabel}>已变化</span>
-            <strong>{diffSummary.changed.length}</strong>
-          </div>
-        </section>
-      ) : null}
-
-      {diffSummary && (diffSummary.added.length > 0 || diffSummary.removed.length > 0 || diffSummary.changed.length > 0) ? (
-        <section className={styles.diffDetails}>
-          {diffSummary.added.length > 0 ? (
-            <div className={styles.diffList}>
-              <h3>新增文件</h3>
-              {diffSummary.added.slice(0, 12).map((item) => (
-                <code key={`added-${item.relativePath}`}>{item.relativePath}</code>
+      <section className={styles.workspace}>
+        <aside className={styles.sidebar}>
+          <div className={styles.panel}>
+            <h2>地点列表</h2>
+            <p>点击切换当前用于测试排列的地点分组。</p>
+            <div className={styles.folderList}>
+              {groups.length === 0 ? (
+                <div className={styles.emptyHint}>选择文件夹后显示地点列表</div>
+              ) : groups.map((group) => (
+                <button
+                  key={group.folderName}
+                  type="button"
+                  className={`${styles.folderButton} ${selectedFolder === group.folderName ? styles.folderButtonActive : ''}`}
+                  onClick={() => setSelectedFolder(group.folderName)}
+                >
+                  <span>{group.folderName}</span>
+                  <strong>{group.items.length}</strong>
+                </button>
               ))}
             </div>
-          ) : null}
-          {diffSummary.removed.length > 0 ? (
-            <div className={styles.diffList}>
-              <h3>缺失文件</h3>
-              {diffSummary.removed.slice(0, 12).map((item) => (
-                <code key={`removed-${item.relativePath}`}>{item.relativePath}</code>
-              ))}
-            </div>
-          ) : null}
-          {diffSummary.changed.length > 0 ? (
-            <div className={styles.diffList}>
-              <h3>已变化文件</h3>
-              {diffSummary.changed.slice(0, 12).map((item) => (
-                <code key={`changed-${item.current.relativePath}`}>{item.current.relativePath}</code>
-              ))}
-            </div>
-          ) : null}
-        </section>
-      ) : null}
+          </div>
 
-      {groups.length === 0 ? (
-        <section className={styles.emptyState}>
-          <h2>还没有可展示的图片</h2>
-          <p>选择一个文件夹后，这里会按子文件夹名自动分组显示图片，并允许保存组内排序。</p>
-        </section>
-      ) : (
-        <section className={styles.groupList}>
-          {groups.map((group) => (
-            <article key={group.name} className={styles.groupCard}>
-              <div className={styles.groupHeader}>
-                <div>
-                  <h2>{group.name}</h2>
-                  <p>{group.images.length} 张图片，可手动调整顺序</p>
+          <div className={styles.panel}>
+            <h2>排列控制</h2>
+            <div className={styles.optionGroup}>
+              <span className={styles.optionLabel}>一级方案</span>
+              <div className={styles.toggleRow}>
+                <button
+                  type="button"
+                  className={`${styles.toggleBtn} ${mode === 'grid' ? styles.toggleBtnActive : ''}`}
+                  onClick={() => setMode('grid')}
+                >
+                  整齐排列
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.toggleBtn} ${mode === 'staggered' ? styles.toggleBtnActive : ''}`}
+                  onClick={() => setMode('staggered')}
+                >
+                  错位排列
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.toggleBtn} ${mode === 'random' ? styles.toggleBtnActive : ''}`}
+                  onClick={() => setMode('random')}
+                >
+                  随机排列
+                </button>
+              </div>
+            </div>
+
+            {mode === 'staggered' ? (
+              <div className={styles.optionGroup}>
+                <span className={styles.optionLabel}>二级选项</span>
+                <div className={styles.toggleRow}>
+                  <button
+                    type="button"
+                    className={`${styles.toggleBtn} ${staggerAxis === 'horizontal' ? styles.toggleBtnActive : ''}`}
+                    onClick={() => setStaggerAxis('horizontal')}
+                  >
+                    横向错位
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.toggleBtn} ${staggerAxis === 'vertical' ? styles.toggleBtnActive : ''}`}
+                    onClick={() => setStaggerAxis('vertical')}
+                  >
+                    竖向错位
+                  </button>
                 </div>
               </div>
+            ) : null}
 
-              <div className={styles.grid}>
-                {group.images.map((image, index) => (
-                  <figure key={image.id} className={styles.imageCard}>
-                    <div className={styles.imageWrap}>
-                      <img src={image.url} alt={image.name} className={styles.image} />
-                    </div>
-                    <figcaption className={styles.meta}>
-                      <strong title={image.name}>{image.name}</strong>
-                      <span>位置：{index + 1}</span>
-                      <span>{formatBytes(image.size)}</span>
-                      <span>{formatTime(image.lastModified)}</span>
-                      <code title={image.relativePath}>{image.relativePath}</code>
-                      <div className={styles.actions}>
-                        <button
-                          className={styles.sortButton}
-                          type="button"
-                          onClick={() => moveImage(group.name, image.id, -1)}
-                          disabled={index === 0}
-                        >
-                          上移
-                        </button>
-                        <button
-                          className={styles.sortButton}
-                          type="button"
-                          onClick={() => moveImage(group.name, image.id, 1)}
-                          disabled={index === group.images.length - 1}
-                        >
-                          下移
-                        </button>
-                      </div>
-                    </figcaption>
-                  </figure>
-                ))}
+            {mode !== 'random' ? (
+              <div className={styles.optionGroup}>
+                <span className={styles.optionLabel}>距离参数</span>
+                <label className={styles.field}>
+                  <span>横向距离</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={gapX}
+                    onChange={(event) => setGapX(clampNonNegative(Number(event.target.value)))}
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span>竖向距离</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={gapY}
+                    onChange={(event) => setGapY(clampNonNegative(Number(event.target.value)))}
+                  />
+                </label>
               </div>
-            </article>
-          ))}
+            ) : (
+              <div className={styles.optionGroup}>
+                <span className={styles.optionLabel}>随机规则</span>
+                <p className={styles.ruleText}>每张图片相对横向 / 竖向相邻图片的附加距离在 1-20 中随机。</p>
+              </div>
+            )}
+
+            <div className={styles.ruleBlock}>
+              <span className={styles.optionLabel}>规则说明</span>
+              <ul className={styles.ruleList}>
+                <li>整齐排列：规则网格，横向和竖向距离最低为 0。</li>
+                <li>错位排列：当距离为 0 时，第一列与第三列共基准，第二列相对其错开半格。</li>
+                <li>随机排列：无二级选项，每次重新计算都会生成新的随机间距。</li>
+              </ul>
+            </div>
+          </div>
+        </aside>
+
+        <section className={styles.previewSection}>
+          <div className={styles.previewHeader}>
+            <div>
+              <p className={styles.previewEyebrow}>Preview Stage</p>
+              <h2>{activeGroup?.folderName || '等待选择地点'}</h2>
+            </div>
+            <div className={styles.previewMeta}>
+              <span>{mode === 'grid' ? '整齐排列' : mode === 'staggered' ? '错位排列' : '随机排列'}</span>
+              <strong>{positionedImages.length} 张</strong>
+            </div>
+          </div>
+
+          <div className={styles.stage}>
+            <div className={styles.stageCenterCross} />
+            {positionedImages.length === 0 ? (
+              <div className={styles.emptyStage}>选择测试文件夹并切换地点后，这里会显示排列结果。</div>
+            ) : positionedImages.map((image) => (
+              <figure
+                key={image.id}
+                className={styles.photoCard}
+                style={{
+                  left: image.x,
+                  top: image.y,
+                  width: CARD_SIZE,
+                  height: CARD_SIZE,
+                }}
+              >
+                <img src={image.url} alt={image.name} />
+                <figcaption>
+                  <strong title={image.name}>{image.name}</strong>
+                  <span>R{image.row + 1} / C{image.col + 1}</span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
         </section>
-      )}
+      </section>
     </main>
   );
 }
