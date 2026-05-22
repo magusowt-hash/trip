@@ -155,10 +155,6 @@ export async function GET(req: Request) {
         .leftJoin(listItems, sql`${footprintGroupItems.listItemId} = ${listItems.id}`)
         .where(sql`${footprintGroupItems.groupId} = ${groupId}`);
 
-      if (group.isDefault !== 1) {
-        return NextResponse.json({ items: listBasedItems });
-      }
-
       const mapBasedItems = await db
         .select({
           id: userMapFootprints.id,
@@ -213,17 +209,15 @@ export async function GET(req: Request) {
         .leftJoin(listItems, sql`${footprintGroupItems.listItemId} = ${listItems.id}`)
         .where(sql`${footprintGroupItems.groupId} = ${groupId}`);
 
-      const mapItemsInGroup = group.isDefault === 1
-        ? await db
-            .select({
-              id: userMapFootprints.id,
-              title: mapPois.name,
-              poiId: userMapFootprints.poiId,
-            })
-            .from(userMapFootprints)
-            .leftJoin(mapPois, sql`${userMapFootprints.poiId} = ${mapPois.id}`)
-            .where(sql`${userMapFootprints.groupId} = ${groupId} AND ${userMapFootprints.userId} = ${auth.userId}`)
-        : [];
+      const mapItemsInGroup = await db
+        .select({
+          id: userMapFootprints.id,
+          title: mapPois.name,
+          poiId: userMapFootprints.poiId,
+        })
+        .from(userMapFootprints)
+        .leftJoin(mapPois, sql`${userMapFootprints.poiId} = ${mapPois.id}`)
+        .where(sql`${userMapFootprints.groupId} = ${groupId} AND ${userMapFootprints.userId} = ${auth.userId}`);
 
       const groupedFiles = await Promise.all([...listItemsInGroup, ...mapItemsInGroup].map(async (item) => {
         await ensureScopedStorageForItem(auth.userId!, item.id, item.title || '');

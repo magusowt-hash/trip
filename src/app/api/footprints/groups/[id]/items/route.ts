@@ -54,10 +54,6 @@ export async function GET(
       .where(eq(footprintGroupItems.groupId, groupId))
       .orderBy(desc(footprintGroupItems.id));
 
-    if (group.isDefault !== 1) {
-      return NextResponse.json({ items: listBasedItems }, { status: 200 });
-    }
-
     const mapBasedItems = await db
       .select({
         id: userMapFootprints.id,
