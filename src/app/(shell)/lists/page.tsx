@@ -259,20 +259,10 @@ export default function ListsPage() {
         return;
       }
       if (!res.ok) {
-        setFavoriteItemIds(prev => {
-          const rollback = new Set(prev);
-          if (wasFavorite) rollback.add(itemId);
-          else rollback.delete(itemId);
-          return rollback;
-        });
+        setFavoriteItemIds(new Set(favoriteItemIds));
       }
     } catch {
-      setFavoriteItemIds(prev => {
-        const rollback = new Set(prev);
-        if (wasFavorite) rollback.add(itemId);
-        else rollback.delete(itemId);
-        return rollback;
-      });
+      setFavoriteItemIds(new Set(favoriteItemIds));
     }
   };
 

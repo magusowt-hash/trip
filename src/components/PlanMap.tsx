@@ -406,7 +406,7 @@ export default function PlanMap({
     const footprintButton = document.createElement('button');
     footprintButton.type = 'button';
     footprintButton.className = 'primary';
-    footprintButton.textContent = selectedMapPoi.visited ? '已加入足迹' : '加入足迹';
+    footprintButton.textContent = '已去';
     footprintButton.disabled = !!selectedMapPoi.visited;
     footprintButton.onclick = () => {
       if (!selectedMapPoi.visited) {

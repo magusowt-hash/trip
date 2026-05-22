@@ -90,9 +90,10 @@ export default function UserFavoritesPlacesPage() {
   }, []);
 
   const handleRemoveFavorite = async (itemId: number) => {
-    const wasFavorite = favoriteIds.includes(itemId);
+    const previousItems = placeItems;
     const newFavorites = favoriteIds.filter(id => id !== itemId);
     setFavoriteIds(newFavorites);
+    setPlaceItems(prev => prev.filter(item => item.id !== itemId));
 
     try {
       const res = await fetch('/api/user/lists', {
@@ -105,15 +106,18 @@ export default function UserFavoritesPlacesPage() {
       });
       if (res.status === 401 || res.status === 403) {
         setFavoriteIds([...favoriteIds]);
+        setPlaceItems(previousItems);
         alert('请先登录后再取消收藏');
         return;
       }
       if (!res.ok) {
         setFavoriteIds([...favoriteIds]);
+        setPlaceItems(previousItems);
       }
     } catch (err) {
       console.error(err);
       setFavoriteIds([...favoriteIds]);
+      setPlaceItems(previousItems);
     }
   };
 

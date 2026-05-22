@@ -81,7 +81,7 @@ export async function postStandardMapFootprint(req: NextRequest) {
     return NextResponse.json({ success: true, groupId, poi });
   } catch (error: any) {
     console.error('POST /api/maps/footprints error:', error);
-    return NextResponse.json({ error: error?.message || '加入足迹失败' }, { status: 400 });
+    return NextResponse.json({ error: error?.message || '设置已去失败' }, { status: 400 });
   }
 }
 
@@ -107,4 +107,3 @@ export async function deleteStandardMapFootprint(req: NextRequest) {
     return NextResponse.json({ error: '移除足迹失败' }, { status: 500 });
   }
 }
-

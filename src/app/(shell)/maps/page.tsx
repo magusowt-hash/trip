@@ -187,7 +187,7 @@ export default function MapsPage() {
                 }}
               >
                 <span className={styles.mapTypeCardName}>普通地图</span>
-                <span className={styles.mapTypeCardDesc}>地点搜索、地图点击识别已有 POI、收藏与足迹。</span>
+                <span className={styles.mapTypeCardDesc}>地点搜索、地图点击识别已有 POI、收藏与已去。</span>
               </button>
               <button
                 type="button"

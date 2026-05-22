@@ -3,7 +3,7 @@ import path from 'path';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { footprintGroupItems, storageFiles } from '@/db/schema';
-import { buildFootprintPhotoScopeKey, parseFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
+import { buildFootprintPhotoScopeKey, parseFootprintPhotoScopeKey, parseMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 
 const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads');
 const MAX_QUOTA = 5 * 1024 * 1024 * 1024; // 5GB
@@ -249,6 +249,7 @@ export async function saveFile(
 export async function listPhotos(userId: number, scopeKey: string) {
   const sanitizedScopeKey = sanitize(scopeKey);
   const footprintItemId = parseFootprintPhotoScopeKey(sanitizedScopeKey);
+  const mapFootprintId = parseMapFootprintPhotoScopeKey(sanitizedScopeKey);
   const files = await db
     .select()
     .from(storageFiles)
@@ -264,6 +265,7 @@ export async function listPhotos(userId: number, scopeKey: string) {
       frameY: f.frameY ?? null,
       scopeKey: sanitizedScopeKey,
       footprintItemId,
+      mapFootprintId,
       url: `/api/storage/file?uid=${userId}&place=${encodeURIComponent(sanitizedScopeKey)}&file=${encodeURIComponent(f.filename)}`,
       thumbnailUrl: null,
       createdAt: f.createdAt,

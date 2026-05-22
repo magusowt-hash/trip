@@ -121,7 +121,9 @@ interface FootprintGroup {
 interface FootprintItem {
   id: number;
   groupId: number;
-  listItemId: number;
+  listItemId: number | null;
+  poiId?: number | null;
+  sourceType?: 'list' | 'map';
   title: string | null;
   coverImage: string | null;
   address: string | null;
@@ -163,7 +165,7 @@ export default function UserDetailPage() {
   const [fpLoading, setFpLoading] = useState(false);
   const [expandedFpGroup, setExpandedFpGroup] = useState<number | null>(null);
   const [expandedFpItems, setExpandedFpItems] = useState<FootprintItem[]>([]);
-  const [expandedItemId, setExpandedItemId] = useState<number | null>(null);
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [expandedItemPhotos, setExpandedItemPhotos] = useState<FootprintPhoto[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
   const [photoCounts, setPhotoCounts] = useState<Map<string, number>>(new Map());
@@ -253,12 +255,17 @@ export default function UserDetailPage() {
   };
 
   const handleToggleItemPhotos = (item: FootprintItem) => {
-    if (expandedItemId === item.listItemId) {
+    const itemKey = item.sourceType === 'map' ? `map:${item.poiId ?? item.id}` : `list:${item.listItemId ?? item.id}`;
+    if (expandedItemId === itemKey) {
       setExpandedItemId(null);
       setExpandedItemPhotos([]);
       return;
     }
-    setExpandedItemId(item.listItemId);
+    setExpandedItemId(itemKey);
+    if (!item.listItemId) {
+      setExpandedItemPhotos([]);
+      return;
+    }
     void fetchItemPhotos(item);
   };
 
@@ -268,7 +275,7 @@ export default function UserDetailPage() {
       method: 'DELETE',
       headers: buildAdminHeaders(token),
     });
-    const currentItem = expandedFpItems.find((item) => item.listItemId === expandedItemId);
+    const currentItem = expandedFpItems.find((item) => `list:${item.listItemId ?? item.id}` === expandedItemId);
     if (currentItem) {
       await fetchItemPhotos(currentItem);
       void fetchFootprintGroups();
@@ -666,7 +673,7 @@ export default function UserDetailPage() {
                   <div key={item.id}>
                     <button
                       type="button"
-                      className={`${styles.footprintItemButton} ${expandedItemId === item.listItemId ? styles.footprintItemActive : ''}`}
+                      className={`${styles.footprintItemButton} ${expandedItemId === (item.sourceType === 'map' ? `map:${item.poiId ?? item.id}` : `list:${item.listItemId ?? item.id}`) ? styles.footprintItemActive : ''}`}
                       onClick={() => handleToggleItemPhotos(item)}
                     >
                       {item.coverImage ? (
@@ -675,12 +682,14 @@ export default function UserDetailPage() {
                         <div className={styles.footprintThumbPlaceholder} />
                       )}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className={styles.rowTitle}>{item.title || `地点 #${item.listItemId}`}</div>
+                        <div className={styles.rowTitle}>{item.title || (item.listItemId ? `地点 #${item.listItemId}` : `地图点 #${item.poiId ?? item.id}`)}</div>
                         <div className={styles.rowMeta}>{item.address || '-'}</div>
                       </div>
-                      <span className={styles.rowMeta}>{photoCounts.get(`item:${item.id}`) || photoCounts.get(`legacy:${item.title || String(item.listItemId)}`) || 0} 张</span>
+                      <span className={styles.rowMeta}>
+                        {item.listItemId ? (photoCounts.get(`item:${item.id}`) || photoCounts.get(`legacy:${item.title || String(item.listItemId)}`) || 0) : 0} 张
+                      </span>
                     </button>
-                    {expandedItemId === item.listItemId ? (
+                    {expandedItemId === (item.sourceType === 'map' ? `map:${item.poiId ?? item.id}` : `list:${item.listItemId ?? item.id}`) ? (
                       <div className={styles.footprintPhotos}>
                         {photosLoading ? renderEmpty('加载中...') : null}
                         {!photosLoading && expandedItemPhotos.length === 0 ? renderEmpty('该地点暂无上传照片') : null}

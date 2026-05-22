@@ -242,6 +242,21 @@ export const userMapFavorites = mysqlTable(
   }),
 );
 
+export const userListFavorites = mysqlTable(
+  'user_list_favorites',
+  {
+    id: serial('id').primaryKey(),
+    userId: int('user_id').notNull(),
+    listItemId: int('list_item_id').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    userListItemUnique: uniqueIndex('user_list_favorites_user_item_unique').on(t.userId, t.listItemId),
+    userIdIdx: index('user_list_favorites_user_id_idx').on(t.userId),
+    listItemIdIdx: index('user_list_favorites_list_item_id_idx').on(t.listItemId),
+  }),
+);
+
 export const userMapFootprints = mysqlTable(
   'user_map_footprints',
   {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { users, ratings, listItems } from '@/db/schema';
+import { users, ratings, listItems, userListFavorites } from '@/db/schema';
 import { eq, like, desc, sql, and, inArray } from 'drizzle-orm';
 import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
 
@@ -63,7 +63,6 @@ export async function GET(request: NextRequest) {
         avatar: users.avatar,
         gender: users.gender,
         region: users.region,
-        favoriteLists: users.favoriteLists,
         ratings: users.ratings,
         status: users.status,
         createdAt: users.createdAt,
@@ -76,22 +75,27 @@ export async function GET(request: NextRequest) {
 
     if (userId) {
       const uid = parseInt(userId);
-      const userRatings = await db
-        .select()
-        .from(ratings)
-        .where(eq(ratings.userId, uid))
-        .orderBy(desc(ratings.createdAt));
+      const [userRatings, favoriteRows] = await Promise.all([
+        db
+          .select()
+          .from(ratings)
+          .where(eq(ratings.userId, uid))
+          .orderBy(desc(ratings.createdAt)),
+        db
+          .select({
+            listItemId: userListFavorites.listItemId,
+            addedAt: userListFavorites.createdAt,
+          })
+          .from(userListFavorites)
+          .where(eq(userListFavorites.userId, uid))
+          .orderBy(desc(userListFavorites.createdAt)),
+      ]);
 
       const listItemIds = new Set<number>();
       for (const r of userRatings) {
         if (r.targetType === 'list_item') listItemIds.add(r.targetId);
       }
-
-      const user = list[0];
-      if (user) {
-        const favs: any[] = (user.favoriteLists || []) as any[];
-        for (const f of favs) if (f.listItemId) listItemIds.add(f.listItemId);
-      }
+      for (const favorite of favoriteRows) if (favorite.listItemId) listItemIds.add(favorite.listItemId);
 
       const itemTitleMap = new Map<number, string>();
       if (listItemIds.size > 0) {
@@ -107,27 +111,40 @@ export async function GET(request: NextRequest) {
         targetTitle: r.targetType === 'list_item' ? (itemTitleMap.get(r.targetId) || null) : null,
       }));
 
-      const favoriteLists = list.map(u => {
-        const favs: any[] = (u.favoriteLists || []) as any[];
-        const favsWithTitle = favs.map((f: any) => ({
+      const favoriteLists = list.map(u => ({
+        ...u,
+        favoriteLists: favoriteRows.map((f) => ({
           listItemId: f.listItemId,
-          addedAt: f.addedAt,
+          addedAt: f.addedAt instanceof Date ? f.addedAt.toISOString() : String(f.addedAt),
           title: itemTitleMap.get(f.listItemId) || null,
-        }));
-        return { ...u, favoriteLists: favsWithTitle, ratingDetails };
-      });
+        })),
+        ratingDetails,
+      }));
 
       list = favoriteLists;
     } else {
-        const allRatings = await db.select({ uid: ratings.userId }).from(ratings);
+        const [allRatings, favoriteCounts] = await Promise.all([
+          db.select({ uid: ratings.userId }).from(ratings),
+          db
+            .select({
+              userId: userListFavorites.userId,
+              count: sql<number>`count(*)`,
+            })
+            .from(userListFavorites)
+            .groupBy(userListFavorites.userId),
+        ]);
         const ratingCountMap = new Map<number, number>();
         for (const r of allRatings) {
           ratingCountMap.set(r.uid, (ratingCountMap.get(r.uid) || 0) + 1);
         }
+        const favoriteCountMap = new Map<number, number>();
+        for (const row of favoriteCounts) {
+          favoriteCountMap.set(row.userId, Number(row.count || 0));
+        }
         list = list.map(u => ({ 
           ...u, 
           ratingsCnt: ratingCountMap.get(u.id) || 0,
-          favoritesCnt: Array.isArray(u.favoriteLists) ? u.favoriteLists.length : 0
+          favoritesCnt: favoriteCountMap.get(u.id) || 0
         }));
       }
 

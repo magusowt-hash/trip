@@ -2,9 +2,9 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { eq, sql, desc, inArray } from 'drizzle-orm';
 import { db } from '@/db';
-import { footprintGroups, footprintGroupItems, users, listItems, storageFiles, userFootprintSettings } from '@/db/schema';
+import { footprintGroups, footprintGroupItems, users, listItems, storageFiles, userFootprintSettings, mapPois, userMapFootprints } from '@/db/schema';
 import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
-import { parseFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
+import { parseFootprintPhotoScopeKey, parseMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 
 function verifyAdminToken(req: NextRequest): NextResponse | null {
   const token = getAdminTokenFromRequest(req);
@@ -67,6 +67,11 @@ export async function GET(req: NextRequest) {
           .map((file) => parseFootprintPhotoScopeKey(file.placeTitle))
           .filter((value): value is number => Number.isFinite(value)),
       ));
+      const mapFootprintIds = Array.from(new Set(
+        files
+          .map((file) => parseMapFootprintPhotoScopeKey(file.placeTitle))
+          .filter((value): value is number => Number.isFinite(value)),
+      ));
 
       const titleMap = new Map<number, string>();
       if (footprintItemIds.length > 0) {
@@ -83,14 +88,33 @@ export async function GET(req: NextRequest) {
           titleMap.set(item.id, item.title || `足迹项 #${item.id}`);
         }
       }
+      if (mapFootprintIds.length > 0) {
+        const mapScopedItems = await db
+          .select({
+            id: userMapFootprints.id,
+            title: mapPois.name,
+          })
+          .from(userMapFootprints)
+          .leftJoin(mapPois, eq(userMapFootprints.poiId, mapPois.id))
+          .where(inArray(userMapFootprints.id, mapFootprintIds));
+        for (const item of mapScopedItems) {
+          titleMap.set(item.id, item.title || `已去地点 #${item.id}`);
+        }
+      }
 
       return NextResponse.json({
         files: files.map((file) => {
           const footprintItemId = parseFootprintPhotoScopeKey(file.placeTitle);
+          const mapFootprintId = parseMapFootprintPhotoScopeKey(file.placeTitle);
           return {
             ...file,
             footprintItemId,
-            displayTitle: footprintItemId ? (titleMap.get(footprintItemId) || file.placeTitle) : file.placeTitle,
+            mapFootprintId,
+            displayTitle: footprintItemId
+              ? (titleMap.get(footprintItemId) || file.placeTitle)
+              : mapFootprintId
+                ? (titleMap.get(mapFootprintId) || file.placeTitle)
+                : file.placeTitle,
             scopeKey: file.placeTitle,
           };
         }),
@@ -124,11 +148,26 @@ export async function GET(req: NextRequest) {
     }
 
     if (groupId) {
-      const items = await db
+      const group = await db
+        .select({
+          id: footprintGroups.id,
+          userId: footprintGroups.userId,
+          isDefault: footprintGroups.isDefault,
+        })
+        .from(footprintGroups)
+        .where(eq(footprintGroups.id, parseInt(groupId)))
+        .limit(1);
+      if (!group[0]) {
+        return NextResponse.json({ error: '分类组不存在' }, { status: 404 });
+      }
+
+      const listBasedItems = await db
         .select({
           id: footprintGroupItems.id,
           groupId: footprintGroupItems.groupId,
           listItemId: footprintGroupItems.listItemId,
+          poiId: sql<null>`NULL`,
+          sourceType: sql<string>`'list'`,
           title: listItems.title,
           coverImage: listItems.coverImage,
           address: listItems.address,
@@ -138,6 +177,30 @@ export async function GET(req: NextRequest) {
         .leftJoin(listItems, eq(footprintGroupItems.listItemId, listItems.id))
         .where(eq(footprintGroupItems.groupId, parseInt(groupId)))
         .orderBy(desc(footprintGroupItems.id));
+
+      if (group[0].isDefault !== 1) {
+        return NextResponse.json({ items: listBasedItems });
+      }
+
+      const mapBasedItems = await db
+        .select({
+          id: userMapFootprints.id,
+          groupId: userMapFootprints.groupId,
+          listItemId: sql<null>`NULL`,
+          poiId: userMapFootprints.poiId,
+          sourceType: sql<string>`'map'`,
+          title: mapPois.name,
+          coverImage: sql<null>`NULL`,
+          address: mapPois.address,
+          addedAt: userMapFootprints.createdAt,
+        })
+        .from(userMapFootprints)
+        .leftJoin(mapPois, eq(userMapFootprints.poiId, mapPois.id))
+        .where(eq(userMapFootprints.groupId, parseInt(groupId)))
+        .orderBy(desc(userMapFootprints.id));
+
+      const items = [...listBasedItems, ...mapBasedItems]
+        .sort((a, b) => new Date(String(b.addedAt)).getTime() - new Date(String(a.addedAt)).getTime());
 
       return NextResponse.json({ items });
     }
@@ -160,7 +223,26 @@ export async function GET(req: NextRequest) {
       .groupBy(footprintGroups.id)
       .orderBy(desc(footprintGroups.id));
 
-    return NextResponse.json({ groups });
+    const mapCounts = await db
+      .select({
+        groupId: userMapFootprints.groupId,
+        itemCount: sql<number>`count(*)`,
+      })
+      .from(userMapFootprints)
+      .where(userId ? eq(userMapFootprints.userId, parseInt(userId)) : undefined)
+      .groupBy(userMapFootprints.groupId);
+    const mapCountByGroupId = new Map(
+      mapCounts
+        .filter((row) => Number.isFinite(row.groupId as number))
+        .map((row) => [Number(row.groupId), Number(row.itemCount || 0)]),
+    );
+
+    return NextResponse.json({
+      groups: groups.map((group) => ({
+        ...group,
+        itemCount: Number(group.itemCount || 0) + (mapCountByGroupId.get(group.id) || 0),
+      })),
+    });
   } catch (err) {
     console.error('Admin GET /api/admin/footprints error:', err);
     return NextResponse.json({ error: '获取足迹数据失败' }, { status: 500 });

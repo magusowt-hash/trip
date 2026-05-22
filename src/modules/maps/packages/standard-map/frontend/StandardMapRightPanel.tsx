@@ -117,7 +117,7 @@ export function StandardMapRightPanel({
                   }}
                   disabled={visited || savingKey === `footprint:${poi.amapPoiId || poi.name}:${poi.lng}:${poi.lat}`}
                 >
-                  {visited ? '已加入足迹' : '加入足迹'}
+                  已去
                 </button>
               </div>
             </article>
@@ -228,7 +228,7 @@ export function useStandardMapPanelController(active: boolean) {
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error || (mode === 'favorite' ? '收藏失败' : '加入足迹失败'));
+        alert(data.error || (mode === 'favorite' ? '收藏失败' : '设置已去失败'));
         return;
       }
 
@@ -246,7 +246,7 @@ export function useStandardMapPanelController(active: boolean) {
       setSelectedPoi((prev) => (prev && samePoi(prev, poi) ? { ...prev, poiId } : prev));
       setMapSelectedPoi((prev) => (prev && samePoi(prev, poi) ? { ...prev, poiId } : prev));
     } catch {
-      alert(mode === 'favorite' ? '收藏失败' : '加入足迹失败');
+      alert(mode === 'favorite' ? '收藏失败' : '设置已去失败');
     } finally {
       setSavingKey(null);
     }
@@ -308,4 +308,3 @@ function samePoi(a: StandardMapSearchResult | null | undefined, b: StandardMapSe
   if (!a || !b) return false;
   return (a.amapPoiId && b.amapPoiId && a.amapPoiId === b.amapPoiId) || (a.name === b.name && a.lng === b.lng && a.lat === b.lat);
 }
-

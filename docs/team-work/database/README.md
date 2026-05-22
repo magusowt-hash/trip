@@ -6,7 +6,7 @@
 
 | 编号 | 文档 | 包含表 |
 |------|------|--------|
-| 01 | [用户与认证](./01-用户与认证.md) | users, admin_keys, user_footprint_settings |
+| 01 | [用户与认证](./01-用户与认证.md) | users, admin_keys, user_footprint_settings, user_list_favorites |
 | 02 | [帖子与互动](./02-帖子与互动.md) | posts, post_images, comments, favorites, comment_likes, ratings |
 | 03 | [地图与POI](./03-地图与POI.md) | markers, marker_images, map_pois, user_map_favorites, user_map_footprints, footprint_groups, footprint_group_items, storage_files, uploaded_files |
 | 04 | [榜单与评分](./04-榜单与评分.md) | lists, list_images, list_items |
@@ -23,6 +23,7 @@
 | users | id | - | 用户基本信息 |
 | admin_keys | id | - | 后台管理员密钥 |
 | user_footprint_settings | user_id | user_id | 足迹地图显示设置 |
+| user_list_favorites | id | user_id, list_item_id | 用户榜单项收藏 |
 | posts | id | user_id | 帖子主表 |
 | post_images | id | post_id | 帖子图片 |
 | comments | id | post_id, user_id | 评论/回复 |
@@ -76,11 +77,13 @@ users
 │           └── cloud_assets (1:N)
 ├── user_map_favorites (1:N)
 ├── user_map_footprints (1:N)
+├── user_list_favorites (1:N)
 └── user_footprint_settings (1:1)
 
 lists
 ├── list_images (1:N)
 └── list_items (1:N)
+    └── user_list_favorites (1:N)
 
 markers
 └── marker_images (1:N)

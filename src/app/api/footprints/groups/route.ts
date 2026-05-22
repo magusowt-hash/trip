@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { eq, asc, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { footprintGroups, footprintGroupItems } from '@/db/schema';
+import { footprintGroups, footprintGroupItems, userMapFootprints } from '@/db/schema';
 import { authenticateFootprintRequest } from '../_auth';
 
 const MAX_GROUPS = 20;
@@ -26,6 +26,24 @@ export async function GET(req: NextRequest) {
       .where(eq(footprintGroups.userId, auth.userId))
       .groupBy(footprintGroups.id)
       .orderBy(asc(footprintGroups.sortOrder), asc(footprintGroups.id));
+
+    const mapCounts = await db
+      .select({
+        groupId: userMapFootprints.groupId,
+        itemCount: sql<number>`count(*)`,
+      })
+      .from(userMapFootprints)
+      .where(eq(userMapFootprints.userId, auth.userId))
+      .groupBy(userMapFootprints.groupId);
+    const mapCountByGroupId = new Map(
+      mapCounts
+        .filter((row) => Number.isFinite(row.groupId as number))
+        .map((row) => [Number(row.groupId), Number(row.itemCount || 0)]),
+    );
+    const mergedGroups = groups.map((group) => ({
+      ...group,
+      itemCount: Number(group.itemCount || 0) + (mapCountByGroupId.get(group.id) || 0),
+    }));
 
     // Auto-create default group if user has none
     if (groups.length === 0) {
@@ -52,7 +70,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ groups: fresh }, { status: 200 });
     }
 
-    return NextResponse.json({ groups }, { status: 200 });
+    return NextResponse.json({ groups: mergedGroups }, { status: 200 });
   } catch (err) {
     console.error('GET /api/footprints/groups error:', err);
     return NextResponse.json({ error: '获取分类组失败' }, { status: 500 });

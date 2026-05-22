@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { eq, and, desc, ne } from 'drizzle-orm';
 import { db } from '@/db';
-import { footprintGroups, footprintGroupItems } from '@/db/schema';
+import { footprintGroups, footprintGroupItems, mapPois, userMapFootprints } from '@/db/schema';
 import { listItems, lists } from '@/db/schema';
 import { authenticateFootprintRequest } from '../../../_auth';
 import {
@@ -10,7 +10,7 @@ import {
   getAlbumScopeKeyForItem,
   listPhotos,
 } from '@/services/storage';
-import { buildFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
+import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 
 export async function GET(
   req: NextRequest,
@@ -33,7 +33,7 @@ export async function GET(
       return NextResponse.json({ error: '分类组不存在' }, { status: 404 });
     }
 
-    const items = await db
+    const listBasedItems = await db
       .select({
         id: footprintGroupItems.id,
         listItemId: footprintGroupItems.listItemId,
@@ -54,7 +54,43 @@ export async function GET(
       .where(eq(footprintGroupItems.groupId, groupId))
       .orderBy(desc(footprintGroupItems.id));
 
-    return NextResponse.json({ items }, { status: 200 });
+    if (group.isDefault !== 1) {
+      return NextResponse.json({ items: listBasedItems }, { status: 200 });
+    }
+
+    const mapBasedItems = await db
+      .select({
+        id: userMapFootprints.id,
+        poiId: userMapFootprints.poiId,
+        addedAt: userMapFootprints.createdAt,
+        title: mapPois.name,
+        coverImage: sql<null>`NULL`,
+        description: mapPois.type,
+        lng: mapPois.lng,
+        lat: mapPois.lat,
+        address: mapPois.address,
+        listId: sql<null>`NULL`,
+        listName: sql<string>`'普通地图'`,
+      })
+      .from(userMapFootprints)
+      .innerJoin(mapPois, eq(userMapFootprints.poiId, mapPois.id))
+      .where(and(eq(userMapFootprints.userId, auth.userId), eq(userMapFootprints.groupId, groupId)))
+      .orderBy(desc(userMapFootprints.id));
+
+    const mergedItems = [
+      ...listBasedItems.map((item) => ({
+        ...item,
+        sourceType: 'list' as const,
+      })),
+      ...mapBasedItems.map((item) => ({
+        ...item,
+        listItemId: null,
+        albumScopeKey: buildMapFootprintPhotoScopeKey(item.poiId),
+        sourceType: 'map' as const,
+      })),
+    ].sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+
+    return NextResponse.json({ items: mergedItems }, { status: 200 });
   } catch (err) {
     console.error('GET /api/footprints/groups/[id]/items error:', err);
     return NextResponse.json({ error: '获取分类组地点失败' }, { status: 500 });
@@ -84,17 +120,59 @@ export async function POST(
 
     const {
       list_item_id,
+      poi_id,
       source_item_id,
       share_photos,
       probe_only,
     } = (await req.json()) as {
       list_item_id?: number;
+      poi_id?: number;
       source_item_id?: number;
       share_photos?: boolean;
       probe_only?: boolean;
     };
-    if (!list_item_id || !Number.isFinite(list_item_id)) {
+    const hasListItem = !!list_item_id && Number.isFinite(list_item_id);
+    const hasPoi = !!poi_id && Number.isFinite(poi_id);
+    if (!hasListItem && !hasPoi) {
       return NextResponse.json({ error: '无效的地点ID' }, { status: 400 });
+    }
+
+    if (hasPoi) {
+      const existingMap = await db
+        .select({ id: userMapFootprints.id })
+        .from(userMapFootprints)
+        .where(
+          and(
+            eq(userMapFootprints.userId, auth.userId),
+            eq(userMapFootprints.groupId, groupId),
+            eq(userMapFootprints.poiId, poi_id!),
+          ),
+        )
+        .limit(1);
+
+      if (existingMap[0]) {
+        return NextResponse.json({ error: '该地点已在此分类组中' }, { status: 409 });
+      }
+
+      if (probe_only) {
+        const sourceScopeKey = buildMapFootprintPhotoScopeKey(poi_id!);
+        const sourcePhotos = await listPhotos(auth.userId, sourceScopeKey);
+        return NextResponse.json({
+          hasPhotos: sourcePhotos.length > 0,
+          count: sourcePhotos.length,
+        }, { status: 200 });
+      }
+
+      const result = await db.insert(userMapFootprints).values({
+        userId: auth.userId,
+        groupId,
+        poiId: poi_id!,
+      });
+
+      return NextResponse.json({
+        id: result[0].insertId,
+        shared: true,
+      }, { status: 201 });
     }
 
     const [existing] = await db
@@ -103,7 +181,7 @@ export async function POST(
       .where(
         and(
           eq(footprintGroupItems.groupId, groupId),
-          eq(footprintGroupItems.listItemId, list_item_id),
+          eq(footprintGroupItems.listItemId, list_item_id!),
         ),
       );
 
@@ -172,7 +250,7 @@ export async function POST(
 
     const result = await db.insert(footprintGroupItems).values({
       groupId,
-      listItemId: list_item_id,
+      listItemId: list_item_id!,
     });
 
     const createdItemId = result[0].insertId;
@@ -231,6 +309,7 @@ export async function DELETE(
 
   const { searchParams } = new URL(req.url);
   const itemIdParam = searchParams.get('item_id');
+  const poiIdParam = searchParams.get('poi_id');
 
   if (itemIdParam) {
     const itemId = parseInt(itemIdParam);
@@ -259,6 +338,38 @@ export async function DELETE(
       return NextResponse.json({ success: true }, { status: 200 });
     } catch (err) {
       console.error('DELETE item from group error:', err);
+      return NextResponse.json({ error: '移除地点失败' }, { status: 500 });
+    }
+  }
+
+  if (poiIdParam) {
+    const poiId = parseInt(poiIdParam);
+    if (!Number.isFinite(poiId)) {
+      return NextResponse.json({ error: '无效的地点ID' }, { status: 400 });
+    }
+
+    try {
+      const [group] = await db
+        .select()
+        .from(footprintGroups)
+        .where(eq(footprintGroups.id, groupId));
+      if (!group || group.userId !== auth.userId) {
+        return NextResponse.json({ error: '分类组不存在' }, { status: 404 });
+      }
+
+      await db
+        .delete(userMapFootprints)
+        .where(
+          and(
+            eq(userMapFootprints.userId, auth.userId),
+            eq(userMapFootprints.groupId, groupId),
+            eq(userMapFootprints.poiId, poiId),
+          ),
+        );
+
+      return NextResponse.json({ success: true }, { status: 200 });
+    } catch (err) {
+      console.error('DELETE poi from group error:', err);
       return NextResponse.json({ error: '移除地点失败' }, { status: 500 });
     }
   }

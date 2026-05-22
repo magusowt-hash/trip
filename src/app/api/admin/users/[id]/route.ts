@@ -9,6 +9,7 @@ import {
   posts,
   ratings,
   storageFiles,
+  userListFavorites,
   users,
 } from '@/db/schema';
 import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
@@ -97,7 +98,6 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         gender: users.gender,
         birthday: users.birthday,
         region: users.region,
-        favoriteLists: users.favoriteLists,
         status: users.status,
         createdAt: users.createdAt,
         updatedAt: users.updatedAt,
@@ -118,6 +118,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       userComments,
       footprintStorage,
       messageRows,
+      favoritePlaceEntries,
     ] = await Promise.all([
       db
         .select({
@@ -199,6 +200,15 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         ORDER BY MAX(id) DESC
         LIMIT 8
       `).catch(() => [] as unknown),
+      db
+        .select({
+          listItemId: userListFavorites.listItemId,
+          addedAt: userListFavorites.createdAt,
+        })
+        .from(userListFavorites)
+        .where(eq(userListFavorites.userId, userId))
+        .orderBy(desc(userListFavorites.createdAt))
+        .catch(() => []),
     ]);
 
     const friendRowsResult = await loadFriendRows(userId);
@@ -218,7 +228,6 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         ratingTargetIds.add(rating.targetId);
       }
     }
-    const favoritePlaceEntries = Array.isArray(user.favoriteLists) ? (user.favoriteLists as Array<{ listItemId: number; addedAt?: string }>) : [];
     for (const entry of favoritePlaceEntries) {
       if (entry.listItemId) {
         ratingTargetIds.add(entry.listItemId);
@@ -240,7 +249,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
     const favoritePlaces = favoritePlaceEntries.map((entry) => ({
       listItemId: entry.listItemId,
-      addedAt: entry.addedAt,
+      addedAt: entry.addedAt instanceof Date ? entry.addedAt.toISOString() : String(entry.addedAt),
       title: listItemTitleMap.get(entry.listItemId) || null,
     }));
 

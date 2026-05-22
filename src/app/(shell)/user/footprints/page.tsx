@@ -11,7 +11,7 @@ import LocalMapModal, { type LocalMappedAssetDraft, type LocalMapLayoutSettings 
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import type { PhotoItem } from '@/components/OuterFrameCanvas';
-import { buildFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
+import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 import styles from './footprints.module.css';
 
 interface FootprintGroup {
@@ -25,8 +25,10 @@ interface FootprintGroup {
 
 interface FootprintItem {
   id: number;
-  listItemId: number;
+  listItemId: number | null;
+  poiId?: number | null;
   albumScopeKey?: string | null;
+  sourceType?: 'list' | 'map';
   title: string;
   coverImage: string | null;
   description: string | null;
@@ -365,7 +367,7 @@ function UserFootprintsPageInner() {
     if (items.length === 0 || photosLoaded) return;
     setPhotosLoaded(true);
 
-    const itemScopes = new Map(items.map((item) => [item.id, item.albumScopeKey || buildFootprintPhotoScopeKey(item.id)]));
+    const itemScopes = new Map(items.map((item) => [item.id, item.albumScopeKey || (item.listItemId ? buildFootprintPhotoScopeKey(item.id) : buildMapFootprintPhotoScopeKey(item.poiId ?? item.id))]));
     const itemKeys = new Set(itemScopes.values());
     const allPhotos: PhotoItem[] = photos
       .filter((photo) => photo.sourceType === 'local-mapped')
@@ -398,10 +400,10 @@ function UserFootprintsPageInner() {
       } catch { /* skip */ }
     } else {
       for (const item of items) {
-        const scopeKey = item.albumScopeKey || buildFootprintPhotoScopeKey(item.id);
+        const scopeKey = item.albumScopeKey || (item.listItemId ? buildFootprintPhotoScopeKey(item.id) : buildMapFootprintPhotoScopeKey(item.poiId ?? item.id));
         try {
           const res = await fetch(
-            `/api/storage/photos?scope_key=${encodeURIComponent(scopeKey)}&footprint_item_id=${encodeURIComponent(String(item.id))}&place_title=${encodeURIComponent(item.title)}`,
+            `/api/storage/photos?scope_key=${encodeURIComponent(scopeKey)}&footprint_item_id=${encodeURIComponent(String(item.listItemId ? item.id : ''))}&place_title=${encodeURIComponent(item.title)}`,
             { credentials: 'include' },
           );
           if (!res.ok) continue;
@@ -614,9 +616,16 @@ function UserFootprintsPageInner() {
   ) => {
     if (!options?.skipConfirm && !confirm(`确定从本组移除「${item.title}」？`)) return;
     try {
-      await fetch(`/api/footprints/groups/${groupId}/items?item_id=${item.listItemId}`, {
-        method: 'DELETE', credentials: 'include',
-      });
+      if (!item.listItemId) {
+        if (!item.poiId) return;
+        await fetch(`/api/footprints/groups/${groupId}/items?poi_id=${item.poiId}`, {
+          method: 'DELETE', credentials: 'include',
+        });
+      } else {
+        await fetch(`/api/footprints/groups/${groupId}/items?item_id=${item.listItemId}`, {
+          method: 'DELETE', credentials: 'include',
+        });
+      }
       if (selectedGroupId === groupId) {
         await loadItems(groupId);
       }
@@ -640,7 +649,7 @@ function UserFootprintsPageInner() {
   }, []);
 
   const handleUploadPhotoForItem = useCallback(async (item: FootprintItem) => {
-    const scopeKey = item.albumScopeKey || buildFootprintPhotoScopeKey(item.id);
+    const scopeKey = item.albumScopeKey || (item.listItemId ? buildFootprintPhotoScopeKey(item.id) : buildMapFootprintPhotoScopeKey(item.poiId ?? item.id));
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
@@ -651,7 +660,7 @@ function UserFootprintsPageInner() {
       if (!input.files?.length) { document.body.removeChild(input); return; }
       const form = new FormData();
       form.append('scope_key', scopeKey);
-      form.append('footprint_item_id', String(item.id));
+      form.append('footprint_item_id', String(item.listItemId ? item.id : ''));
       form.append('place_title', item.title);
       for (const f of Array.from(input.files)) form.append('files', f);
       try {
@@ -694,6 +703,30 @@ function UserFootprintsPageInner() {
 
   const handleAddItemToGroup = useCallback(async (item: FootprintItem, groupId: number) => {
     try {
+      if (!item.listItemId && item.poiId) {
+        const res = await fetch(`/api/footprints/groups/${groupId}/items`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            poi_id: item.poiId,
+            source_item_id: item.id,
+            share_photos: true,
+          }),
+        });
+        if (res.status === 409) {
+          alert('该地点已在目标分类组中');
+          return;
+        }
+        if (!res.ok) {
+          const err = await res.json();
+          alert(err.error || '添加失败');
+          return;
+        }
+        await loadGroups();
+        return;
+      }
+
       const probeRes = await fetch(`/api/footprints/groups/${groupId}/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -992,7 +1025,7 @@ function UserFootprintsPageInner() {
         footprintItemId={albumItem?.id ?? null}
         albumScopeKey={albumItem?.albumScopeKey ?? null}
         placeTitle={albumItem?.title || ''}
-        shared={!!albumItem?.albumScopeKey && albumItem.albumScopeKey !== buildFootprintPhotoScopeKey(albumItem.id)}
+        shared={!!albumItem?.listItemId && !!albumItem?.albumScopeKey && albumItem.albumScopeKey !== buildFootprintPhotoScopeKey(albumItem.id)}
         onClose={() => setAlbumItem(null)}
         onPhotosDeleted={handleAlbumPhotosDeleted}
       />

@@ -15,8 +15,10 @@ interface FootprintGroup {
 
 interface FootprintItem {
   id: number;
-  listItemId: number;
+  listItemId: number | null;
+  poiId?: number | null;
   albumScopeKey?: string | null;
+  sourceType?: 'list' | 'map';
   title: string;
   coverImage: string | null;
   description: string | null;
@@ -507,16 +509,17 @@ export default function FootprintGroupPanel({
                               </button>
                               <div className={styles.managementDateCell}>{formatDate(item.addedAt)}</div>
                               <div className={styles.managementRowActions}>
-                                <button className={styles.managementTextBtn} onClick={() => onOpenAlbum(item)}>
+                                <button className={styles.managementTextBtn} disabled={!item.listItemId} onClick={() => onOpenAlbum(item)}>
                                   相册
                                 </button>
-                                <button className={styles.managementTextBtn} onClick={() => onUploadPhoto(item)}>
+                                <button className={styles.managementTextBtn} disabled={!item.listItemId} onClick={() => onUploadPhoto(item)}>
                                   上传图片
                                 </button>
                                 {onAddItemToGroup && bulkTargetGroups.length > 0 ? (
                                   <div className={styles.managementInlineMenuWrap}>
                                     <button
                                       className={styles.managementTextBtn}
+                                      disabled={!item.listItemId}
                                       onClick={(e) => openInlineAddMenu(item.id, e)}
                                     >
                                       添加到
@@ -554,10 +557,10 @@ export default function FootprintGroupPanel({
             style={{ left: menuPos.x - 10, top: menuPos.y, transform: 'translate(-100%, 0)' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <button className={styles.menuItemBtn} onClick={() => { onOpenAlbum(menuItem); setMenuItem(null); }}>
+            <button className={styles.menuItemBtn} disabled={!menuItem.listItemId} onClick={() => { onOpenAlbum(menuItem); setMenuItem(null); }}>
               相册
             </button>
-            <button className={styles.menuItemBtn} onClick={() => { onUploadPhoto(menuItem); setMenuItem(null); }}>
+            <button className={styles.menuItemBtn} disabled={!menuItem.listItemId} onClick={() => { onUploadPhoto(menuItem); setMenuItem(null); }}>
               上传图片
             </button>
             {onAddItemToGroup && groups.filter((group) => group.id !== selectedGroupId).length > 0 ? (
@@ -569,6 +572,7 @@ export default function FootprintGroupPanel({
                     <button
                       key={group.id}
                       className={styles.menuItemBtn}
+                      disabled={!menuItem.listItemId}
                       onClick={() => { void onAddItemToGroup(menuItem, group.id); setMenuItem(null); }}
                     >
                       {group.name}

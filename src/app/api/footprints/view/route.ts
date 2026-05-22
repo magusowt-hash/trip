@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { sql } from 'drizzle-orm';
 import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
-import { buildFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
+import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 import { ensureScopedStorageForItem, listPhotos } from '@/services/storage';
 
 const crypto = await import('crypto');
@@ -87,7 +87,7 @@ export async function GET(req: Request) {
 
   try {
     if (type === 'groups') {
-      const { footprintGroups, footprintGroupItems } = await import('@/db/schema');
+      const { footprintGroups, footprintGroupItems, userMapFootprints } = await import('@/db/schema');
       const groups = await db
         .select({
           id: footprintGroups.id,
@@ -101,20 +101,51 @@ export async function GET(req: Request) {
         .where(sql`${footprintGroups.userId} = ${auth.userId}`)
         .groupBy(footprintGroups.id);
 
-      return NextResponse.json({ groups });
+      const mapCounts = await db
+        .select({
+          groupId: userMapFootprints.groupId,
+          itemCount: sql<number>`count(*)`,
+        })
+        .from(userMapFootprints)
+        .where(sql`${userMapFootprints.userId} = ${auth.userId}`)
+        .groupBy(userMapFootprints.groupId);
+      const mapCountByGroupId = new Map(
+        mapCounts
+          .filter((row) => Number.isFinite(row.groupId as number))
+          .map((row) => [Number(row.groupId), Number(row.itemCount || 0)]),
+      );
+
+      return NextResponse.json({
+        groups: groups.map((group) => ({
+          ...group,
+          itemCount: Number(group.itemCount || 0) + (mapCountByGroupId.get(group.id) || 0),
+        })),
+      });
     }
 
     if (type === 'items') {
       const groupId = parseInt(url.searchParams.get('group_id') || '0');
       if (!groupId) return NextResponse.json({ error: '缺少group_id' }, { status: 400 });
 
-      const { footprintGroupItems, listItems } = await import('@/db/schema');
-      const items = await db
+      const { footprintGroups, footprintGroupItems, listItems, mapPois, userMapFootprints } = await import('@/db/schema');
+      const [group] = await db
+        .select({
+          id: footprintGroups.id,
+          isDefault: footprintGroups.isDefault,
+        })
+        .from(footprintGroups)
+        .where(sql`${footprintGroups.id} = ${groupId} AND ${footprintGroups.userId} = ${auth.userId}`)
+        .limit(1);
+      if (!group) return NextResponse.json({ error: '分类组不存在' }, { status: 404 });
+
+      const listBasedItems = await db
         .select({
           id: footprintGroupItems.id,
           listItemId: footprintGroupItems.listItemId,
+          albumScopeKey: footprintGroupItems.albumScopeKey,
           title: listItems.title,
           coverImage: listItems.coverImage,
+          description: listItems.description,
           address: listItems.address,
           lng: listItems.lng,
           lat: listItems.lat,
@@ -124,6 +155,36 @@ export async function GET(req: Request) {
         .leftJoin(listItems, sql`${footprintGroupItems.listItemId} = ${listItems.id}`)
         .where(sql`${footprintGroupItems.groupId} = ${groupId}`);
 
+      if (group.isDefault !== 1) {
+        return NextResponse.json({ items: listBasedItems });
+      }
+
+      const mapBasedItems = await db
+        .select({
+          id: userMapFootprints.id,
+          poiId: userMapFootprints.poiId,
+          title: mapPois.name,
+          coverImage: sql<null>`NULL`,
+          description: mapPois.type,
+          address: mapPois.address,
+          lng: mapPois.lng,
+          lat: mapPois.lat,
+          addedAt: userMapFootprints.createdAt,
+        })
+        .from(userMapFootprints)
+        .leftJoin(mapPois, sql`${userMapFootprints.poiId} = ${mapPois.id}`)
+        .where(sql`${userMapFootprints.groupId} = ${groupId} AND ${userMapFootprints.userId} = ${auth.userId}`);
+
+      const items = [
+        ...listBasedItems.map((item) => ({ ...item, sourceType: 'list' as const })),
+        ...mapBasedItems.map((item) => ({
+          ...item,
+          listItemId: null,
+          albumScopeKey: buildMapFootprintPhotoScopeKey(item.poiId),
+          sourceType: 'map' as const,
+        })),
+      ].sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+
       return NextResponse.json({ items });
     }
 
@@ -131,23 +192,47 @@ export async function GET(req: Request) {
       const groupId = parseInt(url.searchParams.get('group_id') || '0');
       if (!groupId) return NextResponse.json({ error: '缺少group_id' }, { status: 400 });
 
-      const { footprintGroupItems, listItems } = await import('@/db/schema');
-      const items = await db
+      const { footprintGroupItems, listItems, mapPois, userMapFootprints, footprintGroups } = await import('@/db/schema');
+      const [group] = await db
+        .select({
+          id: footprintGroups.id,
+          isDefault: footprintGroups.isDefault,
+        })
+        .from(footprintGroups)
+        .where(sql`${footprintGroups.id} = ${groupId} AND ${footprintGroups.userId} = ${auth.userId}`)
+        .limit(1);
+      if (!group) return NextResponse.json({ error: '分类组不存在' }, { status: 404 });
+
+      const listItemsInGroup = await db
         .select({
           id: footprintGroupItems.id,
           title: listItems.title,
+          poiId: sql<null>`NULL`,
         })
         .from(footprintGroupItems)
         .leftJoin(listItems, sql`${footprintGroupItems.listItemId} = ${listItems.id}`)
         .where(sql`${footprintGroupItems.groupId} = ${groupId}`);
 
-      const groupedFiles = await Promise.all(items.map(async (item) => {
+      const mapItemsInGroup = group.isDefault === 1
+        ? await db
+            .select({
+              id: userMapFootprints.id,
+              title: mapPois.name,
+              poiId: userMapFootprints.poiId,
+            })
+            .from(userMapFootprints)
+            .leftJoin(mapPois, sql`${userMapFootprints.poiId} = ${mapPois.id}`)
+            .where(sql`${userMapFootprints.groupId} = ${groupId} AND ${userMapFootprints.userId} = ${auth.userId}`)
+        : [];
+
+      const groupedFiles = await Promise.all([...listItemsInGroup, ...mapItemsInGroup].map(async (item) => {
         await ensureScopedStorageForItem(auth.userId!, item.id, item.title || '');
-        const photos = await listPhotos(auth.userId!, buildFootprintPhotoScopeKey(item.id));
+        const scopeKey = item.poiId ? buildMapFootprintPhotoScopeKey(item.poiId) : buildFootprintPhotoScopeKey(item.id);
+        const photos = await listPhotos(auth.userId!, scopeKey);
         return photos.map((photo) => ({
           ...photo,
           userId: auth.userId,
-          scopeKey: buildFootprintPhotoScopeKey(item.id),
+          scopeKey,
           footprintItemId: item.id,
           displayTitle: item.title,
         }));
