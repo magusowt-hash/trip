@@ -8,6 +8,8 @@ export const storageFiles = mysqlTable(
     placeTitle: varchar('place_title', { length: 255 }).notNull(),
     filename: varchar('filename', { length: 500 }).notNull(),
     size: bigint('size', { mode: 'number' }).notNull().default(0),
+    pixelWidth: int('pixel_width'),
+    pixelHeight: int('pixel_height'),
     frameX: double('frame_x'),
     frameY: double('frame_y'),
     createdAt: timestamp('created_at').notNull().defaultNow(),

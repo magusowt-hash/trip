@@ -52,8 +52,36 @@ type LogicalOffset = {
   offsetY: number;
 };
 
+type LogicalSize = {
+  width: number;
+  height: number;
+};
+
+const PHOTO_MAX_EDGE = 120;
+const PHOTO_MIN_EDGE = 48;
+
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function getPhotoLogicalSize(photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>): LogicalSize {
+  const sourceWidth = photo.pixelWidth ?? 0;
+  const sourceHeight = photo.pixelHeight ?? 0;
+
+  if (sourceWidth > 0 && sourceHeight > 0) {
+    if (sourceWidth >= sourceHeight) {
+      return {
+        width: PHOTO_MAX_EDGE,
+        height: Math.max(PHOTO_MIN_EDGE, (PHOTO_MAX_EDGE * sourceHeight) / sourceWidth),
+      };
+    }
+    return {
+      width: Math.max(PHOTO_MIN_EDGE, (PHOTO_MAX_EDGE * sourceWidth) / sourceHeight),
+      height: PHOTO_MAX_EDGE,
+    };
+  }
+
+  return { width: PHOTO_MAX_EDGE, height: PHOTO_MAX_EDGE };
 }
 
 function buildGridOffsets(count: number, gapX: number, gapY: number, cardSize: number) {
@@ -123,7 +151,6 @@ function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, he
 
   const mapHalfW = (width * 0.6) / 2;
   const mapHalfH = (height * 0.8) / 2;
-  const photoHalf = photoSize / 2;
   const safetyGap = photoSize;
 
   let left = Infinity;
@@ -133,10 +160,11 @@ function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, he
 
   for (const photo of placePhotos) {
     if (photo.frameX == null || photo.frameY == null) continue;
-    left = Math.min(left, photo.frameX - photoHalf);
-    right = Math.max(right, photo.frameX + photoHalf);
-    top = Math.min(top, photo.frameY - photoHalf);
-    bottom = Math.max(bottom, photo.frameY + photoHalf);
+    const size = getPhotoLogicalSize(photo);
+    left = Math.min(left, photo.frameX - size.width / 2);
+    right = Math.max(right, photo.frameX + size.width / 2);
+    top = Math.min(top, photo.frameY - size.height / 2);
+    bottom = Math.max(bottom, photo.frameY + size.height / 2);
   }
 
   const overlapsMap =
@@ -167,7 +195,7 @@ function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, he
   }
 }
 
-function buildPlaceBounds(placePhotos: PhotoItem[], photoSize: number): LogicalRect | null {
+function buildPlaceBounds(placePhotos: PhotoItem[]): LogicalRect | null {
   let left = Infinity;
   let right = -Infinity;
   let top = Infinity;
@@ -175,10 +203,11 @@ function buildPlaceBounds(placePhotos: PhotoItem[], photoSize: number): LogicalR
 
   for (const photo of placePhotos) {
     if (photo.frameX == null || photo.frameY == null) continue;
-    left = Math.min(left, photo.frameX - photoSize / 2);
-    right = Math.max(right, photo.frameX + photoSize / 2);
-    top = Math.min(top, photo.frameY - photoSize / 2);
-    bottom = Math.max(bottom, photo.frameY + photoSize / 2);
+    const size = getPhotoLogicalSize(photo);
+    left = Math.min(left, photo.frameX - size.width / 2);
+    right = Math.max(right, photo.frameX + size.width / 2);
+    top = Math.min(top, photo.frameY - size.height / 2);
+    bottom = Math.max(bottom, photo.frameY + size.height / 2);
   }
 
   if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
@@ -211,20 +240,95 @@ function buildOffsetsForLayout(
   return buildRandomOffsets(count, cardSize);
 }
 
-function buildRectFromOffsets(offsets: LogicalOffset[], cardSize: number): LogicalRect {
+function buildRectFromOffsets(placePhotos: PhotoItem[], offsets: LogicalOffset[]): LogicalRect {
   let left = Infinity;
   let right = -Infinity;
   let top = Infinity;
   let bottom = -Infinity;
 
-  for (const offset of offsets) {
-    left = Math.min(left, offset.offsetX - cardSize / 2);
-    right = Math.max(right, offset.offsetX + cardSize / 2);
-    top = Math.min(top, offset.offsetY - cardSize / 2);
-    bottom = Math.max(bottom, offset.offsetY + cardSize / 2);
+  for (let i = 0; i < offsets.length; i++) {
+    const size = getPhotoLogicalSize(placePhotos[i]);
+    left = Math.min(left, offsets[i].offsetX - size.width / 2);
+    right = Math.max(right, offsets[i].offsetX + size.width / 2);
+    top = Math.min(top, offsets[i].offsetY - size.height / 2);
+    bottom = Math.max(bottom, offsets[i].offsetY + size.height / 2);
   }
 
   return { left, right, top, bottom };
+}
+
+function applySizedOffsets(
+  placePhotos: PhotoItem[],
+  offsets: LogicalOffset[],
+  gapX: number,
+  gapY: number,
+) {
+  if (placePhotos.length === 0) return;
+
+  const xAnchors = new Map<number, Array<{ index: number; width: number }>>();
+  const yAnchors = new Map<number, Array<{ index: number; height: number }>>();
+
+  for (let i = 0; i < offsets.length; i++) {
+    const size = getPhotoLogicalSize(placePhotos[i]);
+    const xKey = Math.round(offsets[i].offsetX);
+    const yKey = Math.round(offsets[i].offsetY);
+    const xGroup = xAnchors.get(xKey) || [];
+    xGroup.push({ index: i, width: size.width });
+    xAnchors.set(xKey, xGroup);
+    const yGroup = yAnchors.get(yKey) || [];
+    yGroup.push({ index: i, height: size.height });
+    yAnchors.set(yKey, yGroup);
+  }
+
+  const sizedOffsets = offsets.map((offset) => ({ ...offset }));
+
+  for (const [, group] of xAnchors) {
+    group.sort((a, b) => offsets[a.index].offsetY - offsets[b.index].offsetY);
+    let cursor = 0;
+    for (let i = 0; i < group.length; i++) {
+      const current = group[i];
+      const prev = group[i - 1];
+      if (!prev) {
+        sizedOffsets[current.index].offsetY = offsets[current.index].offsetY;
+        cursor = sizedOffsets[current.index].offsetY + getPhotoLogicalSize(placePhotos[current.index]).height / 2;
+        continue;
+      }
+      const prevHeight = getPhotoLogicalSize(placePhotos[prev.index]).height;
+      const currentHeight = getPhotoLogicalSize(placePhotos[current.index]).height;
+      cursor += prevHeight / 2 + gapY + currentHeight / 2;
+      sizedOffsets[current.index].offsetY = cursor;
+    }
+  }
+
+  for (const [, group] of yAnchors) {
+    group.sort((a, b) => offsets[a.index].offsetX - offsets[b.index].offsetX);
+    let cursor = 0;
+    for (let i = 0; i < group.length; i++) {
+      const current = group[i];
+      const prev = group[i - 1];
+      if (!prev) {
+        sizedOffsets[current.index].offsetX = offsets[current.index].offsetX;
+        cursor = sizedOffsets[current.index].offsetX + getPhotoLogicalSize(placePhotos[current.index]).width / 2;
+        continue;
+      }
+      const prevWidth = getPhotoLogicalSize(placePhotos[prev.index]).width;
+      const currentWidth = getPhotoLogicalSize(placePhotos[current.index]).width;
+      cursor += prevWidth / 2 + gapX + currentWidth / 2;
+      sizedOffsets[current.index].offsetX = cursor;
+    }
+  }
+
+  const minX = Math.min(...sizedOffsets.map((item, index) => item.offsetX - getPhotoLogicalSize(placePhotos[index]).width / 2));
+  const maxX = Math.max(...sizedOffsets.map((item, index) => item.offsetX + getPhotoLogicalSize(placePhotos[index]).width / 2));
+  const minY = Math.min(...sizedOffsets.map((item, index) => item.offsetY - getPhotoLogicalSize(placePhotos[index]).height / 2));
+  const maxY = Math.max(...sizedOffsets.map((item, index) => item.offsetY + getPhotoLogicalSize(placePhotos[index]).height / 2));
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+
+  return sizedOffsets.map((item) => ({
+    offsetX: item.offsetX - centerX,
+    offsetY: item.offsetY - centerY,
+  }));
 }
 
 function translateRect(rect: LogicalRect, centerX: number, centerY: number): LogicalRect {
@@ -555,6 +659,8 @@ function UserFootprintsPageInner() {
               filename: f.filename,
               size: f.size ?? undefined,
               lastModified: f.createdAt ? new Date(f.createdAt).getTime() : undefined,
+              pixelWidth: f.pixelWidth ?? undefined,
+              pixelHeight: f.pixelHeight ?? undefined,
               sourceType: 'uploaded',
             });
           }
@@ -582,6 +688,8 @@ function UserFootprintsPageInner() {
               filename: p.filename,
               size: p.size ?? undefined,
               lastModified: p.createdAt ? new Date(p.createdAt).getTime() : undefined,
+              pixelWidth: p.pixelWidth ?? undefined,
+              pixelHeight: p.pixelHeight ?? undefined,
               sourceType: 'uploaded',
             });
           }
@@ -648,7 +756,7 @@ function UserFootprintsPageInner() {
       existingGroups.set(photo.placeKey, arr);
     }
     for (const [, group] of existingGroups) {
-      const rect = buildPlaceBounds(group, cardSize);
+      const rect = buildPlaceBounds(group);
       if (rect) occupiedRects.push(rect);
     }
 
@@ -658,8 +766,9 @@ function UserFootprintsPageInner() {
         if (photo.frameX == null || photo.frameY == null) return false;
         return !placePhotos.some((candidate) => candidate.id === photo.id);
       });
-      const offsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
-      const groupRect = buildRectFromOffsets(offsets, cardSize);
+      const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
+      const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
+      const groupRect = buildRectFromOffsets(placePhotos, offsets);
       let centerX = 0;
       let centerY = 0;
 
@@ -700,7 +809,7 @@ function UserFootprintsPageInner() {
       }
 
       clampPlacePhotosAwayFromMap(placePhotos, viewportWidth, viewportHeight, cardSize);
-      const placedRect = buildPlaceBounds(placePhotos, cardSize);
+      const placedRect = buildPlaceBounds(placePhotos);
       if (placedRect) {
         occupiedRects.push(placedRect);
       }
@@ -1059,6 +1168,8 @@ function UserFootprintsPageInner() {
           filename: asset.name,
           size: asset.size,
           lastModified: asset.lastModified,
+          pixelWidth: asset.pixelWidth ?? undefined,
+          pixelHeight: asset.pixelHeight ?? undefined,
           sourceType: 'local-mapped',
           relativePath: asset.relativePath,
           rootName: payload.rootName,

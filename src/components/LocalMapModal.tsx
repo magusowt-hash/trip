@@ -9,6 +9,8 @@ export type LocalMappedAssetDraft = {
   name: string;
   size: number;
   lastModified: number;
+  pixelWidth: number | null;
+  pixelHeight: number | null;
   matchedPlaceTitle: string;
   frameX: number | null;
   frameY: number | null;
@@ -62,6 +64,22 @@ const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|bmp|svg|avif)$/i;
 function clampNonNegative(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, value);
+}
+
+function readImageDimensions(file: File) {
+  return new Promise<{ width: number; height: number } | null>((resolve) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      URL.revokeObjectURL(objectUrl);
+    };
+    img.onerror = () => {
+      resolve(null);
+      URL.revokeObjectURL(objectUrl);
+    };
+    img.src = objectUrl;
+  });
 }
 
 export default function LocalMapModal({ open, placeTitles, onClose, onApply }: Props) {
@@ -189,12 +207,16 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
           nextChanged.push(relativePath);
         }
 
+        const dimensions = await readImageDimensions(file);
+
         nextMatched.push({
           relativePath,
           folderName,
           name: file.name,
           size: file.size,
           lastModified: file.lastModified,
+          pixelWidth: dimensions?.width ?? null,
+          pixelHeight: dimensions?.height ?? null,
           matchedPlaceTitle: folderName,
           frameX: oldAsset?.frameX ?? null,
           frameY: oldAsset?.frameY ?? null,

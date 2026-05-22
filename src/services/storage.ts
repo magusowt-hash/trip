@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { eq, and, sql } from 'drizzle-orm';
+import sharp from 'sharp';
 import { db } from '@/db';
 import { footprintGroupItems, storageFiles } from '@/db/schema';
 import { buildFootprintPhotoScopeKey, parseFootprintPhotoScopeKey, parseMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
@@ -215,7 +216,8 @@ export async function saveFile(
   scopeKey: string,
   filename: string,
   buffer: Buffer,
-): Promise<{ url: string; size: number }> {
+  options?: { pixelWidth?: number; pixelHeight?: number },
+): Promise<{ url: string; size: number; pixelWidth?: number; pixelHeight?: number }> {
   const ext = path.extname(filename).toLowerCase();
   if (!ALLOWED_EXT.includes(ext)) throw new Error(`不支持的文件类型: ${ext}`);
   if (buffer.length > MAX_FILE) throw new Error(`单个文件最大 ${MAX_FILE / 1024 / 1024}MB`);
@@ -238,12 +240,31 @@ export async function saveFile(
     placeTitle: sanitize(scopeKey),
     filename: finalName,
     size: stats.size,
+    pixelWidth: options?.pixelWidth,
+    pixelHeight: options?.pixelHeight,
   });
 
   return {
     url: `/api/storage/file?uid=${userId}&place=${encodeURIComponent(sanitize(scopeKey))}&file=${encodeURIComponent(finalName)}`,
     size: stats.size,
+    pixelWidth: options?.pixelWidth,
+    pixelHeight: options?.pixelHeight,
   };
+}
+
+export async function readImageMetadata(buffer: Buffer) {
+  try {
+    const metadata = await sharp(buffer).metadata();
+    return {
+      pixelWidth: metadata.width,
+      pixelHeight: metadata.height,
+    };
+  } catch {
+    return {
+      pixelWidth: undefined,
+      pixelHeight: undefined,
+    };
+  }
 }
 
 export async function listPhotos(userId: number, scopeKey: string) {
@@ -261,6 +282,8 @@ export async function listPhotos(userId: number, scopeKey: string) {
       id: f.id,
       filename: f.filename,
       size: f.size,
+      pixelWidth: f.pixelWidth ?? null,
+      pixelHeight: f.pixelHeight ?? null,
       frameX: f.frameX ?? null,
       frameY: f.frameY ?? null,
       scopeKey: sanitizedScopeKey,

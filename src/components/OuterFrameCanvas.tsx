@@ -19,6 +19,8 @@ export interface PhotoItem {
   rootName?: string;
   missing?: boolean;
   isGroupLabel?: boolean;
+  pixelWidth?: number;
+  pixelHeight?: number;
 }
 
 export interface PoiPoint {
@@ -103,6 +105,21 @@ export default function OuterFrameCanvas({
   const didDragRef = useRef(false);
 
   const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
+    const sourceWidth = photo.pixelWidth ?? 0;
+    const sourceHeight = photo.pixelHeight ?? 0;
+    if (sourceWidth > 0 && sourceHeight > 0) {
+      if (sourceWidth >= sourceHeight) {
+        return {
+          width: PHOTO_MAX_EDGE,
+          height: Math.max(PHOTO_MIN_EDGE, (PHOTO_MAX_EDGE * sourceHeight) / sourceWidth),
+        };
+      }
+      return {
+        width: Math.max(PHOTO_MIN_EDGE, (PHOTO_MAX_EDGE * sourceWidth) / sourceHeight),
+        height: PHOTO_MAX_EDGE,
+      };
+    }
+
     const img = imageCache.current.get(photo.id);
     if (!img || !img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) {
       return { width: PHOTO_MAX_EDGE, height: PHOTO_MAX_EDGE };

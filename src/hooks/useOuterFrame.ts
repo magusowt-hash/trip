@@ -146,13 +146,14 @@ export function useOuterFrame(options: UseOuterFrameOptions = {}) {
   }, []);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!panStartRef.current) return;
-    const dx = e.clientX - panStartRef.current.x;
-    const dy = e.clientY - panStartRef.current.y;
+    const panStart = panStartRef.current;
+    if (!panStart) return;
+    const dx = e.clientX - panStart.x;
+    const dy = e.clientY - panStart.y;
     setTransform(prev => ({
       ...prev,
-      tx: panStartRef.current!.tx + dx,
-      ty: panStartRef.current!.ty + dy,
+      tx: panStart.tx + dx,
+      ty: panStart.ty + dy,
     }));
   }, []);
 

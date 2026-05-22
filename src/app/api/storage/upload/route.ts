@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { saveFile, getUserUsage, ensureScopedStorageForItem } from '@/services/storage';
+import { saveFile, getUserUsage, ensureScopedStorageForItem, readImageMetadata } from '@/services/storage';
 import { authenticate } from '../_auth';
 
 const MAX_QUOTA = 5 * 1024 * 1024 * 1024;
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     const usage = Number(await getUserUsage(auth.userId));
 
-    const results: { url: string; name: string; size: number }[] = [];
+    const results: Array<{ url: string; name: string; size: number; pixelWidth?: number; pixelHeight?: number }> = [];
     let totalNew = 0;
 
     for (const file of files) {
@@ -33,8 +33,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `超出存储上限（5GB），已用 ${(usage / 1024 / 1024).toFixed(0)}MB`, results }, { status: 413 });
       }
       const buf = Buffer.from(await file.arrayBuffer());
-      const result = await saveFile(auth.userId, scopeKey, file.name, buf);
-      results.push({ url: result.url, name: file.name, size: result.size });
+      const metadata = await readImageMetadata(buf);
+      const result = await saveFile(auth.userId, scopeKey, file.name, buf, metadata);
+      results.push({
+        url: result.url,
+        name: file.name,
+        size: result.size,
+        pixelWidth: result.pixelWidth,
+        pixelHeight: result.pixelHeight,
+      });
       totalNew += result.size;
     }
 
