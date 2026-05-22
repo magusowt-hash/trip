@@ -40,6 +40,18 @@ interface FootprintItem {
   addedAt: string;
 }
 
+type LogicalRect = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
+type LogicalOffset = {
+  offsetX: number;
+  offsetY: number;
+};
+
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -153,6 +165,156 @@ function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, he
     photo.frameX += shiftX;
     photo.frameY += shiftY;
   }
+}
+
+function buildPlaceBounds(placePhotos: PhotoItem[], photoSize: number): LogicalRect | null {
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+
+  for (const photo of placePhotos) {
+    if (photo.frameX == null || photo.frameY == null) continue;
+    left = Math.min(left, photo.frameX - photoSize / 2);
+    right = Math.max(right, photo.frameX + photoSize / 2);
+    top = Math.min(top, photo.frameY - photoSize / 2);
+    bottom = Math.max(bottom, photo.frameY + photoSize / 2);
+  }
+
+  if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
+    return null;
+  }
+
+  return { left, right, top, bottom };
+}
+
+function rectsOverlap(a: LogicalRect, b: LogicalRect, gap: number) {
+  return !(
+    a.right + gap <= b.left ||
+    b.right + gap <= a.left ||
+    a.bottom + gap <= b.top ||
+    b.bottom + gap <= a.top
+  );
+}
+
+function buildOffsetsForLayout(
+  count: number,
+  layout: LocalMapLayoutSettings,
+  cardSize: number,
+): LogicalOffset[] {
+  if (layout.mode === 'grid') {
+    return buildGridOffsets(count, layout.gapX, layout.gapY, cardSize);
+  }
+  if (layout.mode === 'staggered') {
+    return buildStaggeredOffsets(count, layout.gapX, layout.gapY, cardSize, layout.staggerAxis);
+  }
+  return buildRandomOffsets(count, cardSize);
+}
+
+function buildRectFromOffsets(offsets: LogicalOffset[], cardSize: number): LogicalRect {
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+
+  for (const offset of offsets) {
+    left = Math.min(left, offset.offsetX - cardSize / 2);
+    right = Math.max(right, offset.offsetX + cardSize / 2);
+    top = Math.min(top, offset.offsetY - cardSize / 2);
+    bottom = Math.max(bottom, offset.offsetY + cardSize / 2);
+  }
+
+  return { left, right, top, bottom };
+}
+
+function translateRect(rect: LogicalRect, centerX: number, centerY: number): LogicalRect {
+  return {
+    left: rect.left + centerX,
+    right: rect.right + centerX,
+    top: rect.top + centerY,
+    bottom: rect.bottom + centerY,
+  };
+}
+
+function rectDistanceToMap(rect: LogicalRect, mapRect: LogicalRect) {
+  const horizontalGap =
+    rect.right < mapRect.left ? mapRect.left - rect.right
+      : rect.left > mapRect.right ? rect.left - mapRect.right
+        : 0;
+  const verticalGap =
+    rect.bottom < mapRect.top ? mapRect.top - rect.bottom
+      : rect.top > mapRect.bottom ? rect.top - mapRect.bottom
+        : 0;
+
+  return horizontalGap + verticalGap;
+}
+
+function fitsAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
+  const outsideMap =
+    rect.right <= mapRect.left - gap ||
+    rect.left >= mapRect.right + gap ||
+    rect.bottom <= mapRect.top - gap ||
+    rect.top >= mapRect.bottom + gap;
+  return outsideMap;
+}
+
+function findNearestAvailableGroupCenter(
+  groupRect: LogicalRect,
+  occupiedRects: LogicalRect[],
+  mapRect: LogicalRect,
+  gap: number,
+) {
+  const groupWidth = groupRect.right - groupRect.left;
+  const groupHeight = groupRect.bottom - groupRect.top;
+  const step = Math.max(40, Math.min(groupWidth, groupHeight) / 2);
+  const mapCenterX = (mapRect.left + mapRect.right) / 2;
+  const mapCenterY = (mapRect.top + mapRect.bottom) / 2;
+
+  let bestCenter: { x: number; y: number } | null = null;
+  let bestDistance = Infinity;
+
+  for (let ring = 0; ring < 24; ring++) {
+    const expansion = gap + ring * Math.max(groupWidth, groupHeight, 120);
+    const outer = {
+      left: mapRect.left - expansion - groupWidth / 2,
+      right: mapRect.right + expansion + groupWidth / 2,
+      top: mapRect.top - expansion - groupHeight / 2,
+      bottom: mapRect.bottom + expansion + groupHeight / 2,
+    };
+
+    const candidates: Array<{ x: number; y: number }> = [];
+
+    for (let x = outer.left; x <= outer.right; x += step) {
+      candidates.push({ x, y: outer.top });
+      candidates.push({ x, y: outer.bottom });
+    }
+    for (let y = outer.top + step; y < outer.bottom; y += step) {
+      candidates.push({ x: outer.left, y });
+      candidates.push({ x: outer.right, y });
+    }
+
+    candidates.sort((a, b) => {
+      const da = Math.abs(a.x - mapCenterX) + Math.abs(a.y - mapCenterY);
+      const db = Math.abs(b.x - mapCenterX) + Math.abs(b.y - mapCenterY);
+      return da - db;
+    });
+
+    for (const candidate of candidates) {
+      const rect = translateRect(groupRect, candidate.x, candidate.y);
+      if (!fitsAroundMap(rect, mapRect, gap)) continue;
+      if (occupiedRects.some((occupied) => rectsOverlap(rect, occupied, gap))) continue;
+
+      const distance = rectDistanceToMap(rect, mapRect);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestCenter = candidate;
+      }
+    }
+
+    if (bestCenter) return bestCenter;
+  }
+
+  return { x: mapRect.right + gap + groupWidth, y: mapCenterY };
 }
 
 export default function UserFootprintsPage() {
@@ -451,7 +613,7 @@ function UserFootprintsPageInner() {
   function autoPlacePhotos(
     unplaced: PhotoItem[],
     referencePhotos: PhotoItem[] = photos,
-    layout: LocalMapLayoutSettings = { mode: 'grid', gapX: 20, gapY: 20, staggerAxis: 'horizontal' },
+    layout: LocalMapLayoutSettings = { enabled: true, mode: 'grid', gapX: 20, gapY: 20, staggerAxis: 'horizontal' },
   ) {
     if (unplaced.length === 0) return;
 
@@ -465,10 +627,30 @@ function UserFootprintsPageInner() {
       byPlace.set(p.placeKey, arr);
     }
 
-    let angle = 0;
-    const RADIUS = 600;
-    const PLACE_COUNT = Math.max(byPlace.size, 1);
-    const ANGLE_STEP = (2 * Math.PI) / PLACE_COUNT;
+    const cardSize = 80;
+    const mapRect = {
+      left: -(viewportWidth * 0.6) / 2,
+      right: (viewportWidth * 0.6) / 2,
+      top: -(viewportHeight * 0.8) / 2,
+      bottom: (viewportHeight * 0.8) / 2,
+    };
+    const occupiedRects: LogicalRect[] = [];
+
+    for (const photo of referencePhotos) {
+      if (photo.frameX == null || photo.frameY == null) continue;
+    }
+
+    const existingGroups = new Map<string, PhotoItem[]>();
+    for (const photo of referencePhotos) {
+      if (photo.frameX == null || photo.frameY == null) continue;
+      const arr = existingGroups.get(photo.placeKey) || [];
+      arr.push(photo);
+      existingGroups.set(photo.placeKey, arr);
+    }
+    for (const [, group] of existingGroups) {
+      const rect = buildPlaceBounds(group, cardSize);
+      if (rect) occupiedRects.push(rect);
+    }
 
     for (const [, placePhotos] of byPlace) {
       const placedPhotos = referencePhotos.filter((photo) => {
@@ -476,20 +658,26 @@ function UserFootprintsPageInner() {
         if (photo.frameX == null || photo.frameY == null) return false;
         return !placePhotos.some((candidate) => candidate.id === photo.id);
       });
+      const offsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
+      const groupRect = buildRectFromOffsets(offsets, cardSize);
+      let centerX = 0;
+      let centerY = 0;
 
-      let centerX = Math.cos(angle) * RADIUS;
-      let centerY = Math.sin(angle) * RADIUS;
       if (placedPhotos.length > 0) {
         centerX = placedPhotos.reduce((sum, photo) => sum + (photo.frameX ?? 0), 0) / placedPhotos.length;
         centerY = placedPhotos.reduce((sum, photo) => sum + (photo.frameY ?? 0), 0) / placedPhotos.length;
+      } else {
+        const center = findNearestAvailableGroupCenter(groupRect, occupiedRects, mapRect, cardSize);
+        centerX = center.x;
+        centerY = center.y;
       }
 
       let vectorX = centerX;
       let vectorY = centerY;
       const vectorLen = Math.hypot(vectorX, vectorY);
       if (vectorLen < 1) {
-        vectorX = Math.cos(angle);
-        vectorY = Math.sin(angle);
+        vectorX = 0;
+        vectorY = 1;
       } else {
         vectorX /= vectorLen;
         vectorY /= vectorLen;
@@ -497,25 +685,25 @@ function UserFootprintsPageInner() {
 
       const perpendicularX = -vectorY;
       const perpendicularY = vectorX;
-
-      const cardSize = 80;
       const baseDistance = placedPhotos.length > 0 ? cardSize * 1.5 : 0;
-      const offsets = layout.mode === 'grid'
-        ? buildGridOffsets(placePhotos.length, layout.gapX, layout.gapY, cardSize)
-        : layout.mode === 'staggered'
-          ? buildStaggeredOffsets(placePhotos.length, layout.gapX, layout.gapY, cardSize, layout.staggerAxis)
-          : buildRandomOffsets(placePhotos.length, cardSize);
 
       for (let i = 0; i < placePhotos.length; i++) {
-        const forwardOffset = baseDistance + offsets[i].offsetY;
-        const lateralOffset = offsets[i].offsetX;
-        placePhotos[i].frameX = centerX + vectorX * forwardOffset + perpendicularX * lateralOffset;
-        placePhotos[i].frameY = centerY + vectorY * forwardOffset + perpendicularY * lateralOffset;
+        if (placedPhotos.length > 0) {
+          const forwardOffset = baseDistance + offsets[i].offsetY;
+          const lateralOffset = offsets[i].offsetX;
+          placePhotos[i].frameX = centerX + vectorX * forwardOffset + perpendicularX * lateralOffset;
+          placePhotos[i].frameY = centerY + vectorY * forwardOffset + perpendicularY * lateralOffset;
+        } else {
+          placePhotos[i].frameX = centerX + offsets[i].offsetX;
+          placePhotos[i].frameY = centerY + offsets[i].offsetY;
+        }
       }
 
       clampPlacePhotosAwayFromMap(placePhotos, viewportWidth, viewportHeight, cardSize);
-
-      angle += ANGLE_STEP;
+      const placedRect = buildPlaceBounds(placePhotos, cardSize);
+      if (placedRect) {
+        occupiedRects.push(placedRect);
+      }
     }
   }
 
@@ -879,6 +1067,13 @@ function UserFootprintsPageInner() {
       })
       .filter((photo): photo is PhotoItem => !!photo)
       .filter((photo) => currentItemKeys.has(photo.placeKey));
+
+    if (payload.layout.enabled) {
+      for (const photo of mappedPhotos) {
+        photo.frameX = undefined;
+        photo.frameY = undefined;
+      }
+    }
 
     const unplaced = mappedPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
     if (unplaced.length > 0) {

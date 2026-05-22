@@ -24,6 +24,7 @@ export type LocalMapLayoutSettings = {
   gapX: number;
   gapY: number;
   staggerAxis: LocalMapStaggerAxis;
+  enabled: boolean;
 };
 
 type SavedRecord = {
@@ -74,6 +75,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
   const [changedAssets, setChangedAssets] = useState<string[]>([]);
   const [statusText, setStatusText] = useState('选择主文件夹后开始扫描');
   const [needsOverwriteConfirm, setNeedsOverwriteConfirm] = useState(false);
+  const [layoutEnabled, setLayoutEnabled] = useState(true);
   const [layoutMode, setLayoutMode] = useState<LocalMapLayoutMode>('grid');
   const [layoutGapX, setLayoutGapX] = useState(24);
   const [layoutGapY, setLayoutGapY] = useState(24);
@@ -111,6 +113,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
     setChangedAssets([]);
     setStatusText('选择主文件夹后开始扫描');
     setNeedsOverwriteConfirm(false);
+    setLayoutEnabled(true);
     setLayoutMode('grid');
     setLayoutGapX(24);
     setLayoutGapY(24);
@@ -157,6 +160,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
       const record = await fetchRecord(nextRootName);
       setSavedRecord(record);
       setNeedsOverwriteConfirm(Boolean(record));
+      setLayoutEnabled(!record);
 
       const placeTitleSet = new Set(placeTitles);
       const oldAssetMap = new Map((record?.assets ?? []).map((asset) => [asset.relativePath, asset]));
@@ -228,6 +232,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
       unmatchedFolders,
       missingAssets,
       layout: {
+        enabled: layoutEnabled,
         mode: layoutMode,
         gapX: clampNonNegative(layoutGapX),
         gapY: clampNonNegative(layoutGapY),
@@ -292,12 +297,34 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
             </div>
           </div>
 
-          <div className={styles.card}>
-            <h3 className={styles.cardTitle}>排列方案</h3>
+          <div className={`${styles.card} ${!layoutEnabled ? styles.cardMuted : ''}`}>
+            <div className={styles.cardHeaderRow}>
+              <h3 className={styles.cardTitle}>预设</h3>
+              <button
+                type="button"
+                className={`${styles.toggleBtn} ${layoutEnabled ? styles.toggleBtnActive : ''}`}
+                onClick={() => {
+                  if (!layoutEnabled) {
+                    const ok = window.confirm('开启预设后，确认映射时会按当前预设重新排列已匹配图片，并替代原有位置记录，是否继续？');
+                    if (!ok) return;
+                  }
+                  setLayoutEnabled((current) => !current);
+                }}
+              >
+                {layoutEnabled ? '已开启' : '手动开启'}
+              </button>
+            </div>
+            <p className={styles.hint}>
+              {savedRecord
+                ? '检测到当前主文件夹已有记录，预设默认关闭。手动开启后，确认映射会用新预设替代原有位置记录。'
+                : '未检测到当前主文件夹旧记录，可直接使用预设生成初始排列。'}
+            </p>
+            <div className={!layoutEnabled ? styles.disabledBlock : ''}>
             <div className={styles.toggleRow}>
               <button
                 type="button"
                 className={`${styles.toggleBtn} ${layoutMode === 'grid' ? styles.toggleBtnActive : ''}`}
+                disabled={!layoutEnabled}
                 onClick={() => setLayoutMode('grid')}
               >
                 整齐排列
@@ -305,6 +332,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
               <button
                 type="button"
                 className={`${styles.toggleBtn} ${layoutMode === 'staggered' ? styles.toggleBtnActive : ''}`}
+                disabled={!layoutEnabled}
                 onClick={() => setLayoutMode('staggered')}
               >
                 错位排列
@@ -312,6 +340,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
               <button
                 type="button"
                 className={`${styles.toggleBtn} ${layoutMode === 'random' ? styles.toggleBtnActive : ''}`}
+                disabled={!layoutEnabled}
                 onClick={() => setLayoutMode('random')}
               >
                 随机排列
@@ -324,6 +353,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
                   <button
                     type="button"
                     className={`${styles.toggleBtn} ${layoutStaggerAxis === 'horizontal' ? styles.toggleBtnActive : ''}`}
+                    disabled={!layoutEnabled}
                     onClick={() => setLayoutStaggerAxis('horizontal')}
                   >
                     横向错位
@@ -331,6 +361,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
                   <button
                     type="button"
                     className={`${styles.toggleBtn} ${layoutStaggerAxis === 'vertical' ? styles.toggleBtnActive : ''}`}
+                    disabled={!layoutEnabled}
                     onClick={() => setLayoutStaggerAxis('vertical')}
                   >
                     竖向错位
@@ -346,6 +377,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
                   <input
                     type="number"
                     min={0}
+                    disabled={!layoutEnabled}
                     value={layoutGapX}
                     onChange={(event) => setLayoutGapX(clampNonNegative(Number(event.target.value)))}
                   />
@@ -355,6 +387,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
                   <input
                     type="number"
                     min={0}
+                    disabled={!layoutEnabled}
                     value={layoutGapY}
                     onChange={(event) => setLayoutGapY(clampNonNegative(Number(event.target.value)))}
                   />
@@ -363,6 +396,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
             ) : (
               <p className={styles.hint}>随机排列会让每张图片相对于相邻图片产生 1-100 的随机附加距离。</p>
             )}
+            </div>
           </div>
 
           {unmatchedFolders.length > 0 ? (

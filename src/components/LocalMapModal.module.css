@@ -49,6 +49,18 @@
   padding: 18px;
 }
 
+.cardMuted {
+  border-color: rgba(148, 163, 184, 0.12);
+}
+
+.cardHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
 .recordGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -83,7 +95,7 @@
 }
 
 .cardTitle {
-  margin: 0 0 10px;
+  margin: 0;
   font-size: 16px;
   font-weight: 700;
 }
@@ -180,6 +192,11 @@
   font-weight: 700;
 }
 
+.toggleBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .toggleBtnActive {
   background: #f97316;
   color: #fff7ed;
@@ -187,6 +204,11 @@
 
 .optionBlock {
   margin-top: 14px;
+}
+
+.disabledBlock {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .fieldsRow {

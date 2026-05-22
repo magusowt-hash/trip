@@ -49,85 +49,14 @@ interface Props {
   onGroupLabelDragEnd?: (placeKey: string, dx: number, dy: number) => void;
 }
 
-const PHOTO_SIZE = 80;
-const CORNER_RADIUS = 10;
+const PHOTO_MAX_EDGE = 120;
+const PHOTO_MIN_EDGE = 48;
 const RECT_PADDING = 40;
 const MAP_AREA_RATIO_W = 0.6;
 const MAP_AREA_RATIO_H = 0.8;
 
-function roundedRect(
-  ctx: CanvasRenderingContext2D,
-  x: number, y: number, w: number, h: number, r: number,
-) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.arcTo(x + w, y, x + w, y + r, r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-  ctx.lineTo(x + r, y + h);
-  ctx.arcTo(x, y + h, x, y + h - r, r);
-  ctx.lineTo(x, y + r);
-  ctx.arcTo(x, y, x + r, y, r);
-  ctx.closePath();
-}
-
 function rectContains(r: PlaceRect, x: number, y: number): boolean {
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-}
-
-function clampGroupAwayFromMap(
-  photos: PhotoItem[],
-  placeKey: string,
-  width: number,
-  height: number,
-) {
-  const group = photos.filter(
-    (photo) => photo.placeKey === placeKey && photo.frameX != null && photo.frameY != null,
-  );
-  if (group.length === 0) return;
-
-  const mapHalfW = (width * MAP_AREA_RATIO_W) / 2;
-  const mapHalfH = (height * MAP_AREA_RATIO_H) / 2;
-  const photoHalf = PHOTO_SIZE / 2;
-
-  let left = Infinity;
-  let right = -Infinity;
-  let top = Infinity;
-  let bottom = -Infinity;
-
-  for (const photo of group) {
-    left = Math.min(left, photo.frameX! - photoHalf);
-    right = Math.max(right, photo.frameX! + photoHalf);
-    top = Math.min(top, photo.frameY! - photoHalf);
-    bottom = Math.max(bottom, photo.frameY! + photoHalf);
-  }
-
-  const overlapsMap =
-    right > -mapHalfW &&
-    left < mapHalfW &&
-    bottom > -mapHalfH &&
-    top < mapHalfH;
-
-  if (!overlapsMap) return;
-
-  const dl = right - (-mapHalfW);
-  const dr = mapHalfW - left;
-  const dt = bottom - (-mapHalfH);
-  const db = mapHalfH - top;
-  const minD = Math.min(dl, dr, dt, db);
-
-  let shiftX = 0;
-  let shiftY = 0;
-  if (minD === dl) shiftX = -dl;
-  else if (minD === dr) shiftX = dr;
-  else if (minD === dt) shiftY = -dt;
-  else shiftY = db;
-
-  for (const photo of group) {
-    photo.frameX = (photo.frameX ?? 0) + shiftX;
-    photo.frameY = (photo.frameY ?? 0) + shiftY;
-  }
 }
 
 const COLORS = [
@@ -156,6 +85,8 @@ export default function OuterFrameCanvas({
   onGroupLabelDragEnd,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dirtyRef = useRef(true);
+  const prevKeyRef = useRef('');
   const imageCache = useRef<Map<number | string, HTMLImageElement>>(new Map());
   const dragRef = useRef<{
     photoId: number | string;
@@ -171,6 +102,88 @@ export default function OuterFrameCanvas({
   const placeRectsRef = useRef<PlaceRect[]>([]);
   const didDragRef = useRef(false);
 
+  const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
+    const img = imageCache.current.get(photo.id);
+    if (!img || !img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) {
+      return { width: PHOTO_MAX_EDGE, height: PHOTO_MAX_EDGE };
+    }
+
+    if (img.naturalWidth >= img.naturalHeight) {
+      return {
+        width: PHOTO_MAX_EDGE,
+        height: Math.max(PHOTO_MIN_EDGE, (PHOTO_MAX_EDGE * img.naturalHeight) / img.naturalWidth),
+      };
+    }
+
+    return {
+      width: Math.max(PHOTO_MIN_EDGE, (PHOTO_MAX_EDGE * img.naturalWidth) / img.naturalHeight),
+      height: PHOTO_MAX_EDGE,
+    };
+  }, []);
+
+  const getPhotoBounds = useCallback((photo: PhotoItem) => {
+    if (photo.frameX == null || photo.frameY == null) return null;
+    const size = getPhotoLogicalSize(photo);
+    return {
+      left: photo.frameX - size.width / 2,
+      right: photo.frameX + size.width / 2,
+      top: photo.frameY - size.height / 2,
+      bottom: photo.frameY + size.height / 2,
+      width: size.width,
+      height: size.height,
+    };
+  }, [getPhotoLogicalSize]);
+
+  const clampGroupAwayFromMap = useCallback((placeKey: string) => {
+    const group = photos.filter(
+      (photo) => photo.placeKey === placeKey && photo.frameX != null && photo.frameY != null,
+    );
+    if (group.length === 0) return;
+
+    const mapHalfW = (width * MAP_AREA_RATIO_W) / 2;
+    const mapHalfH = (height * MAP_AREA_RATIO_H) / 2;
+
+    let left = Infinity;
+    let right = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
+
+    for (const photo of group) {
+      const bounds = getPhotoBounds(photo);
+      if (!bounds) continue;
+      left = Math.min(left, bounds.left);
+      right = Math.max(right, bounds.right);
+      top = Math.min(top, bounds.top);
+      bottom = Math.max(bottom, bounds.bottom);
+    }
+
+    const overlapsMap =
+      right > -mapHalfW &&
+      left < mapHalfW &&
+      bottom > -mapHalfH &&
+      top < mapHalfH;
+
+    if (!overlapsMap) return;
+
+    const dl = right - (-mapHalfW);
+    const dr = mapHalfW - left;
+    const dt = bottom - (-mapHalfH);
+    const db = mapHalfH - top;
+    const minD = Math.min(dl, dr, dt, db);
+
+    let shiftX = 0;
+    let shiftY = 0;
+    if (minD === dl) shiftX = -dl;
+    else if (minD === dr) shiftX = dr;
+    else if (minD === dt) shiftY = -dt;
+    else shiftY = db;
+
+    for (const photo of group) {
+      photo.frameX = (photo.frameX ?? 0) + shiftX;
+      photo.frameY = (photo.frameY ?? 0) + shiftY;
+    }
+  }, [photos, width, height, getPhotoBounds]);
+
   // --- Compute place rects from current photo positions ---
   const computePlaceRects = useCallback((): PlaceRect[] => {
     const groups = new Map<string, PhotoItem[]>();
@@ -184,10 +197,12 @@ export default function OuterFrameCanvas({
     for (const [placeKey, items] of groups) {
       let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
       for (const p of items) {
-        left = Math.min(left, p.frameX! - PHOTO_SIZE / 2);
-        top = Math.min(top, p.frameY! - PHOTO_SIZE / 2);
-        right = Math.max(right, p.frameX! + PHOTO_SIZE / 2);
-        bottom = Math.max(bottom, p.frameY! + PHOTO_SIZE / 2);
+        const bounds = getPhotoBounds(p);
+        if (!bounds) continue;
+        left = Math.min(left, bounds.left);
+        top = Math.min(top, bounds.top);
+        right = Math.max(right, bounds.right);
+        bottom = Math.max(bottom, bounds.bottom);
       }
       rects.push({
         placeKey,
@@ -199,7 +214,7 @@ export default function OuterFrameCanvas({
       });
     }
     return rects;
-  }, [photos]);
+  }, [photos, getPhotoBounds]);
 
   // --- Coordinate helpers ---
   const logicalToScreen = useCallback((lx: number, ly: number): Point => ({
@@ -219,25 +234,33 @@ export default function OuterFrameCanvas({
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.src = photo.url;
+    img.onload = () => {
+      dirtyRef.current = true;
+    };
+    img.onerror = () => {
+      dirtyRef.current = true;
+    };
     imageCache.current.set(photo.id, img);
     return img;
   }, []);
 
   // --- Hit test ---
   const hitTest = useCallback((sx: number, sy: number): number | string | null => {
-    const half = (PHOTO_SIZE / 2) * transform.scale;
     const margin = 10 * transform.scale;
     for (let i = photos.length - 1; i >= 0; i--) {
       const p = photos[i];
       if (p.frameX == null || p.frameY == null) continue;
+      const size = getPhotoLogicalSize(p);
       const s = logicalToScreen(p.frameX, p.frameY);
-      if (sx >= s.x - half - margin && sx <= s.x + half + margin &&
-          sy >= s.y - half - margin && sy <= s.y + half + margin) {
+      const halfW = (size.width * transform.scale) / 2;
+      const halfH = (size.height * transform.scale) / 2;
+      if (sx >= s.x - halfW - margin && sx <= s.x + halfW + margin &&
+          sy >= s.y - halfH - margin && sy <= s.y + halfH + margin) {
         return p.id;
       }
     }
     return null;
-  }, [photos, transform, logicalToScreen]);
+  }, [photos, transform, logicalToScreen, getPhotoLogicalSize]);
 
   // --- Render ---
   const render = useCallback(() => {
@@ -259,18 +282,19 @@ export default function OuterFrameCanvas({
     const currentRects = computePlaceRects();
     placeRectsRef.current = currentRects;
 
-    const displaySize = PHOTO_SIZE * transform.scale;
-
     // --- Draw photos (no per-photo labels) ---
     for (const photo of photos) {
       if (photo.frameX == null || photo.frameY == null) continue;
 
       const s = logicalToScreen(photo.frameX, photo.frameY);
-      const half = displaySize / 2;
-      const cr = Math.max(4, CORNER_RADIUS * transform.scale);
+      const size = getPhotoLogicalSize(photo);
+      const displayWidth = size.width * transform.scale;
+      const displayHeight = size.height * transform.scale;
+      const halfW = displayWidth / 2;
+      const halfH = displayHeight / 2;
 
-      if (s.x + half < -PHOTO_SIZE || s.x - half > width + PHOTO_SIZE ||
-          s.y + half < -PHOTO_SIZE || s.y - half > height + PHOTO_SIZE) {
+      if (s.x + halfW < -PHOTO_MAX_EDGE || s.x - halfW > width + PHOTO_MAX_EDGE ||
+          s.y + halfH < -PHOTO_MAX_EDGE || s.y - halfH > height + PHOTO_MAX_EDGE) {
         continue;
       }
 
@@ -279,24 +303,19 @@ export default function OuterFrameCanvas({
       const img = loadImage(photo);
 
       if (img && img.complete && img.naturalWidth > 0) {
-        ctx.save();
-        roundedRect(ctx, s.x - half, s.y - half, displaySize, displaySize, cr);
-        ctx.clip();
         const srcW = img.naturalWidth;
         const srcH = img.naturalHeight;
-        const sc = Math.max(displaySize / srcW, displaySize / srcH);
-        ctx.drawImage(img, s.x - (srcW * sc) / 2, s.y - (srcH * sc) / 2, srcW * sc, srcH * sc);
-        ctx.restore();
+        ctx.drawImage(img, s.x - displayWidth / 2, s.y - displayHeight / 2, displayWidth, displayHeight);
       } else {
-        roundedRect(ctx, s.x - half, s.y - half, displaySize, displaySize, cr);
         ctx.fillStyle = color;
-        ctx.fill();
+        ctx.fillRect(s.x - displayWidth / 2, s.y - displayHeight / 2, displayWidth, displayHeight);
       }
 
-      roundedRect(ctx, s.x - half, s.y - half, displaySize, displaySize, cr);
-      ctx.strokeStyle = isHovered ? '#fff' : 'rgba(255,255,255,0.5)';
-      ctx.lineWidth = isHovered ? 2.5 : 1.5;
-      ctx.stroke();
+      if (isHovered) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(s.x - displayWidth / 2, s.y - displayHeight / 2, displayWidth, displayHeight);
+      }
     }
 
     // --- Draw place labels (one per rectangle) ---
@@ -313,11 +332,7 @@ export default function OuterFrameCanvas({
         ctx.fillText(rect.placeTitle, cx, cy);
       }
     }
-  }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, computePlaceRects]);
-
-  // Dirty flag
-  const dirtyRef = useRef(true);
-  const prevKeyRef = useRef('');
+  }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, computePlaceRects, getPhotoLogicalSize]);
 
   useEffect(() => {
     const key = `${transform.scale},${transform.tx},${transform.ty},${photos.length},${showLabels},${width},${height}`;
@@ -424,7 +439,7 @@ export default function OuterFrameCanvas({
           photo.frameX += dx - ((dragRef.current as any)._lastDx ?? 0);
           photo.frameY += dy - ((dragRef.current as any)._lastDy ?? 0);
         }
-        clampGroupAwayFromMap(photos, dragRef.current.placeKey, width, height);
+        clampGroupAwayFromMap(dragRef.current.placeKey);
         (dragRef.current as any)._lastDx = dx;
         (dragRef.current as any)._lastDy = dy;
       } else {
@@ -436,11 +451,12 @@ export default function OuterFrameCanvas({
           // Prevent dragging into map area (fixed logical size, independent of zoom)
           const mapHalfW = (width * MAP_AREA_RATIO_W) / 2;
           const mapHalfH = (height * MAP_AREA_RATIO_H) / 2;
-          const photoHalf = PHOTO_SIZE / 2;
-          const photoLeft = photo.frameX - photoHalf;
-          const photoRight = photo.frameX + photoHalf;
-          const photoTop = photo.frameY - photoHalf;
-          const photoBottom = photo.frameY + photoHalf;
+          const bounds = getPhotoBounds(photo);
+          if (!bounds) return;
+          const photoLeft = bounds.left;
+          const photoRight = bounds.right;
+          const photoTop = bounds.top;
+          const photoBottom = bounds.bottom;
           if (photoRight > -mapHalfW && photoLeft < mapHalfW &&
               photoBottom > -mapHalfH && photoTop < mapHalfH) {
             const dl = photoRight - (-mapHalfW);
@@ -448,10 +464,10 @@ export default function OuterFrameCanvas({
             const dt = photoBottom - (-mapHalfH);
             const db = mapHalfH - photoTop;
             const minD = Math.min(dl, dr, dt, db);
-            if (minD === dl) photo.frameX = -mapHalfW - photoHalf;
-            else if (minD === dr) photo.frameX = mapHalfW + photoHalf;
-            else if (minD === dt) photo.frameY = -mapHalfH - photoHalf;
-            else photo.frameY = mapHalfH + photoHalf;
+            if (minD === dl) photo.frameX = -mapHalfW - bounds.width / 2;
+            else if (minD === dr) photo.frameX = mapHalfW + bounds.width / 2;
+            else if (minD === dt) photo.frameY = -mapHalfH - bounds.height / 2;
+            else photo.frameY = mapHalfH + bounds.height / 2;
           }
         }
       }
@@ -461,7 +477,7 @@ export default function OuterFrameCanvas({
       const hit = hitTest(pos.x, pos.y);
       hoveredPhotoRef.current = hit;
     }
-  }, [getCanvasPos, hitTest, transform, photos]);
+  }, [getCanvasPos, hitTest, transform, photos, width, height, clampGroupAwayFromMap, getPhotoBounds]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) {
