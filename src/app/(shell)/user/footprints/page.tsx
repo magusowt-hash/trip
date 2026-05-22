@@ -950,9 +950,12 @@ function UserFootprintsPageInner() {
         size: p.size ?? 0,
         lastModified: p.lastModified ?? 0,
         matchedPlaceTitle: p.placeTitle,
+        footprintItemId: p.footprintItemId ?? 0,
         frameX: p.frameX!,
         frameY: p.frameY!,
         missing: false,
+        pixelWidth: p.pixelWidth ?? null,
+        pixelHeight: p.pixelHeight ?? null,
       }));
 
     if (uploadedUpdates.length === 0 && localAssets.length === 0) return;
@@ -1609,7 +1612,9 @@ function UserFootprintsPageInner() {
       {!isViewMode && (
         <LocalMapModal
           open={localMapOpen}
-          placeTitles={localMapTargetItem ? [localMapTargetItem.title] : items.map((item) => item.title)}
+          places={localMapTargetItem
+            ? [{ id: localMapTargetItem.id, title: localMapTargetItem.title }]
+            : items.map((item) => ({ id: item.id, title: item.title }))}
           onClose={() => setLocalMapOpen(false)}
           onApply={handleApplyLocalMap}
         />

@@ -46,6 +46,7 @@ type SavedRecord = {
     name: string;
     size: number;
     lastModified: number;
+    footprintItemId: number;
     matchedPlaceTitle: string;
     frameX: number | null;
     frameY: number | null;
@@ -54,9 +55,14 @@ type SavedRecord = {
   unmatchedFolders: string[];
 };
 
+type LocalMapPlace = {
+  id: number;
+  title: string;
+};
+
 type Props = {
   open: boolean;
-  placeTitles: string[];
+  places: LocalMapPlace[];
   onClose: () => void;
   onApply: (payload: {
     rootName: string;
@@ -90,7 +96,7 @@ function readImageDimensions(file: File) {
   });
 }
 
-export default function LocalMapModal({ open, placeTitles, onClose, onApply }: Props) {
+export default function LocalMapModal({ open, places, onClose, onApply }: Props) {
   const [rootName, setRootName] = useState('');
   const [knownRootNames, setKnownRootNames] = useState<string[]>([]);
   const [savedRecord, setSavedRecord] = useState<SavedRecord | null>(null);
@@ -133,10 +139,10 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
 
   const matchedPlaceCount = useMemo(() => {
     const matchedPlaces = new Set(effectiveMatchedAssets.map((asset) => asset.matchedPlaceTitle));
-    return placeTitles.filter((title) => matchedPlaces.has(title)).length;
-  }, [effectiveMatchedAssets, placeTitles]);
+    return places.filter((place) => matchedPlaces.has(place.title)).length;
+  }, [effectiveMatchedAssets, places]);
 
-  const unmatchedPlaceCount = Math.max(placeTitles.length - matchedPlaceCount, 0);
+  const unmatchedPlaceCount = Math.max(places.length - matchedPlaceCount, 0);
   const knownRootSummary = knownRootNames.length > 0 ? knownRootNames.join(' / ') : '无';
   const savedRecordSummary = savedRecord?.rootName || '无';
   const approvedFuzzyMatchCount = fuzzyMatches.filter((item) => item.checked).length;
@@ -180,7 +186,11 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
   if (!open) return null;
 
   async function fetchRecord(nextRootName: string) {
-    const res = await fetch(`/api/footprints/local-map?rootName=${encodeURIComponent(nextRootName)}`, {
+    const params = new URLSearchParams({ rootName: nextRootName });
+    for (const place of places) {
+      params.append('footprint_item_id', String(place.id));
+    }
+    const res = await fetch(`/api/footprints/local-map?${params.toString()}`, {
       credentials: 'include',
       cache: 'no-store',
     });
@@ -205,7 +215,8 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
       setNeedsOverwriteConfirm(Boolean(record));
       setLayoutEnabled(!record);
 
-      const placeTitleSet = new Set(placeTitles);
+      const placeTitleSet = new Set(places.map((place) => place.title));
+      const placeIdByTitle = new Map(places.map((place) => [place.title, place.id]));
       const oldAssetMap = new Map((record?.assets ?? []).map((asset) => [asset.relativePath, asset]));
       const currentSeen = new Set<string>();
       const nextExactMatched: LocalMappedAssetDraft[] = [];
@@ -225,7 +236,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
           }),
       ))) {
         if (placeTitleSet.has(folderName)) continue;
-        const matches = placeTitles.filter((title) => title.includes(folderName));
+        const matches = places.map((place) => place.title).filter((title) => title.includes(folderName));
         if (matches.length === 1) {
           folderFuzzyMatchMap.set(folderName, matches[0]);
         } else {
@@ -265,12 +276,18 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
           pixelWidth: dimensions?.width ?? null,
           pixelHeight: dimensions?.height ?? null,
           matchedPlaceTitle: exactMatched ? folderName : fuzzyMatchedPlaceTitle,
+          footprintItemId: placeIdByTitle.get(exactMatched ? folderName : fuzzyMatchedPlaceTitle) ?? 0,
           frameX: oldAsset?.frameX ?? null,
           frameY: oldAsset?.frameY ?? null,
           missing: false,
           url: URL.createObjectURL(file),
           matchType: exactMatched ? 'exact' : 'fuzzy',
         };
+
+        if (!nextAsset.footprintItemId) {
+          nextUnmatched.add(folderName);
+          continue;
+        }
 
         if (exactMatched) {
           nextExactMatched.push(nextAsset);
@@ -388,7 +405,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
             </div>
             <div className={styles.summaryBox}>
               <span>已匹配目录</span>
-              <strong>{matchedPlaceCount}/{placeTitles.length}</strong>
+              <strong>{matchedPlaceCount}/{places.length}</strong>
               <em className={styles.summaryMeta}>未匹配地点 {unmatchedPlaceCount}</em>
             </div>
             <div className={styles.summaryBox}>

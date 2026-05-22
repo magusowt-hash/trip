@@ -1,6 +1,7 @@
-import fs from 'fs/promises';
-import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
+import { and, eq, inArray } from 'drizzle-orm';
+import { db } from '@/db';
+import { localMapAssets, localMapRoots } from '@/db/schema';
 import { authenticate } from '../_auth';
 
 type LocalMapAssetRecord = {
@@ -10,49 +11,24 @@ type LocalMapAssetRecord = {
   size: number;
   lastModified: number;
   matchedPlaceTitle: string;
+  footprintItemId: number;
   frameX: number | null;
   frameY: number | null;
+  pixelWidth?: number | null;
+  pixelHeight?: number | null;
   missing: boolean;
 };
-
-type LocalMapRootRecord = {
-  rootName: string;
-  savedAt: string;
-  assets: LocalMapAssetRecord[];
-  unmatchedFolders: string[];
-};
-
-type LocalMapStore = {
-  version: number;
-  roots: LocalMapRootRecord[];
-};
-
-const WORKSPACE_DIR = path.join(process.cwd(), 'test', 'footprint-local-map');
-const STORE_FILE = path.join(WORKSPACE_DIR, 'local-map-store.json');
 
 function normalizeRootName(value: unknown): string {
   if (typeof value !== 'string') return '';
   return value.trim().replace(/\\/g, '/');
 }
 
-async function ensureWorkspace() {
-  await fs.mkdir(WORKSPACE_DIR, { recursive: true });
-}
-
-async function readStore(): Promise<LocalMapStore> {
-  try {
-    const raw = await fs.readFile(STORE_FILE, 'utf8');
-    const parsed = JSON.parse(raw) as Partial<LocalMapStore>;
-    return {
-      version: 1,
-      roots: Array.isArray(parsed.roots) ? parsed.roots : [],
-    };
-  } catch (error: any) {
-    if (error?.code === 'ENOENT') {
-      return { version: 1, roots: [] };
-    }
-    throw error;
-  }
+function parseFootprintItemIds(searchParams: URLSearchParams): number[] {
+  return searchParams
+    .getAll('footprint_item_id')
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
 }
 
 export async function GET(req: NextRequest) {
@@ -62,14 +38,70 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const rootName = normalizeRootName(searchParams.get('rootName'));
-    const store = await readStore();
-    const record = rootName
-      ? store.roots.find((item) => item.rootName === rootName) ?? null
-      : null;
+    const footprintItemIds = parseFootprintItemIds(searchParams);
+
+    const knownRoots = await db
+      .select({ rootName: localMapRoots.rootName })
+      .from(localMapRoots)
+      .where(eq(localMapRoots.userId, auth.userId));
+
+    if (!rootName) {
+      return NextResponse.json({
+        record: null,
+        knownRootNames: knownRoots.map((item) => item.rootName),
+      });
+    }
+
+    const [root] = await db
+      .select()
+      .from(localMapRoots)
+      .where(and(
+        eq(localMapRoots.userId, auth.userId),
+        eq(localMapRoots.rootName, rootName),
+      ))
+      .limit(1);
+
+    if (!root) {
+      return NextResponse.json({
+        record: null,
+        knownRootNames: knownRoots.map((item) => item.rootName),
+      });
+    }
+
+    const assetWhere = [
+      eq(localMapAssets.userId, auth.userId),
+      eq(localMapAssets.rootId, root.id),
+    ];
+    if (footprintItemIds.length > 0) {
+      assetWhere.push(inArray(localMapAssets.footprintItemId, footprintItemIds));
+    }
+
+    const assets = await db
+      .select()
+      .from(localMapAssets)
+      .where(and(...assetWhere));
 
     return NextResponse.json({
-      record,
-      knownRootNames: store.roots.map((item) => item.rootName),
+      record: {
+        rootName: root.rootName,
+        savedAt: root.updatedAt,
+        assets: assets.map((asset) => ({
+          relativePath: asset.relativePath,
+          folderName: asset.folderName,
+          name: asset.name,
+          size: asset.size,
+          lastModified: asset.lastModified,
+          matchedPlaceTitle: '',
+          footprintItemId: asset.footprintItemId,
+          frameX: asset.frameX,
+          frameY: asset.frameY,
+          pixelWidth: asset.pixelWidth,
+          pixelHeight: asset.pixelHeight,
+          missing: false,
+        })),
+        unmatchedFolders: [],
+      },
+      knownRootNames: knownRoots.map((item) => item.rootName),
     });
   } catch (error) {
     console.error('GET /api/footprints/local-map error:', error);
@@ -101,32 +133,79 @@ export async function POST(req: NextRequest) {
             size: Number(asset?.size) || 0,
             lastModified: Number(asset?.lastModified) || 0,
             matchedPlaceTitle: typeof asset?.matchedPlaceTitle === 'string' ? asset.matchedPlaceTitle : '',
+            footprintItemId: Number(asset?.footprintItemId) || 0,
             frameX: typeof asset?.frameX === 'number' ? asset.frameX : null,
             frameY: typeof asset?.frameY === 'number' ? asset.frameY : null,
+            pixelWidth: typeof asset?.pixelWidth === 'number' ? asset.pixelWidth : null,
+            pixelHeight: typeof asset?.pixelHeight === 'number' ? asset.pixelHeight : null,
             missing: Boolean(asset?.missing),
           }))
-          .filter((asset) => asset.relativePath && asset.name && asset.matchedPlaceTitle)
+          .filter((asset) => asset.relativePath && asset.name && asset.footprintItemId > 0)
       : [];
 
-    const record: LocalMapRootRecord = {
-      rootName,
-      savedAt: new Date().toISOString(),
-      assets,
-      unmatchedFolders,
-    };
+    const [existingRoot] = await db
+      .select()
+      .from(localMapRoots)
+      .where(and(
+        eq(localMapRoots.userId, auth.userId),
+        eq(localMapRoots.rootName, rootName),
+      ))
+      .limit(1);
 
-    const store = await readStore();
-    const roots = store.roots.filter((item) => item.rootName !== rootName);
-    roots.push(record);
-    roots.sort((a, b) => a.rootName.localeCompare(b.rootName, 'zh-CN'));
+    const rootId = existingRoot
+      ? existingRoot.id
+      : (await db.insert(localMapRoots).values({
+          userId: auth.userId,
+          rootName,
+        }))[0].insertId;
 
-    await ensureWorkspace();
-    await fs.writeFile(STORE_FILE, JSON.stringify({ version: 1, roots }, null, 2), 'utf8');
+    if (existingRoot) {
+      await db
+        .update(localMapRoots)
+        .set({ updatedAt: new Date() })
+        .where(eq(localMapRoots.id, rootId));
+
+      await db
+        .delete(localMapAssets)
+        .where(and(
+          eq(localMapAssets.userId, auth.userId),
+          eq(localMapAssets.rootId, rootId),
+        ));
+    }
+
+    if (assets.length > 0) {
+      await db.insert(localMapAssets).values(
+        assets.map((asset) => ({
+          userId: auth.userId,
+          rootId,
+          footprintItemId: asset.footprintItemId,
+          relativePath: asset.relativePath,
+          folderName: asset.folderName,
+          name: asset.name,
+          size: asset.size,
+          lastModified: asset.lastModified,
+          frameX: asset.frameX,
+          frameY: asset.frameY,
+          pixelWidth: asset.pixelWidth ?? null,
+          pixelHeight: asset.pixelHeight ?? null,
+        })),
+      );
+    }
+
+    const knownRoots = await db
+      .select({ rootName: localMapRoots.rootName })
+      .from(localMapRoots)
+      .where(eq(localMapRoots.userId, auth.userId));
 
     return NextResponse.json({
       ok: true,
-      record,
-      knownRootNames: roots.map((item) => item.rootName),
+      record: {
+        rootName,
+        savedAt: new Date().toISOString(),
+        assets,
+        unmatchedFolders,
+      },
+      knownRootNames: knownRoots.map((item) => item.rootName),
     });
   } catch (error) {
     console.error('POST /api/footprints/local-map error:', error);

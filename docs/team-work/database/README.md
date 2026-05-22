@@ -12,7 +12,7 @@
 | 04 | [榜单与评分](./04-榜单与评分.md) | lists, list_images, list_items |
 | 05 | [行程计划](./05-行程计划.md) | plans, transport_items |
 | 06 | [社交关系](./06-社交关系.md) | friendships |
-| 07 | [云端同步与存储](./07-云端同步与存储.md) | cloud_mounts, cloud_sync_logs, cloud_assets, alist_config, packing_categories, packing_templates |
+| 07 | [云端同步与存储](./07-云端同步与存储.md) | storage_files, local_map_roots, local_map_assets, cloud_mounts, cloud_sync_logs, cloud_assets, alist_config, packing_categories, packing_templates |
 | 08 | [铁路地图](./08-铁路地图.md) | rail_map_settings, station_overrides |
 | 09 | [系统与日志](./09-系统与日志.md) | embed_access_logs |
 
@@ -38,6 +38,8 @@
 | footprint_groups | id | user_id | 足迹分组 |
 | footprint_group_items | id | group_id, list_item_id | 足迹分组中的地点 |
 | storage_files | id | user_id | 用户存储文件记录，足迹相册按 `footprint_group_items.id` 作用域隔离 |
+| local_map_roots | id | user_id | 本地映射主文件夹记录 |
+| local_map_assets | id | root_id, footprint_item_id | 本地映射资源记录 |
 | uploaded_files | id | user_id | 上传文件记录 |
 | lists | id | - | 榜单主表 |
 | list_images | id | list_id | 榜单图片 |
@@ -70,6 +72,8 @@ users
 │   └── transport_items (1:N)
 ├── uploaded_files (1:N)
 ├── storage_files (1:N)
+├── local_map_roots (1:N)
+│   └── local_map_assets (1:N)
 ├── footprint_groups (1:N)
 │   └── footprint_group_items (1:N)
 │       └── cloud_mounts (1:N)

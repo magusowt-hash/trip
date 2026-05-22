@@ -1,4 +1,4 @@
-import { mysqlTable, serial, varchar, timestamp, uniqueIndex, tinyint, date, text, int, json, index, decimal, mysqlEnum } from 'drizzle-orm/mysql-core';
+import { mysqlTable, serial, varchar, timestamp, uniqueIndex, tinyint, date, text, int, json, index, decimal, mysqlEnum, bigint, double } from 'drizzle-orm/mysql-core';
 import { relations } from 'drizzle-orm';
 
 export const users = mysqlTable(
@@ -270,6 +270,47 @@ export const userMapFootprints = mysqlTable(
     userGroupPoiUnique: uniqueIndex('user_map_footprints_user_group_poi_unique').on(t.userId, t.groupId, t.poiId),
     userIdIdx: index('user_map_footprints_user_id_idx').on(t.userId),
     groupIdIdx: index('user_map_footprints_group_id_idx').on(t.groupId),
+  }),
+);
+
+export const localMapRoots = mysqlTable(
+  'local_map_roots',
+  {
+    id: serial('id').primaryKey(),
+    userId: int('user_id').notNull(),
+    rootName: varchar('root_name', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    userRootUnique: uniqueIndex('local_map_roots_user_root_unique').on(t.userId, t.rootName),
+    userIdIdx: index('local_map_roots_user_id_idx').on(t.userId),
+  }),
+);
+
+export const localMapAssets = mysqlTable(
+  'local_map_assets',
+  {
+    id: serial('id').primaryKey(),
+    userId: int('user_id').notNull(),
+    rootId: int('root_id').notNull(),
+    footprintItemId: int('footprint_item_id').notNull(),
+    relativePath: varchar('relative_path', { length: 500 }).notNull(),
+    folderName: varchar('folder_name', { length: 255 }).notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    size: int('size').notNull().default(0),
+    lastModified: bigint('last_modified', { mode: 'number' }).notNull().default(0),
+    frameX: double('frame_x'),
+    frameY: double('frame_y'),
+    pixelWidth: int('pixel_width'),
+    pixelHeight: int('pixel_height'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    rootPathUnique: uniqueIndex('local_map_assets_root_path_unique').on(t.rootId, t.relativePath),
+    userItemIdx: index('local_map_assets_user_item_idx').on(t.userId, t.footprintItemId),
+    rootIdIdx: index('local_map_assets_root_id_idx').on(t.rootId),
   }),
 );
 
