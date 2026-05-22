@@ -1140,8 +1140,6 @@ function UserFootprintsPageInner() {
           credentials: 'include',
           body: JSON.stringify({
             poi_id: item.poiId,
-            source_item_id: item.id,
-            share_photos: true,
           }),
         });
         if (res.status === 409) {

@@ -195,6 +195,10 @@ export default function FootprintGroupPanel({
     ? { background: `${backgroundColor}d6` }
     : undefined;
 
+  const canAddToOtherGroup = (item: FootprintItem) => !!item.listItemId || !!item.poiId;
+  const isSharedAlbumItem = (item: FootprintItem) => !!item.listItemId && !!item.albumScopeKey && item.albumScopeKey !== `fpgi_${item.id}`;
+  const canManageAlbum = (item: FootprintItem) => !!item.listItemId || !!item.poiId;
+
   const toggleItemSelection = (itemId: number) => {
     setSelectedItemIds((current) =>
       current.includes(itemId)
@@ -503,23 +507,23 @@ export default function FootprintGroupPanel({
                                 }}
                               >
                                 {item.title}
-                                {item.albumScopeKey && item.albumScopeKey !== `fpgi_${item.id}` ? (
+                                {isSharedAlbumItem(item) ? (
                                   <span className={styles.managementSharedBadge}>共享</span>
                                 ) : null}
                               </button>
                               <div className={styles.managementDateCell}>{formatDate(item.addedAt)}</div>
                               <div className={styles.managementRowActions}>
-                                <button className={styles.managementTextBtn} disabled={!item.listItemId} onClick={() => onOpenAlbum(item)}>
+                                <button className={styles.managementTextBtn} disabled={!canManageAlbum(item)} onClick={() => onOpenAlbum(item)}>
                                   相册
                                 </button>
-                                <button className={styles.managementTextBtn} disabled={!item.listItemId} onClick={() => onUploadPhoto(item)}>
+                                <button className={styles.managementTextBtn} disabled={!canManageAlbum(item)} onClick={() => onUploadPhoto(item)}>
                                   上传图片
                                 </button>
                                 {onAddItemToGroup && bulkTargetGroups.length > 0 ? (
                                   <div className={styles.managementInlineMenuWrap}>
                                     <button
                                       className={styles.managementTextBtn}
-                                      disabled={!item.listItemId}
+                                      disabled={!canAddToOtherGroup(item)}
                                       onClick={(e) => openInlineAddMenu(item.id, e)}
                                     >
                                       添加到
@@ -557,10 +561,10 @@ export default function FootprintGroupPanel({
             style={{ left: menuPos.x - 10, top: menuPos.y, transform: 'translate(-100%, 0)' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <button className={styles.menuItemBtn} disabled={!menuItem.listItemId} onClick={() => { onOpenAlbum(menuItem); setMenuItem(null); }}>
+            <button className={styles.menuItemBtn} disabled={!canManageAlbum(menuItem)} onClick={() => { onOpenAlbum(menuItem); setMenuItem(null); }}>
               相册
             </button>
-            <button className={styles.menuItemBtn} disabled={!menuItem.listItemId} onClick={() => { onUploadPhoto(menuItem); setMenuItem(null); }}>
+            <button className={styles.menuItemBtn} disabled={!canManageAlbum(menuItem)} onClick={() => { onUploadPhoto(menuItem); setMenuItem(null); }}>
               上传图片
             </button>
             {onAddItemToGroup && groups.filter((group) => group.id !== selectedGroupId).length > 0 ? (
@@ -572,7 +576,7 @@ export default function FootprintGroupPanel({
                     <button
                       key={group.id}
                       className={styles.menuItemBtn}
-                      disabled={!menuItem.listItemId}
+                      disabled={!canAddToOtherGroup(menuItem)}
                       onClick={() => { void onAddItemToGroup(menuItem, group.id); setMenuItem(null); }}
                     >
                       {group.name}

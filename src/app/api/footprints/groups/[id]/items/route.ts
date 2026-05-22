@@ -171,7 +171,7 @@ export async function POST(
 
       return NextResponse.json({
         id: result[0].insertId,
-        shared: true,
+        shared: false,
       }, { status: 201 });
     }
 
