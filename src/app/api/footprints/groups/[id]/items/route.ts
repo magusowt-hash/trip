@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { eq, and, desc, ne } from 'drizzle-orm';
+import { eq, and, desc, ne, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { footprintGroups, footprintGroupItems, mapPois, userMapFootprints } from '@/db/schema';
 import { listItems, lists } from '@/db/schema';
