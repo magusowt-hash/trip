@@ -510,6 +510,7 @@ function UserFootprintsPageInner() {
   const [localRootName, setLocalRootName] = useState<string | null>(null);
   const [localUnmatchedFolders, setLocalUnmatchedFolders] = useState<string[]>([]);
   const [knownLocalRoots, setKnownLocalRoots] = useState<string[]>([]);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [shareAlbumPrompt, setShareAlbumPrompt] = useState<{
     item: FootprintItem;
     groupId: number;
@@ -522,6 +523,7 @@ function UserFootprintsPageInner() {
   const localThumbRunningRef = useRef(0);
   const localThumbSeenRef = useRef<Set<string>>(new Set());
   const localOriginalPreloadRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const actionNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Load settings
   useEffect(() => {
@@ -595,6 +597,10 @@ function UserFootprintsPageInner() {
   }, [showPhotos, showLines, showLabels, showPoiLabels, poiLabelColor, markerColor, markerShape, showTitle, panelCollapsed, backgroundColor, lineStyle, settingsLoaded]);
 
   useEffect(() => { loadGroups(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => {
+    clearTimeout(actionNoticeTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (selectedGroupId) {
@@ -690,6 +696,32 @@ function UserFootprintsPageInner() {
       console.error('Failed to load items:', err);
     }
   }
+
+  const showActionNotice = useCallback((message: string) => {
+    clearTimeout(actionNoticeTimerRef.current);
+    setActionNotice(message);
+    actionNoticeTimerRef.current = setTimeout(() => {
+      setActionNotice(null);
+    }, 3000);
+  }, []);
+
+  const updateGroupCount = useCallback((groupId: number, delta: number) => {
+    setGroups((current) => current.map((group) => (
+      group.id === groupId
+        ? { ...group, itemCount: Math.max(0, Number(group.itemCount || 0) + delta) }
+        : group
+    )));
+  }, []);
+
+  const removeItemsLocally = useCallback((groupId: number, targetItems: FootprintItem[]) => {
+    if (selectedGroupId !== groupId || targetItems.length === 0) return;
+    const targetKeys = new Set(targetItems.map((item) => `${item.listItemId ? `list:${item.listItemId}` : `map:${item.poiId}`}`));
+    const removedScopeKeys = new Set(
+      targetItems.map((item) => item.albumScopeKey || (item.listItemId ? buildFootprintPhotoScopeKey(item.id) : buildMapFootprintPhotoScopeKey(item.poiId ?? item.id))),
+    );
+    setItems((current) => current.filter((item) => !targetKeys.has(`${item.listItemId ? `list:${item.listItemId}` : `map:${item.poiId}`}`)));
+    setPhotos((current) => current.filter((photo) => photo.sourceType === 'local-mapped' || !removedScopeKeys.has(photo.placeKey)));
+  }, [selectedGroupId]);
 
   const loadAllPhotos = useCallback(async () => {
     if (items.length === 0 || photosLoaded) return;
@@ -1056,14 +1088,45 @@ function UserFootprintsPageInner() {
           method: 'DELETE', credentials: 'include',
         });
       }
-      if (selectedGroupId === groupId) {
-        await loadItems(groupId);
-      }
-      await loadGroups();
+      removeItemsLocally(groupId, [item]);
+      updateGroupCount(groupId, -1);
+      showActionNotice(`已从当前组删除「${item.title}」`);
     } catch {
       alert('移除失败');
     }
-  }, [selectedGroupId]);
+  }, [removeItemsLocally, showActionNotice, updateGroupCount]);
+
+  const handleBulkRemoveItemsFromGroup = useCallback(async (groupId: number, targetItems: FootprintItem[]) => {
+    if (targetItems.length === 0) return;
+    try {
+      const listItemIds = targetItems
+        .map((item) => item.listItemId)
+        .filter((value): value is number => Number.isFinite(value));
+      const poiIds = targetItems
+        .map((item) => item.poiId)
+        .filter((value): value is number => Number.isFinite(value));
+
+      const res = await fetch(`/api/footprints/groups/${groupId}/items`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          list_item_ids: listItemIds,
+          poi_ids: poiIds,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        alert(err?.error || '批量移除失败');
+        return;
+      }
+      removeItemsLocally(groupId, targetItems);
+      updateGroupCount(groupId, -targetItems.length);
+      showActionNotice(`已删除 ${targetItems.length} 个地点`);
+    } catch {
+      alert('批量移除失败');
+    }
+  }, [removeItemsLocally, showActionNotice, updateGroupCount]);
 
   const handleRemoveItem = useCallback((item: FootprintItem) => {
     if (!selectedGroupId) return;
@@ -1151,7 +1214,8 @@ function UserFootprintsPageInner() {
           alert(err.error || '添加失败');
           return;
         }
-        await loadGroups();
+        updateGroupCount(groupId, 1);
+        showActionNotice(`已添加到目标组「${groups.find((group) => group.id === groupId)?.name || ''}」`);
         return;
       }
 
@@ -1193,11 +1257,55 @@ function UserFootprintsPageInner() {
         alert(err.error || '添加失败');
         return;
       }
-      await loadGroups();
+      updateGroupCount(groupId, 1);
+      showActionNotice(`已添加到目标组「${groups.find((group) => group.id === groupId)?.name || ''}」`);
     } catch {
       alert('添加失败');
     }
-  }, []);
+  }, [groups, showActionNotice, updateGroupCount]);
+
+  const handleBulkAddItemsToGroup = useCallback(async (targetItems: FootprintItem[], groupId: number) => {
+    if (targetItems.length === 0) return;
+    try {
+      const payloadItems = targetItems.flatMap((item) => {
+        if (item.listItemId) {
+          return [{
+            list_item_id: item.listItemId,
+            source_item_id: item.id,
+            share_photos: false,
+          }];
+        }
+        if (item.poiId) {
+          return [{
+            poi_id: item.poiId,
+          }];
+        }
+        return [];
+      });
+
+      if (payloadItems.length === 0) return;
+
+      const res = await fetch(`/api/footprints/groups/${groupId}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ items: payloadItems }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.status === 409) {
+        alert(data?.error || '部分地点已在目标分类组中');
+        return;
+      }
+      if (!res.ok) {
+        alert(data?.error || '批量添加失败');
+        return;
+      }
+      updateGroupCount(groupId, payloadItems.length);
+      showActionNotice(`已添加 ${payloadItems.length} 个地点到目标组`);
+    } catch {
+      alert('批量添加失败');
+    }
+  }, [showActionNotice, updateGroupCount]);
 
   const handleConfirmShareAlbum = useCallback(async (sharePhotos: boolean) => {
     if (!shareAlbumPrompt) return;
@@ -1223,11 +1331,12 @@ function UserFootprintsPageInner() {
         alert(err.error || '添加失败');
         return;
       }
-      await loadGroups();
+      updateGroupCount(groupId, 1);
+      showActionNotice(`已添加到目标组「${groups.find((group) => group.id === groupId)?.name || ''}」`);
     } catch {
       alert('添加失败');
     }
-  }, [shareAlbumPrompt]);
+  }, [groups, shareAlbumPrompt, showActionNotice, updateGroupCount]);
 
   async function handleCreateGroup(name: string) {
     try {
@@ -1376,6 +1485,12 @@ function UserFootprintsPageInner() {
         </button>
       ) : null}
 
+      {actionNotice ? (
+        <div className={styles.actionNotice}>
+          {actionNotice}
+        </div>
+      ) : null}
+
       {/* Main OuterFrame */}
       <OuterFrame
         markers={markers}
@@ -1420,6 +1535,8 @@ function UserFootprintsPageInner() {
           onRemoveItem={handleRemoveItem}
           onRemoveItemFromGroup={handleRemoveItemFromGroup}
           onAddItemToGroup={handleAddItemToGroup}
+          onBulkRemoveItemsFromGroup={handleBulkRemoveItemsFromGroup}
+          onBulkAddItemsToGroup={handleBulkAddItemsToGroup}
           onOpenAlbum={handleOpenAlbum}
           onUploadPhoto={handleUploadPhotoForItem}
           onItemClick={handleItemClick}

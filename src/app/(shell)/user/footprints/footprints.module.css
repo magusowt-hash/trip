@@ -114,6 +114,24 @@
   background: rgba(29, 78, 216, 0.94);
 }
 
+.actionNotice {
+  position: fixed;
+  top: 20px;
+  right: 24px;
+  z-index: 130;
+  max-width: min(420px, calc(100vw - 48px));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(12px);
+}
+
 /* Batch bar */
 .batchBar {
   position: absolute;

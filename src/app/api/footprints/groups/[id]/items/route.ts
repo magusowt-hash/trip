@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { eq, and, desc, ne, sql } from 'drizzle-orm';
+import { eq, and, desc, ne, sql, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { footprintGroups, footprintGroupItems, mapPois, userMapFootprints } from '@/db/schema';
 import { listItems, lists } from '@/db/schema';
@@ -114,19 +114,94 @@ export async function POST(
       return NextResponse.json({ error: '分类组不存在' }, { status: 404 });
     }
 
+    const body = (await req.json()) as {
+      list_item_id?: number;
+      poi_id?: number;
+      source_item_id?: number;
+      share_photos?: boolean;
+      probe_only?: boolean;
+      items?: Array<{
+        list_item_id?: number;
+        poi_id?: number;
+        source_item_id?: number;
+        share_photos?: boolean;
+      }>;
+    };
+
+    if (Array.isArray(body.items)) {
+      const batchItems = body.items.filter((item) => (item.list_item_id && Number.isFinite(item.list_item_id)) || (item.poi_id && Number.isFinite(item.poi_id)));
+      if (batchItems.length === 0) {
+        return NextResponse.json({ error: '无有效地点' }, { status: 400 });
+      }
+
+      const poiIds = batchItems
+        .map((item) => item.poi_id)
+        .filter((value): value is number => !!value && Number.isFinite(value));
+      const listItemIds = batchItems
+        .map((item) => item.list_item_id)
+        .filter((value): value is number => !!value && Number.isFinite(value));
+
+      if (poiIds.length > 0) {
+        const existingMapItems = await db
+          .select({ poiId: userMapFootprints.poiId })
+          .from(userMapFootprints)
+          .where(and(
+            eq(userMapFootprints.userId, auth.userId),
+            eq(userMapFootprints.groupId, groupId),
+            inArray(userMapFootprints.poiId, poiIds),
+          ));
+        if (existingMapItems.length > 0) {
+          return NextResponse.json({ error: '部分地点已在目标分类组中' }, { status: 409 });
+        }
+      }
+
+      if (listItemIds.length > 0) {
+        const existingListItems = await db
+          .select({ listItemId: footprintGroupItems.listItemId })
+          .from(footprintGroupItems)
+          .where(and(
+            eq(footprintGroupItems.groupId, groupId),
+            inArray(footprintGroupItems.listItemId, listItemIds),
+          ));
+        if (existingListItems.length > 0) {
+          return NextResponse.json({ error: '部分地点已在目标分类组中' }, { status: 409 });
+        }
+      }
+
+      const listRows = batchItems
+        .filter((item) => item.list_item_id && Number.isFinite(item.list_item_id))
+        .map((item) => ({
+          groupId,
+          listItemId: item.list_item_id!,
+        }));
+      const poiRows = batchItems
+        .filter((item) => item.poi_id && Number.isFinite(item.poi_id))
+        .map((item) => ({
+          userId: auth.userId,
+          groupId,
+          poiId: item.poi_id!,
+        }));
+
+      if (listRows.length > 0) {
+        await db.insert(footprintGroupItems).values(listRows);
+      }
+      if (poiRows.length > 0) {
+        await db.insert(userMapFootprints).values(poiRows);
+      }
+
+      return NextResponse.json({
+        success: true,
+        added: batchItems.length,
+      }, { status: 201 });
+    }
+
     const {
       list_item_id,
       poi_id,
       source_item_id,
       share_photos,
       probe_only,
-    } = (await req.json()) as {
-      list_item_id?: number;
-      poi_id?: number;
-      source_item_id?: number;
-      share_photos?: boolean;
-      probe_only?: boolean;
-    };
+    } = body;
     const hasListItem = !!list_item_id && Number.isFinite(list_item_id);
     const hasPoi = !!poi_id && Number.isFinite(poi_id);
     if (!hasListItem && !hasPoi) {
@@ -306,6 +381,57 @@ export async function DELETE(
   const { searchParams } = new URL(req.url);
   const itemIdParam = searchParams.get('item_id');
   const poiIdParam = searchParams.get('poi_id');
+
+  if (!itemIdParam && !poiIdParam) {
+    try {
+      const body = (await req.json()) as {
+        list_item_ids?: number[];
+        poi_ids?: number[];
+      };
+      const listItemIds = Array.isArray(body.list_item_ids)
+        ? body.list_item_ids.filter((value): value is number => Number.isFinite(value))
+        : [];
+      const poiIds = Array.isArray(body.poi_ids)
+        ? body.poi_ids.filter((value): value is number => Number.isFinite(value))
+        : [];
+
+      if (listItemIds.length === 0 && poiIds.length === 0) {
+        return NextResponse.json({ error: '无有效地点ID' }, { status: 400 });
+      }
+
+      const [group] = await db
+        .select()
+        .from(footprintGroups)
+        .where(eq(footprintGroups.id, groupId));
+      if (!group || group.userId !== auth.userId) {
+        return NextResponse.json({ error: '分类组不存在' }, { status: 404 });
+      }
+
+      if (listItemIds.length > 0) {
+        await db
+          .delete(footprintGroupItems)
+          .where(and(
+            eq(footprintGroupItems.groupId, groupId),
+            inArray(footprintGroupItems.listItemId, listItemIds),
+          ));
+      }
+
+      if (poiIds.length > 0) {
+        await db
+          .delete(userMapFootprints)
+          .where(and(
+            eq(userMapFootprints.userId, auth.userId),
+            eq(userMapFootprints.groupId, groupId),
+            inArray(userMapFootprints.poiId, poiIds),
+          ));
+      }
+
+      return NextResponse.json({ success: true }, { status: 200 });
+    } catch (err) {
+      console.error('DELETE items from group error:', err);
+      return NextResponse.json({ error: '批量移除失败' }, { status: 500 });
+    }
+  }
 
   if (itemIdParam) {
     const itemId = parseInt(itemIdParam);

@@ -43,6 +43,8 @@ interface Props {
   onRemoveItem: (item: FootprintItem) => void;
   onRemoveItemFromGroup?: (groupId: number, item: FootprintItem, options?: { skipConfirm?: boolean }) => Promise<void> | void;
   onAddItemToGroup?: (item: FootprintItem, groupId: number) => void;
+  onBulkRemoveItemsFromGroup?: (groupId: number, items: FootprintItem[]) => Promise<void> | void;
+  onBulkAddItemsToGroup?: (items: FootprintItem[], groupId: number) => Promise<void> | void;
   onOpenAlbum: (item: FootprintItem) => void;
   onUploadPhoto: (item: FootprintItem) => void;
   onItemClick: (item: FootprintItem) => void;
@@ -66,6 +68,8 @@ export default function FootprintGroupPanel({
   onRemoveItem,
   onRemoveItemFromGroup,
   onAddItemToGroup,
+  onBulkRemoveItemsFromGroup,
+  onBulkAddItemsToGroup,
   onOpenAlbum,
   onUploadPhoto,
   onItemClick,
@@ -218,6 +222,11 @@ export default function FootprintGroupPanel({
   const handleBulkDelete = async () => {
     if (!managementGroupId || !onRemoveItemFromGroup || selectedItems.length === 0) return;
     if (!confirm(`确定删除选中的 ${selectedItems.length} 个地点？`)) return;
+    if (onBulkRemoveItemsFromGroup) {
+      await onBulkRemoveItemsFromGroup(managementGroupId, selectedItems);
+      setSelectedItemIds([]);
+      return;
+    }
     for (const item of selectedItems) {
       await onRemoveItemFromGroup(managementGroupId, item, { skipConfirm: true });
     }
@@ -226,6 +235,12 @@ export default function FootprintGroupPanel({
 
   const handleBulkAddToGroup = async (targetGroupId: number) => {
     if (!onAddItemToGroup || selectedItems.length === 0) return;
+    if (onBulkAddItemsToGroup) {
+      await onBulkAddItemsToGroup(selectedItems, targetGroupId);
+      setSelectedItemIds([]);
+      setBulkAddMenuOpen(false);
+      return;
+    }
     for (const item of selectedItems) {
       await onAddItemToGroup(item, targetGroupId);
     }
