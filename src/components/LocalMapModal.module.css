@@ -245,6 +245,44 @@
   gap: 8px;
 }
 
+.matchList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.matchItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 14px;
+  background: rgba(30, 41, 59, 0.82);
+  padding: 12px 14px;
+}
+
+.matchItem input {
+  width: 16px;
+  height: 16px;
+}
+
+.matchText {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.6;
+}
+
+.matchText strong {
+  color: #f8fafc;
+}
+
+.matchText em {
+  font-style: normal;
+  color: #94a3b8;
+}
+
 .list code,
 .warning code {
   display: block;

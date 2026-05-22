@@ -17,6 +17,13 @@ export type LocalMappedAssetDraft = {
   missing: boolean;
   url: string;
   thumbnailUrl?: string;
+  matchType?: 'exact' | 'fuzzy';
+};
+
+type FuzzyMatchCandidate = {
+  folderName: string;
+  matchedPlaceTitle: string;
+  checked: boolean;
 };
 
 export type LocalMapLayoutMode = 'grid' | 'staggered' | 'random';
@@ -92,6 +99,9 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
   const [missingAssets, setMissingAssets] = useState<Array<{ relativePath: string; name: string }>>([]);
   const [addedAssets, setAddedAssets] = useState<string[]>([]);
   const [changedAssets, setChangedAssets] = useState<string[]>([]);
+  const [fuzzyMatches, setFuzzyMatches] = useState<FuzzyMatchCandidate[]>([]);
+  const [pendingExactAssets, setPendingExactAssets] = useState<LocalMappedAssetDraft[]>([]);
+  const [pendingFuzzyAssets, setPendingFuzzyAssets] = useState<LocalMappedAssetDraft[]>([]);
   const [statusText, setStatusText] = useState('选择主文件夹后开始扫描');
   const [needsOverwriteConfirm, setNeedsOverwriteConfirm] = useState(false);
   const [layoutEnabled, setLayoutEnabled] = useState(true);
@@ -104,22 +114,33 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
     webkitdirectory: '',
   } as InputHTMLAttributes<HTMLInputElement> & { webkitdirectory: string };
 
+  const approvedFuzzyFolders = useMemo(
+    () => new Set(fuzzyMatches.filter((item) => item.checked).map((item) => item.folderName)),
+    [fuzzyMatches],
+  );
+  const effectiveMatchedAssets = useMemo(
+    () => [...pendingExactAssets, ...pendingFuzzyAssets.filter((asset) => approvedFuzzyFolders.has(asset.folderName))],
+    [approvedFuzzyFolders, pendingExactAssets, pendingFuzzyAssets],
+  );
+
   const summary = useMemo(() => ({
-    matchedCount: matchedAssets.length,
+    matchedCount: effectiveMatchedAssets.length,
     unmatchedCount: unmatchedFolders.length,
     addedCount: addedAssets.length,
     missingCount: missingAssets.length,
     changedCount: changedAssets.length,
-  }), [matchedAssets.length, unmatchedFolders.length, addedAssets.length, missingAssets.length, changedAssets.length]);
+  }), [effectiveMatchedAssets.length, unmatchedFolders.length, addedAssets.length, missingAssets.length, changedAssets.length]);
 
   const matchedPlaceCount = useMemo(() => {
-    const matchedPlaces = new Set(matchedAssets.map((asset) => asset.matchedPlaceTitle));
+    const matchedPlaces = new Set(effectiveMatchedAssets.map((asset) => asset.matchedPlaceTitle));
     return placeTitles.filter((title) => matchedPlaces.has(title)).length;
-  }, [matchedAssets, placeTitles]);
+  }, [effectiveMatchedAssets, placeTitles]);
 
   const unmatchedPlaceCount = Math.max(placeTitles.length - matchedPlaceCount, 0);
   const knownRootSummary = knownRootNames.length > 0 ? knownRootNames.join(' / ') : '无';
   const savedRecordSummary = savedRecord?.rootName || '无';
+  const approvedFuzzyMatchCount = fuzzyMatches.filter((item) => item.checked).length;
+  const canApply = !!rootName && (pendingExactAssets.length + approvedFuzzyMatchCount) > 0;
 
   useEffect(() => {
     if (!open) return;
@@ -130,6 +151,9 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
     setMissingAssets([]);
     setAddedAssets([]);
     setChangedAssets([]);
+    setFuzzyMatches([]);
+    setPendingExactAssets([]);
+    setPendingFuzzyAssets([]);
     setStatusText('选择主文件夹后开始扫描');
     setNeedsOverwriteConfirm(false);
     setLayoutEnabled(true);
@@ -184,10 +208,30 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
       const placeTitleSet = new Set(placeTitles);
       const oldAssetMap = new Map((record?.assets ?? []).map((asset) => [asset.relativePath, asset]));
       const currentSeen = new Set<string>();
-      const nextMatched: LocalMappedAssetDraft[] = [];
+      const nextExactMatched: LocalMappedAssetDraft[] = [];
+      const nextFuzzyMatched: LocalMappedAssetDraft[] = [];
       const nextUnmatched = new Set<string>();
       const nextAdded: string[] = [];
       const nextChanged: string[] = [];
+      const folderFuzzyMatchMap = new Map<string, string>();
+
+      for (const folderName of Array.from(new Set(
+        files
+          .filter((file) => IMAGE_EXT_RE.test(file.name))
+          .map((file) => {
+            const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+            const segments = relativePath.split('/').filter(Boolean);
+            return segments.length >= 3 ? segments[1] : '根目录';
+          }),
+      ))) {
+        if (placeTitleSet.has(folderName)) continue;
+        const matches = placeTitles.filter((title) => title.includes(folderName));
+        if (matches.length === 1) {
+          folderFuzzyMatchMap.set(folderName, matches[0]);
+        } else {
+          nextUnmatched.add(folderName);
+        }
+      }
 
       for (const file of files) {
         if (!IMAGE_EXT_RE.test(file.name)) continue;
@@ -196,8 +240,10 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
         const folderName = segments.length >= 3 ? segments[1] : '根目录';
         currentSeen.add(relativePath);
 
-        if (!placeTitleSet.has(folderName)) {
-          nextUnmatched.add(folderName);
+        const exactMatched = placeTitleSet.has(folderName);
+        const fuzzyMatchedPlaceTitle = folderFuzzyMatchMap.get(folderName) || '';
+
+        if (!exactMatched && !fuzzyMatchedPlaceTitle) {
           continue;
         }
 
@@ -210,7 +256,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
 
         const dimensions = await readImageDimensions(file);
 
-        nextMatched.push({
+        const nextAsset: LocalMappedAssetDraft = {
           relativePath,
           folderName,
           name: file.name,
@@ -218,24 +264,42 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
           lastModified: file.lastModified,
           pixelWidth: dimensions?.width ?? null,
           pixelHeight: dimensions?.height ?? null,
-          matchedPlaceTitle: folderName,
+          matchedPlaceTitle: exactMatched ? folderName : fuzzyMatchedPlaceTitle,
           frameX: oldAsset?.frameX ?? null,
           frameY: oldAsset?.frameY ?? null,
           missing: false,
           url: URL.createObjectURL(file),
-        });
+          matchType: exactMatched ? 'exact' : 'fuzzy',
+        };
+
+        if (exactMatched) {
+          nextExactMatched.push(nextAsset);
+        } else {
+          nextFuzzyMatched.push(nextAsset);
+        }
       }
 
       const nextMissing = (record?.assets ?? [])
         .filter((asset) => !currentSeen.has(asset.relativePath))
         .map((asset) => ({ relativePath: asset.relativePath, name: asset.name }));
 
-      setMatchedAssets(nextMatched);
+      const nextFuzzyCandidates = Array.from(folderFuzzyMatchMap.entries())
+        .map(([folderName, matchedPlaceTitle]) => ({
+          folderName,
+          matchedPlaceTitle,
+          checked: true,
+        }))
+        .sort((a, b) => a.folderName.localeCompare(b.folderName, 'zh-CN'));
+
+      setMatchedAssets(nextExactMatched);
+      setPendingExactAssets(nextExactMatched);
+      setPendingFuzzyAssets(nextFuzzyMatched);
+      setFuzzyMatches(nextFuzzyCandidates);
       setUnmatchedFolders(Array.from(nextUnmatched).sort((a, b) => a.localeCompare(b, 'zh-CN')));
       setMissingAssets(nextMissing);
       setAddedAssets(nextAdded);
       setChangedAssets(nextChanged);
-      setStatusText('扫描完成，可确认映射');
+      setStatusText(nextFuzzyCandidates.length > 0 ? '扫描完成，请确认模糊匹配项' : '扫描完成，可确认映射');
     } catch (error: any) {
       setStatusText(error?.message || '扫描失败');
     } finally {
@@ -243,15 +307,28 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
     }
   }
 
+  function handleToggleFuzzyMatch(folderName: string) {
+    setFuzzyMatches((current) => current.map((item) => (
+      item.folderName === folderName
+        ? { ...item, checked: !item.checked }
+        : item
+    )));
+  }
+
   function handleApply() {
-    if (!rootName || matchedAssets.length === 0) return;
+    if (!rootName) return;
+    const nextMatchedAssets = effectiveMatchedAssets;
+    if (nextMatchedAssets.length === 0) {
+      window.alert('当前没有可确认的匹配项');
+      return;
+    }
     if (savedRecord && needsOverwriteConfirm) {
       const ok = window.confirm(`主文件夹「${rootName}」已有记录。继续将以本次扫描结果覆盖旧记录，是否继续？`);
       if (!ok) return;
     }
     onApply({
       rootName,
-      matchedAssets,
+      matchedAssets: nextMatchedAssets,
       unmatchedFolders,
       missingAssets,
       layout: {
@@ -269,7 +346,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
       <div className={styles.modal} onClick={(event) => event.stopPropagation()}>
         <div className={styles.header}>
           <h2>映射本地</h2>
-          <p>规则：只读取主文件夹第一层子文件夹，且子文件夹名必须与足迹地点名称完全一致。未匹配目录不会进入正式足迹页。刷新后需重新选择主文件夹，才能恢复本地图片。</p>
+          <p>规则：先执行文件夹名与地点名完全一致的精准匹配；若仍有未匹配目录，再执行“地点名包含文件夹名”的单向模糊匹配。模糊匹配需用户确认后才会生效。刷新后需重新选择主文件夹，才能恢复本地图片。</p>
         </div>
 
         <div className={styles.body}>
@@ -319,6 +396,29 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
               <strong>{summary.missingCount}</strong>
             </div>
           </div>
+
+          {fuzzyMatches.length > 0 ? (
+            <div className={styles.card}>
+              <h3 className={styles.cardTitle}>模糊匹配确认</h3>
+              <p className={styles.hint}>以下目录已按“地点名包含文件夹名”自动找到候选地点。你可以取消不需要的项，确认后才会正式纳入映射。</p>
+              <div className={styles.matchList}>
+                {fuzzyMatches.map((item) => (
+                  <label key={`${item.folderName}-${item.matchedPlaceTitle}`} className={styles.matchItem}>
+                    <input
+                      type="checkbox"
+                      checked={item.checked}
+                      onChange={() => handleToggleFuzzyMatch(item.folderName)}
+                    />
+                    <span className={styles.matchText}>
+                      <strong>{item.folderName}</strong>
+                      <em>匹配到</em>
+                      <strong>{item.matchedPlaceTitle}</strong>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className={`${styles.card} ${!layoutEnabled ? styles.cardMuted : ''}`}>
             <div className={styles.cardHeaderRow}>
@@ -460,7 +560,7 @@ export default function LocalMapModal({ open, placeTitles, onClose, onApply }: P
             <span className={styles.pickerButton}>选择主文件夹</span>
           </label>
           <button className={styles.secondaryBtn} type="button" onClick={onClose}>取消</button>
-          <button className={styles.actionBtn} type="button" onClick={handleApply} disabled={!rootName || matchedAssets.length === 0}>
+          <button className={styles.actionBtn} type="button" onClick={handleApply} disabled={!canApply}>
             确认映射
           </button>
         </div>
