@@ -267,7 +267,7 @@ export const userMapFootprints = mysqlTable(
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => ({
-    userPoiUnique: uniqueIndex('user_map_footprints_user_poi_unique').on(t.userId, t.poiId),
+    userGroupPoiUnique: uniqueIndex('user_map_footprints_user_group_poi_unique').on(t.userId, t.groupId, t.poiId),
     userIdIdx: index('user_map_footprints_user_id_idx').on(t.userId),
     groupIdIdx: index('user_map_footprints_group_id_idx').on(t.groupId),
   }),

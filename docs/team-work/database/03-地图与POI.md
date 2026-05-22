@@ -95,11 +95,11 @@
 | created_at | TIMESTAMP | NO | NOW() | 添加时间 |
 
 **索引：**
-- `user_map_footprints_user_poi_unique`（UNIQUE）：user_id, poi_id
+- `user_map_footprints_user_group_poi_unique`（UNIQUE）：user_id, group_id, poi_id
 - `user_map_footprints_user_id_idx`：user_id
 - `user_map_footprints_group_id_idx`：group_id
 
-**说明：** 用户在地图上访问过的地点记录（打卡/足迹）。
+**说明：** 用户在地图上访问过的地点记录（打卡/足迹）。同一用户的同一 POI 允许同时存在于多个足迹组，但同一组内不可重复。
 
 ---
 

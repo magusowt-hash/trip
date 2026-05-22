@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { db } from '@/db';
 import { footprintGroups, mapPois, userMapFootprints } from '@/db/schema';
 import { authenticateStandardMapRequest, ensureStandardMapPoi, type PoiPayload } from './shared';
@@ -67,7 +67,13 @@ export async function postStandardMapFootprint(req: NextRequest) {
     const existing = await db
       .select({ id: userMapFootprints.id })
       .from(userMapFootprints)
-      .where(and(eq(userMapFootprints.userId, auth.userId), eq(userMapFootprints.poiId, poi.id)))
+      .where(
+        and(
+          eq(userMapFootprints.userId, auth.userId),
+          eq(userMapFootprints.poiId, poi.id),
+          or(eq(userMapFootprints.groupId, groupId), isNull(userMapFootprints.groupId)),
+        ),
+      )
       .limit(1);
 
     if (!existing[0]) {
