@@ -6,6 +6,7 @@ import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 export interface PhotoItem {
   id: number | string;
   url: string;
+  thumbnailUrl?: string;
   frameX: number | undefined;
   frameY: number | undefined;
   placeKey: string;
@@ -44,6 +45,7 @@ interface Props {
   height: number;
   transform: OuterFrameTransform;
   photos: PhotoItem[];
+  scale: number;
   showLabels: boolean;
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
   onPhotoClick?: (photoId: number | string) => void;
@@ -80,6 +82,7 @@ export default function OuterFrameCanvas({
   height,
   transform,
   photos,
+  scale,
   showLabels,
   onPhotoDragEnd,
   onPhotoClick,
@@ -89,7 +92,7 @@ export default function OuterFrameCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dirtyRef = useRef(true);
   const prevKeyRef = useRef('');
-  const imageCache = useRef<Map<number | string, HTMLImageElement>>(new Map());
+  const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
   const dragRef = useRef<{
     photoId: number | string;
     startX: number;
@@ -103,6 +106,13 @@ export default function OuterFrameCanvas({
   const hoveredPhotoRef = useRef<number | string | null>(null);
   const placeRectsRef = useRef<PlaceRect[]>([]);
   const didDragRef = useRef(false);
+
+  const getRenderUrl = useCallback((photo: PhotoItem) => {
+    if (photo.sourceType === 'local-mapped' && photo.thumbnailUrl && scale < 4) {
+      return photo.thumbnailUrl;
+    }
+    return photo.url;
+  }, [scale]);
 
   const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
     const sourceWidth = photo.pixelWidth ?? 0;
@@ -120,7 +130,7 @@ export default function OuterFrameCanvas({
       };
     }
 
-    const img = imageCache.current.get(photo.id);
+    const img = imageCache.current.get(`${photo.id}:${getRenderUrl(photo)}`);
     if (!img || !img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) {
       return { width: PHOTO_MAX_EDGE, height: PHOTO_MAX_EDGE };
     }
@@ -136,7 +146,7 @@ export default function OuterFrameCanvas({
       width: Math.max(PHOTO_MIN_EDGE, (PHOTO_MAX_EDGE * img.naturalWidth) / img.naturalHeight),
       height: PHOTO_MAX_EDGE,
     };
-  }, []);
+  }, [getRenderUrl]);
 
   const getPhotoBounds = useCallback((photo: PhotoItem) => {
     if (photo.frameX == null || photo.frameY == null) return null;
@@ -246,20 +256,22 @@ export default function OuterFrameCanvas({
 
   // --- Image loading ---
   const loadImage = useCallback((photo: PhotoItem): HTMLImageElement | null => {
-    const cached = imageCache.current.get(photo.id);
+    const renderUrl = getRenderUrl(photo);
+    const cacheKey = `${photo.id}:${renderUrl}`;
+    const cached = imageCache.current.get(cacheKey);
     if (cached) return cached;
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = photo.url;
+    img.src = renderUrl;
     img.onload = () => {
       dirtyRef.current = true;
     };
     img.onerror = () => {
       dirtyRef.current = true;
     };
-    imageCache.current.set(photo.id, img);
+    imageCache.current.set(cacheKey, img);
     return img;
-  }, []);
+  }, [getRenderUrl]);
 
   // --- Hit test ---
   const hitTest = useCallback((sx: number, sy: number): number | string | null => {
@@ -374,9 +386,10 @@ export default function OuterFrameCanvas({
 
   // Cleanup image cache
   useEffect(() => {
-    const currentIds = new Set(photos.map(p => p.id));
-    imageCache.current.forEach((_, id) => {
-      if (!currentIds.has(id)) imageCache.current.delete(id);
+    const currentIds = new Set(photos.map(p => String(p.id)));
+    imageCache.current.forEach((_, key) => {
+      const id = key.split(':')[0];
+      if (!currentIds.has(id)) imageCache.current.delete(key);
     });
   }, [photos]);
 

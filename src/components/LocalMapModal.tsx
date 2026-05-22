@@ -16,6 +16,7 @@ export type LocalMappedAssetDraft = {
   frameY: number | null;
   missing: boolean;
   url: string;
+  thumbnailUrl?: string;
 };
 
 export type LocalMapLayoutMode = 'grid' | 'staggered' | 'random';

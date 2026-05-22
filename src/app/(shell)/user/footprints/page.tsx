@@ -11,8 +11,12 @@ import LocalMapModal, { type LocalMappedAssetDraft, type LocalMapLayoutSettings 
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import type { PhotoItem } from '@/components/OuterFrameCanvas';
+import type { Viewport } from '@/lib/outerFrameCoords';
 import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 import styles from './footprints.module.css';
+
+const LOCAL_THUMB_MAX_EDGE = 320;
+const LOCAL_THUMB_CONCURRENCY = 2;
 
 interface FootprintGroup {
   id: number;
@@ -62,6 +66,44 @@ const PHOTO_MIN_EDGE = 48;
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function createThumbnailFromUrl(url: string, maxEdge = LOCAL_THUMB_MAX_EDGE) {
+  return new Promise<{ url: string; width: number; height: number } | null>((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
+      const width = Math.max(1, Math.round(img.naturalWidth * scale));
+      const height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          resolve(null);
+          return;
+        }
+        resolve({ url: URL.createObjectURL(blob), width, height });
+      }, 'image/jpeg', 0.82);
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function distanceToViewport(photo: PhotoItem, viewport: Viewport | null) {
+  if (!viewport) return Math.abs(photo.frameX ?? 0) + Math.abs(photo.frameY ?? 0);
+  const x = photo.frameX ?? 0;
+  const y = photo.frameY ?? 0;
+  const dx = x < viewport.left ? viewport.left - x : x > viewport.right ? x - viewport.right : 0;
+  const dy = y < viewport.top ? viewport.top - y : y > viewport.bottom ? y - viewport.bottom : 0;
+  return dx + dy;
 }
 
 function getPhotoLogicalSize(photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>): LogicalSize {
@@ -450,6 +492,7 @@ function UserFootprintsPageInner() {
   const [backgroundColor, setBackgroundColor] = useState('#0f172a');
   const [lineStyle, setLineStyle] = useState<LineStyle>({ color: '#a5b4fc', width: 2, dashed: true });
   const [outerScale, setOuterScale] = useState(1);
+  const [outerViewport, setOuterViewport] = useState<Viewport | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   const [groups, setGroups] = useState<FootprintGroup[]>([]);
@@ -475,6 +518,10 @@ function UserFootprintsPageInner() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstanceRef = useRef<any>(null);
   const movedPhotosRef = useRef<boolean>(false);
+  const localThumbQueueRef = useRef<Array<{ id: string; originalUrl: string }>>([]);
+  const localThumbRunningRef = useRef(0);
+  const localThumbSeenRef = useRef<Set<string>>(new Set());
+  const localOriginalPreloadRef = useRef<Map<string, HTMLImageElement>>(new Map());
 
   // Load settings
   useEffect(() => {
@@ -551,11 +598,26 @@ function UserFootprintsPageInner() {
 
   useEffect(() => {
     if (selectedGroupId) {
+      localOriginalPreloadRef.current.clear();
+      localThumbQueueRef.current = [];
+      localThumbSeenRef.current.clear();
+      setPhotos((current) => {
+        current
+          .filter((photo) => photo.sourceType === 'local-mapped' && photo.thumbnailUrl)
+          .forEach((photo) => {
+            try {
+              URL.revokeObjectURL(photo.thumbnailUrl!);
+            } catch {}
+          });
+        return [];
+      });
       setItems([]);
-      setPhotos([]);
       loadItems(selectedGroupId);
       setPhotosLoaded(false);
     } else {
+      localOriginalPreloadRef.current.clear();
+      localThumbQueueRef.current = [];
+      localThumbSeenRef.current.clear();
       setItems([]);
       setPhotos([]);
     }
@@ -904,6 +966,77 @@ function UserFootprintsPageInner() {
     if (p) setViewerPhoto({ url: p.url, title: p.filename });
   }, [photos]);
 
+  const pumpLocalThumbnailQueue = useCallback(() => {
+    while (localThumbRunningRef.current < LOCAL_THUMB_CONCURRENCY && localThumbQueueRef.current.length > 0) {
+      const next = localThumbQueueRef.current.shift();
+      if (!next) return;
+      localThumbRunningRef.current += 1;
+      void createThumbnailFromUrl(next.originalUrl).then((thumb) => {
+        if (!thumb) return;
+        setPhotos((current) => current.map((photo) => {
+          if (String(photo.id) !== next.id || photo.sourceType !== 'local-mapped') return photo;
+          return {
+            ...photo,
+            thumbnailUrl: thumb.url,
+            pixelWidth: photo.pixelWidth ?? thumb.width,
+            pixelHeight: photo.pixelHeight ?? thumb.height,
+          };
+        }));
+      }).finally(() => {
+        localThumbRunningRef.current -= 1;
+        pumpLocalThumbnailQueue();
+      });
+    }
+  }, []);
+
+  const enqueueLocalThumbnails = useCallback((localPhotos: PhotoItem[]) => {
+    for (const photo of localPhotos) {
+      const photoId = String(photo.id);
+      if (localThumbSeenRef.current.has(photoId)) continue;
+      if (photo.thumbnailUrl) continue;
+      localThumbSeenRef.current.add(photoId);
+      localThumbQueueRef.current.push({ id: photoId, originalUrl: photo.url });
+    }
+    pumpLocalThumbnailQueue();
+  }, [pumpLocalThumbnailQueue]);
+
+  useEffect(() => {
+    if (localThumbQueueRef.current.length <= 1) return;
+    const photoById = new Map(
+      photos
+        .filter((photo) => photo.sourceType === 'local-mapped')
+        .map((photo) => [String(photo.id), photo]),
+    );
+    localThumbQueueRef.current.sort((a, b) => {
+      const photoA = photoById.get(a.id);
+      const photoB = photoById.get(b.id);
+      const distanceA = photoA ? distanceToViewport(photoA, outerViewport) : Number.POSITIVE_INFINITY;
+      const distanceB = photoB ? distanceToViewport(photoB, outerViewport) : Number.POSITIVE_INFINITY;
+      return distanceA - distanceB;
+    });
+  }, [photos, outerScale, outerViewport]);
+
+  useEffect(() => {
+    if (outerScale < 3.5) return;
+    const candidates = photos
+      .filter((photo) => photo.sourceType === 'local-mapped')
+      .filter((photo) => !!photo.thumbnailUrl)
+      .sort((a, b) => {
+        const distanceA = distanceToViewport(a, outerViewport);
+        const distanceB = distanceToViewport(b, outerViewport);
+        return distanceA - distanceB;
+      })
+      .slice(0, 24);
+
+    for (const photo of candidates) {
+      const photoId = String(photo.id);
+      if (localOriginalPreloadRef.current.has(photoId)) continue;
+      const img = new Image();
+      img.src = photo.url;
+      localOriginalPreloadRef.current.set(photoId, img);
+    }
+  }, [photos, outerScale, outerViewport]);
+
   // --- Item actions from panel ---
 
   const handleRemoveItemFromGroup = useCallback(async (
@@ -1160,6 +1293,7 @@ function UserFootprintsPageInner() {
         return {
           id: `local:${asset.relativePath}`,
           url: asset.url,
+          thumbnailUrl: asset.thumbnailUrl,
           frameX: asset.frameX ?? undefined,
           frameY: asset.frameY ?? undefined,
           placeKey: buildFootprintPhotoScopeKey(matchedItem.id),
@@ -1204,10 +1338,16 @@ function UserFootprintsPageInner() {
           try {
             URL.revokeObjectURL(photo.url);
           } catch {}
+          if (photo.thumbnailUrl) {
+            try {
+              URL.revokeObjectURL(photo.thumbnailUrl);
+            } catch {}
+          }
         });
       const uploaded = current.filter((photo) => photo.sourceType !== 'local-mapped');
       return [...uploaded, ...mappedPhotos];
     });
+    enqueueLocalThumbnails(mappedPhotos);
     setLocalRootName(payload.rootName);
     setLocalUnmatchedFolders(payload.unmatchedFolders);
     if (payload.missingAssets.length > 0) {
@@ -1259,6 +1399,7 @@ function UserFootprintsPageInner() {
         backgroundColor={backgroundColor}
         lineStyle={lineStyle}
         onScaleChange={setOuterScale}
+        onViewportChange={setOuterViewport}
       />
 
       {/* Bottom-right panels */}

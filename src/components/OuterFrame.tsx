@@ -2,6 +2,7 @@
 
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { useOuterFrame } from '@/hooks/useOuterFrame';
+import { logicalViewport, type Viewport } from '@/lib/outerFrameCoords';
 import OuterFrameCanvas from './OuterFrameCanvas';
 import LineCanvas from './LineCanvas';
 import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
@@ -29,6 +30,7 @@ interface Props {
   backgroundColor: string;
   lineStyle: LineStyle;
   onScaleChange?: (scale: number) => void;
+  onViewportChange?: (viewport: Viewport) => void;
 }
 
 export default function OuterFrame({
@@ -51,6 +53,7 @@ export default function OuterFrame({
   backgroundColor,
   lineStyle,
   onScaleChange,
+  onViewportChange,
 }: Props) {
   const {
     transform,
@@ -129,6 +132,11 @@ export default function OuterFrame({
   useEffect(() => {
     onScaleChange?.(transform.scale);
   }, [transform.scale, onScaleChange]);
+
+  useEffect(() => {
+    if (!containerSize.w || !containerSize.h) return;
+    onViewportChange?.(logicalViewport(containerSize.w, containerSize.h, transform));
+  }, [containerSize, transform, onViewportChange]);
   useEffect(() => {
     if (!mapReady) return;
     let rafId: number;
@@ -205,6 +213,7 @@ export default function OuterFrame({
           height={containerSize.h || 800}
           transform={transform}
           photos={photos}
+          scale={transform.scale}
           showLabels={showLabels}
           onPhotoDragEnd={onPhotoDragEnd}
           onPhotoClick={onPhotoClick}
