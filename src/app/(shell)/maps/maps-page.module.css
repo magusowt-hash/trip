@@ -311,13 +311,24 @@
 }
 
 .primaryButton {
-  border: none;
-  background: #111827;
-  color: #fff;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #111827;
 }
 
 .saved {
   opacity: 0.6;
+}
+
+.primaryButton.saved {
+  border-color: #111827;
+  background: #111827;
+  color: #fff;
+  opacity: 1;
+}
+
+.primaryButton:disabled {
+  cursor: default;
 }
 
 .modalOverlay {

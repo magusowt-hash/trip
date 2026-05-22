@@ -382,9 +382,9 @@ export default function FootprintGroupPanel({
 
                 <div className={styles.managementGroupTabs}>
                   {groups.map((group) => {
-                    const count = group.id === selectedGroupId && items.length > 0
+                    const count = group.id === selectedGroupId
                       ? items.length
-                      : (groupItemsMap[group.id] || []).length;
+                      : ((groupItemsMap[group.id] || []).length || group.itemCount);
                     const active = managementGroupId === group.id;
                     return (
                       <button

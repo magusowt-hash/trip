@@ -16,7 +16,13 @@ export type StandardMapSearchResult = {
 };
 
 type SavedFavorite = { poiId: number };
-type SavedFootprint = { poiId: number };
+type SavedFootprint = {
+  poiId: number;
+  amapPoiId?: string | null;
+  name?: string | null;
+  lng?: string | null;
+  lat?: string | null;
+};
 
 type Styles = Record<string, string>;
 
@@ -137,6 +143,7 @@ export function useStandardMapPanelController(active: boolean) {
   const [mapSelectedPoi, setMapSelectedPoi] = useState<StandardMapSearchResult | null>(null);
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
   const [footprints, setFootprints] = useState<Set<number>>(new Set());
+  const [savedFootprints, setSavedFootprints] = useState<SavedFootprint[]>([]);
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
   useEffect(() => {
@@ -153,7 +160,9 @@ export function useStandardMapPanelController(active: boolean) {
         }
         if (footprintsRes.ok) {
           const data = await footprintsRes.json();
-          setFootprints(new Set((data.footprints || []).map((item: SavedFootprint) => item.poiId)));
+          const nextSaved = (data.footprints || []) as SavedFootprint[];
+          setSavedFootprints(nextSaved);
+          setFootprints(new Set(nextSaved.map((item) => item.poiId)));
         }
       })
       .catch(() => {});
@@ -201,7 +210,12 @@ export function useStandardMapPanelController(active: boolean) {
         return;
       }
 
-      const nextResults = (data.results || []).slice(0, 8);
+      const nextResults = ((data.results || []) as StandardMapSearchResult[])
+        .slice(0, 8)
+        .map((item) => {
+          const matched = savedFootprints.find((saved) => samePoi(item, saved));
+          return matched ? { ...item, poiId: matched.poiId } : item;
+        });
       setResults(nextResults);
       setSelectedPoi(nextResults.length === 1 ? nextResults[0] : null);
       if (!nextResults.length) {
@@ -239,6 +253,16 @@ export function useStandardMapPanelController(active: boolean) {
         setFavorites((prev) => new Set(prev).add(poiId));
       } else {
         setFootprints((prev) => new Set(prev).add(poiId));
+        setSavedFootprints((prev) => {
+          if (prev.some((item) => item.poiId === poiId)) return prev;
+          return [...prev, {
+            poiId,
+            amapPoiId: poi.amapPoiId,
+            name: poi.name,
+            lng: poi.lng,
+            lat: poi.lat,
+          }];
+        });
       }
 
       const updater = (item: StandardMapSearchResult) => (samePoi(item, poi) ? { ...item, poiId } : item);
@@ -304,7 +328,10 @@ function attachSavedState(poi: StandardMapSearchResult, favorites: Set<number>, 
   };
 }
 
-function samePoi(a: StandardMapSearchResult | null | undefined, b: StandardMapSearchResult | null | undefined) {
+function samePoi(
+  a: Pick<StandardMapSearchResult, 'amapPoiId' | 'name' | 'lng' | 'lat'> | null | undefined,
+  b: Pick<StandardMapSearchResult, 'amapPoiId' | 'name' | 'lng' | 'lat'> | SavedFootprint | null | undefined,
+) {
   if (!a || !b) return false;
   return (a.amapPoiId && b.amapPoiId && a.amapPoiId === b.amapPoiId) || (a.name === b.name && a.lng === b.lng && a.lat === b.lat);
 }
