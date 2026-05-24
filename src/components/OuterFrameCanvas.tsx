@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useCallback } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
+import { buildGroupGeometry } from './localMapGroupGeometry';
 
 export interface PhotoItem {
   id: number | string;
@@ -39,6 +40,8 @@ export interface PlaceRect {
   right: number;
   bottom: number;
   labelSide: 'top' | 'bottom';
+  labelAnchorX: number;
+  labelAnchorY: number;
 }
 
 interface Props {
@@ -56,11 +59,8 @@ interface Props {
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
-const RECT_PADDING = 40;
 const MAP_AREA_RATIO_W = 0.6;
 const MAP_AREA_RATIO_H = 0.8;
-const LABEL_TOP_GAP = 28;
-const LABEL_BOTTOM_GAP = 20;
 
 function rectContains(r: PlaceRect, x: number, y: number): boolean {
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
@@ -78,13 +78,6 @@ function placeColor(placeTitle: string): string {
     hash = placeTitle.charCodeAt(i) + ((hash << 5) - hash);
   }
   return COLORS[Math.abs(hash) % COLORS.length];
-}
-
-function getRegionByPoint(x: number, y: number): 'N' | 'W' | 'S' | 'E' {
-  if (Math.abs(x) > Math.abs(y)) {
-    return x < 0 ? 'W' : 'E';
-  }
-  return y < 0 ? 'N' : 'S';
 }
 
 export default function OuterFrameCanvas({
@@ -232,27 +225,22 @@ export default function OuterFrameCanvas({
     }
     const rects: PlaceRect[] = [];
     for (const [placeKey, items] of groups) {
-      let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
-      for (const p of items) {
-        const bounds = getPhotoBounds(p);
-        if (!bounds) continue;
-        left = Math.min(left, bounds.left);
-        top = Math.min(top, bounds.top);
-        right = Math.max(right, bounds.right);
-        bottom = Math.max(bottom, bounds.bottom);
-      }
+      const geometry = buildGroupGeometry(items, getPhotoLogicalSize);
+      if (!geometry) continue;
       rects.push({
         placeKey,
         placeTitle: items[0]?.placeTitle || '',
-        left: left - RECT_PADDING,
-        top: top - RECT_PADDING,
-        right: right + RECT_PADDING,
-        bottom: bottom + RECT_PADDING + 20,
-        labelSide: getRegionByPoint((left + right) / 2, (top + bottom) / 2) === 'S' ? 'top' : 'bottom',
+        left: geometry.rect.left,
+        top: geometry.rect.top,
+        right: geometry.rect.right,
+        bottom: geometry.rect.bottom,
+        labelSide: geometry.labelSide,
+        labelAnchorX: geometry.labelAnchorX,
+        labelAnchorY: geometry.labelAnchorY,
       });
     }
     return rects;
-  }, [photos, getPhotoBounds]);
+  }, [photos, getPhotoLogicalSize]);
 
   // --- Coordinate helpers ---
   const logicalToScreen = useCallback((lx: number, ly: number): Point => ({
@@ -361,17 +349,12 @@ export default function OuterFrameCanvas({
     // --- Draw place labels (one per rectangle) ---
     if (showLabels) {
       for (const rect of currentRects) {
-        const anchorLogicalY = rect.labelSide === 'top' ? rect.top : rect.bottom;
-        const left = logicalToScreen(rect.left, anchorLogicalY);
-        const right = logicalToScreen(rect.right, anchorLogicalY);
-        const cx = (left.x + right.x) / 2;
-        const baseY = logicalToScreen(rect.left, anchorLogicalY).y;
-        const cy = baseY + (rect.labelSide === 'top' ? -LABEL_TOP_GAP * transform.scale : LABEL_BOTTOM_GAP * transform.scale);
+        const anchor = logicalToScreen(rect.labelAnchorX, rect.labelAnchorY);
 
         ctx.fillStyle = 'rgba(255,255,255,0.65)';
         ctx.font = `${Math.max(11, 12 * transform.scale)}px sans-serif`;
         ctx.textAlign = 'center';
-        ctx.fillText(rect.placeTitle, cx, cy);
+        ctx.fillText(rect.placeTitle, anchor.x, anchor.y);
       }
     }
   }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, computePlaceRects, getPhotoLogicalSize]);

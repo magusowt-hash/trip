@@ -4,6 +4,7 @@ import { useRef, useEffect, useCallback } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
+import { buildGroupGeometry } from './localMapGroupGeometry';
 
 interface Props {
   width: number;
@@ -18,17 +19,6 @@ interface Props {
 
 export default function LineCanvas({ width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const anchorGap = 10;
-  const southLabelGap = 28;
-  const northLikeLabelGap = 20;
-  const lineAnchorGap = 16;
-
-  const getRegionByPoint = useCallback((x: number, y: number): 'N' | 'W' | 'S' | 'E' => {
-    if (Math.abs(x) > Math.abs(y)) {
-      return x < 0 ? 'W' : 'E';
-    }
-    return y < 0 ? 'N' : 'S';
-  }, []);
 
   const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
     const sourceWidth = photo.pixelWidth ?? 0;
@@ -54,51 +44,15 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
   }), [transform, width, height]);
 
   const getGroupAnchorPoint = useCallback((groupPhotos: PhotoItem[], poi: PoiPoint) => {
-    let left = Infinity;
-    let right = -Infinity;
-    let top = Infinity;
-    let bottom = -Infinity;
-    for (const photo of groupPhotos) {
-      if (photo.frameX == null || photo.frameY == null) continue;
-      const size = getPhotoLogicalSize(photo);
-      left = Math.min(left, photo.frameX - size.width / 2);
-      right = Math.max(right, photo.frameX + size.width / 2);
-      top = Math.min(top, photo.frameY - size.height / 2);
-      bottom = Math.max(bottom, photo.frameY + size.height / 2);
-    }
-    if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
+    const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize);
+    if (!geometry) {
       return { x: poi.logicalX, y: poi.logicalY };
     }
-    left -= anchorGap;
-    right += anchorGap;
-    top -= anchorGap;
-    bottom += anchorGap;
-    const centerX = (left + right) / 2;
-    const centerY = (top + bottom) / 2;
-    const region = getRegionByPoint(centerX, centerY);
-    const dx = centerX - poi.logicalX;
-    const dy = centerY - poi.logicalY;
-    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) {
-      return { x: centerX, y: region === 'S' ? top - lineAnchorGap : bottom + lineAnchorGap };
-    }
-    const tx = Math.abs(dx) > 1e-6
-      ? (dx > 0 ? (right - poi.logicalX) / dx : (left - poi.logicalX) / dx)
-      : Number.POSITIVE_INFINITY;
-    const ty = Math.abs(dy) > 1e-6
-      ? (dy > 0 ? (bottom - poi.logicalY) / dy : (top - poi.logicalY) / dy)
-      : Number.POSITIVE_INFINITY;
-    const t = Math.min(tx, ty);
-    const edgePointX = poi.logicalX + dx * t;
-    const edgePointY = poi.logicalY + dy * t;
-    const labelGap = (region === 'S' ? southLabelGap : northLikeLabelGap) * transform.scale;
-    const anchorY = region === 'S'
-      ? edgePointY - labelGap - lineAnchorGap
-      : edgePointY + labelGap + lineAnchorGap;
     return {
-      x: edgePointX,
-      y: anchorY,
+      x: geometry.lineAnchorX,
+      y: geometry.lineAnchorY,
     };
-  }, [getPhotoLogicalSize, getRegionByPoint, transform.scale]);
+  }, [getPhotoLogicalSize]);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
