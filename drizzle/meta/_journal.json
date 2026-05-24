@@ -78,6 +78,13 @@
       "when": 1780100000000,
       "tag": "0015_local_map_records",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1780200000000,
+      "tag": "0016_local_map_root_layout_settings",
+      "breakpoints": true
     }
   ]
 }
