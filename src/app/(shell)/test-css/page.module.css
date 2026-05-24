@@ -10,7 +10,8 @@
 
 .hero,
 .summaryRow,
-.workspace {
+.workspace,
+.angleLab {
   width: min(1360px, 100%);
   margin: 0 auto;
 }
@@ -118,6 +119,137 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 22px;
+}
+
+.angleLab {
+  margin-bottom: 22px;
+}
+
+.angleLabHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.scenarioPicker {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  max-width: 520px;
+}
+
+.angleScenarioCard,
+.regionCard {
+  border-radius: 28px;
+  background: rgba(255, 251, 245, 0.82);
+  border: 1px solid rgba(147, 91, 31, 0.12);
+  box-shadow: 0 18px 60px rgba(80, 58, 27, 0.12);
+  backdrop-filter: blur(16px);
+}
+
+.angleScenarioCard {
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.angleScenarioCard strong {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.angleScenarioCard p,
+.angleScenarioCard span {
+  margin: 0;
+  color: #6b7280;
+  line-height: 1.6;
+}
+
+.regionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.regionCard {
+  padding: 18px 20px;
+}
+
+.regionCardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.regionCardHeader h3 {
+  margin: 6px 0 0;
+  font-size: 22px;
+}
+
+.regionCardHeader strong {
+  font-size: 28px;
+  line-height: 1;
+  color: #4a3119;
+}
+
+.regionTag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(201, 111, 50, 0.12);
+  color: #9a4f1f;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.regionMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.regionMeta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(244, 194, 114, 0.22);
+  color: #6f5437;
+  font-size: 13px;
+}
+
+.regionGroupList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.regionGroupItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(246, 236, 220, 0.76);
+  color: #5b4630;
+}
+
+.regionGroupItem span {
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .summaryCard {
@@ -387,6 +519,23 @@
   .summaryRow {
     grid-template-columns: 1fr;
   }
+
+  .angleLabHeader {
+    display: grid;
+  }
+
+  .scenarioPicker {
+    justify-content: flex-start;
+    max-width: none;
+  }
+
+  .regionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .regionGroupItem {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -396,6 +545,10 @@
 
   .summaryRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .regionCardHeader {
+    display: grid;
   }
 
   .stage {
