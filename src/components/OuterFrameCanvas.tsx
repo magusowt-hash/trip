@@ -38,6 +38,7 @@ export interface PlaceRect {
   top: number;
   right: number;
   bottom: number;
+  labelSide: 'top' | 'bottom';
 }
 
 interface Props {
@@ -75,6 +76,13 @@ function placeColor(placeTitle: string): string {
     hash = placeTitle.charCodeAt(i) + ((hash << 5) - hash);
   }
   return COLORS[Math.abs(hash) % COLORS.length];
+}
+
+function getRegionByPoint(x: number, y: number): 'N' | 'W' | 'S' | 'E' {
+  if (Math.abs(x) > Math.abs(y)) {
+    return x < 0 ? 'W' : 'E';
+  }
+  return y < 0 ? 'N' : 'S';
 }
 
 export default function OuterFrameCanvas({
@@ -238,6 +246,7 @@ export default function OuterFrameCanvas({
         top: top - RECT_PADDING,
         right: right + RECT_PADDING,
         bottom: bottom + RECT_PADDING + 20,
+        labelSide: getRegionByPoint((left + right) / 2, (top + bottom) / 2) === 'S' ? 'top' : 'bottom',
       });
     }
     return rects;
@@ -348,12 +357,14 @@ export default function OuterFrameCanvas({
     }
 
     // --- Draw place labels (one per rectangle) ---
-      if (showLabels) {
+    if (showLabels) {
       for (const rect of currentRects) {
-        const left = logicalToScreen(rect.left, rect.bottom);
-        const right = logicalToScreen(rect.right, rect.bottom);
+        const anchorLogicalY = rect.labelSide === 'top' ? rect.top : rect.bottom;
+        const left = logicalToScreen(rect.left, anchorLogicalY);
+        const right = logicalToScreen(rect.right, anchorLogicalY);
         const cx = (left.x + right.x) / 2;
-        const cy = logicalToScreen(rect.left, rect.bottom).y + 4 * transform.scale;
+        const baseY = logicalToScreen(rect.left, anchorLogicalY).y;
+        const cy = baseY + (rect.labelSide === 'top' ? -8 * transform.scale : 4 * transform.scale);
 
         ctx.fillStyle = 'rgba(255,255,255,0.65)';
         ctx.font = `${Math.max(11, 12 * transform.scale)}px sans-serif`;

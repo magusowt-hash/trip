@@ -19,6 +19,14 @@ interface Props {
 export default function LineCanvas({ width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const anchorGap = 10;
+  const labelGap = 8;
+
+  const getRegionByPoint = useCallback((x: number, y: number): 'N' | 'W' | 'S' | 'E' => {
+    if (Math.abs(x) > Math.abs(y)) {
+      return x < 0 ? 'W' : 'E';
+    }
+    return y < 0 ? 'N' : 'S';
+  }, []);
 
   const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
     const sourceWidth = photo.pixelWidth ?? 0;
@@ -60,23 +68,26 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
     bottom += anchorGap;
     const centerX = (left + right) / 2;
     const centerY = (top + bottom) / 2;
+    const region = getRegionByPoint(centerX, centerY);
+    const anchorY = region === 'S' ? top - labelGap : bottom + labelGap;
     const dx = centerX - poi.logicalX;
-    const dy = centerY - poi.logicalY;
+    const dy = anchorY - poi.logicalY;
     if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) {
-      return { x: centerX, y: centerY };
+      return { x: centerX, y: anchorY };
     }
     const tx = Math.abs(dx) > 1e-6
       ? (dx > 0 ? (right - poi.logicalX) / dx : (left - poi.logicalX) / dx)
       : Number.POSITIVE_INFINITY;
+    const edgeY = region === 'S' ? top : bottom;
     const ty = Math.abs(dy) > 1e-6
-      ? (dy > 0 ? (bottom - poi.logicalY) / dy : (top - poi.logicalY) / dy)
+      ? (dy > 0 ? (edgeY - poi.logicalY) / dy : (edgeY - poi.logicalY) / dy)
       : Number.POSITIVE_INFINITY;
     const t = Math.min(tx, ty);
     return {
       x: poi.logicalX + dx * t,
       y: poi.logicalY + dy * t,
     };
-  }, [getPhotoLogicalSize]);
+  }, [getPhotoLogicalSize, getRegionByPoint]);
 
   const logicalToScreen = useCallback((lx: number, ly: number): Point => ({
     x: lx * transform.scale + width / 2 + transform.tx,
