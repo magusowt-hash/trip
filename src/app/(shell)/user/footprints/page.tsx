@@ -62,6 +62,13 @@ type LogicalSize = {
 };
 
 type RegionKey = 'N' | 'W' | 'S' | 'E';
+type PendingRegionGroup = {
+  placeKey: string;
+  logicalX: number;
+  logicalY: number;
+  groupRect: LogicalRect;
+  photoCount: number;
+};
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
@@ -413,19 +420,57 @@ function getRegionByPoint(x: number, y: number): RegionKey {
   return y < 0 ? 'N' : 'S';
 }
 
-function buildRegionSequence(
-  pendingGroups: Array<{ placeKey: string; logicalX: number; logicalY: number; groupRect: LogicalRect; photoCount: number }>,
-) {
-  const buckets = new Map<RegionKey, Array<{ placeKey: string; logicalX: number; logicalY: number; groupRect: LogicalRect; photoCount: number }>>([
+function buildSmallGroupBuckets(pendingGroups: PendingRegionGroup[]) {
+  const buckets = new Map<RegionKey, PendingRegionGroup[]>([
     ['N', []],
     ['W', []],
     ['S', []],
     ['E', []],
   ]);
 
-  for (const group of pendingGroups) {
-    const region = getRegionByPoint(group.logicalX, group.logicalY);
-    buckets.get(region)!.push(group);
+  const regionCandidates: Record<RegionKey, PendingRegionGroup[]> = {
+    W: [...pendingGroups].sort((a, b) => a.logicalX - b.logicalX || a.logicalY - b.logicalY),
+    E: [...pendingGroups].sort((a, b) => b.logicalX - a.logicalX || a.logicalY - b.logicalY),
+    N: [...pendingGroups].sort((a, b) => a.logicalY - b.logicalY || a.logicalX - b.logicalX),
+    S: [...pendingGroups].sort((a, b) => b.logicalY - a.logicalY || a.logicalX - b.logicalX),
+  };
+  const assigned = new Set<string>();
+
+  for (const region of ['W', 'E', 'N', 'S'] as RegionKey[]) {
+    const candidate = regionCandidates[region].find((group) => !assigned.has(group.placeKey));
+    if (!candidate) continue;
+    buckets.get(region)!.push(candidate);
+    assigned.add(candidate.placeKey);
+  }
+
+  const remaining = pendingGroups.filter((group) => !assigned.has(group.placeKey));
+  const emptyRegions = (['N', 'W', 'S', 'E'] as RegionKey[]).filter((region) => buckets.get(region)!.length === 0);
+
+  for (const group of remaining) {
+    const preferredRegion = emptyRegions.shift() ?? getRegionByPoint(group.logicalX, group.logicalY);
+    buckets.get(preferredRegion)!.push(group);
+  }
+
+  return buckets;
+}
+
+function buildRegionSequence(
+  pendingGroups: PendingRegionGroup[],
+) {
+  const buckets = pendingGroups.length < 5
+    ? buildSmallGroupBuckets(pendingGroups)
+    : new Map<RegionKey, PendingRegionGroup[]>([
+    ['N', []],
+    ['W', []],
+    ['S', []],
+    ['E', []],
+  ]);
+
+  if (pendingGroups.length >= 5) {
+    for (const group of pendingGroups) {
+      const region = getRegionByPoint(group.logicalX, group.logicalY);
+      buckets.get(region)!.push(group);
+    }
   }
 
   for (const [region, groups] of buckets) {
