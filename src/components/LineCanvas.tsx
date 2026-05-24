@@ -19,7 +19,7 @@ interface Props {
 export default function LineCanvas({ width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const anchorGap = 10;
-  const labelGap = 8;
+  const labelAnchorGapPx = 8;
 
   const getRegionByPoint = useCallback((x: number, y: number): 'N' | 'W' | 'S' | 'E' => {
     if (Math.abs(x) > Math.abs(y)) {
@@ -46,6 +46,11 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
     return { width: 120, height: 120 };
   }, []);
 
+  const logicalToScreen = useCallback((lx: number, ly: number): Point => ({
+    x: lx * transform.scale + width / 2 + transform.tx,
+    y: ly * transform.scale + height / 2 + transform.ty,
+  }), [transform, width, height]);
+
   const getGroupAnchorPoint = useCallback((groupPhotos: PhotoItem[], poi: PoiPoint) => {
     let left = Infinity;
     let right = -Infinity;
@@ -69,30 +74,28 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
     const centerX = (left + right) / 2;
     const centerY = (top + bottom) / 2;
     const region = getRegionByPoint(centerX, centerY);
-    const anchorY = region === 'S' ? top - labelGap : bottom + labelGap;
     const dx = centerX - poi.logicalX;
-    const dy = anchorY - poi.logicalY;
+    const dy = centerY - poi.logicalY;
     if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) {
-      return { x: centerX, y: anchorY };
+      return { x: centerX, y: region === 'S' ? top : bottom };
     }
     const tx = Math.abs(dx) > 1e-6
       ? (dx > 0 ? (right - poi.logicalX) / dx : (left - poi.logicalX) / dx)
       : Number.POSITIVE_INFINITY;
-    const edgeY = region === 'S' ? top : bottom;
     const ty = Math.abs(dy) > 1e-6
-      ? (dy > 0 ? (edgeY - poi.logicalY) / dy : (edgeY - poi.logicalY) / dy)
+      ? (dy > 0 ? (bottom - poi.logicalY) / dy : (top - poi.logicalY) / dy)
       : Number.POSITIVE_INFINITY;
     const t = Math.min(tx, ty);
+    const edgePointX = poi.logicalX + dx * t;
+    const edgePointY = poi.logicalY + dy * t;
+    const edgeScreen = logicalToScreen(edgePointX, edgePointY);
+    const labelScreenY = edgeScreen.y + (region === 'S' ? -labelAnchorGapPx : labelAnchorGapPx);
+    const anchorScreenY = labelScreenY + (region === 'S' ? -labelAnchorGapPx : labelAnchorGapPx);
     return {
-      x: poi.logicalX + dx * t,
-      y: poi.logicalY + dy * t,
+      x: edgePointX,
+      y: (anchorScreenY - height / 2 - transform.ty) / transform.scale,
     };
-  }, [getPhotoLogicalSize, getRegionByPoint]);
-
-  const logicalToScreen = useCallback((lx: number, ly: number): Point => ({
-    x: lx * transform.scale + width / 2 + transform.tx,
-    y: ly * transform.scale + height / 2 + transform.ty,
-  }), [transform, width, height]);
+  }, [getPhotoLogicalSize, getRegionByPoint, height, logicalToScreen, transform.scale, transform.ty]);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;

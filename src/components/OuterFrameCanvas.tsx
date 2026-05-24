@@ -59,6 +59,8 @@ const PHOTO_MIN_EDGE = 48;
 const RECT_PADDING = 40;
 const MAP_AREA_RATIO_W = 0.6;
 const MAP_AREA_RATIO_H = 0.8;
+const LABEL_TOP_GAP_PX = 18;
+const LABEL_BOTTOM_GAP_PX = 12;
 
 function rectContains(r: PlaceRect, x: number, y: number): boolean {
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
@@ -364,7 +366,7 @@ export default function OuterFrameCanvas({
         const right = logicalToScreen(rect.right, anchorLogicalY);
         const cx = (left.x + right.x) / 2;
         const baseY = logicalToScreen(rect.left, anchorLogicalY).y;
-        const cy = baseY + (rect.labelSide === 'top' ? -8 * transform.scale : 4 * transform.scale);
+        const cy = baseY + (rect.labelSide === 'top' ? -LABEL_TOP_GAP_PX : LABEL_BOTTOM_GAP_PX);
 
         ctx.fillStyle = 'rgba(255,255,255,0.65)';
         ctx.font = `${Math.max(11, 12 * transform.scale)}px sans-serif`;
