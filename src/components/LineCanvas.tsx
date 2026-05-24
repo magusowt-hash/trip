@@ -19,7 +19,9 @@ interface Props {
 export default function LineCanvas({ width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const anchorGap = 10;
-  const labelAnchorGapPx = 8;
+  const southLabelGap = 28;
+  const northLikeLabelGap = 20;
+  const lineAnchorGap = 16;
 
   const getRegionByPoint = useCallback((x: number, y: number): 'N' | 'W' | 'S' | 'E' => {
     if (Math.abs(x) > Math.abs(y)) {
@@ -77,7 +79,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
     const dx = centerX - poi.logicalX;
     const dy = centerY - poi.logicalY;
     if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) {
-      return { x: centerX, y: region === 'S' ? top : bottom };
+      return { x: centerX, y: region === 'S' ? top - lineAnchorGap : bottom + lineAnchorGap };
     }
     const tx = Math.abs(dx) > 1e-6
       ? (dx > 0 ? (right - poi.logicalX) / dx : (left - poi.logicalX) / dx)
@@ -88,14 +90,15 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
     const t = Math.min(tx, ty);
     const edgePointX = poi.logicalX + dx * t;
     const edgePointY = poi.logicalY + dy * t;
-    const edgeScreen = logicalToScreen(edgePointX, edgePointY);
-    const labelScreenY = edgeScreen.y + (region === 'S' ? -labelAnchorGapPx : labelAnchorGapPx);
-    const anchorScreenY = labelScreenY + (region === 'S' ? -labelAnchorGapPx : labelAnchorGapPx);
+    const labelGap = (region === 'S' ? southLabelGap : northLikeLabelGap) * transform.scale;
+    const anchorY = region === 'S'
+      ? edgePointY - labelGap - lineAnchorGap
+      : edgePointY + labelGap + lineAnchorGap;
     return {
       x: edgePointX,
-      y: (anchorScreenY - height / 2 - transform.ty) / transform.scale,
+      y: anchorY,
     };
-  }, [getPhotoLogicalSize, getRegionByPoint, height, logicalToScreen, transform.scale, transform.ty]);
+  }, [getPhotoLogicalSize, getRegionByPoint, transform.scale]);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
