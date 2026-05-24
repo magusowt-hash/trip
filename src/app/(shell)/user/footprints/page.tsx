@@ -406,23 +406,17 @@ function normalizeAngle(angle: number) {
   return normalized < 0 ? normalized + 360 : normalized;
 }
 
-function getRegionByAngle(angle: number): RegionKey {
-  const normalized = normalizeAngle(angle);
-  if (normalized >= 45 && normalized < 135) return 'S';
-  if (normalized >= 135 && normalized < 225) return 'W';
-  if (normalized >= 225 && normalized < 315) return 'N';
-  return 'E';
-}
-
-function getPhotoAnchorAngle(photo: PhotoItem) {
-  const angle = Math.atan2(photo.frameY ?? 0, photo.frameX ?? 0) * (180 / Math.PI);
-  return normalizeAngle(angle);
+function getRegionByPoint(x: number, y: number): RegionKey {
+  if (Math.abs(x) > Math.abs(y)) {
+    return x < 0 ? 'W' : 'E';
+  }
+  return y < 0 ? 'N' : 'S';
 }
 
 function buildRegionSequence(
-  pendingGroups: Array<{ placeKey: string; anchorPhoto: PhotoItem; groupRect: LogicalRect; photoCount: number }>,
+  pendingGroups: Array<{ placeKey: string; logicalX: number; logicalY: number; groupRect: LogicalRect; photoCount: number }>,
 ) {
-  const buckets = new Map<RegionKey, Array<{ placeKey: string; anchorPhoto: PhotoItem; groupRect: LogicalRect; photoCount: number }>>([
+  const buckets = new Map<RegionKey, Array<{ placeKey: string; logicalX: number; logicalY: number; groupRect: LogicalRect; photoCount: number }>>([
     ['N', []],
     ['W', []],
     ['S', []],
@@ -430,16 +424,16 @@ function buildRegionSequence(
   ]);
 
   for (const group of pendingGroups) {
-    const region = getRegionByAngle(getPhotoAnchorAngle(group.anchorPhoto));
+    const region = getRegionByPoint(group.logicalX, group.logicalY);
     buckets.get(region)!.push(group);
   }
 
   for (const [region, groups] of buckets) {
     groups.sort((a, b) => {
       if (region === 'N' || region === 'S') {
-        return (a.anchorPhoto.frameX ?? 0) - (b.anchorPhoto.frameX ?? 0);
+        return a.logicalX - b.logicalX;
       }
-      return (a.anchorPhoto.frameY ?? 0) - (b.anchorPhoto.frameY ?? 0);
+      return a.logicalY - b.logicalY;
     });
   }
 
@@ -916,6 +910,14 @@ function UserFootprintsPageInner() {
       arr.push(p);
       byPlace.set(p.placeKey, arr);
     }
+    const logicalPointByPlaceKey = new Map<string, { x: number; y: number }>();
+    for (const item of items) {
+      if (!item.lng || !item.lat) continue;
+      logicalPointByPlaceKey.set(buildFootprintPhotoScopeKey(item.id), {
+        x: parseFloat(item.lng),
+        y: -parseFloat(item.lat),
+      });
+    }
 
     const cardSize = 80;
     const mapRect = {
@@ -944,7 +946,8 @@ function UserFootprintsPageInner() {
       placePhotos: PhotoItem[];
       groupRect: LogicalRect;
       photoCount: number;
-      anchorPhoto: PhotoItem;
+      logicalX: number;
+      logicalY: number;
       offsets: LogicalOffset[];
     }> = [];
 
@@ -1004,7 +1007,8 @@ function UserFootprintsPageInner() {
         placePhotos,
         groupRect,
         photoCount: placePhotos.length,
-        anchorPhoto: placePhotos[0],
+        logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
+        logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
         offsets,
       });
     }
@@ -1012,7 +1016,8 @@ function UserFootprintsPageInner() {
     const useDirectRegionPlacement = pendingNewGroups.length < 5;
     const regionSequences = buildRegionSequence(pendingNewGroups.map((group) => ({
       placeKey: group.placeKey,
-      anchorPhoto: group.anchorPhoto,
+      logicalX: group.logicalX,
+      logicalY: group.logicalY,
       groupRect: group.groupRect,
       photoCount: group.photoCount,
     })));

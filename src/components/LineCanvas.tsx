@@ -18,6 +18,7 @@ interface Props {
 
 export default function LineCanvas({ width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const anchorGap = 10;
 
   const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
     const sourceWidth = photo.pixelWidth ?? 0;
@@ -37,7 +38,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
     return { width: 120, height: 120 };
   }, []);
 
-  const getGroupAnchorPoint = useCallback((groupPhotos: PhotoItem[]) => {
+  const getGroupAnchorPoint = useCallback((groupPhotos: PhotoItem[], poi: PoiPoint) => {
     let left = Infinity;
     let right = -Infinity;
     let top = Infinity;
@@ -50,19 +51,30 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
       top = Math.min(top, photo.frameY - size.height / 2);
       bottom = Math.max(bottom, photo.frameY + size.height / 2);
     }
+    if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
+      return { x: poi.logicalX, y: poi.logicalY };
+    }
+    left -= anchorGap;
+    right += anchorGap;
+    top -= anchorGap;
+    bottom += anchorGap;
     const centerX = (left + right) / 2;
     const centerY = (top + bottom) / 2;
-    const dx = centerX;
-    const dy = centerY;
+    const dx = centerX - poi.logicalX;
+    const dy = centerY - poi.logicalY;
     if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) {
       return { x: centerX, y: centerY };
     }
-    const tx = Math.abs(dx) > 1e-6 ? (dx > 0 ? right / dx : left / dx) : Number.POSITIVE_INFINITY;
-    const ty = Math.abs(dy) > 1e-6 ? (dy > 0 ? bottom / dy : top / dy) : Number.POSITIVE_INFINITY;
+    const tx = Math.abs(dx) > 1e-6
+      ? (dx > 0 ? (right - poi.logicalX) / dx : (left - poi.logicalX) / dx)
+      : Number.POSITIVE_INFINITY;
+    const ty = Math.abs(dy) > 1e-6
+      ? (dy > 0 ? (bottom - poi.logicalY) / dy : (top - poi.logicalY) / dy)
+      : Number.POSITIVE_INFINITY;
     const t = Math.min(tx, ty);
     return {
-      x: dx * t,
-      y: dy * t,
+      x: poi.logicalX + dx * t,
+      y: poi.logicalY + dy * t,
     };
   }, [getPhotoLogicalSize]);
 
@@ -94,7 +106,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
       );
       if (poiPhotos.length === 0) continue;
 
-      const groupAnchor = getGroupAnchorPoint(poiPhotos);
+      const groupAnchor = getGroupAnchorPoint(poiPhotos, poi);
       const photoCenter = logicalToScreen(groupAnchor.x, groupAnchor.y);
 
       ctx.beginPath();
