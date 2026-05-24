@@ -435,29 +435,6 @@ function getRegionDistanceScore(group: PendingRegionGroup, region: RegionKey) {
   }
 }
 
-function sumRemainingRegionCost(groups: PendingRegionGroup[], emptyRegions: RegionKey[]) {
-  if (groups.length === 0 || emptyRegions.length === 0) return 0;
-  const availableRegions = [...emptyRegions];
-  let total = 0;
-
-  for (const group of groups) {
-    let bestIndex = 0;
-    let bestScore = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < availableRegions.length; i++) {
-      const score = getRegionDistanceScore(group, availableRegions[i]);
-      if (score < bestScore) {
-        bestScore = score;
-        bestIndex = i;
-      }
-    }
-    total += bestScore;
-    availableRegions.splice(bestIndex, 1);
-    if (availableRegions.length === 0) break;
-  }
-
-  return total;
-}
-
 function buildSmallGroupBuckets(pendingGroups: PendingRegionGroup[]) {
   const buckets = new Map<RegionKey, PendingRegionGroup[]>([
     ['N', []],
@@ -472,64 +449,70 @@ function buildSmallGroupBuckets(pendingGroups: PendingRegionGroup[]) {
     N: [...pendingGroups].sort((a, b) => a.logicalY - b.logicalY || a.logicalX - b.logicalX),
     S: [...pendingGroups].sort((a, b) => b.logicalY - a.logicalY || a.logicalX - b.logicalX),
   };
-  const assigned = new Set<string>();
-
-  for (const region of ['W', 'E', 'N', 'S'] as RegionKey[]) {
-    const candidates = regionCandidates[region].filter((group) => !assigned.has(group.placeKey));
-    if (candidates.length === 0) continue;
-    let candidate = candidates[0];
-    const nextCandidate = candidates[1];
-
-    if (nextCandidate && candidates[0].placeKey === nextCandidate.placeKey) {
-      candidate = nextCandidate;
-    }
-
-    const conflictingRegions = (['W', 'E', 'N', 'S'] as RegionKey[]).filter((targetRegion) => {
-      if (targetRegion === region) return false;
-      return regionCandidates[targetRegion][0]?.placeKey === candidate.placeKey;
+  const regions = ['W', 'E', 'N', 'S'] as RegionKey[];
+  const rankByRegion = new Map<RegionKey, Map<string, number>>();
+  for (const region of regions) {
+    const rankMap = new Map<string, number>();
+    regionCandidates[region].forEach((group, index) => {
+      rankMap.set(group.placeKey, index);
     });
-
-    if (conflictingRegions.length > 0) {
-      let bestRegion = region;
-      let bestCost = Number.POSITIVE_INFINITY;
-      const options = [region, ...conflictingRegions];
-      const remainingWithoutCandidate = pendingGroups.filter((group) => group.placeKey !== candidate.placeKey && !assigned.has(group.placeKey));
-
-      for (const optionRegion of options) {
-        const emptyRegions = (['N', 'W', 'S', 'E'] as RegionKey[])
-          .filter((targetRegion) => !buckets.get(targetRegion)!.length && targetRegion !== optionRegion);
-        const cost = sumRemainingRegionCost(remainingWithoutCandidate, emptyRegions);
-        if (cost < bestCost) {
-          bestCost = cost;
-          bestRegion = optionRegion;
-        }
-      }
-
-      if (bestRegion !== region) {
-        if (!buckets.get(bestRegion)!.length) {
-          buckets.get(bestRegion)!.push(candidate);
-          assigned.add(candidate.placeKey);
-        }
-        continue;
-      }
-    }
-    buckets.get(region)!.push(candidate);
-    assigned.add(candidate.placeKey);
+    rankByRegion.set(region, rankMap);
   }
 
-  const remaining = pendingGroups.filter((group) => !assigned.has(group.placeKey));
-  const emptyRegions = (['N', 'W', 'S', 'E'] as RegionKey[]).filter((region) => buckets.get(region)!.length === 0);
+  let bestAssignments = new Map<string, RegionKey>();
+  let bestRankScore = Number.POSITIVE_INFINITY;
+  let bestDistanceScore = Number.POSITIVE_INFINITY;
 
-  for (const group of remaining) {
-    let preferredRegion = getRegionByPoint(group.logicalX, group.logicalY);
-    if (!emptyRegions.includes(preferredRegion)) {
-      preferredRegion = emptyRegions
-        .slice()
-        .sort((a, b) => getRegionDistanceScore(group, a) - getRegionDistanceScore(group, b))[0] ?? preferredRegion;
-    } else {
-      emptyRegions.splice(emptyRegions.indexOf(preferredRegion), 1);
+  function search(
+    regionIndex: number,
+    usedPlaceKeys: Set<string>,
+    currentAssignments: Map<string, RegionKey>,
+    rankScore: number,
+    distanceScore: number,
+  ) {
+    if (currentAssignments.size === pendingGroups.length || regionIndex >= regions.length) {
+      if (currentAssignments.size !== pendingGroups.length) return;
+      if (
+        rankScore < bestRankScore ||
+        (rankScore === bestRankScore && distanceScore < bestDistanceScore)
+      ) {
+        bestRankScore = rankScore;
+        bestDistanceScore = distanceScore;
+        bestAssignments = new Map(currentAssignments);
+      }
+      return;
     }
-    buckets.get(preferredRegion)!.push(group);
+
+    const region = regions[regionIndex];
+    const candidates = regionCandidates[region];
+
+    for (const group of candidates) {
+      if (usedPlaceKeys.has(group.placeKey)) continue;
+      const rank = rankByRegion.get(region)?.get(group.placeKey) ?? 999;
+      currentAssignments.set(group.placeKey, region);
+      usedPlaceKeys.add(group.placeKey);
+      search(
+        regionIndex + 1,
+        usedPlaceKeys,
+        currentAssignments,
+        rankScore + rank,
+        distanceScore + getRegionDistanceScore(group, region),
+      );
+      usedPlaceKeys.delete(group.placeKey);
+      currentAssignments.delete(group.placeKey);
+    }
+
+    if (pendingGroups.length < regions.length - regionIndex) {
+      search(regionIndex + 1, usedPlaceKeys, currentAssignments, rankScore, distanceScore);
+    }
+  }
+
+  search(0, new Set<string>(), new Map<string, RegionKey>(), 0, 0);
+
+  for (const group of pendingGroups) {
+    const region = bestAssignments.get(group.placeKey);
+    if (!region) continue;
+    buckets.get(region)!.push(group);
   }
 
   return buckets;
