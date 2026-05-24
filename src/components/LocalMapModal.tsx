@@ -40,6 +40,7 @@ export type LocalMapLayoutSettings = {
 type SavedRecord = {
   rootName: string;
   savedAt: string;
+  layout?: LocalMapLayoutSettings | null;
   assets: Array<{
     relativePath: string;
     folderName: string;
@@ -214,6 +215,12 @@ export default function LocalMapModal({ open, places, onClose, onApply }: Props)
       setSavedRecord(record);
       setNeedsOverwriteConfirm(Boolean(record));
       setLayoutEnabled(!record);
+      if (record?.layout) {
+        setLayoutMode(record.layout.mode);
+        setLayoutGapX(record.layout.gapX);
+        setLayoutGapY(record.layout.gapY);
+        setLayoutStaggerAxis(record.layout.staggerAxis);
+      }
 
       const placeTitleSet = new Set(places.map((place) => place.title));
       const placeIdByTitle = new Map(places.map((place) => [place.title, place.id]));
@@ -236,7 +243,11 @@ export default function LocalMapModal({ open, places, onClose, onApply }: Props)
           }),
       ))) {
         if (placeTitleSet.has(folderName)) continue;
-        const matches = places.map((place) => place.title).filter((title) => title.includes(folderName));
+        const trimmedFolderName = folderName.trim();
+        const allowFuzzy = trimmedFolderName.length >= 2;
+        const matches = allowFuzzy
+          ? places.map((place) => place.title).filter((title) => title.includes(trimmedFolderName))
+          : [];
         if (matches.length === 1) {
           folderFuzzyMatchMap.set(folderName, matches[0]);
         } else {
@@ -534,7 +545,7 @@ export default function LocalMapModal({ open, places, onClose, onApply }: Props)
                 </label>
               </div>
             ) : (
-              <p className={styles.hint}>随机排列会让每张图片相对于相邻图片产生 1-100 的随机附加距离。</p>
+              <p className={styles.hint}>随机排列会让每张图片相对于相邻图片产生 10-60 的随机附加距离。</p>
             )}
             </div>
           </div>

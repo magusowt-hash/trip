@@ -19,6 +19,16 @@ type LocalMapAssetRecord = {
   missing: boolean;
 };
 
+type LocalMapLayoutMode = 'grid' | 'staggered' | 'random';
+type LocalMapStaggerAxis = 'horizontal' | 'vertical';
+
+type LocalMapLayoutRecord = {
+  mode: LocalMapLayoutMode;
+  gapX: number;
+  gapY: number;
+  staggerAxis: LocalMapStaggerAxis;
+};
+
 function normalizeRootName(value: unknown): string {
   if (typeof value !== 'string') return '';
   return value.trim().replace(/\\/g, '/');
@@ -29,6 +39,23 @@ function parseFootprintItemIds(searchParams: URLSearchParams): number[] {
     .getAll('footprint_item_id')
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value));
+}
+
+function parseLayout(input: unknown): LocalMapLayoutRecord | null {
+  if (!input || typeof input !== 'object') return null;
+  const raw = input as Record<string, unknown>;
+  const mode = raw.mode;
+  const gapX = Number(raw.gapX);
+  const gapY = Number(raw.gapY);
+  const staggerAxis = raw.staggerAxis;
+  if (mode !== 'grid' && mode !== 'staggered' && mode !== 'random') return null;
+  if (staggerAxis !== 'horizontal' && staggerAxis !== 'vertical') return null;
+  return {
+    mode,
+    gapX: Number.isFinite(gapX) ? Math.max(0, Math.round(gapX)) : 0,
+    gapY: Number.isFinite(gapY) ? Math.max(0, Math.round(gapY)) : 0,
+    staggerAxis,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -85,6 +112,12 @@ export async function GET(req: NextRequest) {
       record: {
         rootName: root.rootName,
         savedAt: root.updatedAt,
+        layout: root.layoutMode ? {
+          mode: root.layoutMode as LocalMapLayoutMode,
+          gapX: root.layoutGapX ?? 0,
+          gapY: root.layoutGapY ?? 0,
+          staggerAxis: (root.layoutStaggerAxis as LocalMapStaggerAxis) || 'horizontal',
+        } : null,
         assets: assets.map((asset) => ({
           relativePath: asset.relativePath,
           folderName: asset.folderName,
@@ -119,6 +152,7 @@ export async function POST(req: NextRequest) {
     const unmatchedFolders = Array.isArray(body?.unmatchedFolders)
       ? body.unmatchedFolders.filter((item: unknown): item is string => typeof item === 'string')
       : [];
+    const layout = parseLayout(body?.layout);
 
     if (!rootName) {
       return NextResponse.json({ error: '缺少主文件夹名称' }, { status: 400 });
@@ -157,12 +191,22 @@ export async function POST(req: NextRequest) {
       : (await db.insert(localMapRoots).values({
           userId: auth.userId,
           rootName,
+          layoutMode: layout?.mode ?? null,
+          layoutGapX: layout?.gapX ?? null,
+          layoutGapY: layout?.gapY ?? null,
+          layoutStaggerAxis: layout?.staggerAxis ?? null,
         }))[0].insertId;
 
     if (existingRoot) {
       await db
         .update(localMapRoots)
-        .set({ updatedAt: new Date() })
+        .set({
+          updatedAt: new Date(),
+          layoutMode: layout?.mode ?? null,
+          layoutGapX: layout?.gapX ?? null,
+          layoutGapY: layout?.gapY ?? null,
+          layoutStaggerAxis: layout?.staggerAxis ?? null,
+        })
         .where(eq(localMapRoots.id, rootId));
 
       await db
@@ -202,6 +246,7 @@ export async function POST(req: NextRequest) {
       record: {
         rootName,
         savedAt: new Date().toISOString(),
+        layout,
         assets,
         unmatchedFolders,
       },

@@ -19,6 +19,53 @@ interface Props {
 export default function LineCanvas({ width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
+    const sourceWidth = photo.pixelWidth ?? 0;
+    const sourceHeight = photo.pixelHeight ?? 0;
+    if (sourceWidth > 0 && sourceHeight > 0) {
+      if (sourceWidth >= sourceHeight) {
+        return {
+          width: 120,
+          height: Math.max(48, (120 * sourceHeight) / sourceWidth),
+        };
+      }
+      return {
+        width: Math.max(48, (120 * sourceWidth) / sourceHeight),
+        height: 120,
+      };
+    }
+    return { width: 120, height: 120 };
+  }, []);
+
+  const getGroupAnchorPoint = useCallback((groupPhotos: PhotoItem[]) => {
+    let left = Infinity;
+    let right = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const photo of groupPhotos) {
+      if (photo.frameX == null || photo.frameY == null) continue;
+      const size = getPhotoLogicalSize(photo);
+      left = Math.min(left, photo.frameX - size.width / 2);
+      right = Math.max(right, photo.frameX + size.width / 2);
+      top = Math.min(top, photo.frameY - size.height / 2);
+      bottom = Math.max(bottom, photo.frameY + size.height / 2);
+    }
+    const centerX = (left + right) / 2;
+    const centerY = (top + bottom) / 2;
+    const dx = centerX;
+    const dy = centerY;
+    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) {
+      return { x: centerX, y: centerY };
+    }
+    const tx = Math.abs(dx) > 1e-6 ? (dx > 0 ? right / dx : left / dx) : Number.POSITIVE_INFINITY;
+    const ty = Math.abs(dy) > 1e-6 ? (dy > 0 ? bottom / dy : top / dy) : Number.POSITIVE_INFINITY;
+    const t = Math.min(tx, ty);
+    return {
+      x: dx * t,
+      y: dy * t,
+    };
+  }, [getPhotoLogicalSize]);
+
   const logicalToScreen = useCallback((lx: number, ly: number): Point => ({
     x: lx * transform.scale + width / 2 + transform.tx,
     y: ly * transform.scale + height / 2 + transform.ty,
@@ -47,12 +94,8 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
       );
       if (poiPhotos.length === 0) continue;
 
-      let cx = 0, cy = 0;
-      for (const pp of poiPhotos) { cx += pp.frameX; cy += pp.frameY; }
-      cx /= poiPhotos.length;
-      cy /= poiPhotos.length;
-
-      const photoCenter = logicalToScreen(cx, cy);
+      const groupAnchor = getGroupAnchorPoint(poiPhotos);
+      const photoCenter = logicalToScreen(groupAnchor.x, groupAnchor.y);
 
       ctx.beginPath();
       ctx.moveTo(poiScreen.x, poiScreen.y);
@@ -81,7 +124,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
         ctx.fillText(poi.placeTitle, poiScreen.x, poiScreen.y + offset);
       }
     }
-  }, [width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor, logicalToScreen]);
+  }, [width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor, logicalToScreen, getGroupAnchorPoint]);
 
   useEffect(() => {
     let rafId: number;

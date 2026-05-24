@@ -61,8 +61,16 @@ type LogicalSize = {
   height: number;
 };
 
+type RegionKey = 'N' | 'W' | 'S' | 'E';
+
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
+const REGION_CENTER_ANGLE: Record<RegionKey, number> = {
+  E: 0,
+  S: 90,
+  W: 180,
+  N: 270,
+};
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -167,8 +175,8 @@ function buildRandomOffsets(count: number, cardSize: number) {
     for (let col = 0; col < cols; col++) {
       const index = row * cols + col;
       if (index >= count) continue;
-      if (col > 0) xMatrix[row][col] = xMatrix[row][col - 1] + cardSize * 2 + randomInt(1, 100);
-      if (row > 0) yMatrix[row][col] = yMatrix[row - 1][col] + cardSize * 2 + randomInt(1, 100);
+      if (col > 0) xMatrix[row][col] = xMatrix[row][col - 1] + cardSize * 2 + randomInt(10, 60);
+      if (row > 0) yMatrix[row][col] = yMatrix[row - 1][col] + cardSize * 2 + randomInt(10, 60);
     }
   }
   const points = Array.from({ length: count }, (_, index) => {
@@ -299,6 +307,17 @@ function buildRectFromOffsets(placePhotos: PhotoItem[], offsets: LogicalOffset[]
   return { left, right, top, bottom };
 }
 
+function rectArea(rect: LogicalRect) {
+  return Math.max(0, rect.right - rect.left) * Math.max(0, rect.bottom - rect.top);
+}
+
+function rectCenter(rect: LogicalRect) {
+  return {
+    x: (rect.left + rect.right) / 2,
+    y: (rect.top + rect.bottom) / 2,
+  };
+}
+
 function applySizedOffsets(
   placePhotos: PhotoItem[],
   offsets: LogicalOffset[],
@@ -380,6 +399,74 @@ function translateRect(rect: LogicalRect, centerX: number, centerY: number): Log
     top: rect.top + centerY,
     bottom: rect.bottom + centerY,
   };
+}
+
+function normalizeAngle(angle: number) {
+  const normalized = angle % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
+}
+
+function getRegionByAngle(angle: number): RegionKey {
+  const normalized = normalizeAngle(angle);
+  if (normalized >= 45 && normalized < 135) return 'S';
+  if (normalized >= 135 && normalized < 225) return 'W';
+  if (normalized >= 225 && normalized < 315) return 'N';
+  return 'E';
+}
+
+function getPhotoAnchorAngle(photo: PhotoItem) {
+  const angle = Math.atan2(photo.frameY ?? 0, photo.frameX ?? 0) * (180 / Math.PI);
+  return normalizeAngle(angle);
+}
+
+function buildRegionSequence(
+  pendingGroups: Array<{ placeKey: string; anchorPhoto: PhotoItem; groupRect: LogicalRect; photoCount: number }>,
+) {
+  const buckets = new Map<RegionKey, Array<{ placeKey: string; anchorPhoto: PhotoItem; groupRect: LogicalRect; photoCount: number }>>([
+    ['N', []],
+    ['W', []],
+    ['S', []],
+    ['E', []],
+  ]);
+
+  for (const group of pendingGroups) {
+    const region = getRegionByAngle(getPhotoAnchorAngle(group.anchorPhoto));
+    buckets.get(region)!.push(group);
+  }
+
+  for (const [region, groups] of buckets) {
+    groups.sort((a, b) => {
+      if (region === 'N' || region === 'S') {
+        return (a.anchorPhoto.frameX ?? 0) - (b.anchorPhoto.frameX ?? 0);
+      }
+      return (a.anchorPhoto.frameY ?? 0) - (b.anchorPhoto.frameY ?? 0);
+    });
+  }
+
+  const totalGroupCount = pendingGroups.length || 1;
+  const totalPhotoCount = pendingGroups.reduce((sum, item) => sum + item.photoCount, 0) || 1;
+  const raw = (['N', 'W', 'S', 'E'] as RegionKey[]).map((region) => {
+    const groups = buckets.get(region)!;
+    const groupCount = groups.length;
+    const photoCount = groups.reduce((sum, item) => sum + item.photoCount, 0);
+    const weight = 0.65 * (groupCount / totalGroupCount) + 0.35 * (photoCount / totalPhotoCount);
+    return { region, groups, groupCount, photoCount, weight };
+  });
+  const maxWeight = Math.max(...raw.map((item) => item.weight), 1);
+
+  return raw.map((item) => {
+    const normalizedWeight = item.weight / maxWeight;
+    const regionAngle = 60 + 120 * normalizedWeight;
+    const startAngle = normalizeAngle(REGION_CENTER_ANGLE[item.region] - regionAngle / 2);
+    const angleStep = item.groups.length <= 1 ? 0 : regionAngle / (item.groups.length - 1);
+    return {
+      region: item.region,
+      groups: item.groups,
+      regionAngle,
+      startAngle,
+      angleStep,
+    };
+  });
 }
 
 function rectDistanceToMap(rect: LogicalRect, mapRect: LogicalRect) {
@@ -509,6 +596,7 @@ function UserFootprintsPageInner() {
   const [localMapTargetItem, setLocalMapTargetItem] = useState<FootprintItem | null>(null);
   const [localRootName, setLocalRootName] = useState<string | null>(null);
   const [localUnmatchedFolders, setLocalUnmatchedFolders] = useState<string[]>([]);
+  const [localLayout, setLocalLayout] = useState<LocalMapLayoutSettings | null>(null);
   const [knownLocalRoots, setKnownLocalRoots] = useState<string[]>([]);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [shareAlbumPrompt, setShareAlbumPrompt] = useState<{
@@ -838,10 +926,6 @@ function UserFootprintsPageInner() {
     };
     const occupiedRects: LogicalRect[] = [];
 
-    for (const photo of referencePhotos) {
-      if (photo.frameX == null || photo.frameY == null) continue;
-    }
-
     const existingGroups = new Map<string, PhotoItem[]>();
     for (const photo of referencePhotos) {
       if (photo.frameX == null || photo.frameY == null) continue;
@@ -851,10 +935,20 @@ function UserFootprintsPageInner() {
     }
     for (const [, group] of existingGroups) {
       const rect = buildPlaceBounds(group);
-      if (rect) occupiedRects.push(rect);
+      if (!rect) continue;
+      occupiedRects.push(rect);
     }
 
-    for (const [, placePhotos] of byPlace) {
+    const pendingNewGroups: Array<{
+      placeKey: string;
+      placePhotos: PhotoItem[];
+      groupRect: LogicalRect;
+      photoCount: number;
+      anchorPhoto: PhotoItem;
+      offsets: LogicalOffset[];
+    }> = [];
+
+    for (const [placeKey, placePhotos] of byPlace) {
       const placedPhotos = referencePhotos.filter((photo) => {
         if (photo.placeKey !== placePhotos[0].placeKey) return false;
         if (photo.frameX == null || photo.frameY == null) return false;
@@ -863,50 +957,104 @@ function UserFootprintsPageInner() {
       const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
       const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
       const groupRect = buildRectFromOffsets(placePhotos, offsets);
-      let centerX = 0;
-      let centerY = 0;
-
       if (placedPhotos.length > 0) {
-        centerX = placedPhotos.reduce((sum, photo) => sum + (photo.frameX ?? 0), 0) / placedPhotos.length;
-        centerY = placedPhotos.reduce((sum, photo) => sum + (photo.frameY ?? 0), 0) / placedPhotos.length;
-      } else {
-        const center = findNearestAvailableGroupCenter(groupRect, occupiedRects, mapRect, cardSize);
-        centerX = center.x;
-        centerY = center.y;
-      }
+        const existingRect = buildPlaceBounds(placedPhotos);
+        if (!existingRect) continue;
+        const existingCenter = rectCenter(existingRect);
+        const directionX = existingCenter.x || 0;
+        const directionY = existingCenter.y || 1;
+        const directionLen = Math.hypot(directionX, directionY) || 1;
+        const unitX = directionX / directionLen;
+        const unitY = directionY / directionLen;
+        const perpendicularX = -unitY;
+        const perpendicularY = unitX;
+        const expansionBase = Math.max(cardSize, layout.gapX + layout.gapY);
 
-      let vectorX = centerX;
-      let vectorY = centerY;
-      const vectorLen = Math.hypot(vectorX, vectorY);
-      if (vectorLen < 1) {
-        vectorX = 0;
-        vectorY = 1;
-      } else {
-        vectorX /= vectorLen;
-        vectorY /= vectorLen;
-      }
+        const candidateCenterX = existingCenter.x + unitX * expansionBase;
+        const candidateCenterY = existingCenter.y + unitY * expansionBase;
+        const nextRect = translateRect(groupRect, candidateCenterX, candidateCenterY);
+        const occupiedByOthers = occupiedRects.filter((rect) => rect !== existingRect);
+        const canExpandOutward =
+          fitsAroundMap(nextRect, mapRect, cardSize) &&
+          !occupiedByOthers.some((occupied) => rectsOverlap(nextRect, occupied, cardSize));
 
-      const perpendicularX = -vectorY;
-      const perpendicularY = vectorX;
-      const baseDistance = placedPhotos.length > 0 ? cardSize * 1.5 : 0;
-
-      for (let i = 0; i < placePhotos.length; i++) {
-        if (placedPhotos.length > 0) {
-          const forwardOffset = baseDistance + offsets[i].offsetY;
-          const lateralOffset = offsets[i].offsetX;
-          placePhotos[i].frameX = centerX + vectorX * forwardOffset + perpendicularX * lateralOffset;
-          placePhotos[i].frameY = centerY + vectorY * forwardOffset + perpendicularY * lateralOffset;
+        if (!canExpandOutward) {
+          const fitOffsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
+          for (let i = 0; i < placePhotos.length; i++) {
+            placePhotos[i].frameX = existingCenter.x + fitOffsets[i].offsetX;
+            placePhotos[i].frameY = existingCenter.y + fitOffsets[i].offsetY;
+          }
         } else {
-          placePhotos[i].frameX = centerX + offsets[i].offsetX;
-          placePhotos[i].frameY = centerY + offsets[i].offsetY;
+          for (let i = 0; i < placePhotos.length; i++) {
+            const forwardOffset = expansionBase + offsets[i].offsetY;
+            const lateralOffset = offsets[i].offsetX;
+            placePhotos[i].frameX = existingCenter.x + unitX * forwardOffset + perpendicularX * lateralOffset;
+            placePhotos[i].frameY = existingCenter.y + unitY * forwardOffset + perpendicularY * lateralOffset;
+          }
         }
+        const placedRect = buildPlaceBounds(placePhotos);
+        if (placedRect) {
+          occupiedRects.push(placedRect);
+        }
+        continue;
       }
 
-      clampPlacePhotosAwayFromMap(placePhotos, viewportWidth, viewportHeight, cardSize);
-      const placedRect = buildPlaceBounds(placePhotos);
-      if (placedRect) {
-        occupiedRects.push(placedRect);
-      }
+      pendingNewGroups.push({
+        placeKey,
+        placePhotos,
+        groupRect,
+        photoCount: placePhotos.length,
+        anchorPhoto: placePhotos[0],
+        offsets,
+      });
+    }
+
+    const useDirectRegionPlacement = pendingNewGroups.length < 5;
+    const regionSequences = buildRegionSequence(pendingNewGroups.map((group) => ({
+      placeKey: group.placeKey,
+      anchorPhoto: group.anchorPhoto,
+      groupRect: group.groupRect,
+      photoCount: group.photoCount,
+    })));
+
+    for (const sequence of regionSequences) {
+      sequence.groups.forEach((group, index) => {
+        const target = pendingNewGroups.find((item) => item.placeKey === group.placeKey);
+        if (!target) return;
+        const angle = useDirectRegionPlacement
+          ? REGION_CENTER_ANGLE[sequence.region]
+          : sequence.startAngle + sequence.angleStep * index;
+        const radians = angle * (Math.PI / 180);
+        const rayX = Math.cos(radians);
+        const rayY = Math.sin(radians);
+        const baseRadius = Math.max(viewportWidth, viewportHeight) * 0.38;
+        const sortedOccupied = occupiedRects
+          .map((rect) => ({ rect, area: rectArea(rect) }))
+          .sort((a, b) => b.area - a.area);
+
+        let chosenCenter = findNearestAvailableGroupCenter(target.groupRect, occupiedRects, mapRect, cardSize);
+        for (let radiusStep = 0; radiusStep < 8; radiusStep++) {
+          const radius = baseRadius + radiusStep * Math.max(cardSize, 80);
+          const centerX = rayX * radius;
+          const centerY = rayY * radius;
+          const rect = translateRect(target.groupRect, centerX, centerY);
+          if (!fitsAroundMap(rect, mapRect, cardSize)) continue;
+          if (sortedOccupied.some((occupied) => rectsOverlap(rect, occupied.rect, cardSize))) continue;
+          chosenCenter = { x: centerX, y: centerY };
+          break;
+        }
+
+        for (let i = 0; i < target.placePhotos.length; i++) {
+          target.placePhotos[i].frameX = chosenCenter.x + target.offsets[i].offsetX;
+          target.placePhotos[i].frameY = chosenCenter.y + target.offsets[i].offsetY;
+        }
+
+        clampPlacePhotosAwayFromMap(target.placePhotos, viewportWidth, viewportHeight, cardSize);
+        const placedRect = buildPlaceBounds(target.placePhotos);
+        if (placedRect) {
+          occupiedRects.push(placedRect);
+        }
+      });
     }
   }
 
@@ -983,6 +1131,7 @@ function UserFootprintsPageInner() {
             rootName: localRootName,
             assets: localAssets,
             unmatchedFolders: localUnmatchedFolders,
+            layout: localLayout,
           }),
         });
         if (!res.ok) {
@@ -994,7 +1143,7 @@ function UserFootprintsPageInner() {
       movedPhotosRef.current = false;
       setHasMovedPhotos(false);
     } catch { alert('保存失败'); }
-  }, [photos, localRootName, localUnmatchedFolders]);
+  }, [photos, localLayout, localRootName, localUnmatchedFolders]);
 
   const handlePhotoClick = useCallback((photoId: number | string) => {
     const p = photos.find(x => x.id === photoId);
@@ -1460,6 +1609,7 @@ function UserFootprintsPageInner() {
     enqueueLocalThumbnails(mappedPhotos);
     setLocalRootName(payload.rootName);
     setLocalUnmatchedFolders(payload.unmatchedFolders);
+    setLocalLayout(payload.layout);
     if (payload.missingAssets.length > 0) {
       alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。若本次保存，这些文件的位置记录将被删除。`);
     }
