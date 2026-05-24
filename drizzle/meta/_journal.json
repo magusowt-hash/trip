@@ -59,6 +59,13 @@
       "breakpoints": true
     },
     {
+      "idx": 13,
+      "version": "7",
+      "when": 1779750000000,
+      "tag": "0010_footprint_album_scope",
+      "breakpoints": true
+    },
+    {
       "idx": 14,
       "version": "7",
       "when": 1780000000000,
