@@ -26,7 +26,8 @@ const RECT_PADDING = 40;
 const OUTER_EDGE_GAP = 10;
 const LABEL_TOP_GAP = 28;
 const LABEL_BOTTOM_GAP = 20;
-const LINE_ANCHOR_GAP = 16;
+const LINE_ANCHOR_GAP_TOP = 16;
+const LINE_ANCHOR_GAP_BOTTOM = 24;
 
 function getRegionByPoint(x: number, y: number): 'N' | 'W' | 'S' | 'E' {
   if (Math.abs(x) > Math.abs(y)) {
@@ -69,8 +70,8 @@ export function buildGroupGeometry(groupPhotos: PhotoItem[], getPhotoLogicalSize
     : rect.bottom + LABEL_BOTTOM_GAP;
   const lineAnchorX = centerX;
   const lineAnchorY = labelSide === 'top'
-    ? labelAnchorY - LINE_ANCHOR_GAP
-    : labelAnchorY + LINE_ANCHOR_GAP;
+    ? labelAnchorY + LINE_ANCHOR_GAP_BOTTOM
+    : labelAnchorY - LINE_ANCHOR_GAP_TOP;
 
   return {
     rect,
