@@ -204,12 +204,11 @@ function buildRandomOffsets(count: number, cardSize: number) {
   }));
 }
 
-function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, height: number, photoSize: number) {
+function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, height: number) {
   if (placePhotos.length === 0) return;
 
   const mapHalfW = (width * 0.6) / 2;
   const mapHalfH = (height * 0.8) / 2;
-  const safetyGap = photoSize;
   const bounds = buildPlaceBounds(placePhotos);
   if (!bounds) return;
   const { left, right, top, bottom } = bounds;
@@ -230,10 +229,10 @@ function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, he
 
   let shiftX = 0;
   let shiftY = 0;
-  if (minD === dl) shiftX = -(dl + safetyGap);
-  else if (minD === dr) shiftX = dr + safetyGap;
-  else if (minD === dt) shiftY = -(dt + safetyGap);
-  else shiftY = db + safetyGap;
+  if (minD === dl) shiftX = -dl;
+  else if (minD === dr) shiftX = dr;
+  else if (minD === dt) shiftY = -dt;
+  else shiftY = db;
 
   for (const photo of placePhotos) {
     if (photo.frameX == null || photo.frameY == null) continue;
@@ -1151,7 +1150,7 @@ function UserFootprintsPageInner() {
           target.placePhotos[i].frameY = chosenCenter.y + target.offsets[i].offsetY;
         }
 
-        clampPlacePhotosAwayFromMap(target.placePhotos, viewportWidth, viewportHeight, cardSize);
+        clampPlacePhotosAwayFromMap(target.placePhotos, viewportWidth, viewportHeight);
         const placedRect = buildPlaceBounds(target.placePhotos);
         if (placedRect) {
           occupiedRects.push(placedRect);
