@@ -221,43 +221,6 @@ function buildRandomOffsets(count: number, cardSize: number) {
   }));
 }
 
-function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, height: number) {
-  if (placePhotos.length === 0) return;
-
-  const mapHalfW = (width * 0.6) / 2;
-  const mapHalfH = (height * 0.8) / 2;
-  const bounds = buildPlaceBounds(placePhotos);
-  if (!bounds) return;
-  const { left, right, top, bottom } = bounds;
-
-  const overlapsMap =
-    right > -mapHalfW &&
-    left < mapHalfW &&
-    bottom > -mapHalfH &&
-    top < mapHalfH;
-
-  if (!overlapsMap) return;
-
-  const dl = right - (-mapHalfW);
-  const dr = mapHalfW - left;
-  const dt = bottom - (-mapHalfH);
-  const db = mapHalfH - top;
-  const minD = Math.min(dl, dr, dt, db);
-
-  let shiftX = 0;
-  let shiftY = 0;
-  if (minD === dl) shiftX = -dl;
-  else if (minD === dr) shiftX = dr;
-  else if (minD === dt) shiftY = -dt;
-  else shiftY = db;
-
-  for (const photo of placePhotos) {
-    if (photo.frameX == null || photo.frameY == null) continue;
-    photo.frameX += shiftX;
-    photo.frameY += shiftY;
-  }
-}
-
 function buildPlaceBounds(placePhotos: PhotoItem[]): LogicalRect | null {
   const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
@@ -625,6 +588,7 @@ function buildFanCandidateCenter(
 
 function computeOrderedFanAngles(groups: ReturnType<typeof buildLargeFanOrder>, baseRadius: number) {
   if (groups.length === 0) return [] as number[];
+  if (groups.length === 1) return [groups[0].theta];
 
   const minGaps = groups.map((group) => {
     const chord = group.tangentSize + 16;
@@ -632,20 +596,37 @@ function computeOrderedFanAngles(groups: ReturnType<typeof buildLargeFanOrder>, 
   });
 
   const rawAngles = groups.map((group) => group.theta);
-  const adjusted = [...rawAngles];
+  const unwrapped = [rawAngles[0]];
 
-  for (let i = 1; i < adjusted.length; i++) {
-    const required = adjusted[i - 1] + (minGaps[i - 1] + minGaps[i]) / 2;
-    if (adjusted[i] < required) adjusted[i] = required;
+  for (let i = 1; i < rawAngles.length; i++) {
+    let next = rawAngles[i];
+    while (next < unwrapped[i - 1]) next += Math.PI * 2;
+    unwrapped.push(next);
   }
 
-  const fullSpan = adjusted[adjusted.length - 1] - adjusted[0];
-  if (fullSpan > Math.PI * 2 - minGaps[0]) {
-    return rawAngles;
+  const requiredSteps: number[] = [];
+  for (let i = 1; i < minGaps.length; i++) {
+    requiredSteps.push((minGaps[i - 1] + minGaps[i]) / 2);
   }
 
-  const centeredShift = ((rawAngles[0] + rawAngles[rawAngles.length - 1]) / 2) - ((adjusted[0] + adjusted[adjusted.length - 1]) / 2);
-  return adjusted.map((angle) => normalizeRadians(angle + centeredShift));
+  const totalRequiredSpan = requiredSteps.reduce((sum, step) => sum + step, 0);
+  const availableSpan = Math.PI * 2 - minGaps[0];
+  if (totalRequiredSpan > availableSpan) {
+    return rawAngles.slice();
+  }
+
+  const rawCenter = (unwrapped[0] + unwrapped[unwrapped.length - 1]) / 2;
+  const preferredStart = rawCenter - totalRequiredSpan / 2;
+  const minStart = unwrapped[unwrapped.length - 1] - availableSpan;
+  const maxStart = unwrapped[0];
+  const start = Math.min(Math.max(preferredStart, minStart), maxStart);
+
+  const adjusted = [start];
+  for (let i = 0; i < requiredSteps.length; i++) {
+    adjusted.push(adjusted[i] + requiredSteps[i]);
+  }
+
+  return adjusted.map((angle) => normalizeRadians(angle));
 }
 
 function findFanPlacementCenter(
@@ -682,7 +663,32 @@ function findFanPlacementCenter(
     }
   }
 
-  return findNearestAvailableGroupCenter(group.groupRect, occupiedRects, mapRect, gap);
+  let bestCandidate: { x: number; y: number } | null = null;
+  let bestScore = Infinity;
+
+  for (let radiusStep = maxRadiusSteps; radiusStep < maxRadiusSteps + 18; radiusStep++) {
+    const radius = baseRadius + selfSizeOffset + densityOffset + radiusStep * radialStep;
+    for (let tangentLevel = 0; tangentLevel <= 12; tangentLevel++) {
+      const offsets = tangentLevel === 0
+        ? [0]
+        : [-tangentLevel * tangentialStep, tangentLevel * tangentialStep];
+
+      for (const angleOffset of offsets) {
+        const centerCandidate = buildFanCandidateCenter(displayTheta + angleOffset, radius);
+        const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
+        if (!fitsAroundMap(centerRect, mapRect, gap)) continue;
+        if (occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, gap))) continue;
+
+        const score = radiusStep * 1000 + Math.abs(angleOffset) * 100;
+        if (score < bestScore) {
+          bestScore = score;
+          bestCandidate = centerCandidate;
+        }
+      }
+    }
+  }
+
+  return bestCandidate ?? findNearestAvailableGroupCenter(group.groupRect, occupiedRects, mapRect, gap);
 }
 
 function rectDistanceToMap(rect: LogicalRect, mapRect: LogicalRect) {
@@ -1267,7 +1273,6 @@ function UserFootprintsPageInner() {
             target.placePhotos[i].frameY = chosenCenter.y + target.offsets[i].offsetY;
           }
 
-          clampPlacePhotosAwayFromMap(target.placePhotos, viewportWidth, viewportHeight);
           const placedRect = buildPlaceBounds(target.placePhotos);
           if (placedRect) {
             occupiedRects.push(placedRect);
@@ -1297,7 +1302,6 @@ function UserFootprintsPageInner() {
           group.placePhotos[i].frameY = chosenCenter.y + group.offsets[i].offsetY;
         }
 
-        clampPlacePhotosAwayFromMap(group.placePhotos, viewportWidth, viewportHeight);
         const placedRect = buildPlaceBounds(group.placePhotos);
         if (placedRect) {
           occupiedRects.push(placedRect);
