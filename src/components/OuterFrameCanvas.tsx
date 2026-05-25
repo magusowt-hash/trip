@@ -88,11 +88,10 @@ function placeColor(placeTitle: string): string {
   return COLORS[Math.abs(hash) % COLORS.length];
 }
 
-function getMapLogicalBounds(width: number, height: number, scale: number) {
-  const safeScale = Math.max(scale, 0.1);
+function getMapLogicalBounds(width: number, height: number) {
   return {
-    halfW: (width * MAP_AREA_RATIO_W) / (2 * safeScale),
-    halfH: (height * MAP_AREA_RATIO_H) / (2 * safeScale),
+    halfW: (width * MAP_AREA_RATIO_W) / 2,
+    halfH: (height * MAP_AREA_RATIO_H) / 2,
   };
 }
 
@@ -186,7 +185,7 @@ export default function OuterFrameCanvas({
     );
     if (group.length === 0) return;
 
-    const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height, transform.scale);
+    const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height);
 
     const geometry = buildGroupGeometry(group, getPhotoLogicalSize, transform.scale);
     if (!geometry) return;
@@ -493,7 +492,7 @@ export default function OuterFrameCanvas({
           photo.frameX = newX;
           photo.frameY = newY;
 
-          const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height, transform.scale);
+          const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height);
           const bounds = getPhotoBounds(photo);
           if (!bounds) return;
           const photoLeft = bounds.left;
