@@ -662,14 +662,23 @@ function findFanPlacementCenter(
   const selfSizeOffset = Math.max(groupWidth, groupHeight) * 0.18;
   const densityOffset = Math.max(0, densityWeight - group.radiusWeight) * 12;
   const radialStep = Math.max(20, Math.max(groupWidth, groupHeight) * 0.3);
+  const tangentialStep = Math.max(group.tangentSize / Math.max(baseRadius, 1) * 0.3, Math.PI / 180);
   const maxRadiusSteps = 10;
 
   for (let radiusStep = 0; radiusStep < maxRadiusSteps; radiusStep++) {
     const radius = baseRadius + selfSizeOffset + densityOffset + radiusStep * radialStep;
-    const centerCandidate = buildFanCandidateCenter(displayTheta, radius);
-    const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
-    if (fitsAroundMap(centerRect, mapRect, gap) && !occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, gap))) {
-      return centerCandidate;
+    for (let tangentStep = 0; tangentStep <= 4; tangentStep++) {
+      const offsets = tangentStep === 0
+        ? [0]
+        : [-tangentStep * tangentialStep, tangentStep * tangentialStep];
+
+      for (const angleOffset of offsets) {
+        const centerCandidate = buildFanCandidateCenter(displayTheta + angleOffset, radius);
+        const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
+        if (fitsAroundMap(centerRect, mapRect, gap) && !occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, gap))) {
+          return centerCandidate;
+        }
+      }
     }
   }
 
