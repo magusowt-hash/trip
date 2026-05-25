@@ -96,7 +96,6 @@ const LARGE_FAN_MIN_BASE_RADIUS = 0.28;
 const LARGE_FAN_MAX_BASE_RADIUS = 0.42;
 const LARGE_FAN_DENSITY_WINDOW = Math.PI / 6;
 const LARGE_FAN_CIRCLE_UTILIZATION = 0.9;
-const LARGE_FAN_CIRCLE_UTILIZATION = 0.9;
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
