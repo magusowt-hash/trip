@@ -175,8 +175,8 @@ export default function OuterFrameCanvas({
 
     const geometry = buildGroupGeometry(group, getPhotoLogicalSize);
     if (!geometry) return;
-    const left = geometry.rect.left;
-    const right = geometry.rect.right;
+    const left = geometry.overallLeft;
+    const right = geometry.overallRight;
     const top = geometry.overallTop;
     const bottom = geometry.overallBottom;
 

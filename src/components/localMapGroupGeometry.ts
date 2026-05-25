@@ -18,6 +18,8 @@ export type GroupGeometry = {
   labelAnchorY: number;
   lineAnchorX: number;
   lineAnchorY: number;
+  overallLeft: number;
+  overallRight: number;
   overallTop: number;
   overallBottom: number;
 };
@@ -32,6 +34,8 @@ const LINE_ANCHOR_GAP_TOP = 16;
 const LINE_ANCHOR_GAP_BOTTOM = 24;
 const MIN_GROUP_TO_LABEL_SCREEN_GAP = 20;
 const MIN_LABEL_TO_LINE_SCREEN_GAP = 18;
+const LABEL_HALF_WIDTH = 60;
+const LINE_ANCHOR_RADIUS = 8;
 
 function getRegionByPoint(x: number, y: number): 'N' | 'W' | 'S' | 'E' {
   if (Math.abs(x) > Math.abs(y)) {
@@ -87,6 +91,8 @@ export function buildGroupGeometry(
   const lineAnchorY = labelSide === 'top'
     ? labelAnchorY + lineGap
     : labelAnchorY - lineGap;
+  const overallLeft = Math.min(rect.left, labelAnchorX - LABEL_HALF_WIDTH, lineAnchorX - LINE_ANCHOR_RADIUS);
+  const overallRight = Math.max(rect.right, labelAnchorX + LABEL_HALF_WIDTH, lineAnchorX + LINE_ANCHOR_RADIUS);
   const overallTop = Math.min(rect.top, labelAnchorY, lineAnchorY);
   const overallBottom = Math.max(rect.bottom, labelAnchorY, lineAnchorY);
 
@@ -99,6 +105,8 @@ export function buildGroupGeometry(
     labelAnchorY,
     lineAnchorX,
     lineAnchorY,
+    overallLeft,
+    overallRight,
     overallTop,
     overallBottom,
   };
