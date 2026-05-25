@@ -11,6 +11,7 @@ import LocalMapModal, { type LocalMappedAssetDraft, type LocalMapLayoutSettings 
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import type { PhotoItem } from '@/components/OuterFrameCanvas';
+import { buildPhotoRect, buildGroupGeometryFromPhotoRect, expandPhotoRect } from '@/components/localMapGroupGeometry';
 import type { Viewport } from '@/lib/outerFrameCoords';
 import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 import styles from './footprints.module.css';
@@ -209,20 +210,9 @@ function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, he
   const mapHalfW = (width * 0.6) / 2;
   const mapHalfH = (height * 0.8) / 2;
   const safetyGap = photoSize;
-
-  let left = Infinity;
-  let right = -Infinity;
-  let top = Infinity;
-  let bottom = -Infinity;
-
-  for (const photo of placePhotos) {
-    if (photo.frameX == null || photo.frameY == null) continue;
-    const size = getPhotoLogicalSize(photo);
-    left = Math.min(left, photo.frameX - size.width / 2);
-    right = Math.max(right, photo.frameX + size.width / 2);
-    top = Math.min(top, photo.frameY - size.height / 2);
-    bottom = Math.max(bottom, photo.frameY + size.height / 2);
-  }
+  const bounds = buildPlaceBounds(placePhotos);
+  if (!bounds) return;
+  const { left, right, top, bottom } = bounds;
 
   const overlapsMap =
     right > -mapHalfW &&
@@ -253,25 +243,39 @@ function clampPlacePhotosAwayFromMap(placePhotos: PhotoItem[], width: number, he
 }
 
 function buildPlaceBounds(placePhotos: PhotoItem[]): LogicalRect | null {
+  const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
+  if (!photoRect) return null;
+  const geometry = buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', 1);
+  return geometry.overallRect;
+}
+
+function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalOffset[]): LogicalRect | null {
+  if (placePhotos.length === 0 || offsets.length !== placePhotos.length) return null;
+
   let left = Infinity;
   let right = -Infinity;
   let top = Infinity;
   let bottom = -Infinity;
 
-  for (const photo of placePhotos) {
-    if (photo.frameX == null || photo.frameY == null) continue;
-    const size = getPhotoLogicalSize(photo);
-    left = Math.min(left, photo.frameX - size.width / 2);
-    right = Math.max(right, photo.frameX + size.width / 2);
-    top = Math.min(top, photo.frameY - size.height / 2);
-    bottom = Math.max(bottom, photo.frameY + size.height / 2);
+  for (let i = 0; i < offsets.length; i++) {
+    const size = getPhotoLogicalSize(placePhotos[i]);
+    left = Math.min(left, offsets[i].offsetX - size.width / 2);
+    right = Math.max(right, offsets[i].offsetX + size.width / 2);
+    top = Math.min(top, offsets[i].offsetY - size.height / 2);
+    bottom = Math.max(bottom, offsets[i].offsetY + size.height / 2);
   }
 
   if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
     return null;
   }
 
-  return { left, right, top, bottom };
+  const geometry = buildGroupGeometryFromPhotoRect(
+    expandPhotoRect({ left, right, top, bottom }),
+    placePhotos[0]?.placeTitle || '',
+    1,
+  );
+
+  return geometry.overallRect;
 }
 
 function rectsOverlap(a: LogicalRect, b: LogicalRect, gap: number) {
@@ -295,23 +299,6 @@ function buildOffsetsForLayout(
     return buildStaggeredOffsets(count, layout.gapX, layout.gapY, cardSize, layout.staggerAxis);
   }
   return buildRandomOffsets(count, cardSize);
-}
-
-function buildRectFromOffsets(placePhotos: PhotoItem[], offsets: LogicalOffset[]): LogicalRect {
-  let left = Infinity;
-  let right = -Infinity;
-  let top = Infinity;
-  let bottom = -Infinity;
-
-  for (let i = 0; i < offsets.length; i++) {
-    const size = getPhotoLogicalSize(placePhotos[i]);
-    left = Math.min(left, offsets[i].offsetX - size.width / 2);
-    right = Math.max(right, offsets[i].offsetX + size.width / 2);
-    top = Math.min(top, offsets[i].offsetY - size.height / 2);
-    bottom = Math.max(bottom, offsets[i].offsetY + size.height / 2);
-  }
-
-  return { left, right, top, bottom };
 }
 
 function rectArea(rect: LogicalRect) {
@@ -1068,7 +1055,8 @@ function UserFootprintsPageInner() {
       });
       const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
       const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
-      const groupRect = buildRectFromOffsets(placePhotos, offsets);
+      const groupRect = buildPlaceBoundsFromOffsets(placePhotos, offsets);
+      if (!groupRect) continue;
       if (placedPhotos.length > 0) {
         const existingRect = buildPlaceBounds(placedPhotos);
         if (!existingRect) continue;

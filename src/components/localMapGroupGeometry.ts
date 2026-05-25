@@ -2,7 +2,7 @@ import type { PhotoItem } from './OuterFrameCanvas';
 
 export type GroupLabelSide = 'top' | 'bottom';
 
-export type GroupLogicalRect = {
+export type LogicalRect = {
   left: number;
   right: number;
   top: number;
@@ -10,32 +10,52 @@ export type GroupLogicalRect = {
 };
 
 export type GroupGeometry = {
-  rect: GroupLogicalRect;
-  centerX: number;
-  centerY: number;
+  photoRect: LogicalRect;
+  labelRect: LogicalRect;
+  overallRect: LogicalRect;
+  photoCenterX: number;
+  photoCenterY: number;
   labelSide: GroupLabelSide;
   labelAnchorX: number;
   labelAnchorY: number;
   lineAnchorX: number;
   lineAnchorY: number;
-  overallLeft: number;
-  overallRight: number;
-  overallTop: number;
-  overallBottom: number;
 };
 
-type SizeReader = (photo: PhotoItem) => { width: number; height: number };
+type SizeReader = (photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>) => { width: number; height: number };
 
-const RECT_PADDING = 40;
-const OUTER_EDGE_GAP = 10;
+const PHOTO_RECT_PADDING = 40;
+const PHOTO_BOTTOM_EXTRA = 20;
 const LABEL_TOP_GAP = 28;
 const LABEL_BOTTOM_GAP = 20;
 const LINE_ANCHOR_GAP_TOP = 16;
 const LINE_ANCHOR_GAP_BOTTOM = 24;
 const MIN_GROUP_TO_LABEL_SCREEN_GAP = 20;
 const MIN_LABEL_TO_LINE_SCREEN_GAP = 18;
-const LABEL_HALF_WIDTH = 60;
+const LABEL_HEIGHT = 20;
 const LINE_ANCHOR_RADIUS = 8;
+
+function unionRect(a: LogicalRect, b: LogicalRect): LogicalRect {
+  return {
+    left: Math.min(a.left, b.left),
+    right: Math.max(a.right, b.right),
+    top: Math.min(a.top, b.top),
+    bottom: Math.max(a.bottom, b.bottom),
+  };
+}
+
+function rectCenter(rect: LogicalRect) {
+  return {
+    x: (rect.left + rect.right) / 2,
+    y: (rect.top + rect.bottom) / 2,
+  };
+}
+
+function estimateLabelHalfWidth(title: string, scale: number) {
+  const safeScale = Math.max(scale, 0.1);
+  const perChar = 6.5 / safeScale;
+  return Math.max(36 / safeScale, Math.min(140 / safeScale, title.length * perChar));
+}
 
 function getRegionByPoint(x: number, y: number): 'N' | 'W' | 'S' | 'E' {
   if (Math.abs(x) > Math.abs(y)) {
@@ -44,11 +64,19 @@ function getRegionByPoint(x: number, y: number): 'N' | 'W' | 'S' | 'E' {
   return y < 0 ? 'N' : 'S';
 }
 
-export function buildGroupGeometry(
-  groupPhotos: PhotoItem[],
+export function expandPhotoRect(photoRect: LogicalRect): LogicalRect {
+  return {
+    left: photoRect.left - PHOTO_RECT_PADDING,
+    right: photoRect.right + PHOTO_RECT_PADDING,
+    top: photoRect.top - PHOTO_RECT_PADDING,
+    bottom: photoRect.bottom + PHOTO_RECT_PADDING + PHOTO_BOTTOM_EXTRA,
+  };
+}
+
+export function buildPhotoRect(
+  groupPhotos: Array<Pick<PhotoItem, 'frameX' | 'frameY' | 'pixelWidth' | 'pixelHeight'>>,
   getPhotoLogicalSize: SizeReader,
-  scale = 1,
-): GroupGeometry | null {
+): LogicalRect | null {
   let left = Infinity;
   let right = -Infinity;
   let top = Infinity;
@@ -67,64 +95,69 @@ export function buildGroupGeometry(
     return null;
   }
 
-  const baseRect = {
-    left: left - RECT_PADDING,
-    right: right + RECT_PADDING,
-    top: top - RECT_PADDING,
-    bottom: bottom + RECT_PADDING + 20,
-  };
-  const baseCenterX = (baseRect.left + baseRect.right) / 2;
-  const baseCenterY = (baseRect.top + baseRect.bottom) / 2;
-  const labelSide = getRegionByPoint(baseCenterX, baseCenterY) === 'S' ? 'top' : 'bottom';
+  return expandPhotoRect({ left, right, top, bottom });
+}
+
+export function buildGroupGeometryFromPhotoRect(
+  photoRect: LogicalRect,
+  title: string,
+  scale = 1,
+): GroupGeometry {
   const safeScale = Math.max(scale, 0.1);
+  const photoCenter = rectCenter(photoRect);
+  const labelSide = getRegionByPoint(photoCenter.x, photoCenter.y) === 'S' ? 'top' : 'bottom';
   const groupToLabelGap = labelSide === 'top'
     ? Math.max(LABEL_TOP_GAP, MIN_GROUP_TO_LABEL_SCREEN_GAP / safeScale)
     : Math.max(LABEL_BOTTOM_GAP, MIN_GROUP_TO_LABEL_SCREEN_GAP / safeScale);
-  const labelAnchorX = baseCenterX;
+  const labelHalfWidth = estimateLabelHalfWidth(title, safeScale);
+  const labelAnchorX = photoCenter.x;
   const labelAnchorY = labelSide === 'top'
-    ? baseRect.top - groupToLabelGap
-    : baseRect.bottom + groupToLabelGap;
+    ? photoRect.top - groupToLabelGap
+    : photoRect.bottom + groupToLabelGap;
+  const labelRect: LogicalRect = {
+    left: labelAnchorX - labelHalfWidth,
+    right: labelAnchorX + labelHalfWidth,
+    top: labelAnchorY - LABEL_HEIGHT / 2,
+    bottom: labelAnchorY + LABEL_HEIGHT / 2,
+  };
+
   const lineGap = labelSide === 'top'
     ? Math.max(LINE_ANCHOR_GAP_BOTTOM, MIN_LABEL_TO_LINE_SCREEN_GAP / safeScale)
     : Math.max(LINE_ANCHOR_GAP_TOP, MIN_LABEL_TO_LINE_SCREEN_GAP / safeScale);
-  const lineAnchorX = baseCenterX;
+  const lineAnchorX = labelAnchorX;
   const lineAnchorY = labelSide === 'top'
-    ? labelAnchorY + lineGap
-    : labelAnchorY - lineGap;
-  const rect = {
-    left: Math.min(baseRect.left, labelAnchorX - LABEL_HALF_WIDTH),
-    right: Math.max(baseRect.right, labelAnchorX + LABEL_HALF_WIDTH),
-    top: Math.min(baseRect.top, labelAnchorY),
-    bottom: Math.max(baseRect.bottom, labelAnchorY),
+    ? labelRect.bottom + lineGap
+    : labelRect.top - lineGap;
+  const lineRect: LogicalRect = {
+    left: lineAnchorX - LINE_ANCHOR_RADIUS,
+    right: lineAnchorX + LINE_ANCHOR_RADIUS,
+    top: lineAnchorY - LINE_ANCHOR_RADIUS,
+    bottom: lineAnchorY + LINE_ANCHOR_RADIUS,
   };
-  const centerX = (rect.left + rect.right) / 2;
-  const centerY = (rect.top + rect.bottom) / 2;
-  const overallLeft = Math.min(rect.left, lineAnchorX - LINE_ANCHOR_RADIUS);
-  const overallRight = Math.max(rect.right, lineAnchorX + LINE_ANCHOR_RADIUS);
-  const overallTop = Math.min(rect.top, lineAnchorY);
-  const overallBottom = Math.max(rect.bottom, lineAnchorY);
+
+  const overallRect = unionRect(unionRect(photoRect, labelRect), lineRect);
 
   return {
-    rect,
-    centerX,
-    centerY,
+    photoRect,
+    labelRect,
+    overallRect,
+    photoCenterX: photoCenter.x,
+    photoCenterY: photoCenter.y,
     labelSide,
     labelAnchorX,
     labelAnchorY,
     lineAnchorX,
     lineAnchorY,
-    overallLeft,
-    overallRight,
-    overallTop,
-    overallBottom,
   };
 }
 
-export function getGroupOuterEdgeAnchor(geometry: GroupGeometry) {
-  return {
-    x: geometry.centerX,
-    y: geometry.labelSide === 'top'
-      ? geometry.rect.top - OUTER_EDGE_GAP
-      : geometry.rect.bottom + OUTER_EDGE_GAP,
-  };
+export function buildGroupGeometry(
+  groupPhotos: Array<Pick<PhotoItem, 'frameX' | 'frameY' | 'pixelWidth' | 'pixelHeight' | 'placeTitle'>>,
+  getPhotoLogicalSize: SizeReader,
+  scale = 1,
+): GroupGeometry | null {
+  const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
+  if (!photoRect) return null;
+  const title = groupPhotos[0]?.placeTitle || '';
+  return buildGroupGeometryFromPhotoRect(photoRect, title, scale);
 }

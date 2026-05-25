@@ -35,10 +35,18 @@ export interface PoiPoint {
 export interface PlaceRect {
   placeKey: string;
   placeTitle: string;
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
+  photoLeft: number;
+  photoTop: number;
+  photoRight: number;
+  photoBottom: number;
+  overallLeft: number;
+  overallTop: number;
+  overallRight: number;
+  overallBottom: number;
+  labelLeft: number;
+  labelTop: number;
+  labelRight: number;
+  labelBottom: number;
   labelSide: 'top' | 'bottom';
   labelAnchorX: number;
   labelAnchorY: number;
@@ -63,7 +71,7 @@ const MAP_AREA_RATIO_W = 0.6;
 const MAP_AREA_RATIO_H = 0.8;
 
 function rectContains(r: PlaceRect, x: number, y: number): boolean {
-  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  return x >= r.overallLeft && x <= r.overallRight && y >= r.overallTop && y <= r.overallBottom;
 }
 
 const COLORS = [
@@ -182,10 +190,10 @@ export default function OuterFrameCanvas({
 
     const geometry = buildGroupGeometry(group, getPhotoLogicalSize);
     if (!geometry) return;
-    const left = geometry.overallLeft;
-    const right = geometry.overallRight;
-    const top = geometry.overallTop;
-    const bottom = geometry.overallBottom;
+    const left = geometry.overallRect.left;
+    const right = geometry.overallRect.right;
+    const top = geometry.overallRect.top;
+    const bottom = geometry.overallRect.bottom;
 
     const overlapsMap =
       right > -mapHalfW &&
@@ -230,10 +238,18 @@ export default function OuterFrameCanvas({
       rects.push({
         placeKey,
         placeTitle: items[0]?.placeTitle || '',
-        left: geometry.rect.left,
-        top: geometry.rect.top,
-        right: geometry.rect.right,
-        bottom: geometry.rect.bottom,
+        photoLeft: geometry.photoRect.left,
+        photoTop: geometry.photoRect.top,
+        photoRight: geometry.photoRect.right,
+        photoBottom: geometry.photoRect.bottom,
+        overallLeft: geometry.overallRect.left,
+        overallTop: geometry.overallRect.top,
+        overallRight: geometry.overallRect.right,
+        overallBottom: geometry.overallRect.bottom,
+        labelLeft: geometry.labelRect.left,
+        labelTop: geometry.labelRect.top,
+        labelRight: geometry.labelRect.right,
+        labelBottom: geometry.labelRect.bottom,
         labelSide: geometry.labelSide,
         labelAnchorX: geometry.labelAnchorX,
         labelAnchorY: geometry.labelAnchorY,
@@ -354,6 +370,7 @@ export default function OuterFrameCanvas({
         ctx.fillStyle = 'rgba(255,255,255,0.65)';
         ctx.font = `${Math.max(11, 12 * transform.scale)}px sans-serif`;
         ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
         ctx.fillText(rect.placeTitle, anchor.x, anchor.y);
       }
     }
@@ -421,8 +438,13 @@ export default function OuterFrameCanvas({
 
     if (showLabels) {
       for (const rect of placeRectsRef.current) {
-        const anchor = logicalToScreen(rect.labelAnchorX, rect.labelAnchorY);
-        if (Math.abs(pos.x - anchor.x) <= 60 && Math.abs(pos.y - anchor.y) <= 18) {
+        const topLeft = logicalToScreen(rect.labelLeft, rect.labelTop);
+        const bottomRight = logicalToScreen(rect.labelRight, rect.labelBottom);
+        const minX = Math.min(topLeft.x, bottomRight.x);
+        const maxX = Math.max(topLeft.x, bottomRight.x);
+        const minY = Math.min(topLeft.y, bottomRight.y);
+        const maxY = Math.max(topLeft.y, bottomRight.y);
+        if (pos.x >= minX && pos.x <= maxX && pos.y >= minY && pos.y <= maxY) {
           e.stopPropagation();
           e.preventDefault();
           didDragRef.current = false;
