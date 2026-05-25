@@ -28,6 +28,7 @@ const LABEL_TOP_GAP = 28;
 const LABEL_BOTTOM_GAP = 20;
 const LINE_ANCHOR_GAP_TOP = 16;
 const LINE_ANCHOR_GAP_BOTTOM = 24;
+const MIN_GROUP_TO_LABEL_SCREEN_GAP = 20;
 const MIN_LABEL_TO_LINE_SCREEN_GAP = 18;
 
 function getRegionByPoint(x: number, y: number): 'N' | 'W' | 'S' | 'E' {
@@ -70,10 +71,13 @@ export function buildGroupGeometry(
   const centerY = (rect.top + rect.bottom) / 2;
   const labelSide = getRegionByPoint(centerX, centerY) === 'S' ? 'top' : 'bottom';
   const safeScale = Math.max(scale, 0.1);
+  const groupToLabelGap = labelSide === 'top'
+    ? Math.max(LABEL_TOP_GAP, MIN_GROUP_TO_LABEL_SCREEN_GAP / safeScale)
+    : Math.max(LABEL_BOTTOM_GAP, MIN_GROUP_TO_LABEL_SCREEN_GAP / safeScale);
   const labelAnchorX = centerX;
   const labelAnchorY = labelSide === 'top'
-    ? rect.top - LABEL_TOP_GAP
-    : rect.bottom + LABEL_BOTTOM_GAP;
+    ? rect.top - groupToLabelGap
+    : rect.bottom + groupToLabelGap;
   const lineGap = labelSide === 'top'
     ? Math.max(LINE_ANCHOR_GAP_BOTTOM, MIN_LABEL_TO_LINE_SCREEN_GAP / safeScale)
     : Math.max(LINE_ANCHOR_GAP_TOP, MIN_LABEL_TO_LINE_SCREEN_GAP / safeScale);
