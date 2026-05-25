@@ -80,6 +80,14 @@ function placeColor(placeTitle: string): string {
   return COLORS[Math.abs(hash) % COLORS.length];
 }
 
+function getMapLogicalBounds(width: number, height: number, scale: number) {
+  const safeScale = Math.max(scale, 0.1);
+  return {
+    halfW: (width * MAP_AREA_RATIO_W) / (2 * safeScale),
+    halfH: (height * MAP_AREA_RATIO_H) / (2 * safeScale),
+  };
+}
+
 export default function OuterFrameCanvas({
   width,
   height,
@@ -170,8 +178,7 @@ export default function OuterFrameCanvas({
     );
     if (group.length === 0) return;
 
-    const mapHalfW = (width * MAP_AREA_RATIO_W) / 2;
-    const mapHalfH = (height * MAP_AREA_RATIO_H) / 2;
+    const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height, transform.scale);
 
     const geometry = buildGroupGeometry(group, getPhotoLogicalSize);
     if (!geometry) return;
@@ -205,7 +212,7 @@ export default function OuterFrameCanvas({
       photo.frameX = (photo.frameX ?? 0) + shiftX;
       photo.frameY = (photo.frameY ?? 0) + shiftY;
     }
-  }, [photos, width, height, getPhotoLogicalSize]);
+  }, [photos, width, height, getPhotoLogicalSize, transform.scale]);
 
   // --- Compute place rects from current photo positions ---
   const computePlaceRects = useCallback((): PlaceRect[] => {
@@ -464,9 +471,7 @@ export default function OuterFrameCanvas({
           photo.frameX = newX;
           photo.frameY = newY;
 
-          // Prevent dragging into map area (fixed logical size, independent of zoom)
-          const mapHalfW = (width * MAP_AREA_RATIO_W) / 2;
-          const mapHalfH = (height * MAP_AREA_RATIO_H) / 2;
+          const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height, transform.scale);
           const bounds = getPhotoBounds(photo);
           if (!bounds) return;
           const photoLeft = bounds.left;
