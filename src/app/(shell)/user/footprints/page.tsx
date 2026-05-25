@@ -806,12 +806,42 @@ function getRegionAxisExtent(region: RegionKey, groupRect: LogicalRect) {
     : (groupRect.bottom - groupRect.top);
 }
 
+function estimateRegionSingleLayerCapacity(
+  region: RegionKey,
+  groups: PendingRegionGroup[],
+  mapRect: LogicalRect,
+  gap: number,
+) {
+  const trackSpan = region === 'N' || region === 'S'
+    ? mapRect.right - mapRect.left
+    : mapRect.bottom - mapRect.top;
+
+  if (groups.length === 0) return 0;
+
+  const averageAxisExtent = groups.reduce((sum, group) => sum + getRegionAxisExtent(region, group.groupRect), 0) / groups.length;
+  const averagePadding = Math.max(24, averageAxisExtent * 0.2);
+  const slotSize = Math.max(averageAxisExtent + averagePadding + gap * 0.35, 1);
+  return Math.max(1, Math.floor(trackSpan / slotSize));
+}
+
+function estimateRegionLayerBudget(
+  region: RegionKey,
+  groups: PendingRegionGroup[],
+  mapRect: LogicalRect,
+  gap: number,
+) {
+  const singleLayerCapacity = estimateRegionSingleLayerCapacity(region, groups, mapRect, gap);
+  if (singleLayerCapacity <= 0) return 1;
+  return Math.max(1, Math.ceil(groups.length / singleLayerCapacity));
+}
+
 function buildTrackCandidateCenters(
   region: RegionKey,
   anchor: number,
   groupRect: LogicalRect,
   mapRect: LogicalRect,
   gap: number,
+  layerBudget: number,
   minAxisCenter?: number,
 ) {
   const clampedAnchor = clampAxisCenter(region, anchor, groupRect, mapRect);
@@ -829,8 +859,9 @@ function buildTrackCandidateCenters(
   ) + LARGE_GROUP_TRACK_LAYER_GAP;
 
   const candidates: Array<{ x: number; y: number }> = [];
+  const maxLayers = Math.max(1, Math.min(8, layerBudget));
 
-  for (let layer = 0; layer < 8; layer++) {
+  for (let layer = 0; layer < maxLayers; layer++) {
     const outward = baseOffset + layer * layerStep;
     const baseCenter =
       region === 'N' ? { x: effectiveAnchor, y: mapRect.top - outward - groupHeight / 2 }
@@ -884,9 +915,10 @@ function findTrackPlacementCenter(
   occupiedRects: LogicalRect[],
   mapRect: LogicalRect,
   gap: number,
+  layerBudget: number,
   minAxisCenter?: number,
 ) {
-  const candidates = buildTrackCandidateCenters(region, anchor, groupRect, mapRect, gap, minAxisCenter);
+  const candidates = buildTrackCandidateCenters(region, anchor, groupRect, mapRect, gap, layerBudget, minAxisCenter);
 
   for (const candidate of candidates) {
     const rect = translateRect(groupRect, candidate.x, candidate.y);
@@ -896,7 +928,7 @@ function findTrackPlacementCenter(
   }
 
   if (minAxisCenter != null) {
-    return findTrackPlacementCenter(region, anchor, groupRect, occupiedRects, mapRect, gap);
+    return findTrackPlacementCenter(region, anchor, groupRect, occupiedRects, mapRect, gap, layerBudget);
   }
 
   return findNearestAvailableGroupCenter(groupRect, occupiedRects, mapRect, gap);
@@ -1381,6 +1413,9 @@ function UserFootprintsPageInner() {
 
     for (const sequence of regionSequences) {
       let minAxisCenter: number | undefined;
+      const layerBudget = useDirectRegionPlacement
+        ? 1
+        : estimateRegionLayerBudget(sequence.region, sequence.groups, mapRect, cardSize);
       sequence.groups.forEach((group) => {
         const target = pendingNewGroups.find((item) => item.placeKey === group.placeKey);
         if (!target) return;
@@ -1414,6 +1449,7 @@ function UserFootprintsPageInner() {
             occupiedRects,
             mapRect,
             cardSize,
+            layerBudget,
             minAxisCenter,
           );
         }
