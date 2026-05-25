@@ -70,9 +70,27 @@ type PendingRegionGroup = {
   groupRect: LogicalRect;
   photoCount: number;
 };
+type RegionSequence = {
+  region: RegionKey;
+  groups: PendingRegionGroup[];
+};
+type RegionCostEntry = {
+  region: RegionKey;
+  cost: number;
+};
+type GroupRegionPreference = {
+  group: PendingRegionGroup;
+  orderedCosts: RegionCostEntry[];
+  primary: RegionKey;
+  secondary: RegionKey;
+  diff: number;
+  cornerKey: 'NW' | 'NE' | 'SW' | 'SE' | null;
+};
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
+const LARGE_GROUP_TRACK_BASE_GAP = 28;
+const LARGE_GROUP_TRACK_LAYER_GAP = 36;
 const REGION_CENTER_ANGLE: Record<RegionKey, number> = {
   E: 0,
   S: 90,
@@ -394,11 +412,6 @@ function translateRect(rect: LogicalRect, centerX: number, centerY: number): Log
   };
 }
 
-function normalizeAngle(angle: number) {
-  const normalized = angle % 360;
-  return normalized < 0 ? normalized + 360 : normalized;
-}
-
 function getRegionByPoint(x: number, y: number): RegionKey {
   if (Math.abs(x) > Math.abs(y)) {
     return x < 0 ? 'W' : 'E';
@@ -504,58 +517,184 @@ function buildSmallGroupBuckets(pendingGroups: PendingRegionGroup[]) {
   return buckets;
 }
 
-function buildRegionSequence(
-  pendingGroups: PendingRegionGroup[],
-) {
-  const buckets = pendingGroups.length < 5
-    ? buildSmallGroupBuckets(pendingGroups)
-    : new Map<RegionKey, PendingRegionGroup[]>([
+function buildRegionCostList(group: PendingRegionGroup, maxAbsX: number, maxAbsY: number): RegionCostEntry[] {
+  const nx = group.logicalX / Math.max(maxAbsX, 1);
+  const ny = group.logicalY / Math.max(maxAbsY, 1);
+
+  const costs: RegionCostEntry[] = [
+    { region: 'N', cost: (ny + 1) ** 2 + 0.35 * Math.abs(nx) },
+    { region: 'S', cost: (ny - 1) ** 2 + 0.35 * Math.abs(nx) },
+    { region: 'W', cost: (nx + 1) ** 2 + 0.35 * Math.abs(ny) },
+    { region: 'E', cost: (nx - 1) ** 2 + 0.35 * Math.abs(ny) },
+  ];
+
+  costs.sort((a, b) => a.cost - b.cost);
+  return costs;
+}
+
+function getCornerKey(primary: RegionKey, secondary: RegionKey): 'NW' | 'NE' | 'SW' | 'SE' | null {
+  const key = `${primary}${secondary}`;
+  if (key === 'NW' || key === 'WN') return 'NW';
+  if (key === 'NE' || key === 'EN') return 'NE';
+  if (key === 'SW' || key === 'WS') return 'SW';
+  if (key === 'SE' || key === 'ES') return 'SE';
+  return null;
+}
+
+function buildLargeGroupPreferences(pendingGroups: PendingRegionGroup[]) {
+  const maxAbsX = Math.max(...pendingGroups.map((group) => Math.abs(group.logicalX)), 1);
+  const maxAbsY = Math.max(...pendingGroups.map((group) => Math.abs(group.logicalY)), 1);
+
+  return pendingGroups.map((group) => {
+    const orderedCosts = buildRegionCostList(group, maxAbsX, maxAbsY);
+    const primary = orderedCosts[0]?.region ?? 'E';
+    const secondary = orderedCosts[1]?.region ?? primary;
+    return {
+      group,
+      orderedCosts,
+      primary,
+      secondary,
+      diff: (orderedCosts[1]?.cost ?? orderedCosts[0]?.cost ?? 0) - (orderedCosts[0]?.cost ?? 0),
+      cornerKey: getCornerKey(primary, secondary),
+    } satisfies GroupRegionPreference;
+  });
+}
+
+function sortGroupsForRegion(region: RegionKey, groups: PendingRegionGroup[]) {
+  groups.sort((a, b) => {
+    if (region === 'N' || region === 'S') {
+      return a.logicalX - b.logicalX || a.logicalY - b.logicalY;
+    }
+    return a.logicalY - b.logicalY || a.logicalX - b.logicalX;
+  });
+}
+
+function getCornerSplitOrder(cornerKey: 'NW' | 'NE' | 'SW' | 'SE') {
+  switch (cornerKey) {
+    case 'NW':
+      return ['W', 'N'] as const;
+    case 'NE':
+      return ['N', 'E'] as const;
+    case 'SW':
+      return ['W', 'S'] as const;
+    case 'SE':
+      return ['S', 'E'] as const;
+  }
+}
+
+function getBucketLoadScore(groups: PendingRegionGroup[]) {
+  return groups.reduce((sum, group) => sum + 1 + group.photoCount * 0.2, 0);
+}
+
+function buildLargeGroupBuckets(pendingGroups: PendingRegionGroup[]) {
+  const buckets = new Map<RegionKey, PendingRegionGroup[]>([
     ['N', []],
     ['W', []],
     ['S', []],
     ['E', []],
   ]);
+  const preferences = buildLargeGroupPreferences(pendingGroups);
+  const handledKeys = new Set<string>();
 
-  if (pendingGroups.length >= 5) {
-    for (const group of pendingGroups) {
-      const region = getRegionByPoint(group.logicalX, group.logicalY);
-      buckets.get(region)!.push(group);
+  for (const pref of preferences) {
+    if (pref.cornerKey && pref.diff <= 0.22) continue;
+    buckets.get(pref.primary)!.push(pref.group);
+    handledKeys.add(pref.group.placeKey);
+  }
+
+  const cornerGroups = new Map<'NW' | 'NE' | 'SW' | 'SE', GroupRegionPreference[]>([
+    ['NW', []],
+    ['NE', []],
+    ['SW', []],
+    ['SE', []],
+  ]);
+  for (const pref of preferences) {
+    if (handledKeys.has(pref.group.placeKey)) continue;
+    if (!pref.cornerKey || pref.diff > 0.22) {
+      buckets.get(pref.primary)!.push(pref.group);
+      handledKeys.add(pref.group.placeKey);
+      continue;
     }
+    cornerGroups.get(pref.cornerKey)!.push(pref);
+  }
+
+  for (const [cornerKey, groupPrefs] of cornerGroups) {
+    if (groupPrefs.length === 0) continue;
+    groupPrefs.sort((a, b) => a.group.logicalX - b.group.logicalX || a.group.logicalY - b.group.logicalY);
+    const [firstRegion, secondRegion] = getCornerSplitOrder(cornerKey);
+
+    let bestCut = 0;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (let cut = 0; cut <= groupPrefs.length; cut++) {
+      const firstSlice = groupPrefs.slice(0, cut);
+      const secondSlice = groupPrefs.slice(cut);
+      const firstCost = firstSlice.reduce((sum, pref) => {
+        const cost = pref.orderedCosts.find((item) => item.region === firstRegion)?.cost ?? 10;
+        return sum + cost;
+      }, 0);
+      const secondCost = secondSlice.reduce((sum, pref) => {
+        const cost = pref.orderedCosts.find((item) => item.region === secondRegion)?.cost ?? 10;
+        return sum + cost;
+      }, 0);
+      const nextFirst = [...buckets.get(firstRegion)!, ...firstSlice.map((pref) => pref.group)];
+      const nextSecond = [...buckets.get(secondRegion)!, ...secondSlice.map((pref) => pref.group)];
+      const loadDelta = Math.abs(getBucketLoadScore(nextFirst) - getBucketLoadScore(nextSecond));
+      const cutPenalty = cut === 0 || cut === groupPrefs.length ? 0.18 : 0;
+      const score = firstCost + secondCost + loadDelta * 0.22 + cutPenalty;
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestCut = cut;
+      }
+    }
+
+    const firstSlice = groupPrefs.slice(0, bestCut);
+    const secondSlice = groupPrefs.slice(bestCut);
+    buckets.get(firstRegion)!.push(...firstSlice.map((pref) => pref.group));
+    buckets.get(secondRegion)!.push(...secondSlice.map((pref) => pref.group));
+  }
+
+  const averageLoad = pendingGroups.length / 4;
+  const movablePrefs = preferences
+    .filter((pref) => pref.diff <= 0.14 && pref.primary !== pref.secondary)
+    .sort((a, b) => a.diff - b.diff);
+
+  for (const pref of movablePrefs) {
+    const primaryBucket = buckets.get(pref.primary)!;
+    const secondaryBucket = buckets.get(pref.secondary)!;
+    const currentIndex = primaryBucket.findIndex((group) => group.placeKey === pref.group.placeKey);
+    if (currentIndex < 0) continue;
+    if (primaryBucket.length <= Math.ceil(averageLoad)) continue;
+    if (secondaryBucket.length >= Math.floor(averageLoad) + 1) continue;
+    primaryBucket.splice(currentIndex, 1);
+    secondaryBucket.push(pref.group);
   }
 
   for (const [region, groups] of buckets) {
-    groups.sort((a, b) => {
-      if (region === 'N' || region === 'S') {
-        return a.logicalX - b.logicalX;
-      }
-      return a.logicalY - b.logicalY;
-    });
+    sortGroupsForRegion(region, groups);
   }
 
-  const totalGroupCount = pendingGroups.length || 1;
-  const totalPhotoCount = pendingGroups.reduce((sum, item) => sum + item.photoCount, 0) || 1;
-  const raw = (['N', 'W', 'S', 'E'] as RegionKey[]).map((region) => {
-    const groups = buckets.get(region)!;
-    const groupCount = groups.length;
-    const photoCount = groups.reduce((sum, item) => sum + item.photoCount, 0);
-    const weight = 0.65 * (groupCount / totalGroupCount) + 0.35 * (photoCount / totalPhotoCount);
-    return { region, groups, groupCount, photoCount, weight };
-  });
-  const maxWeight = Math.max(...raw.map((item) => item.weight), 1);
+  return buckets;
+}
 
-  return raw.map((item) => {
-    const normalizedWeight = item.weight / maxWeight;
-    const regionAngle = 60 + 120 * normalizedWeight;
-    const startAngle = normalizeAngle(REGION_CENTER_ANGLE[item.region] - regionAngle / 2);
-    const angleStep = item.groups.length <= 1 ? 0 : regionAngle / (item.groups.length - 1);
-    return {
-      region: item.region,
-      groups: item.groups,
-      regionAngle,
-      startAngle,
-      angleStep,
-    };
-  });
+function buildRegionSequence(
+  pendingGroups: PendingRegionGroup[],
+): RegionSequence[] {
+  const buckets = pendingGroups.length < 5
+    ? buildSmallGroupBuckets(pendingGroups)
+    : buildLargeGroupBuckets(pendingGroups);
+
+  if (pendingGroups.length < 5) {
+    for (const [region, groups] of buckets) {
+      sortGroupsForRegion(region, groups);
+    }
+  }
+
+  return (['N', 'W', 'S', 'E'] as RegionKey[]).map((region) => ({
+    region,
+    groups: buckets.get(region) ?? [],
+  }));
 }
 
 function rectDistanceToMap(rect: LogicalRect, mapRect: LogicalRect) {
@@ -637,6 +776,130 @@ function findNearestAvailableGroupCenter(
   }
 
   return { x: mapRect.right + gap + groupWidth, y: mapCenterY };
+}
+
+function clampAxisCenter(
+  region: RegionKey,
+  anchor: number,
+  groupRect: LogicalRect,
+  mapRect: LogicalRect,
+) {
+  const halfWidth = (groupRect.right - groupRect.left) / 2;
+  const halfHeight = (groupRect.bottom - groupRect.top) / 2;
+
+  if (region === 'N' || region === 'S') {
+    const minCenter = mapRect.left + halfWidth;
+    const maxCenter = mapRect.right - halfWidth;
+    if (minCenter > maxCenter) return anchor;
+    return Math.max(minCenter, Math.min(maxCenter, anchor));
+  }
+
+  const minCenter = mapRect.top + halfHeight;
+  const maxCenter = mapRect.bottom - halfHeight;
+  if (minCenter > maxCenter) return anchor;
+  return Math.max(minCenter, Math.min(maxCenter, anchor));
+}
+
+function getRegionAxisExtent(region: RegionKey, groupRect: LogicalRect) {
+  return region === 'N' || region === 'S'
+    ? (groupRect.right - groupRect.left)
+    : (groupRect.bottom - groupRect.top);
+}
+
+function buildTrackCandidateCenters(
+  region: RegionKey,
+  anchor: number,
+  groupRect: LogicalRect,
+  mapRect: LogicalRect,
+  gap: number,
+  minAxisCenter?: number,
+) {
+  const clampedAnchor = clampAxisCenter(region, anchor, groupRect, mapRect);
+  const groupWidth = groupRect.right - groupRect.left;
+  const groupHeight = groupRect.bottom - groupRect.top;
+  const effectiveAnchor = minAxisCenter == null ? clampedAnchor : minAxisCenter;
+  const lateralStep = Math.max(
+    36,
+    (region === 'N' || region === 'S' ? groupWidth : groupHeight) * 0.55,
+  );
+  const baseOffset = gap + LARGE_GROUP_TRACK_BASE_GAP;
+  const layerStep = Math.max(
+    region === 'N' || region === 'S' ? groupHeight : groupWidth,
+    120,
+  ) + LARGE_GROUP_TRACK_LAYER_GAP;
+
+  const candidates: Array<{ x: number; y: number }> = [];
+
+  for (let layer = 0; layer < 8; layer++) {
+    const outward = baseOffset + layer * layerStep;
+    const baseCenter =
+      region === 'N' ? { x: effectiveAnchor, y: mapRect.top - outward - groupHeight / 2 }
+        : region === 'S' ? { x: effectiveAnchor, y: mapRect.bottom + outward + groupHeight / 2 }
+          : region === 'W' ? { x: mapRect.left - outward - groupWidth / 2, y: effectiveAnchor }
+            : { x: mapRect.right + outward + groupWidth / 2, y: effectiveAnchor };
+
+    candidates.push(baseCenter);
+
+    for (let offsetIndex = 1; offsetIndex < 12; offsetIndex++) {
+      const delta = lateralStep * offsetIndex;
+      if (region === 'N' || region === 'S') {
+        const leftX = effectiveAnchor - delta;
+        const rightX = effectiveAnchor + delta;
+        const leftDistance = Math.abs(leftX - clampedAnchor);
+        const rightDistance = Math.abs(rightX - clampedAnchor);
+        if (minAxisCenter == null && leftDistance <= rightDistance) {
+          candidates.push({ x: leftX, y: baseCenter.y });
+          candidates.push({ x: rightX, y: baseCenter.y });
+        } else {
+          candidates.push({ x: rightX, y: baseCenter.y });
+          if (minAxisCenter == null) {
+            candidates.push({ x: leftX, y: baseCenter.y });
+          }
+        }
+      } else {
+        const upperY = effectiveAnchor - delta;
+        const lowerY = effectiveAnchor + delta;
+        const upperDistance = Math.abs(upperY - clampedAnchor);
+        const lowerDistance = Math.abs(lowerY - clampedAnchor);
+        if (minAxisCenter == null && upperDistance <= lowerDistance) {
+          candidates.push({ x: baseCenter.x, y: upperY });
+          candidates.push({ x: baseCenter.x, y: lowerY });
+        } else {
+          candidates.push({ x: baseCenter.x, y: lowerY });
+          if (minAxisCenter == null) {
+            candidates.push({ x: baseCenter.x, y: upperY });
+          }
+        }
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function findTrackPlacementCenter(
+  region: RegionKey,
+  anchor: number,
+  groupRect: LogicalRect,
+  occupiedRects: LogicalRect[],
+  mapRect: LogicalRect,
+  gap: number,
+  minAxisCenter?: number,
+) {
+  const candidates = buildTrackCandidateCenters(region, anchor, groupRect, mapRect, gap, minAxisCenter);
+
+  for (const candidate of candidates) {
+    const rect = translateRect(groupRect, candidate.x, candidate.y);
+    if (!fitsAroundMap(rect, mapRect, gap)) continue;
+    if (occupiedRects.some((occupied) => rectsOverlap(rect, occupied, gap))) continue;
+    return candidate;
+  }
+
+  if (minAxisCenter != null) {
+    return findTrackPlacementCenter(region, anchor, groupRect, occupiedRects, mapRect, gap);
+  }
+
+  return findNearestAvailableGroupCenter(groupRect, occupiedRects, mapRect, gap);
 }
 
 export default function UserFootprintsPage() {
@@ -1040,7 +1303,6 @@ function UserFootprintsPageInner() {
       placeKey: string;
       placePhotos: PhotoItem[];
       groupRect: LogicalRect;
-      photoCount: number;
       logicalX: number;
       logicalY: number;
       offsets: LogicalOffset[];
@@ -1102,7 +1364,6 @@ function UserFootprintsPageInner() {
         placeKey,
         placePhotos,
         groupRect,
-        photoCount: placePhotos.length,
         logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
         logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
         offsets,
@@ -1115,34 +1376,57 @@ function UserFootprintsPageInner() {
       logicalX: group.logicalX,
       logicalY: group.logicalY,
       groupRect: group.groupRect,
-      photoCount: group.photoCount,
+      photoCount: group.placePhotos.length,
     })));
 
     for (const sequence of regionSequences) {
-      sequence.groups.forEach((group, index) => {
+      let minAxisCenter: number | undefined;
+      sequence.groups.forEach((group) => {
         const target = pendingNewGroups.find((item) => item.placeKey === group.placeKey);
         if (!target) return;
-        const angle = useDirectRegionPlacement
-          ? REGION_CENTER_ANGLE[sequence.region]
-          : sequence.startAngle + sequence.angleStep * index;
-        const radians = angle * (Math.PI / 180);
-        const rayX = Math.cos(radians);
-        const rayY = Math.sin(radians);
-        const baseRadius = Math.max(viewportWidth, viewportHeight) * 0.38;
-        const sortedOccupied = occupiedRects
-          .map((rect) => ({ rect, area: rectArea(rect) }))
-          .sort((a, b) => b.area - a.area);
-
         let chosenCenter = findNearestAvailableGroupCenter(target.groupRect, occupiedRects, mapRect, cardSize);
-        for (let radiusStep = 0; radiusStep < 8; radiusStep++) {
-          const radius = baseRadius + radiusStep * Math.max(cardSize, 80);
-          const centerX = rayX * radius;
-          const centerY = rayY * radius;
-          const rect = translateRect(target.groupRect, centerX, centerY);
-          if (!fitsAroundMap(rect, mapRect, cardSize)) continue;
-          if (sortedOccupied.some((occupied) => rectsOverlap(rect, occupied.rect, cardSize))) continue;
-          chosenCenter = { x: centerX, y: centerY };
-          break;
+
+        if (useDirectRegionPlacement) {
+          const angle = REGION_CENTER_ANGLE[sequence.region];
+          const radians = angle * (Math.PI / 180);
+          const rayX = Math.cos(radians);
+          const rayY = Math.sin(radians);
+          const baseRadius = Math.max(viewportWidth, viewportHeight) * 0.38;
+          const sortedOccupied = occupiedRects
+            .map((rect) => ({ rect, area: rectArea(rect) }))
+            .sort((a, b) => b.area - a.area);
+
+          for (let radiusStep = 0; radiusStep < 8; radiusStep++) {
+            const radius = baseRadius + radiusStep * Math.max(cardSize, 80);
+            const centerX = rayX * radius;
+            const centerY = rayY * radius;
+            const rect = translateRect(target.groupRect, centerX, centerY);
+            if (!fitsAroundMap(rect, mapRect, cardSize)) continue;
+            if (sortedOccupied.some((occupied) => rectsOverlap(rect, occupied.rect, cardSize))) continue;
+            chosenCenter = { x: centerX, y: centerY };
+            break;
+          }
+        } else {
+          chosenCenter = findTrackPlacementCenter(
+            sequence.region,
+            sequence.region === 'N' || sequence.region === 'S' ? target.logicalX : target.logicalY,
+            target.groupRect,
+            occupiedRects,
+            mapRect,
+            cardSize,
+            minAxisCenter,
+          );
+        }
+
+        if (!useDirectRegionPlacement) {
+          const axisPadding = Math.max(
+            24,
+            getRegionAxisExtent(sequence.region, target.groupRect) * 0.2,
+          );
+          const axisExtent = getRegionAxisExtent(sequence.region, target.groupRect);
+          minAxisCenter = (sequence.region === 'N' || sequence.region === 'S'
+            ? chosenCenter.x + axisExtent / 2 + axisPadding
+            : chosenCenter.y + axisExtent / 2 + axisPadding);
         }
 
         for (let i = 0; i < target.placePhotos.length; i++) {
