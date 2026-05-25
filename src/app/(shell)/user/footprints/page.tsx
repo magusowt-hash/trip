@@ -568,14 +568,6 @@ function computeLargeFanBaseRadius(groups: ReturnType<typeof buildLargeFanOrder>
   return Math.max(viewportMax * normalized, radiusByCircumference);
 }
 
-function computeLocalDensityWeight(current: ReturnType<typeof buildLargeFanOrder>[number], groups: ReturnType<typeof buildLargeFanOrder>) {
-  return groups.reduce((sum, group) => {
-    const diff = circularAngleDiff(current.theta, group.theta);
-    if (diff > LARGE_FAN_DENSITY_WINDOW) return sum;
-    return sum + Math.max(0, 1 - diff / LARGE_FAN_DENSITY_WINDOW) * group.radiusWeight;
-  }, 0);
-}
-
 function buildFanCandidateCenter(
   theta: number,
   radius: number,
@@ -584,6 +576,18 @@ function buildFanCandidateCenter(
     x: Math.cos(theta) * radius,
     y: Math.sin(theta) * radius,
   };
+}
+
+function unwrapAngles(angles: number[]) {
+  if (angles.length === 0) return [] as number[];
+
+  const unwrapped = [angles[0]];
+  for (let i = 1; i < angles.length; i++) {
+    let next = angles[i];
+    while (next < unwrapped[i - 1]) next += Math.PI * 2;
+    unwrapped.push(next);
+  }
+  return unwrapped;
 }
 
 function computeOrderedFanAngles(groups: ReturnType<typeof buildLargeFanOrder>, baseRadius: number) {
@@ -596,13 +600,7 @@ function computeOrderedFanAngles(groups: ReturnType<typeof buildLargeFanOrder>, 
   });
 
   const rawAngles = groups.map((group) => group.theta);
-  const unwrapped = [rawAngles[0]];
-
-  for (let i = 1; i < rawAngles.length; i++) {
-    let next = rawAngles[i];
-    while (next < unwrapped[i - 1]) next += Math.PI * 2;
-    unwrapped.push(next);
-  }
+  const unwrapped = unwrapAngles(rawAngles);
 
   const requiredSteps: number[] = [];
   for (let i = 1; i < minGaps.length; i++) {
@@ -629,6 +627,28 @@ function computeOrderedFanAngles(groups: ReturnType<typeof buildLargeFanOrder>, 
   return adjusted.map((angle) => normalizeRadians(angle));
 }
 
+function computeFanAngleSlots(angles: number[]) {
+  if (angles.length === 0) return [] as Array<{ min: number; max: number }>;
+  if (angles.length === 1) {
+    return [{ min: angles[0] - Math.PI, max: angles[0] + Math.PI }];
+  }
+
+  const unwrapped = unwrapAngles(angles);
+  const slots: Array<{ min: number; max: number }> = [];
+
+  for (let i = 0; i < unwrapped.length; i++) {
+    const current = unwrapped[i];
+    const prev = i === 0 ? unwrapped[unwrapped.length - 1] - Math.PI * 2 : unwrapped[i - 1];
+    const next = i === unwrapped.length - 1 ? unwrapped[0] + Math.PI * 2 : unwrapped[i + 1];
+    slots.push({
+      min: (prev + current) / 2,
+      max: (current + next) / 2,
+    });
+  }
+
+  return slots;
+}
+
 function findFanPlacementCenter(
   group: ReturnType<typeof buildLargeFanOrder>[number],
   occupiedRects: LogicalRect[],
@@ -636,59 +656,53 @@ function findFanPlacementCenter(
   gap: number,
   baseRadius: number,
   displayTheta: number,
-  densityWeight: number,
+  minTheta: number,
+  maxTheta: number,
 ) {
   const groupWidth = group.groupRect.right - group.groupRect.left;
   const groupHeight = group.groupRect.bottom - group.groupRect.top;
   const selfSizeOffset = Math.max(groupWidth, groupHeight) * 0.18;
-  const densityOffset = Math.max(0, densityWeight - group.radiusWeight) * 12;
   const radialStep = Math.max(20, Math.max(groupWidth, groupHeight) * 0.3);
-  const tangentialStep = Math.max(group.tangentSize / Math.max(baseRadius, 1) * 0.3, Math.PI / 180);
-  const maxRadiusSteps = 10;
-
-  for (let radiusStep = 0; radiusStep < maxRadiusSteps; radiusStep++) {
-    const radius = baseRadius + selfSizeOffset + densityOffset + radiusStep * radialStep;
-    for (let tangentStep = 0; tangentStep <= 4; tangentStep++) {
-      const offsets = tangentStep === 0
-        ? [0]
-        : [-tangentStep * tangentialStep, tangentStep * tangentialStep];
-
-      for (const angleOffset of offsets) {
-        const centerCandidate = buildFanCandidateCenter(displayTheta + angleOffset, radius);
-        const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
-        if (fitsAroundMap(centerRect, mapRect, gap) && !occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, gap))) {
-          return centerCandidate;
-        }
-      }
-    }
-  }
+  const maxRadiusSteps = 28;
+  const slotMin = Math.min(minTheta, maxTheta);
+  const slotMax = Math.max(minTheta, maxTheta);
+  const slotSpan = Math.max(slotMax - slotMin, Math.PI / 180);
+  const slotCenter = Math.min(Math.max(displayTheta, slotMin), slotMax);
+  const angularStep = Math.max(Math.min(slotSpan / 8, Math.PI / 24), Math.PI / 180);
 
   let bestCandidate: { x: number; y: number } | null = null;
   let bestScore = Infinity;
 
-  for (let radiusStep = maxRadiusSteps; radiusStep < maxRadiusSteps + 18; radiusStep++) {
-    const radius = baseRadius + selfSizeOffset + densityOffset + radiusStep * radialStep;
-    for (let tangentLevel = 0; tangentLevel <= 12; tangentLevel++) {
-      const offsets = tangentLevel === 0
+  for (let radiusStep = 0; radiusStep < maxRadiusSteps; radiusStep++) {
+    const radius = baseRadius + selfSizeOffset + radiusStep * radialStep;
+    const maxAngularLevels = Math.max(0, Math.ceil((slotSpan / 2) / angularStep));
+
+    for (let angularLevel = 0; angularLevel <= maxAngularLevels; angularLevel++) {
+      const offsets = angularLevel === 0
         ? [0]
-        : [-tangentLevel * tangentialStep, tangentLevel * tangentialStep];
+        : [-angularLevel * angularStep, angularLevel * angularStep];
 
       for (const angleOffset of offsets) {
-        const centerCandidate = buildFanCandidateCenter(displayTheta + angleOffset, radius);
+        const theta = slotCenter + angleOffset;
+        if (theta < slotMin || theta > slotMax) continue;
+
+        const centerCandidate = buildFanCandidateCenter(theta, radius);
         const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
         if (!fitsAroundMap(centerRect, mapRect, gap)) continue;
         if (occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, gap))) continue;
 
-        const score = radiusStep * 1000 + Math.abs(angleOffset) * 100;
+        const score = radiusStep * 1000 + Math.abs(theta - displayTheta) * 100;
         if (score < bestScore) {
           bestScore = score;
           bestCandidate = centerCandidate;
         }
       }
     }
+
+    if (bestCandidate) return bestCandidate;
   }
 
-  return bestCandidate ?? findNearestAvailableGroupCenter(group.groupRect, occupiedRects, mapRect, gap);
+  return buildFanCandidateCenter(slotCenter, baseRadius + selfSizeOffset + maxRadiusSteps * radialStep);
 }
 
 function rectDistanceToMap(rect: LogicalRect, mapRect: LogicalRect) {
@@ -1283,10 +1297,14 @@ function UserFootprintsPageInner() {
       const fanGroups = buildLargeFanOrder(pendingNewGroups);
       const baseRadius = computeLargeFanBaseRadius(fanGroups, viewportWidth, viewportHeight);
       const orderedAngles = computeOrderedFanAngles(fanGroups, baseRadius);
-      const densityWeights = fanGroups.map((group) => computeLocalDensityWeight(group, fanGroups));
+      const angleSlots = computeFanAngleSlots(orderedAngles);
 
       for (let index = 0; index < fanGroups.length; index++) {
         const group = fanGroups[index];
+        const slot = angleSlots[index] ?? {
+          min: (orderedAngles[index] ?? group.theta) - Math.PI / 12,
+          max: (orderedAngles[index] ?? group.theta) + Math.PI / 12,
+        };
         const chosenCenter = findFanPlacementCenter(
           group,
           occupiedRects,
@@ -1294,7 +1312,8 @@ function UserFootprintsPageInner() {
           cardSize,
           baseRadius,
           orderedAngles[index] ?? group.theta,
-          densityWeights[index] ?? group.radiusWeight,
+          slot.min,
+          slot.max,
         );
 
         for (let i = 0; i < group.placePhotos.length; i++) {
