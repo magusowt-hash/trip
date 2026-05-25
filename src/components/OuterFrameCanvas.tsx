@@ -173,19 +173,12 @@ export default function OuterFrameCanvas({
     const mapHalfW = (width * MAP_AREA_RATIO_W) / 2;
     const mapHalfH = (height * MAP_AREA_RATIO_H) / 2;
 
-    let left = Infinity;
-    let right = -Infinity;
-    let top = Infinity;
-    let bottom = -Infinity;
-
-    for (const photo of group) {
-      const bounds = getPhotoBounds(photo);
-      if (!bounds) continue;
-      left = Math.min(left, bounds.left);
-      right = Math.max(right, bounds.right);
-      top = Math.min(top, bounds.top);
-      bottom = Math.max(bottom, bounds.bottom);
-    }
+    const geometry = buildGroupGeometry(group, getPhotoLogicalSize);
+    if (!geometry) return;
+    const left = geometry.rect.left;
+    const right = geometry.rect.right;
+    const top = geometry.overallTop;
+    const bottom = geometry.overallBottom;
 
     const overlapsMap =
       right > -mapHalfW &&
@@ -212,7 +205,7 @@ export default function OuterFrameCanvas({
       photo.frameX = (photo.frameX ?? 0) + shiftX;
       photo.frameY = (photo.frameY ?? 0) + shiftY;
     }
-  }, [photos, width, height, getPhotoBounds]);
+  }, [photos, width, height, getPhotoLogicalSize]);
 
   // --- Compute place rects from current photo positions ---
   const computePlaceRects = useCallback((): PlaceRect[] => {
@@ -421,11 +414,8 @@ export default function OuterFrameCanvas({
 
     if (showLabels) {
       for (const rect of placeRectsRef.current) {
-        const left = logicalToScreen(rect.left, rect.bottom);
-        const right = logicalToScreen(rect.right, rect.bottom);
-        const cx = (left.x + right.x) / 2;
-        const cy = logicalToScreen(rect.left, rect.bottom).y + 4 * transform.scale;
-        if (Math.abs(pos.x - cx) <= 60 && Math.abs(pos.y - cy) <= 18) {
+        const anchor = logicalToScreen(rect.labelAnchorX, rect.labelAnchorY);
+        if (Math.abs(pos.x - anchor.x) <= 60 && Math.abs(pos.y - anchor.y) <= 18) {
           e.stopPropagation();
           e.preventDefault();
           didDragRef.current = false;

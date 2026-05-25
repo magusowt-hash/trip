@@ -18,6 +18,8 @@ export type GroupGeometry = {
   labelAnchorY: number;
   lineAnchorX: number;
   lineAnchorY: number;
+  overallTop: number;
+  overallBottom: number;
 };
 
 type SizeReader = (photo: PhotoItem) => { width: number; height: number };
@@ -85,6 +87,8 @@ export function buildGroupGeometry(
   const lineAnchorY = labelSide === 'top'
     ? labelAnchorY + lineGap
     : labelAnchorY - lineGap;
+  const overallTop = Math.min(rect.top, labelAnchorY, lineAnchorY);
+  const overallBottom = Math.max(rect.bottom, labelAnchorY, lineAnchorY);
 
   return {
     rect,
@@ -95,6 +99,8 @@ export function buildGroupGeometry(
     labelAnchorY,
     lineAnchorX,
     lineAnchorY,
+    overallTop,
+    overallBottom,
   };
 }
 
