@@ -67,34 +67,42 @@ export function buildGroupGeometry(
     return null;
   }
 
-  const rect = {
+  const baseRect = {
     left: left - RECT_PADDING,
     right: right + RECT_PADDING,
     top: top - RECT_PADDING,
     bottom: bottom + RECT_PADDING + 20,
   };
-  const centerX = (rect.left + rect.right) / 2;
-  const centerY = (rect.top + rect.bottom) / 2;
-  const labelSide = getRegionByPoint(centerX, centerY) === 'S' ? 'top' : 'bottom';
+  const baseCenterX = (baseRect.left + baseRect.right) / 2;
+  const baseCenterY = (baseRect.top + baseRect.bottom) / 2;
+  const labelSide = getRegionByPoint(baseCenterX, baseCenterY) === 'S' ? 'top' : 'bottom';
   const safeScale = Math.max(scale, 0.1);
   const groupToLabelGap = labelSide === 'top'
     ? Math.max(LABEL_TOP_GAP, MIN_GROUP_TO_LABEL_SCREEN_GAP / safeScale)
     : Math.max(LABEL_BOTTOM_GAP, MIN_GROUP_TO_LABEL_SCREEN_GAP / safeScale);
-  const labelAnchorX = centerX;
+  const labelAnchorX = baseCenterX;
   const labelAnchorY = labelSide === 'top'
-    ? rect.top - groupToLabelGap
-    : rect.bottom + groupToLabelGap;
+    ? baseRect.top - groupToLabelGap
+    : baseRect.bottom + groupToLabelGap;
   const lineGap = labelSide === 'top'
     ? Math.max(LINE_ANCHOR_GAP_BOTTOM, MIN_LABEL_TO_LINE_SCREEN_GAP / safeScale)
     : Math.max(LINE_ANCHOR_GAP_TOP, MIN_LABEL_TO_LINE_SCREEN_GAP / safeScale);
-  const lineAnchorX = centerX;
+  const lineAnchorX = baseCenterX;
   const lineAnchorY = labelSide === 'top'
     ? labelAnchorY + lineGap
     : labelAnchorY - lineGap;
-  const overallLeft = Math.min(rect.left, labelAnchorX - LABEL_HALF_WIDTH, lineAnchorX - LINE_ANCHOR_RADIUS);
-  const overallRight = Math.max(rect.right, labelAnchorX + LABEL_HALF_WIDTH, lineAnchorX + LINE_ANCHOR_RADIUS);
-  const overallTop = Math.min(rect.top, labelAnchorY, lineAnchorY);
-  const overallBottom = Math.max(rect.bottom, labelAnchorY, lineAnchorY);
+  const rect = {
+    left: Math.min(baseRect.left, labelAnchorX - LABEL_HALF_WIDTH),
+    right: Math.max(baseRect.right, labelAnchorX + LABEL_HALF_WIDTH),
+    top: Math.min(baseRect.top, labelAnchorY),
+    bottom: Math.max(baseRect.bottom, labelAnchorY),
+  };
+  const centerX = (rect.left + rect.right) / 2;
+  const centerY = (rect.top + rect.bottom) / 2;
+  const overallLeft = Math.min(rect.left, lineAnchorX - LINE_ANCHOR_RADIUS);
+  const overallRight = Math.max(rect.right, lineAnchorX + LINE_ANCHOR_RADIUS);
+  const overallTop = Math.min(rect.top, lineAnchorY);
+  const overallBottom = Math.max(rect.bottom, lineAnchorY);
 
   return {
     rect,
