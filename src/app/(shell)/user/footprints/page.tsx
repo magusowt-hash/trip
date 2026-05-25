@@ -95,8 +95,8 @@ const REGION_CENTER_ANGLE: Record<RegionKey, number> = {
 const LARGE_FAN_MIN_BASE_RADIUS = 0.28;
 const LARGE_FAN_MAX_BASE_RADIUS = 0.42;
 const LARGE_FAN_DENSITY_WINDOW = Math.PI / 6;
-const LARGE_FAN_COLLISION_ANGLE_STEP = Math.PI / 96;
-const LARGE_FAN_MAX_ANGLE_SWEEP = Math.PI / 10;
+const LARGE_FAN_CIRCLE_UTILIZATION = 0.9;
+const LARGE_FAN_CIRCLE_UTILIZATION = 0.9;
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -573,6 +573,10 @@ function buildLargeFanOrder(groups: PendingPlaceGroup[]) {
       theta: Math.atan2(group.logicalY, group.logicalX),
       radiusWeight: Math.max(1, Math.sqrt(group.photoCount)),
       rectArea: rectArea(group.groupRect),
+      tangentSize: Math.max(
+        group.groupRect.right - group.groupRect.left,
+        group.groupRect.bottom - group.groupRect.top,
+      ),
     }))
     .sort((a, b) => a.theta - b.theta);
 }
@@ -590,6 +594,8 @@ function computeLargeFanBaseRadius(groups: ReturnType<typeof buildLargeFanOrder>
   }
   const densityRatio = groups.length <= 1 ? 0 : tightPairs / (groups.length - 1);
   const spreadRatio = Math.max(0, 1 - densityRatio);
+  const circumferenceDemand = groups.reduce((sum, group) => sum + group.tangentSize + 18, 0);
+  const radiusByCircumference = circumferenceDemand / (Math.PI * 2 * LARGE_FAN_CIRCLE_UTILIZATION);
   const groupPressure = Math.min(1, groups.length / 12);
   const normalized = LARGE_FAN_MIN_BASE_RADIUS
     + (LARGE_FAN_MAX_BASE_RADIUS - LARGE_FAN_MIN_BASE_RADIUS)
@@ -597,7 +603,7 @@ function computeLargeFanBaseRadius(groups: ReturnType<typeof buildLargeFanOrder>
     * (1 - areaScale * 0.45)
     * (1 - groupPressure * 0.4);
 
-  return viewportMax * normalized;
+  return Math.max(viewportMax * normalized, radiusByCircumference);
 }
 
 function computeLocalDensityWeight(current: ReturnType<typeof buildLargeFanOrder>[number], groups: ReturnType<typeof buildLargeFanOrder>) {
@@ -611,13 +617,36 @@ function computeLocalDensityWeight(current: ReturnType<typeof buildLargeFanOrder
 function buildFanCandidateCenter(
   theta: number,
   radius: number,
-  angleOffset = 0,
 ) {
-  const nextTheta = theta + angleOffset;
   return {
-    x: Math.cos(nextTheta) * radius,
-    y: Math.sin(nextTheta) * radius,
+    x: Math.cos(theta) * radius,
+    y: Math.sin(theta) * radius,
   };
+}
+
+function computeOrderedFanAngles(groups: ReturnType<typeof buildLargeFanOrder>, baseRadius: number) {
+  if (groups.length === 0) return [] as number[];
+
+  const minGaps = groups.map((group) => {
+    const chord = group.tangentSize + 16;
+    return 2 * Math.asin(Math.min(1, chord / Math.max(baseRadius * 2, 1)));
+  });
+
+  const rawAngles = groups.map((group) => group.theta);
+  const adjusted = [...rawAngles];
+
+  for (let i = 1; i < adjusted.length; i++) {
+    const required = adjusted[i - 1] + (minGaps[i - 1] + minGaps[i]) / 2;
+    if (adjusted[i] < required) adjusted[i] = required;
+  }
+
+  const fullSpan = adjusted[adjusted.length - 1] - adjusted[0];
+  if (fullSpan > Math.PI * 2 - minGaps[0]) {
+    return rawAngles;
+  }
+
+  const centeredShift = ((rawAngles[0] + rawAngles[rawAngles.length - 1]) / 2) - ((adjusted[0] + adjusted[adjusted.length - 1]) / 2);
+  return adjusted.map((angle) => normalizeRadians(angle + centeredShift));
 }
 
 function findFanPlacementCenter(
@@ -626,37 +655,22 @@ function findFanPlacementCenter(
   mapRect: LogicalRect,
   gap: number,
   baseRadius: number,
-  groups: ReturnType<typeof buildLargeFanOrder>,
+  displayTheta: number,
+  densityWeight: number,
 ) {
   const groupWidth = group.groupRect.right - group.groupRect.left;
   const groupHeight = group.groupRect.bottom - group.groupRect.top;
-  const localDensity = computeLocalDensityWeight(group, groups);
   const selfSizeOffset = Math.max(groupWidth, groupHeight) * 0.18;
-  const densityOffset = Math.max(0, localDensity - group.radiusWeight) * 12;
+  const densityOffset = Math.max(0, densityWeight - group.radiusWeight) * 12;
   const radialStep = Math.max(20, Math.max(groupWidth, groupHeight) * 0.3);
   const maxRadiusSteps = 10;
 
   for (let radiusStep = 0; radiusStep < maxRadiusSteps; radiusStep++) {
     const radius = baseRadius + selfSizeOffset + densityOffset + radiusStep * radialStep;
-    const centerCandidate = buildFanCandidateCenter(group.theta, radius, 0);
+    const centerCandidate = buildFanCandidateCenter(displayTheta, radius);
     const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
     if (fitsAroundMap(centerRect, mapRect, gap) && !occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, gap))) {
       return centerCandidate;
-    }
-
-    for (let angleStep = 1; angleStep <= 6; angleStep++) {
-      const angleOffset = Math.min(LARGE_FAN_MAX_ANGLE_SWEEP, angleStep * LARGE_FAN_COLLISION_ANGLE_STEP);
-      const candidates = [
-        buildFanCandidateCenter(group.theta, radius, -angleOffset),
-        buildFanCandidateCenter(group.theta, radius, angleOffset),
-      ];
-
-      for (const candidate of candidates) {
-        const rect = translateRect(group.groupRect, candidate.x, candidate.y);
-        if (!fitsAroundMap(rect, mapRect, gap)) continue;
-        if (occupiedRects.some((occupied) => rectsOverlap(rect, occupied, gap))) continue;
-        return candidate;
-      }
     }
   }
 
@@ -1255,9 +1269,20 @@ function UserFootprintsPageInner() {
     } else {
       const fanGroups = buildLargeFanOrder(pendingNewGroups);
       const baseRadius = computeLargeFanBaseRadius(fanGroups, viewportWidth, viewportHeight);
+      const orderedAngles = computeOrderedFanAngles(fanGroups, baseRadius);
+      const densityWeights = fanGroups.map((group) => computeLocalDensityWeight(group, fanGroups));
 
-      for (const group of fanGroups) {
-        const chosenCenter = findFanPlacementCenter(group, occupiedRects, mapRect, cardSize, baseRadius, fanGroups);
+      for (let index = 0; index < fanGroups.length; index++) {
+        const group = fanGroups[index];
+        const chosenCenter = findFanPlacementCenter(
+          group,
+          occupiedRects,
+          mapRect,
+          cardSize,
+          baseRadius,
+          orderedAngles[index] ?? group.theta,
+          densityWeights[index] ?? group.radiusWeight,
+        );
 
         for (let i = 0; i < group.placePhotos.length; i++) {
           group.placePhotos[i].frameX = chosenCenter.x + group.offsets[i].offsetX;
