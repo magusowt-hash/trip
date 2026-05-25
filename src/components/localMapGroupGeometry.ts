@@ -28,6 +28,7 @@ const LABEL_TOP_GAP = 28;
 const LABEL_BOTTOM_GAP = 20;
 const LINE_ANCHOR_GAP_TOP = 16;
 const LINE_ANCHOR_GAP_BOTTOM = 24;
+const MIN_LABEL_TO_LINE_SCREEN_GAP = 18;
 
 function getRegionByPoint(x: number, y: number): 'N' | 'W' | 'S' | 'E' {
   if (Math.abs(x) > Math.abs(y)) {
@@ -36,7 +37,11 @@ function getRegionByPoint(x: number, y: number): 'N' | 'W' | 'S' | 'E' {
   return y < 0 ? 'N' : 'S';
 }
 
-export function buildGroupGeometry(groupPhotos: PhotoItem[], getPhotoLogicalSize: SizeReader): GroupGeometry | null {
+export function buildGroupGeometry(
+  groupPhotos: PhotoItem[],
+  getPhotoLogicalSize: SizeReader,
+  scale = 1,
+): GroupGeometry | null {
   let left = Infinity;
   let right = -Infinity;
   let top = Infinity;
@@ -64,14 +69,18 @@ export function buildGroupGeometry(groupPhotos: PhotoItem[], getPhotoLogicalSize
   const centerX = (rect.left + rect.right) / 2;
   const centerY = (rect.top + rect.bottom) / 2;
   const labelSide = getRegionByPoint(centerX, centerY) === 'S' ? 'top' : 'bottom';
+  const safeScale = Math.max(scale, 0.1);
   const labelAnchorX = centerX;
   const labelAnchorY = labelSide === 'top'
     ? rect.top - LABEL_TOP_GAP
     : rect.bottom + LABEL_BOTTOM_GAP;
+  const lineGap = labelSide === 'top'
+    ? Math.max(LINE_ANCHOR_GAP_BOTTOM, MIN_LABEL_TO_LINE_SCREEN_GAP / safeScale)
+    : Math.max(LINE_ANCHOR_GAP_TOP, MIN_LABEL_TO_LINE_SCREEN_GAP / safeScale);
   const lineAnchorX = centerX;
   const lineAnchorY = labelSide === 'top'
-    ? labelAnchorY + LINE_ANCHOR_GAP_BOTTOM
-    : labelAnchorY - LINE_ANCHOR_GAP_TOP;
+    ? labelAnchorY + lineGap
+    : labelAnchorY - lineGap;
 
   return {
     rect,

@@ -44,7 +44,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
   }), [transform, width, height]);
 
   const getGroupAnchorPoint = useCallback((groupPhotos: PhotoItem[], poi: PoiPoint) => {
-    const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize);
+    const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize, transform.scale);
     if (!geometry) {
       return { x: poi.logicalX, y: poi.logicalY };
     }
@@ -52,7 +52,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
       x: geometry.lineAnchorX,
       y: geometry.lineAnchorY,
     };
-  }, [getPhotoLogicalSize]);
+  }, [getPhotoLogicalSize, transform.scale]);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;

@@ -225,7 +225,7 @@ export default function OuterFrameCanvas({
     }
     const rects: PlaceRect[] = [];
     for (const [placeKey, items] of groups) {
-      const geometry = buildGroupGeometry(items, getPhotoLogicalSize);
+      const geometry = buildGroupGeometry(items, getPhotoLogicalSize, transform.scale);
       if (!geometry) continue;
       rects.push({
         placeKey,
