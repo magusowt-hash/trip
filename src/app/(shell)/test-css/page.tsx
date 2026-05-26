@@ -12,7 +12,6 @@ type TestPoint = {
 
 type LayoutGroup = TestPoint & {
   order: number;
-  theta: number;
 };
 
 type Segment = {
@@ -43,13 +42,13 @@ type MockGroup = {
 
 const STAGE_SIZE = 1120;
 const MAP_SIZE = 420;
-const GROUP_RADIUS = MAP_SIZE / 2 + 176;
-const GROUP_RADIUS_STEP = 54;
 const GROUP_PADDING = 28;
 const PHOTO_GAP = 14;
 const MOCK_MIN_PHOTOS = 2;
 const MOCK_MAX_PHOTOS = 5;
 const MIN_STAGE_SCALE = 0.54;
+const GROUP_SAFE_GAP = 14;
+const MAX_VECTOR_LAYERS = 24;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -58,24 +57,6 @@ function randomUnit() {
     return values[0] / 0xffffffff;
   }
   return Math.random();
-}
-
-function normalizeRadians(angle: number) {
-  let next = angle;
-  while (next <= -Math.PI) next += Math.PI * 2;
-  while (next > Math.PI) next -= Math.PI * 2;
-  return next;
-}
-
-function unwrapAngles(angles: number[]) {
-  if (angles.length === 0) return [] as number[];
-  const unwrapped = [angles[0]];
-  for (let i = 1; i < angles.length; i++) {
-    let next = angles[i];
-    while (next < unwrapped[i - 1]) next += Math.PI * 2;
-    unwrapped.push(next);
-  }
-  return unwrapped;
 }
 
 function buildRandomPoints(count: number) {
@@ -249,21 +230,6 @@ function buildRadialOrder(points: TestPoint[]) {
   return rotateToBestStart(sortByCenterAngle(points, center.x, center.y));
 }
 
-function buildOrderedAngles(groups: Array<TestPoint & { theta: number }>) {
-  if (groups.length <= 1) return groups.map((group) => group.theta);
-
-  const rawAngles = groups.map((group) => group.theta);
-  const unwrapped = unwrapAngles(rawAngles);
-  const step = (Math.PI * 2) / groups.length;
-  const ordered = [unwrapped[0]];
-
-  for (let i = 1; i < groups.length; i++) {
-    ordered.push(ordered[i - 1] + step);
-  }
-
-  return ordered.map((angle) => normalizeRadians(angle));
-}
-
 function rectsOverlap(a: LogicalRect, b: LogicalRect, gap = 0) {
   return !(
     a.right + gap <= b.left ||
@@ -280,6 +246,94 @@ function translateRect(rect: LogicalRect, x: number, y: number): LogicalRect {
     top: rect.top + y,
     bottom: rect.bottom + y,
   };
+}
+
+function normalizeVector(x: number, y: number) {
+  const length = Math.hypot(x, y);
+  if (length < 1e-6) return { x: 0, y: -1 };
+  return { x: x / length, y: y / length };
+}
+
+function buildOutwardVector(points: LayoutGroup[], index: number): {
+  x: number;
+  y: number;
+  crowdAngle: number;
+} {
+  const point = points[index];
+  const pointCount = points.length;
+  const orientation = polygonArea(points);
+  const center = computeCenterOfPoints(points);
+
+  if (pointCount === 1) {
+    const fallback = normalizeVector(point.x - center.x, point.y - center.y);
+    return { x: fallback.x, y: fallback.y, crowdAngle: Math.PI / 2 };
+  }
+
+  const prev = points[(index - 1 + pointCount) % pointCount];
+  const next = points[(index + 1) % pointCount];
+  const incoming = normalizeVector(point.x - prev.x, point.y - prev.y);
+  const outgoing = normalizeVector(next.x - point.x, next.y - point.y);
+  const buildNormal = orientation >= 0
+    ? (vx: number, vy: number) => ({ x: vy, y: -vx })
+    : (vx: number, vy: number) => ({ x: -vy, y: vx });
+  const prevNormal = buildNormal(incoming.x, incoming.y);
+  const nextNormal = buildNormal(outgoing.x, outgoing.y);
+  const merged = normalizeVector(prevNormal.x + nextNormal.x, prevNormal.y + nextNormal.y);
+  const fallback = normalizeVector(point.x - center.x, point.y - center.y);
+  const dot = Math.max(-1, Math.min(1, prevNormal.x * nextNormal.x + prevNormal.y * nextNormal.y));
+  const crowdAngle = Math.acos(dot);
+
+  if (Math.abs(merged.x) < 1e-6 && Math.abs(merged.y) < 1e-6) {
+    return { x: fallback.x, y: fallback.y, crowdAngle };
+  }
+
+  return { x: merged.x, y: merged.y, crowdAngle };
+}
+
+function computeRayExitDistance(
+  originX: number,
+  originY: number,
+  dirX: number,
+  dirY: number,
+  expandedRect: LogicalRect,
+): number {
+  const candidates: number[] = [];
+
+  if (dirX > 1e-6) candidates.push((expandedRect.right - originX) / dirX);
+  else if (dirX < -1e-6) candidates.push((expandedRect.left - originX) / dirX);
+
+  if (dirY > 1e-6) candidates.push((expandedRect.bottom - originY) / dirY);
+  else if (dirY < -1e-6) candidates.push((expandedRect.top - originY) / dirY);
+
+  const positive = candidates.filter((value) => Number.isFinite(value) && value >= 0);
+  if (positive.length === 0) return 0;
+  return Math.max(0, Math.min(...positive));
+}
+
+function computeAdaptiveVectorLength(
+  point: LayoutGroup,
+  direction: { x: number; y: number; crowdAngle: number },
+  rect: LogicalRect,
+): number {
+  const width = rect.right - rect.left;
+  const height = rect.bottom - rect.top;
+  const maxSize = Math.max(width, height);
+  const diagonal = Math.hypot(width, height);
+  const expandedMapRect = {
+    left: -MAP_SIZE / 2 - GROUP_SAFE_GAP - rect.right,
+    right: MAP_SIZE / 2 + GROUP_SAFE_GAP - rect.left,
+    top: -MAP_SIZE / 2 - GROUP_SAFE_GAP - rect.bottom,
+    bottom: MAP_SIZE / 2 + GROUP_SAFE_GAP - rect.top,
+  };
+  const exitDistance = computeRayExitDistance(point.x, point.y, direction.x, direction.y, expandedMapRect);
+  const crowdRatio = 1 - Math.min(direction.crowdAngle, Math.PI) / Math.PI;
+  return exitDistance + maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8);
+}
+
+function computeLayerStep(rect: LogicalRect): number {
+  const width = rect.right - rect.left;
+  const height = rect.bottom - rect.top;
+  return Math.max(GROUP_SAFE_GAP * 1.5, Math.max(width, height) * 0.45);
 }
 
 function buildMockPhotos(group: LayoutGroup) {
@@ -419,14 +473,9 @@ function buildLayout(points: TestPoint[]) {
 
   const orderedRadialPath = buildImprovedCycle(buildRadialOrder(points));
   return orderedRadialPath.map((point, index) => {
-    const relativeX = point.x - radialCenter.x;
-    const relativeY = point.y - radialCenter.y;
-    const fallbackX = relativeX === 0 && relativeY === 0 ? point.x : relativeX;
-    const fallbackY = relativeX === 0 && relativeY === 0 ? point.y : relativeY;
     return {
       ...point,
       order: index + 1,
-      theta: Math.atan2(fallbackY, fallbackX),
     };
   });
 }
@@ -485,24 +534,25 @@ export default function TestCssPage() {
   ), [segments]);
   const stageScale = useMemo(() => computeStageScale(count), [count]);
   const placedGroups = useMemo(() => {
-    const angleSequence = buildOrderedAngles(orderedPoints);
     const occupiedRects: LogicalRect[] = [];
+    const directions = orderedPoints.map((_, index) => buildOutwardVector(orderedPoints, index));
 
     return orderedPoints.map((point, index) => {
       const { photos, photoRect } = buildMockPhotos(point);
       const geometry = buildGroupGeometryFromPhotoRect(photoRect, `图片组 ${point.order}`);
-      const angle = angleSequence[index] ?? point.theta;
-
-      let centerX = Math.cos(angle) * GROUP_RADIUS;
-      let centerY = Math.sin(angle) * GROUP_RADIUS;
+      const direction = directions[index];
+      const baseLength = computeAdaptiveVectorLength(point, direction, geometry.overallRect);
+      const layerStep = computeLayerStep(geometry.overallRect);
+      let centerX = point.x + direction.x * baseLength;
+      let centerY = point.y + direction.y * baseLength;
       let placedRect = translateRect(geometry.overallRect, centerX, centerY);
 
-      for (let radiusStep = 0; radiusStep < 10; radiusStep++) {
-        const radius = GROUP_RADIUS + radiusStep * GROUP_RADIUS_STEP;
-        const nextCenterX = Math.cos(angle) * radius;
-        const nextCenterY = Math.sin(angle) * radius;
+      for (let layer = 0; layer < MAX_VECTOR_LAYERS; layer++) {
+        const nextLength = baseLength + layer * layerStep;
+        const nextCenterX = point.x + direction.x * nextLength;
+        const nextCenterY = point.y + direction.y * nextLength;
         const nextRect = translateRect(geometry.overallRect, nextCenterX, nextCenterY);
-        if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, 14))) {
+        if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
           continue;
         }
         centerX = nextCenterX;
