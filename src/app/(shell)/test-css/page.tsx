@@ -192,6 +192,14 @@ function buildRadialOrder(points: TestPoint[]) {
   return rotateToBestStart(sortByCenterAngle(points, center.x, center.y));
 }
 
+function angleBetweenPoints(from: TestPoint, to: TestPoint) {
+  return Math.atan2(to.y - from.y, to.x - from.x);
+}
+
+function angleDelta(fromAngle: number, toAngle: number) {
+  return Math.abs(normalizeRadians(toAngle - fromAngle));
+}
+
 function refineOrderByProximity(orderedPoints: TestPoint[]) {
   if (orderedPoints.length <= 3) return orderedPoints;
 
@@ -199,6 +207,7 @@ function refineOrderByProximity(orderedPoints: TestPoint[]) {
   const refined: TestPoint[] = [];
   let current = remaining.shift()!;
   refined.push(current);
+  let heading = remaining.length > 0 ? angleBetweenPoints(current, remaining[0]) : 0;
 
   const windowSize = Math.min(5, remaining.length);
 
@@ -210,8 +219,10 @@ function refineOrderByProximity(orderedPoints: TestPoint[]) {
     for (let index = 0; index < candidateLimit; index++) {
       const candidate = remaining[index];
       const distanceScore = distance(current, candidate);
-      const orderPenalty = index * 18;
-      const score = distanceScore + orderPenalty;
+      const candidateHeading = angleBetweenPoints(current, candidate);
+      const turnPenalty = angleDelta(heading, candidateHeading) * 90;
+      const orderPenalty = index * 14;
+      const score = distanceScore + turnPenalty + orderPenalty;
       if (score < bestScore) {
         bestScore = score;
         bestIndex = index;
@@ -219,6 +230,7 @@ function refineOrderByProximity(orderedPoints: TestPoint[]) {
     }
 
     current = remaining.splice(bestIndex, 1)[0];
+    heading = refined.length > 0 ? angleBetweenPoints(refined[refined.length - 1], current) : heading;
     refined.push(current);
   }
 
