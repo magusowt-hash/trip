@@ -50,6 +50,10 @@ const MIN_STAGE_SCALE = 0.54;
 const GROUP_SAFE_GAP = 14;
 const MAX_VECTOR_LAYERS = 24;
 const MAX_ANGULAR_RELAX_PASSES = 10;
+const TOL = 1e-8;
+const ANGLE_BOUND = 1e-3;
+const SHARP_ANGLE = (150 * Math.PI) / 180;
+const NORMAL_ANGLE = (60 * Math.PI) / 180;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -269,23 +273,56 @@ function shortestSignedAngleDelta(from: number, to: number) {
   return delta;
 }
 
-function buildOutwardVector(points: LayoutGroup[], index: number): {
-  x: number;
-  y: number;
-  crowdAngle: number;
-  concaveDepth: number;
-  isConcave: boolean;
-} {
-  const point = points[index];
+function angleToVector(angle: number) {
+  return {
+    x: Math.cos(angle),
+    y: Math.sin(angle),
+  };
+}
+
+function vectorAngle(a: { x: number; y: number }, b: { x: number; y: number }) {
+  const dot = Math.max(-1, Math.min(1, a.x * b.x + a.y * b.y));
+  return Math.acos(dot);
+}
+
+function slerpVector(a: { x: number; y: number }, b: { x: number; y: number }, t = 0.5) {
+  const beta = vectorAngle(a, b);
+  if (beta < TOL) return a;
+  const sinBeta = Math.sin(beta);
+  if (Math.abs(sinBeta) < TOL) {
+    return normalizeVector(a.x + b.x, a.y + b.y);
+  }
+  const w1 = Math.sin((1 - t) * beta) / sinBeta;
+  const w2 = Math.sin(t * beta) / sinBeta;
+  return normalizeVector(a.x * w1 + b.x * w2, a.y * w1 + b.y * w2);
+}
+
+function buildBisectorVector(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return normalizeVector(a.x + b.x, a.y + b.y);
+}
+
+function isRingBoundaryPoint(point: LayoutGroup) {
+  const alpha = normalizeAngle(Math.atan2(point.y, point.x));
+  return alpha < ANGLE_BOUND || Math.abs(alpha - Math.PI * 2) < ANGLE_BOUND;
+}
+
+function classifyCurvature(prevNormal: { x: number; y: number }, nextNormal: { x: number; y: number }) {
+  const beta = vectorAngle(prevNormal, nextNormal);
+  if (beta >= SHARP_ANGLE) return { beta, kind: 'sharp' as const };
+  if (beta > NORMAL_ANGLE) return { beta, kind: 'corner' as const };
+  return { beta, kind: 'smooth' as const };
+}
+
+function resolveOutwardNormal(points: LayoutGroup[], index: number) {
   const pointCount = points.length;
   const orientation = polygonArea(points);
+  const point = points[index];
   const polygonCentroid = computePolygonCentroid(points);
   const fallback = normalizeVector(point.x - polygonCentroid.x, point.y - polygonCentroid.y);
 
   if (pointCount === 1) {
     return {
-      x: fallback.x,
-      y: fallback.y,
+      vector: fallback,
       crowdAngle: Math.PI / 2,
       concaveDepth: 0,
       isConcave: false,
@@ -306,24 +343,23 @@ function buildOutwardVector(points: LayoutGroup[], index: number): {
     : (vx: number, vy: number) => ({ x: -vy, y: vx });
   const prevNormal = buildNormal(incoming.x, incoming.y);
   const nextNormal = buildNormal(outgoing.x, outgoing.y);
-  const merged = normalizeVector(prevNormal.x + nextNormal.x, prevNormal.y + nextNormal.y);
-  const dot = Math.max(-1, Math.min(1, prevNormal.x * nextNormal.x + prevNormal.y * nextNormal.y));
-  const crowdAngle = Math.acos(dot);
-  const concaveBlend = isConcave ? Math.min(0.82, 0.3 + concaveDepth / Math.max(edgeSpan, 1) * 0.9) : 0;
+  const crowdAngle = vectorAngle(incoming, outgoing);
+  const boundaryPoint = isRingBoundaryPoint(point);
+  const curvature = classifyCurvature(prevNormal, nextNormal);
 
-  if (Math.abs(merged.x) < 1e-6 && Math.abs(merged.y) < 1e-6) {
-    return {
-      x: fallback.x,
-      y: fallback.y,
-      crowdAngle,
-      concaveDepth,
-      isConcave,
-    };
+  let resolved = prevNormal;
+  if (boundaryPoint || curvature.kind === 'sharp') {
+    resolved = prevNormal;
+  } else if (curvature.kind === 'corner') {
+    resolved = buildBisectorVector(prevNormal, nextNormal);
+  } else {
+    resolved = slerpVector(prevNormal, nextNormal, 0.5);
   }
 
-  const outward = merged.x * fallback.x + merged.y * fallback.y >= 0
-    ? merged
-    : { x: -merged.x, y: -merged.y };
+  const outward = resolved.x * fallback.x + resolved.y * fallback.y >= 0
+    ? resolved
+    : { x: -resolved.x, y: -resolved.y };
+  const concaveBlend = isConcave ? Math.min(0.56, 0.18 + concaveDepth / Math.max(edgeSpan, 1) * 0.55) : 0;
   const stabilized = concaveBlend > 0
     ? normalizeVector(
       outward.x * (1 - concaveBlend) + fallback.x * concaveBlend,
@@ -332,11 +368,28 @@ function buildOutwardVector(points: LayoutGroup[], index: number): {
     : outward;
 
   return {
-    x: stabilized.x,
-    y: stabilized.y,
+    vector: stabilized,
     crowdAngle,
     concaveDepth,
     isConcave,
+  };
+}
+
+function buildOutwardVector(points: LayoutGroup[], index: number): {
+  x: number;
+  y: number;
+  crowdAngle: number;
+  concaveDepth: number;
+  isConcave: boolean;
+} {
+  const resolved = resolveOutwardNormal(points, index);
+
+  return {
+    x: resolved.vector.x,
+    y: resolved.vector.y,
+    crowdAngle: resolved.crowdAngle,
+    concaveDepth: resolved.concaveDepth,
+    isConcave: resolved.isConcave,
   };
 }
 
