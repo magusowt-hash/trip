@@ -28,7 +28,6 @@ const STAGE_SIZE = 880;
 const MAP_SIZE = 420;
 const LAYOUT_RADIUS = 300;
 const GROUP_RADIUS = 28;
-const MAX_TWO_OPT_PASSES = 6;
 
 function normalizeRadians(angle: number) {
   let next = angle;
@@ -64,112 +63,120 @@ function distance(a: TestPoint, b: TestPoint) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-function pathLength(path: TestPoint[]) {
-  if (path.length <= 1) return 0;
-  let total = 0;
-  for (let i = 0; i < path.length; i++) {
-    total += distance(path[i], path[(i + 1) % path.length]);
-  }
-  return total;
+function orientationCross(a: TestPoint, b: TestPoint, c: TestPoint) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
 
-function buildInitialTour(points: TestPoint[]) {
-  if (points.length <= 2) return [...points];
+function polygonArea(points: TestPoint[]) {
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const current = points[i];
+    const next = points[(i + 1) % points.length];
+    area += current.x * next.y - next.x * current.y;
+  }
+  return area / 2;
+}
 
-  const sorted = [...points].sort((a, b) => a.id - b.id);
-  let first = sorted[0];
-  let second = sorted[1];
-  let bestDistance = -1;
+function rotateToBestStart(points: TestPoint[]) {
+  if (points.length === 0) return [];
+  let bestIndex = 0;
+  for (let i = 1; i < points.length; i++) {
+    if (points[i].id < points[bestIndex].id) bestIndex = i;
+  }
+  return points.map((_, index) => points[(bestIndex + index) % points.length]);
+}
 
-  for (let i = 0; i < sorted.length; i++) {
-    for (let j = i + 1; j < sorted.length; j++) {
-      const currentDistance = distance(sorted[i], sorted[j]);
-      if (currentDistance > bestDistance) {
+function normalizeLayerDirection(points: TestPoint[]) {
+  if (points.length <= 2) return rotateToBestStart(points);
+
+  const clockwise = polygonArea(points) < 0 ? [...points] : [...points].reverse();
+  const counterClockwise = [...clockwise].reverse();
+  const rotatedClockwise = rotateToBestStart(clockwise);
+  const rotatedCounterClockwise = rotateToBestStart(counterClockwise);
+
+  const clockwiseSignature = rotatedClockwise.map((point) => point.id).join(',');
+  const counterClockwiseSignature = rotatedCounterClockwise.map((point) => point.id).join(',');
+  return clockwiseSignature <= counterClockwiseSignature ? rotatedClockwise : rotatedCounterClockwise;
+}
+
+function buildConvexHull(points: TestPoint[]) {
+  if (points.length <= 3) return normalizeLayerDirection([...points].sort((a, b) => a.x - b.x || a.y - b.y || a.id - b.id));
+
+  const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y || a.id - b.id);
+  const lower: TestPoint[] = [];
+  for (const point of sorted) {
+    while (lower.length >= 2 && orientationCross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
+      lower.pop();
+    }
+    lower.push(point);
+  }
+
+  const upper: TestPoint[] = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const point = sorted[i];
+    while (upper.length >= 2 && orientationCross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
+      upper.pop();
+    }
+    upper.push(point);
+  }
+
+  lower.pop();
+  upper.pop();
+  return normalizeLayerDirection([...lower, ...upper]);
+}
+
+function orderInnerLayer(points: TestPoint[], centerX: number, centerY: number) {
+  return [...points]
+    .map((point) => ({
+      ...point,
+      angle: Math.atan2(point.y - centerY, point.x - centerX),
+      radius: Math.hypot(point.x - centerX, point.y - centerY),
+    }))
+    .sort((a, b) => a.angle - b.angle || b.radius - a.radius || a.id - b.id)
+    .map(({ angle: _angle, radius: _radius, ...point }) => point);
+}
+
+function stitchLayers(outer: TestPoint[], inner: TestPoint[]) {
+  if (outer.length === 0) return [...inner];
+  if (inner.length === 0) return [...outer];
+
+  let bestOuterIndex = 0;
+  let bestInnerIndex = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (let outerIndex = 0; outerIndex < outer.length; outerIndex++) {
+    for (let innerIndex = 0; innerIndex < inner.length; innerIndex++) {
+      const currentDistance = distance(outer[outerIndex], inner[innerIndex]);
+      if (currentDistance < bestDistance) {
         bestDistance = currentDistance;
-        first = sorted[i];
-        second = sorted[j];
+        bestOuterIndex = outerIndex;
+        bestInnerIndex = innerIndex;
       }
     }
   }
 
-  const remaining = sorted.filter((point) => point.id !== first.id && point.id !== second.id);
-  const tour = [first, second];
+  const rotatedOuter = outer.map((_, index) => outer[(bestOuterIndex + index) % outer.length]);
+  const rotatedInner = inner.map((_, index) => inner[(bestInnerIndex + index) % inner.length]);
 
-  while (remaining.length > 0) {
-    let bestPointIndex = 0;
-    let bestInsertIndex = 0;
-    let bestCost = Number.POSITIVE_INFINITY;
-
-    for (let pointIndex = 0; pointIndex < remaining.length; pointIndex++) {
-      const candidate = remaining[pointIndex];
-      for (let insertIndex = 0; insertIndex < tour.length; insertIndex++) {
-        const current = tour[insertIndex];
-        const next = tour[(insertIndex + 1) % tour.length];
-        const insertionCost = distance(current, candidate) + distance(candidate, next) - distance(current, next);
-        const tieBreaker = candidate.id * 1e-6 + insertIndex * 1e-8;
-        const score = insertionCost + tieBreaker;
-        if (score < bestCost) {
-          bestCost = score;
-          bestPointIndex = pointIndex;
-          bestInsertIndex = insertIndex + 1;
-        }
-      }
-    }
-
-    const [chosen] = remaining.splice(bestPointIndex, 1);
-    tour.splice(bestInsertIndex, 0, chosen);
-  }
-
-  return tour;
+  return [...rotatedOuter, ...rotatedInner];
 }
 
-function improveTourWithTwoOpt(points: TestPoint[]) {
-  if (points.length < 4) return [...points];
+function buildConvexHullOrder(points: TestPoint[]) {
+  if (points.length <= 3) return normalizeLayerDirection([...points]);
 
-  const tour = [...points];
+  const centerX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+  const centerY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+  const hull = buildConvexHull(points);
+  const hullIds = new Set(hull.map((point) => point.id));
+  const innerPoints = points.filter((point) => !hullIds.has(point.id));
 
-  for (let pass = 0; pass < MAX_TWO_OPT_PASSES; pass++) {
-    let improved = false;
+  if (innerPoints.length === 0) return hull;
 
-    for (let i = 0; i < tour.length - 1; i++) {
-      for (let j = i + 2; j < tour.length; j++) {
-        if (i === 0 && j === tour.length - 1) continue;
+  const orderedInner = innerPoints.length <= 3
+    ? orderInnerLayer(innerPoints, centerX, centerY)
+    : buildConvexHullOrder(innerPoints);
 
-        const a = tour[i];
-        const b = tour[(i + 1) % tour.length];
-        const c = tour[j];
-        const d = tour[(j + 1) % tour.length];
-
-        const current = distance(a, b) + distance(c, d);
-        const swapped = distance(a, c) + distance(b, d);
-
-        if (swapped + 1e-6 < current) {
-          const reversed = tour.slice(i + 1, j + 1).reverse();
-          tour.splice(i + 1, j - i, ...reversed);
-          improved = true;
-        }
-      }
-    }
-
-    if (!improved) break;
-  }
-
-  return tour;
-}
-
-function buildStableTour(points: TestPoint[]) {
-  const initialTour = buildInitialTour(points);
-  const improvedTour = improveTourWithTwoOpt(initialTour);
-
-  let bestStartIndex = 0;
-  for (let i = 1; i < improvedTour.length; i++) {
-    if (improvedTour[i].id < improvedTour[bestStartIndex].id) bestStartIndex = i;
-  }
-
-  const rotated = improvedTour.map((_, index) => improvedTour[(bestStartIndex + index) % improvedTour.length]);
-  const reversed = [rotated[0], ...rotated.slice(1).reverse()];
-
-  return pathLength(reversed) + 1e-6 < pathLength(rotated) ? reversed : rotated;
+  return stitchLayers(hull, orderedInner);
 }
 
 function buildOrderedAngles(groups: Array<TestPoint & { theta: number }>) {
@@ -210,8 +217,8 @@ function buildLayout(points: TestPoint[]) {
   const centerX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
   const centerY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
 
-  const stableTour = buildStableTour(points);
-  const orderedPoints = stableTour.map((point, index) => {
+  const orderedHullPath = buildConvexHullOrder(points);
+  const orderedPoints = orderedHullPath.map((point, index) => {
     const relativeX = point.x - centerX;
     const relativeY = point.y - centerY;
     const fallbackX = relativeX === 0 && relativeY === 0 ? point.x : relativeX;
@@ -241,10 +248,6 @@ function buildLayout(points: TestPoint[]) {
   });
 }
 
-function cross(a: TestPoint, b: TestPoint, c: TestPoint) {
-  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-}
-
 function segmentsIntersect(first: Segment, second: Segment) {
   if (first.from.id === second.from.id) return false;
 
@@ -253,10 +256,10 @@ function segmentsIntersect(first: Segment, second: Segment) {
   const c = second.from;
   const d = { id: -1, x: second.to.layoutX, y: second.to.layoutY };
 
-  const abC = cross(a, b, c);
-  const abD = cross(a, b, d);
-  const cdA = cross(c, d, a);
-  const cdB = cross(c, d, b);
+  const abC = orientationCross(a, b, c);
+  const abD = orientationCross(a, b, d);
+  const cdA = orientationCross(c, d, a);
+  const cdB = orientationCross(c, d, b);
 
   return abC * abD < 0 && cdA * cdB < 0;
 }
@@ -303,7 +306,7 @@ export default function TestCssPage() {
             <p className={styles.eyebrow}>Order Test</p>
             <h1>随机点排序与连线验证</h1>
             <p className={styles.description}>
-              使用轻量旅行商启发式生成稳定闭环顺序，再映射到圆周显示，检查顺序与相交情况。
+              使用优化版凸包分层算法生成稳定顺序，再映射到圆周显示，检查顺序与相交情况。
             </p>
           </div>
           <div className={styles.controls}>
