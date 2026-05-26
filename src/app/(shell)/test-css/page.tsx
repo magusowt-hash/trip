@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { buildGroupGeometryFromPhotoRect, type LogicalRect } from '@/components/localMapGroupGeometry';
 import styles from './page.module.css';
 
 type TestPoint = {
@@ -19,8 +20,35 @@ type Segment = {
   to: LayoutGroup;
 };
 
+type MockPhoto = {
+  id: string;
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+};
+
+type MockGroup = {
+  point: LayoutGroup;
+  title: string;
+  photos: MockPhoto[];
+  localPhotoRect: LogicalRect;
+  geometry: ReturnType<typeof buildGroupGeometryFromPhotoRect>;
+  centerX: number;
+  centerY: number;
+  rect: LogicalRect;
+  linkTargetX: number;
+  linkTargetY: number;
+};
+
 const STAGE_SIZE = 1120;
 const MAP_SIZE = 420;
+const GROUP_RADIUS = MAP_SIZE / 2 + 176;
+const GROUP_RADIUS_STEP = 54;
+const GROUP_PADDING = 28;
+const PHOTO_GAP = 14;
+const MOCK_MIN_PHOTOS = 2;
+const MOCK_MAX_PHOTOS = 5;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -226,6 +254,107 @@ function buildAngleSlots(angles: number[]) {
   });
 }
 
+function rectsOverlap(a: LogicalRect, b: LogicalRect, gap = 0) {
+  return !(
+    a.right + gap <= b.left ||
+    a.left >= b.right + gap ||
+    a.bottom + gap <= b.top ||
+    a.top >= b.bottom + gap
+  );
+}
+
+function translateRect(rect: LogicalRect, x: number, y: number): LogicalRect {
+  return {
+    left: rect.left + x,
+    right: rect.right + x,
+    top: rect.top + y,
+    bottom: rect.bottom + y,
+  };
+}
+
+function buildMockPhotos(group: LayoutGroup) {
+  const photoCount = MOCK_MIN_PHOTOS + ((group.id * 7 + group.order) % (MOCK_MAX_PHOTOS - MOCK_MIN_PHOTOS + 1));
+  const photos: MockPhoto[] = [];
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+
+  for (let index = 0; index < photoCount; index++) {
+    const width = 68 + ((group.id * 19 + index * 23) % 64);
+    const height = 60 + ((group.id * 29 + index * 17) % 58);
+    const column = index % 2;
+    const row = Math.floor(index / 2);
+    const offsetX = (column - 0.5) * (width + PHOTO_GAP) * 0.92;
+    const offsetY = row * (height * 0.72 + PHOTO_GAP) - ((photoCount - 1) * 0.36 * (height + PHOTO_GAP));
+    photos.push({
+      id: `${group.id}-${index}`,
+      width,
+      height,
+      offsetX,
+      offsetY,
+    });
+    left = Math.min(left, offsetX - width / 2);
+    right = Math.max(right, offsetX + width / 2);
+    top = Math.min(top, offsetY - height / 2);
+    bottom = Math.max(bottom, offsetY + height / 2);
+  }
+
+  return {
+    photos,
+    photoRect: {
+      left: left - GROUP_PADDING,
+      right: right + GROUP_PADDING,
+      top: top - GROUP_PADDING,
+      bottom: bottom + GROUP_PADDING,
+    } satisfies LogicalRect,
+  };
+}
+
+function intersectRayWithRect(fromX: number, fromY: number, rect: LogicalRect) {
+  const centerX = (rect.left + rect.right) / 2;
+  const centerY = (rect.top + rect.bottom) / 2;
+  const dx = centerX - fromX;
+  const dy = centerY - fromY;
+
+  if (dx === 0 && dy === 0) {
+    return { x: centerX, y: rect.top };
+  }
+
+  const candidates: Array<{ t: number; x: number; y: number }> = [];
+
+  if (dx !== 0) {
+    const leftT = (rect.left - fromX) / dx;
+    const leftY = fromY + dy * leftT;
+    if (leftT >= 0 && leftY >= rect.top && leftY <= rect.bottom) {
+      candidates.push({ t: leftT, x: rect.left, y: leftY });
+    }
+
+    const rightT = (rect.right - fromX) / dx;
+    const rightY = fromY + dy * rightT;
+    if (rightT >= 0 && rightY >= rect.top && rightY <= rect.bottom) {
+      candidates.push({ t: rightT, x: rect.right, y: rightY });
+    }
+  }
+
+  if (dy !== 0) {
+    const topT = (rect.top - fromY) / dy;
+    const topX = fromX + dx * topT;
+    if (topT >= 0 && topX >= rect.left && topX <= rect.right) {
+      candidates.push({ t: topT, x: topX, y: rect.top });
+    }
+
+    const bottomT = (rect.bottom - fromY) / dy;
+    const bottomX = fromX + dx * bottomT;
+    if (bottomT >= 0 && bottomX >= rect.left && bottomX <= rect.right) {
+      candidates.push({ t: bottomT, x: bottomX, y: rect.bottom });
+    }
+  }
+
+  const hit = candidates.sort((a, b) => a.t - b.t)[0];
+  return hit ? { x: hit.x, y: hit.y } : { x: centerX, y: centerY };
+}
+
 function edgesCross(a: TestPoint, b: TestPoint, c: TestPoint, d: TestPoint) {
   if (a.id === c.id || a.id === d.id || b.id === c.id || b.id === d.id) return false;
 
@@ -338,6 +467,58 @@ export default function TestCssPage() {
   const pathLength = useMemo(() => (
     segments.reduce((sum, segment) => sum + distance(segment.from, segment.to), 0)
   ), [segments]);
+  const placedGroups = useMemo(() => {
+    const angleSequence = buildOrderedAngles(orderedPoints);
+    const angleSlots = buildAngleSlots(angleSequence);
+    const occupiedRects: LogicalRect[] = [];
+
+    return orderedPoints.map((point, index) => {
+      const { photos, photoRect } = buildMockPhotos(point);
+      const geometry = buildGroupGeometryFromPhotoRect(photoRect, `图片组 ${point.order}`);
+      const angle = angleSequence[index] ?? point.theta;
+      const slot = angleSlots[index];
+      const candidateAngles = slot
+        ? [angle, slot.min + (slot.max - slot.min) * 0.28, slot.min + (slot.max - slot.min) * 0.72]
+        : [angle];
+
+      let centerX = Math.cos(angle) * GROUP_RADIUS;
+      let centerY = Math.sin(angle) * GROUP_RADIUS;
+      let placedRect = translateRect(geometry.overallRect, centerX, centerY);
+
+      outer:
+      for (let radiusStep = 0; radiusStep < 10; radiusStep++) {
+        const radius = GROUP_RADIUS + radiusStep * GROUP_RADIUS_STEP;
+        for (const candidateAngle of candidateAngles) {
+          const nextCenterX = Math.cos(candidateAngle) * radius;
+          const nextCenterY = Math.sin(candidateAngle) * radius;
+          const nextRect = translateRect(geometry.overallRect, nextCenterX, nextCenterY);
+          if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, 14))) {
+            continue;
+          }
+          centerX = nextCenterX;
+          centerY = nextCenterY;
+          placedRect = nextRect;
+          break outer;
+        }
+      }
+
+      occupiedRects.push(placedRect);
+      const linkTarget = intersectRayWithRect(point.x, point.y, translateRect(geometry.photoRect, centerX, centerY));
+
+      return {
+        point,
+        title: `图片组 ${point.order}`,
+        photos,
+        localPhotoRect: photoRect,
+        geometry,
+        centerX,
+        centerY,
+        rect: placedRect,
+        linkTargetX: linkTarget.x,
+        linkTargetY: linkTarget.y,
+      } satisfies MockGroup;
+    });
+  }, [orderedPoints]);
 
   return (
     <main className={styles.rootFull}>
@@ -362,6 +543,59 @@ export default function TestCssPage() {
                 y2={STAGE_SIZE / 2 + segment.to.y}
                 className={styles.link}
               />
+            ))}
+
+            {placedGroups.map((group) => (
+              <line
+                key={`group-link-${group.point.id}`}
+                x1={STAGE_SIZE / 2 + group.point.x}
+                y1={STAGE_SIZE / 2 + group.point.y}
+                x2={STAGE_SIZE / 2 + group.linkTargetX}
+                y2={STAGE_SIZE / 2 + group.linkTargetY}
+                className={styles.groupLink}
+              />
+            ))}
+
+            {placedGroups.map((group) => (
+              <g key={`group-${group.point.id}`}>
+                <rect
+                  x={STAGE_SIZE / 2 + group.rect.left}
+                  y={STAGE_SIZE / 2 + group.rect.top}
+                  width={group.rect.right - group.rect.left}
+                  height={group.rect.bottom - group.rect.top}
+                  rx="20"
+                  className={styles.groupCard}
+                />
+
+                {group.photos.map((photo) => (
+                  <rect
+                    key={photo.id}
+                    x={STAGE_SIZE / 2 + group.centerX + photo.offsetX - photo.width / 2}
+                    y={STAGE_SIZE / 2 + group.centerY + photo.offsetY - photo.height / 2}
+                    width={photo.width}
+                    height={photo.height}
+                    rx="14"
+                    className={styles.groupPhoto}
+                  />
+                ))}
+
+                <text
+                  x={STAGE_SIZE / 2 + group.centerX + group.geometry.labelAnchorX}
+                  y={STAGE_SIZE / 2 + group.centerY + group.geometry.labelAnchorY}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  className={styles.groupLabel}
+                >
+                  {group.title}
+                </text>
+
+                <circle
+                  cx={STAGE_SIZE / 2 + group.centerX + group.geometry.lineAnchorX}
+                  cy={STAGE_SIZE / 2 + group.centerY + group.geometry.lineAnchorY}
+                  r="5"
+                  className={styles.groupAnchor}
+                />
+              </g>
             ))}
 
             {orderedPoints.map((point) => (

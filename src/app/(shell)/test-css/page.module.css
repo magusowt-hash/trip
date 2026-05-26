@@ -140,6 +140,34 @@
   stroke-dasharray: 8 6;
 }
 
+.groupLink {
+  stroke: rgba(14, 116, 144, 0.72);
+  stroke-width: 2;
+  stroke-dasharray: 4 6;
+}
+
+.groupCard {
+  fill: rgba(255, 255, 255, 0.92);
+  stroke: rgba(14, 116, 144, 0.22);
+  stroke-width: 1.5;
+}
+
+.groupPhoto {
+  fill: rgba(125, 211, 252, 0.42);
+  stroke: rgba(3, 105, 161, 0.28);
+  stroke-width: 1.5;
+}
+
+.groupLabel {
+  font-size: 16px;
+  font-weight: 700;
+  fill: #0f172a;
+}
+
+.groupAnchor {
+  fill: #0f766e;
+}
+
 .poi {
   fill: #0f172a;
 }
