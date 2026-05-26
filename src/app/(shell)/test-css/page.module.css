@@ -116,9 +116,7 @@
 }
 
 .workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) 360px;
-  gap: 20px;
+  display: block;
 }
 
 .stage {
@@ -128,12 +126,13 @@
     #f8fafc;
   border: 1px solid rgba(148, 163, 184, 0.28);
   overflow: hidden;
+  min-height: 78vh;
 }
 
 .svg {
   display: block;
   width: 100%;
-  height: auto;
+  height: min(78vh, 1120px);
 }
 
 .mapRect {
@@ -158,50 +157,8 @@
   fill: #0f172a;
 }
 
-.group {
-  fill: #f97316;
-  stroke: #7c2d12;
-  stroke-width: 2;
-}
-
-.groupLabel {
-  font-size: 18px;
-  font-weight: 700;
-  fill: #fff7ed;
-}
-
-.tableWrap {
-  border-radius: 28px;
-  background: rgba(248, 250, 252, 0.92);
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  padding: 16px;
-  overflow: auto;
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.table th,
-.table td {
-  padding: 12px 10px;
-  text-align: left;
-  border-bottom: 1px solid rgba(203, 213, 225, 0.9);
-  font-size: 14px;
-}
-
-.table th {
-  color: #334155;
-}
-
-.table td {
-  color: #475569;
-}
-
 @media (max-width: 1080px) {
-  .toolbar,
-  .workspace {
+  .toolbar {
     grid-template-columns: 1fr;
     display: grid;
   }

@@ -12,22 +12,15 @@ type TestPoint = {
 type LayoutGroup = TestPoint & {
   order: number;
   theta: number;
-  displayTheta: number;
-  slotMin: number;
-  slotMax: number;
-  layoutX: number;
-  layoutY: number;
 };
 
 type Segment = {
-  from: TestPoint;
+  from: LayoutGroup;
   to: LayoutGroup;
 };
 
-const STAGE_SIZE = 880;
+const STAGE_SIZE = 1120;
 const MAP_SIZE = 420;
-const LAYOUT_RADIUS = 300;
-const GROUP_RADIUS = 28;
 
 function normalizeRadians(angle: number) {
   let next = angle;
@@ -237,33 +230,6 @@ function refineOrderByProximity(orderedPoints: TestPoint[]) {
   return rotateToBestStart(refined);
 }
 
-function buildLayeredDisplayAngles(orderedPoints: Array<TestPoint & { theta: number }>) {
-  if (orderedPoints.length === 0) return [] as Array<{ theta: number; radius: number }>;
-
-  const orderedAngles = buildOrderedAngles(orderedPoints);
-  const center = computeCenterOfPoints(orderedPoints);
-  const densityBuckets = new Map<number, number>();
-
-  return orderedPoints.map((point, index) => {
-    const baseTheta = orderedAngles[index];
-    const bucketKey = Math.round((baseTheta * 180) / Math.PI / 18);
-    const bucketCount = densityBuckets.get(bucketKey) ?? 0;
-    densityBuckets.set(bucketKey, bucketCount + 1);
-
-    const layerIndex = Math.floor(bucketCount / 2);
-    const side = bucketCount % 2 === 0 ? -1 : 1;
-    const angleOffset = bucketCount === 0 ? 0 : side * Math.min((layerIndex + 1) * (Math.PI / 60), Math.PI / 10);
-    const radialDistance = Math.hypot(point.x - center.x, point.y - center.y);
-    const radiusWeight = radialDistance / Math.max(MAP_SIZE / 2, 1);
-    const radius = LAYOUT_RADIUS + layerIndex * 32 + radiusWeight * 18;
-
-    return {
-      theta: normalizeRadians(baseTheta + angleOffset),
-      radius,
-    };
-  });
-}
-
 function buildOrderedAngles(groups: Array<TestPoint & { theta: number }>) {
   if (groups.length <= 1) return groups.map((group) => group.theta);
 
@@ -302,7 +268,7 @@ function buildLayout(points: TestPoint[]) {
   const radialCenter = computeRadialReferenceCenter(points);
 
   const orderedRadialPath = refineOrderByProximity(buildRadialOrder(points));
-  const orderedPoints = orderedRadialPath.map((point, index) => {
+  return orderedRadialPath.map((point, index) => {
     const relativeX = point.x - radialCenter.x;
     const relativeY = point.y - radialCenter.y;
     const fallbackX = relativeX === 0 && relativeY === 0 ? point.x : relativeX;
@@ -313,33 +279,22 @@ function buildLayout(points: TestPoint[]) {
       theta: Math.atan2(fallbackY, fallbackX),
     };
   });
-
-  const layeredDisplay = buildLayeredDisplayAngles(orderedPoints);
-  const slots = buildAngleSlots(layeredDisplay.map((item) => item.theta));
-
-  return orderedPoints.map((point, index) => {
-    const displayTheta = layeredDisplay[index]?.theta ?? point.theta;
-    const displayRadius = layeredDisplay[index]?.radius ?? LAYOUT_RADIUS;
-    const slot = slots[index];
-    const clampedTheta = Math.min(Math.max(displayTheta, slot.min), slot.max);
-    return {
-      ...point,
-      displayTheta,
-      slotMin: slot.min,
-      slotMax: slot.max,
-      layoutX: Math.cos(clampedTheta) * displayRadius,
-      layoutY: Math.sin(clampedTheta) * displayRadius,
-    };
-  });
 }
 
 function segmentsIntersect(first: Segment, second: Segment) {
-  if (first.from.id === second.from.id) return false;
+  if (
+    first.from.id === second.from.id ||
+    first.from.id === second.to.id ||
+    first.to.id === second.from.id ||
+    first.to.id === second.to.id
+  ) {
+    return false;
+  }
 
   const a = first.from;
-  const b = { id: -1, x: first.to.layoutX, y: first.to.layoutY };
+  const b = first.to;
   const c = second.from;
-  const d = { id: -1, x: second.to.layoutX, y: second.to.layoutY };
+  const d = second.to;
 
   const abC = orientationCross(a, b, c);
   const abD = orientationCross(a, b, d);
@@ -368,20 +323,20 @@ export default function TestCssPage() {
     return buildRandomPoints(count);
   }, [count, seed]);
 
-  const layoutGroups = useMemo(() => buildLayout(points), [points]);
+  const orderedPoints = useMemo(() => buildLayout(points), [points]);
 
   const segments = useMemo(() => {
-    const byId = new Map(layoutGroups.map((group) => [group.id, group]));
-    return points
-      .map((point) => {
-        const target = byId.get(point.id);
-        if (!target) return null;
-        return { from: point, to: target };
-      })
-      .filter((item): item is Segment => item != null);
-  }, [points, layoutGroups]);
+    if (orderedPoints.length <= 1) return [] as Segment[];
+    return orderedPoints.map((point, index) => ({
+      from: point,
+      to: orderedPoints[(index + 1) % orderedPoints.length],
+    }));
+  }, [orderedPoints]);
 
   const intersectionCount = useMemo(() => countIntersections(segments), [segments]);
+  const pathLength = useMemo(() => (
+    segments.reduce((sum, segment) => sum + distance(segment.from, segment.to), 0)
+  ), [segments]);
 
   return (
     <main className={styles.page}>
@@ -391,7 +346,7 @@ export default function TestCssPage() {
             <p className={styles.eyebrow}>Order Test</p>
             <h1>随机点排序与连线验证</h1>
             <p className={styles.description}>
-              使用凸包质心修正后的全量极角排序生成稳定顺序，再映射到圆周显示，检查顺序与相交情况。
+              当前只验证一件事：各点按顺序首尾相连时，整条路径是否自交。
             </p>
           </div>
           <div className={styles.controls}>
@@ -418,8 +373,8 @@ export default function TestCssPage() {
             <strong>{points.length}</strong>
           </div>
           <div className={styles.metric}>
-            <span>图片组数量</span>
-            <strong>{layoutGroups.length}</strong>
+            <span>路径总长</span>
+            <strong>{pathLength.toFixed(0)}</strong>
           </div>
           <div className={styles.metric}>
             <span>线段相交数</span>
@@ -441,21 +396,21 @@ export default function TestCssPage() {
 
               {segments.map((segment) => (
                 <line
-                  key={`line-${segment.from.id}`}
+                  key={`line-${segment.from.id}-${segment.to.id}`}
                   x1={STAGE_SIZE / 2 + segment.from.x}
                   y1={STAGE_SIZE / 2 + segment.from.y}
-                  x2={STAGE_SIZE / 2 + segment.to.layoutX}
-                  y2={STAGE_SIZE / 2 + segment.to.layoutY}
+                  x2={STAGE_SIZE / 2 + segment.to.x}
+                  y2={STAGE_SIZE / 2 + segment.to.y}
                   className={styles.link}
                 />
               ))}
 
-              {points.map((point) => (
+              {orderedPoints.map((point) => (
                 <g key={`poi-${point.id}`}>
                   <circle
                     cx={STAGE_SIZE / 2 + point.x}
                     cy={STAGE_SIZE / 2 + point.y}
-                    r="8"
+                    r="10"
                     className={styles.poi}
                   />
                   <text
@@ -464,53 +419,11 @@ export default function TestCssPage() {
                     textAnchor="middle"
                     className={styles.poiLabel}
                   >
-                    {point.id}
-                  </text>
-                </g>
-              ))}
-
-              {layoutGroups.map((group) => (
-                <g key={`group-${group.id}`}>
-                  <circle
-                    cx={STAGE_SIZE / 2 + group.layoutX}
-                    cy={STAGE_SIZE / 2 + group.layoutY}
-                    r={GROUP_RADIUS}
-                    className={styles.group}
-                  />
-                  <text
-                    x={STAGE_SIZE / 2 + group.layoutX}
-                    y={STAGE_SIZE / 2 + group.layoutY + 6}
-                    textAnchor="middle"
-                    className={styles.groupLabel}
-                  >
-                    {group.id}
+                    {point.order}
                   </text>
                 </g>
               ))}
             </svg>
-          </div>
-
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>编号</th>
-                  <th>坐标点</th>
-                  <th>原始角度</th>
-                  <th>展示角度</th>
-                </tr>
-              </thead>
-              <tbody>
-                {layoutGroups.map((group) => (
-                  <tr key={group.id}>
-                    <td>{group.id} / {group.order}</td>
-                    <td>{group.x.toFixed(1)}, {group.y.toFixed(1)}</td>
-                    <td>{(group.theta * 180 / Math.PI).toFixed(1)}°</td>
-                    <td>{(group.displayTheta * 180 / Math.PI).toFixed(1)}°</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         </div>
       </section>
