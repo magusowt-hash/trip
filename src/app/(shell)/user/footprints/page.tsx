@@ -94,6 +94,7 @@ const REGION_CENTER_ANGLE: Record<RegionKey, number> = {
 };
 const GROUP_SAFE_GAP = 14;
 const MAX_VECTOR_LAYERS = 24;
+const MAX_ANGULAR_RELAX_PASSES = 10;
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -383,6 +384,20 @@ function normalizeVector(x: number, y: number) {
   const length = Math.hypot(x, y);
   if (length < 1e-6) return { x: 0, y: -1 };
   return { x: x / length, y: y / length };
+}
+
+function normalizeAngle(angle: number) {
+  const tau = Math.PI * 2;
+  const normalized = angle % tau;
+  return normalized >= 0 ? normalized : normalized + tau;
+}
+
+function shortestSignedAngleDelta(from: number, to: number) {
+  const tau = Math.PI * 2;
+  let delta = normalizeAngle(to) - normalizeAngle(from);
+  if (delta > Math.PI) delta -= tau;
+  if (delta < -Math.PI) delta += tau;
+  return delta;
 }
 
 function getRegionDistanceScore(group: PendingRegionGroup, region: RegionKey) {
@@ -856,6 +871,14 @@ function computeLayerStep(rect: LogicalRect): number {
   return Math.max(GROUP_SAFE_GAP * 1.5, Math.max(width, height) * 0.45);
 }
 
+function computeAngularHalfSpan(rect: LogicalRect, radius: number) {
+  if (radius < 1e-6) return Math.PI / 2;
+  const width = rect.right - rect.left;
+  const height = rect.bottom - rect.top;
+  const diameter = Math.hypot(width, height) + GROUP_SAFE_GAP * 2;
+  return Math.min(Math.PI / 2, Math.asin(Math.min(0.999, diameter / (2 * radius))));
+}
+
 function findLargeGroupPlacementCenter(
   group: PendingPlaceGroup,
   direction: { x: number; y: number; crowdAngle: number },
@@ -883,6 +906,105 @@ function findLargeGroupPlacementCenter(
   }
 
   return chosenCenter;
+}
+
+function findRelaxedLargeGroupCenter(
+  group: PendingPlaceGroup,
+  angle: number,
+  baseRadius: number,
+  occupiedRects: LogicalRect[],
+  mapRect: LogicalRect,
+) {
+  const layerStep = computeLayerStep(group.groupRect);
+  for (let layer = 0; layer < MAX_VECTOR_LAYERS; layer++) {
+    const radius = baseRadius + layer * layerStep;
+    const centerCandidate = {
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius,
+    };
+    const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
+    if (!fitsAroundMap(centerRect, mapRect, GROUP_SAFE_GAP)) continue;
+    if (occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, GROUP_SAFE_GAP))) continue;
+    return centerCandidate;
+  }
+
+  return {
+    x: Math.cos(angle) * baseRadius,
+    y: Math.sin(angle) * baseRadius,
+  };
+}
+
+function relaxLargeGroupAngles(
+  groups: PendingPlaceGroup[],
+  centers: Array<{ x: number; y: number }>,
+  baseOccupiedRects: LogicalRect[],
+  mapRect: LogicalRect,
+) {
+  if (groups.length <= 2) return centers;
+
+  let relaxedCenters = [...centers];
+
+  for (let pass = 0; pass < MAX_ANGULAR_RELAX_PASSES; pass++) {
+    const ordered = groups.map((group, index) => ({
+      group,
+      index,
+      angle: normalizeAngle(Math.atan2(relaxedCenters[index].y, relaxedCenters[index].x)),
+      radius: Math.hypot(relaxedCenters[index].x, relaxedCenters[index].y),
+    })).sort((a, b) => a.angle - b.angle);
+
+    let changed = false;
+
+    for (let i = 0; i < ordered.length; i++) {
+      const current = ordered[i];
+      const next = ordered[(i + 1) % ordered.length];
+      const currentSpan = computeAngularHalfSpan(current.group.groupRect, current.radius);
+      const nextSpan = computeAngularHalfSpan(next.group.groupRect, next.radius);
+      const safeGap = currentSpan + nextSpan;
+      const delta = normalizeAngle(next.angle - current.angle);
+      if (delta >= safeGap - 1e-4) continue;
+
+      const deficit = safeGap - delta;
+      const currentTargetAngle = normalizeAngle(current.angle - deficit / 2);
+      const nextTargetAngle = normalizeAngle(next.angle + deficit / 2);
+      const currentOccupied = ordered
+        .filter((item) => item.index !== current.index)
+        .map((item) => translateRect(item.group.groupRect, relaxedCenters[item.index].x, relaxedCenters[item.index].y));
+      const nextOccupied = ordered
+        .filter((item) => item.index !== next.index)
+        .map((item) => translateRect(item.group.groupRect, relaxedCenters[item.index].x, relaxedCenters[item.index].y));
+
+      const currentCandidate = findRelaxedLargeGroupCenter(
+        current.group,
+        currentTargetAngle,
+        current.radius,
+        [...baseOccupiedRects, ...currentOccupied],
+        mapRect,
+      );
+      const nextCandidate = findRelaxedLargeGroupCenter(
+        next.group,
+        nextTargetAngle,
+        next.radius,
+        [...baseOccupiedRects, ...nextOccupied],
+        mapRect,
+      );
+
+      const currentRect = translateRect(current.group.groupRect, currentCandidate.x, currentCandidate.y);
+      const nextRect = translateRect(next.group.groupRect, nextCandidate.x, nextCandidate.y);
+      if (rectsOverlap(currentRect, nextRect, GROUP_SAFE_GAP)) continue;
+
+      const currentMoved = Math.abs(shortestSignedAngleDelta(current.angle, Math.atan2(currentCandidate.y, currentCandidate.x))) > 1e-4;
+      const nextMoved = Math.abs(shortestSignedAngleDelta(next.angle, Math.atan2(nextCandidate.y, nextCandidate.x))) > 1e-4;
+      if (!currentMoved && !nextMoved) continue;
+
+      relaxedCenters[current.index] = currentCandidate;
+      relaxedCenters[next.index] = nextCandidate;
+      changed = true;
+    }
+
+    if (!changed) break;
+  }
+
+  return relaxedCenters;
 }
 
 function rectDistanceToMap(rect: LogicalRect, mapRect: LogicalRect) {
@@ -1472,6 +1594,8 @@ function UserFootprintsPageInner() {
     } else {
       const largeGroups = buildLargeGroupOrder(pendingNewGroups);
       const outwardVectors = largeGroups.map((_, index) => buildLargeGroupOutwardVector(largeGroups, index));
+      const baseOccupiedRects = [...occupiedRects];
+      const provisionalCenters: Array<{ x: number; y: number }> = [];
       for (let index = 0; index < largeGroups.length; index++) {
         const group = largeGroups[index];
         const chosenCenter = findLargeGroupPlacementCenter(
@@ -1480,16 +1604,28 @@ function UserFootprintsPageInner() {
           occupiedRects,
           mapRect,
         );
+        provisionalCenters.push(chosenCenter);
+        occupiedRects.push(translateRect(group.groupRect, chosenCenter.x, chosenCenter.y));
+      }
 
+      occupiedRects.length = baseOccupiedRects.length;
+      const relaxedCenters = relaxLargeGroupAngles(
+        largeGroups,
+        provisionalCenters,
+        baseOccupiedRects,
+        mapRect,
+      );
+
+      for (let index = 0; index < largeGroups.length; index++) {
+        const group = largeGroups[index];
+        const chosenCenter = relaxedCenters[index];
         for (let i = 0; i < group.placePhotos.length; i++) {
           group.placePhotos[i].frameX = chosenCenter.x + group.offsets[i].offsetX;
           group.placePhotos[i].frameY = chosenCenter.y + group.offsets[i].offsetY;
         }
 
         const placedRect = buildPlaceBounds(group.placePhotos);
-        if (placedRect) {
-          occupiedRects.push(placedRect);
-        }
+        if (placedRect) occupiedRects.push(placedRect);
       }
     }
   }
