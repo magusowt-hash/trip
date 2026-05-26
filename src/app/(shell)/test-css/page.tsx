@@ -333,16 +333,6 @@ export default function TestCssPage() {
   return (
     <main className={styles.rootFull}>
       <section className={styles.stagePane}>
-        <div className={styles.stageHeader}>
-          <div>
-            <p className={styles.eyebrow}>Order Test</p>
-            <h1>随机点排序与连线验证</h1>
-            <p className={styles.description}>
-              当前只验证一件事：各点按顺序首尾相连时，整条路径是否自交。
-            </p>
-          </div>
-        </div>
-
         <div className={styles.stage}>
           <svg viewBox={`0 0 ${STAGE_SIZE} ${STAGE_SIZE}`} className={styles.svg}>
             <rect
