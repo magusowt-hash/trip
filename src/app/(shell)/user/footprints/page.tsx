@@ -92,8 +92,8 @@ const REGION_CENTER_ANGLE: Record<RegionKey, number> = {
   W: 180,
   N: 270,
 };
-const LARGE_FAN_BASE_RADIUS_OFFSET = 176;
-const LARGE_FAN_RADIUS_STEP = 54;
+const GROUP_SAFE_GAP = 14;
+const MAX_VECTOR_LAYERS = 24;
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -379,6 +379,12 @@ function getRegionByPoint(x: number, y: number): RegionKey {
   return y < 0 ? 'N' : 'S';
 }
 
+function normalizeVector(x: number, y: number) {
+  const length = Math.hypot(x, y);
+  if (length < 1e-6) return { x: 0, y: -1 };
+  return { x: x / length, y: y / length };
+}
+
 function getRegionDistanceScore(group: PendingRegionGroup, region: RegionKey) {
   switch (region) {
     case 'W':
@@ -513,13 +519,6 @@ function buildRegionSequence(
     region,
     groups: buckets.get(region) ?? [],
   }));
-}
-
-function normalizeRadians(angle: number) {
-  let next = angle;
-  while (next <= -Math.PI) next += Math.PI * 2;
-  while (next > Math.PI) next -= Math.PI * 2;
-  return next;
 }
 
 function orientationCross(
@@ -764,7 +763,7 @@ function buildImprovedCycle(groups: PendingPlaceGroup[]) {
   return rotateGroupsToBestStart(cycle);
 }
 
-function buildLargeFanOrder(groups: PendingPlaceGroup[]) {
+function buildLargeGroupOrder(groups: PendingPlaceGroup[]) {
   if (groups.length === 0) return [];
 
   const radialCenter = computeRadialReferenceCenter(groups);
@@ -772,87 +771,119 @@ function buildLargeFanOrder(groups: PendingPlaceGroup[]) {
     rotateGroupsToBestStart(sortGroupsByCenterAngle(groups, radialCenter.x, radialCenter.y)),
   );
 
-  return orderedRadialPath
-    .map((group) => {
-      const relativeX = group.logicalX - radialCenter.x;
-      const relativeY = group.logicalY - radialCenter.y;
-      const fallbackX = relativeX === 0 && relativeY === 0 ? group.logicalX : relativeX;
-      const fallbackY = relativeX === 0 && relativeY === 0 ? group.logicalY : relativeY;
-
-      return {
-        ...group,
-        theta: Math.atan2(fallbackY, fallbackX),
-        radiusWeight: Math.max(1, Math.sqrt(group.photoCount)),
-        rectArea: rectArea(group.groupRect),
-        tangentSize: Math.max(
-          group.groupRect.right - group.groupRect.left,
-          group.groupRect.bottom - group.groupRect.top,
-        ),
-      };
-    });
+  return orderedRadialPath;
 }
 
-function computeLargeFanBaseRadius(groups: ReturnType<typeof buildLargeFanOrder>, viewportWidth: number, viewportHeight: number) {
-  void groups;
-  const mapWidth = viewportWidth * 0.6;
-  const mapHeight = viewportHeight * 0.8;
-  return Math.max(mapWidth, mapHeight) / 2 + LARGE_FAN_BASE_RADIUS_OFFSET;
+function buildLargeGroupOutwardVector(groups: PendingPlaceGroup[], index: number): {
+  x: number;
+  y: number;
+  crowdAngle: number;
+} {
+  const group = groups[index];
+  const groupCount = groups.length;
+  const orientation = polygonArea(groups);
+  const center = computeCenterOfGroups(groups);
+
+  if (groupCount === 1) {
+    const fallback = normalizeVector(group.logicalX - center.x, group.logicalY - center.y);
+    return { x: fallback.x, y: fallback.y, crowdAngle: Math.PI / 2 };
+  }
+
+  const prev = groups[(index - 1 + groupCount) % groupCount];
+  const next = groups[(index + 1) % groupCount];
+  const incoming = normalizeVector(group.logicalX - prev.logicalX, group.logicalY - prev.logicalY);
+  const outgoing = normalizeVector(next.logicalX - group.logicalX, next.logicalY - group.logicalY);
+  const buildNormal = orientation >= 0
+    ? (vx: number, vy: number) => ({ x: vy, y: -vx })
+    : (vx: number, vy: number) => ({ x: -vy, y: vx });
+  const prevNormal = buildNormal(incoming.x, incoming.y);
+  const nextNormal = buildNormal(outgoing.x, outgoing.y);
+  const merged = normalizeVector(prevNormal.x + nextNormal.x, prevNormal.y + nextNormal.y);
+  const fallback = normalizeVector(group.logicalX - center.x, group.logicalY - center.y);
+  const dot = Math.max(-1, Math.min(1, prevNormal.x * nextNormal.x + prevNormal.y * nextNormal.y));
+  const crowdAngle = Math.acos(dot);
+
+  if (Math.abs(merged.x) < 1e-6 && Math.abs(merged.y) < 1e-6) {
+    return { x: fallback.x, y: fallback.y, crowdAngle };
+  }
+
+  return { x: merged.x, y: merged.y, crowdAngle };
 }
 
-function buildFanCandidateCenter(
-  theta: number,
-  radius: number,
-) {
-  return {
-    x: Math.cos(theta) * radius,
-    y: Math.sin(theta) * radius,
+function computeRayExitDistance(
+  originX: number,
+  originY: number,
+  dirX: number,
+  dirY: number,
+  expandedRect: LogicalRect,
+): number {
+  const candidates: number[] = [];
+
+  if (dirX > 1e-6) candidates.push((expandedRect.right - originX) / dirX);
+  else if (dirX < -1e-6) candidates.push((expandedRect.left - originX) / dirX);
+
+  if (dirY > 1e-6) candidates.push((expandedRect.bottom - originY) / dirY);
+  else if (dirY < -1e-6) candidates.push((expandedRect.top - originY) / dirY);
+
+  const positive = candidates.filter((value) => Number.isFinite(value) && value >= 0);
+  if (positive.length === 0) return 0;
+  return Math.max(0, Math.min(...positive));
+}
+
+function computeAdaptiveVectorLength(
+  group: PendingPlaceGroup,
+  direction: { x: number; y: number; crowdAngle: number },
+  mapRect: LogicalRect,
+): number {
+  const width = group.groupRect.right - group.groupRect.left;
+  const height = group.groupRect.bottom - group.groupRect.top;
+  const maxSize = Math.max(width, height);
+  const diagonal = Math.hypot(width, height);
+  const expandedMapRect = {
+    left: mapRect.left - GROUP_SAFE_GAP - group.groupRect.right,
+    right: mapRect.right + GROUP_SAFE_GAP - group.groupRect.left,
+    top: mapRect.top - GROUP_SAFE_GAP - group.groupRect.bottom,
+    bottom: mapRect.bottom + GROUP_SAFE_GAP - group.groupRect.top,
   };
+  const exitDistance = computeRayExitDistance(
+    group.logicalX,
+    group.logicalY,
+    direction.x,
+    direction.y,
+    expandedMapRect,
+  );
+  const crowdRatio = 1 - Math.min(direction.crowdAngle, Math.PI) / Math.PI;
+  return exitDistance + maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8);
 }
 
-function unwrapAngles(angles: number[]) {
-  if (angles.length === 0) return [] as number[];
-
-  const unwrapped = [angles[0]];
-  for (let i = 1; i < angles.length; i++) {
-    let next = angles[i];
-    while (next < unwrapped[i - 1]) next += Math.PI * 2;
-    unwrapped.push(next);
-  }
-  return unwrapped;
+function computeLayerStep(rect: LogicalRect): number {
+  const width = rect.right - rect.left;
+  const height = rect.bottom - rect.top;
+  return Math.max(GROUP_SAFE_GAP * 1.5, Math.max(width, height) * 0.45);
 }
 
-function computeOrderedFanAngles(groups: ReturnType<typeof buildLargeFanOrder>, baseRadius: number) {
-  if (groups.length === 0) return [] as number[];
-  if (groups.length === 1) return [groups[0].theta];
-  void baseRadius;
-
-  const rawAngles = groups.map((group) => group.theta);
-  const unwrapped = unwrapAngles(rawAngles);
-  const step = (Math.PI * 2) / groups.length;
-  const start = unwrapped[0];
-  const adjusted = [start];
-  for (let i = 1; i < groups.length; i++) {
-    adjusted.push(adjusted[i - 1] + step);
-  }
-
-  return adjusted.map((angle) => normalizeRadians(angle));
-}
-
-function findFanPlacementCenter(
-  group: ReturnType<typeof buildLargeFanOrder>[number],
+function findLargeGroupPlacementCenter(
+  group: PendingPlaceGroup,
+  direction: { x: number; y: number; crowdAngle: number },
   occupiedRects: LogicalRect[],
   mapRect: LogicalRect,
-  gap: number,
-  baseRadius: number,
-  displayTheta: number,
 ) {
-  let chosenCenter = buildFanCandidateCenter(displayTheta, baseRadius);
-  for (let radiusStep = 0; radiusStep < 10; radiusStep++) {
-    const radius = baseRadius + radiusStep * LARGE_FAN_RADIUS_STEP;
-    const centerCandidate = buildFanCandidateCenter(displayTheta, radius);
+  const baseLength = computeAdaptiveVectorLength(group, direction, mapRect);
+  const layerStep = computeLayerStep(group.groupRect);
+  let chosenCenter = {
+    x: group.logicalX + direction.x * baseLength,
+    y: group.logicalY + direction.y * baseLength,
+  };
+
+  for (let layer = 0; layer < MAX_VECTOR_LAYERS; layer++) {
+    const nextLength = baseLength + layer * layerStep;
+    const centerCandidate = {
+      x: group.logicalX + direction.x * nextLength,
+      y: group.logicalY + direction.y * nextLength,
+    };
     const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
-    if (!fitsAroundMap(centerRect, mapRect, gap)) continue;
-    if (occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, 14))) continue;
+    if (!fitsAroundMap(centerRect, mapRect, GROUP_SAFE_GAP)) continue;
+    if (occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, GROUP_SAFE_GAP))) continue;
     chosenCenter = centerCandidate;
     return chosenCenter;
   }
@@ -1449,18 +1480,15 @@ function UserFootprintsPageInner() {
         });
       }
     } else {
-      const fanGroups = buildLargeFanOrder(pendingNewGroups);
-      const baseRadius = computeLargeFanBaseRadius(fanGroups, viewportWidth, viewportHeight);
-      const orderedAngles = computeOrderedFanAngles(fanGroups, baseRadius);
-      for (let index = 0; index < fanGroups.length; index++) {
-        const group = fanGroups[index];
-        const chosenCenter = findFanPlacementCenter(
+      const largeGroups = buildLargeGroupOrder(pendingNewGroups);
+      const outwardVectors = largeGroups.map((_, index) => buildLargeGroupOutwardVector(largeGroups, index));
+      for (let index = 0; index < largeGroups.length; index++) {
+        const group = largeGroups[index];
+        const chosenCenter = findLargeGroupPlacementCenter(
           group,
+          outwardVectors[index],
           occupiedRects,
           mapRect,
-          cardSize,
-          baseRadius,
-          orderedAngles[index] ?? group.theta,
         );
 
         for (let i = 0; i < group.placePhotos.length; i++) {
