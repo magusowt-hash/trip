@@ -47,7 +47,6 @@ const GROUP_PADDING = 28;
 const PHOTO_GAP = 14;
 const MOCK_MIN_PHOTOS = 2;
 const MOCK_MAX_PHOTOS = 5;
-const MIN_STAGE_SCALE = 0.46;
 const GROUP_SAFE_GAP = 14;
 const MAX_VECTOR_LAYERS = 24;
 const MAX_ANGULAR_RELAX_PASSES = 10;
@@ -56,13 +55,13 @@ const ANGLE_BOUND = 1e-3;
 const SHARP_ANGLE = (150 * Math.PI) / 180;
 const NORMAL_ANGLE = (60 * Math.PI) / 180;
 const MAX_RADIAL_PULL_PASSES = 3;
-const DENSITY_NEIGHBOR_SPAN = 3;
-const MAX_DENSITY_ANGLE_SHIFT = Math.PI / 7;
 const MAX_LINK_AVOID_PASSES = 8;
 const LINK_AVOID_ANGLE_STEP = Math.PI / 40;
 const GAP_SHIFT_RATIO = 2;
-const MAX_GAP_SHIFT_PASSES = 4;
-const GAP_SHIFT_ANGLE_STEP = Math.PI / 18;
+const MAX_GAP_SHIFT_PASSES = 12;
+const MIN_PERIMETER_GAP = 18;
+const GAP_REBALANCE_STRENGTH = 0.34;
+const VIEWPORT_PADDING = 96;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -355,60 +354,7 @@ function boundaryPerimeterPosition(boundaryPoint: { x: number; y: number }) {
   return ((Math.atan2(y, x) + Math.PI) / (Math.PI * 2)) * perimeter;
 }
 
-function perimeterGap(a: number, b: number) {
-  const perimeter = MAP_SIZE * 4;
-  const direct = Math.abs(a - b);
-  return Math.min(direct, perimeter - direct);
-}
-
-function computeLocalDensity(points: LayoutGroup[], index: number) {
-  if (points.length <= 2) return 0;
-  const perimeterPoint = boundaryPerimeterPosition(projectPointToMapBoundary(points[index]));
-  let totalGap = 0;
-  let sampleCount = 0;
-
-  for (let step = 1; step <= Math.min(DENSITY_NEIGHBOR_SPAN, Math.floor(points.length / 2)); step++) {
-    const prevPerimeter = boundaryPerimeterPosition(projectPointToMapBoundary(points[(index - step + points.length) % points.length]));
-    const nextPerimeter = boundaryPerimeterPosition(projectPointToMapBoundary(points[(index + step) % points.length]));
-    totalGap += perimeterGap(perimeterPoint, prevPerimeter);
-    totalGap += perimeterGap(perimeterPoint, nextPerimeter);
-    sampleCount += 2;
-  }
-
-  if (sampleCount === 0) return 0;
-  const avgGap = totalGap / sampleCount;
-  const normalizedGap = avgGap / Math.max(MAP_SIZE, 1);
-  return Math.max(0, Math.min(1, 1 - normalizedGap / 1.35));
-}
-
-function computeGapDrift(points: LayoutGroup[], index: number) {
-  if (points.length <= 2) return 0;
-  const current = boundaryPerimeterPosition(projectPointToMapBoundary(points[index]));
-  const prev = boundaryPerimeterPosition(projectPointToMapBoundary(points[(index - 1 + points.length) % points.length]));
-  const next = boundaryPerimeterPosition(projectPointToMapBoundary(points[(index + 1) % points.length]));
-  const leftGap = perimeterGap(current, prev);
-  const rightGap = perimeterGap(current, next);
-
-  if (leftGap < TOL || rightGap < TOL) return 0;
-  if (leftGap >= rightGap * GAP_SHIFT_RATIO) {
-    return -Math.min(1, (leftGap / rightGap - GAP_SHIFT_RATIO) / GAP_SHIFT_RATIO + 0.35);
-  }
-  if (rightGap >= leftGap * GAP_SHIFT_RATIO) {
-    return Math.min(1, (rightGap / leftGap - GAP_SHIFT_RATIO) / GAP_SHIFT_RATIO + 0.35);
-  }
-  return 0;
-}
-
-function rotateVector(vector: { x: number; y: number }, angle: number) {
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  return {
-    x: vector.x * cos - vector.y * sin,
-    y: vector.x * sin + vector.y * cos,
-  };
-}
-
-function resolveOutwardNormal(points: LayoutGroup[], index: number, localDensity: number, gapDrift: number) {
+function resolveOutwardNormal(points: LayoutGroup[], index: number) {
   const pointCount = points.length;
   const orientation = polygonArea(points);
   const point = points[index];
@@ -451,22 +397,11 @@ function resolveOutwardNormal(points: LayoutGroup[], index: number, localDensity
     resolved = slerpVector(prevNormal, nextNormal, 0.5);
   }
 
-  if (!boundaryPoint && localDensity > 0.35) {
-    const densityBlend = Math.min(0.82, (localDensity - 0.35) / 0.65);
-    const softened = slerpVector(prevNormal, nextNormal, 0.5);
-    resolved = slerpVector(resolved, softened, densityBlend * 0.82);
-  }
-
-  if (Math.abs(gapDrift) > 0.08 && localDensity > 0.28) {
-    const driftAngle = gapDrift * localDensity * MAX_DENSITY_ANGLE_SHIFT;
-    resolved = rotateVector(resolved, driftAngle);
-  }
-
   const outward = resolved.x * fallback.x + resolved.y * fallback.y >= 0
     ? resolved
     : { x: -resolved.x, y: -resolved.y };
-  const concaveBlendBase = isConcave ? Math.min(0.56, 0.18 + concaveDepth / Math.max(edgeSpan, 1) * 0.55) : 0;
-  const concaveBlend = Math.min(0.86, concaveBlendBase + localDensity * 0.24);
+  const concaveBlendBase = isConcave ? Math.min(0.72, 0.22 + concaveDepth / Math.max(edgeSpan, 1) * 0.62) : 0;
+  const concaveBlend = Math.min(0.88, concaveBlendBase);
   const stabilized = concaveBlend > 0
     ? normalizeVector(
       outward.x * (1 - concaveBlend) + fallback.x * concaveBlend,
@@ -479,7 +414,6 @@ function resolveOutwardNormal(points: LayoutGroup[], index: number, localDensity
     crowdAngle,
     concaveDepth,
     isConcave,
-    localDensity,
   };
 }
 
@@ -489,12 +423,8 @@ function buildOutwardVector(points: LayoutGroup[], index: number): {
   crowdAngle: number;
   concaveDepth: number;
   isConcave: boolean;
-  localDensity: number;
-  gapDrift: number;
 } {
-  const localDensity = computeLocalDensity(points, index);
-  const gapDrift = computeGapDrift(points, index);
-  const resolved = resolveOutwardNormal(points, index, localDensity, gapDrift);
+  const resolved = resolveOutwardNormal(points, index);
 
   return {
     x: resolved.vector.x,
@@ -502,8 +432,6 @@ function buildOutwardVector(points: LayoutGroup[], index: number): {
     crowdAngle: resolved.crowdAngle,
     concaveDepth: resolved.concaveDepth,
     isConcave: resolved.isConcave,
-    localDensity: resolved.localDensity,
-    gapDrift,
   };
 }
 
@@ -529,7 +457,7 @@ function computeRayExitDistance(
 
 function computeAdaptiveVectorLength(
   point: LayoutGroup,
-  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean; localDensity: number; gapDrift: number },
+  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean },
   rect: LogicalRect,
 ): number {
   const width = rect.right - rect.left;
@@ -547,8 +475,7 @@ function computeAdaptiveVectorLength(
   const concaveCompression = direction.isConcave
     ? Math.max(0.45, 1 - Math.min(0.42, direction.concaveDepth / Math.max(diagonal, 1)))
     : 1;
-  const densityCompression = 1 - Math.min(0.42, direction.localDensity * (0.26 + Math.abs(direction.gapDrift) * 0.18));
-  const extraLength = (maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8)) * concaveCompression * densityCompression;
+  const extraLength = (maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8)) * concaveCompression;
   return exitDistance + extraLength;
 }
 
@@ -1011,12 +938,6 @@ function countIntersections(segments: Segment[]) {
   return total;
 }
 
-function computeStageScale(count: number) {
-  if (count <= 12) return 1;
-  const progress = Math.min((count - 12) / (50 - 12), 1);
-  return 1 - (1 - MIN_STAGE_SCALE) * progress;
-}
-
 function findRelaxedCenter(
   point: LayoutGroup,
   rect: LogicalRect,
@@ -1123,59 +1044,111 @@ function relaxPlacedGroupAngles(
   return centers;
 }
 
-function rebalanceByGap(
-  groups: Array<{
-    point: LayoutGroup;
-    rect: LogicalRect;
-    geometry: ReturnType<typeof buildGroupGeometryFromPhotoRect>;
-    centerX: number;
-    centerY: number;
-  }>,
-  occupiedRects: LogicalRect[],
-) {
-  if (groups.length <= 2) return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+function unwrapPerimeterPositions(positions: number[]) {
+  const perimeter = MAP_SIZE * 4;
+  if (positions.length === 0) return [];
 
-  let centers = groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+  const unwrapped = [positions[0]];
+  for (let index = 1; index < positions.length; index++) {
+    let next = positions[index];
+    while (next <= unwrapped[index - 1]) {
+      next += perimeter;
+    }
+    unwrapped.push(next);
+  }
+  return unwrapped;
+}
+
+function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
+  const perimeter = MAP_SIZE * 4;
+  if (layer.length <= 2) {
+    return layer.map((point) => boundaryPerimeterPosition(projectPointToMapBoundary(point)));
+  }
+
+  const adjusted = unwrapPerimeterPositions(
+    layer.map((point) => boundaryPerimeterPosition(projectPointToMapBoundary(point))),
+  );
 
   for (let pass = 0; pass < MAX_GAP_SHIFT_PASSES; pass++) {
     let changed = false;
 
-    for (let index = 0; index < groups.length; index++) {
-      const group = groups[index];
-      const drift = computeGapDrift(groups.map((item) => item.point), index);
-      if (Math.abs(drift) < 0.08) continue;
+    for (let index = 0; index < adjusted.length; index++) {
+      const prev = index === 0 ? adjusted[adjusted.length - 1] - perimeter : adjusted[index - 1];
+      const next = index === adjusted.length - 1 ? adjusted[0] + perimeter : adjusted[index + 1];
+      const current = adjusted[index];
+      const leftGap = current - prev;
+      const rightGap = next - current;
+      const smallerGap = Math.min(leftGap, rightGap);
+      const largerGap = Math.max(leftGap, rightGap);
 
-      const radius = Math.hypot(centers[index].x - group.point.x, centers[index].y - group.point.y);
-      const baseAngle = Math.atan2(centers[index].y - group.point.y, centers[index].x - group.point.x);
-      const targetAngle = baseAngle + drift * GAP_SHIFT_ANGLE_STEP;
-      const blockedRects = [...occupiedRects];
-      for (let otherIndex = 0; otherIndex < groups.length; otherIndex++) {
-        if (otherIndex === index) continue;
-        blockedRects.push(translateRect(groups[otherIndex].rect, centers[otherIndex].x, centers[otherIndex].y));
-      }
+      if (smallerGap < TOL || largerGap < smallerGap * GAP_SHIFT_RATIO) continue;
 
-      const candidate = findRelaxedCenter(
-        group.point,
-        group.rect,
-        targetAngle,
-        radius,
-        blockedRects,
-      );
+      const shiftDirection = rightGap > leftGap ? 1 : -1;
+      const gapDelta = largerGap - smallerGap;
+      const preferredShift = Math.max(MIN_PERIMETER_GAP, gapDelta * GAP_REBALANCE_STRENGTH);
+      const candidate = current + shiftDirection * preferredShift;
+      const minAllowed = prev + MIN_PERIMETER_GAP;
+      const maxAllowed = next - MIN_PERIMETER_GAP;
+      const clamped = Math.max(minAllowed, Math.min(maxAllowed, candidate));
 
-      const moved = Math.abs(shortestSignedAngleDelta(
-        baseAngle,
-        Math.atan2(candidate.y - group.point.y, candidate.x - group.point.x),
-      )) > 1e-4;
-      if (!moved) continue;
-
-      centers[index] = candidate;
+      if (Math.abs(clamped - current) < 1e-4) continue;
+      adjusted[index] = clamped;
       changed = true;
     }
 
     if (!changed) break;
   }
 
-  return centers;
+  return adjusted.map((position) => ((position % perimeter) + perimeter) % perimeter);
+}
+
+function boundaryPositionToPoint(position: number) {
+  const side = MAP_SIZE;
+  const half = side / 2;
+  const perimeter = side * 4;
+  const normalized = ((position % perimeter) + perimeter) % perimeter;
+
+  if (normalized <= side) return { x: normalized - half, y: -half };
+  if (normalized <= side * 2) return { x: half, y: normalized - side - half };
+  if (normalized <= side * 3) return { x: half - (normalized - side * 2), y: half };
+  return { x: -half, y: half - (normalized - side * 3) };
+}
+
+function buildAdaptiveViewport(groups: MockGroup[]) {
+  const rects = groups.map((group) => group.rect);
+  rects.push({
+    left: -MAP_SIZE / 2,
+    right: MAP_SIZE / 2,
+    top: -MAP_SIZE / 2,
+    bottom: MAP_SIZE / 2,
+  });
+
+  const bounds = rects.reduce((acc, rect) => ({
+    left: Math.min(acc.left, rect.left),
+    right: Math.max(acc.right, rect.right),
+    top: Math.min(acc.top, rect.top),
+    bottom: Math.max(acc.bottom, rect.bottom),
+  }), {
+    left: Number.POSITIVE_INFINITY,
+    right: Number.NEGATIVE_INFINITY,
+    top: Number.POSITIVE_INFINITY,
+    bottom: Number.NEGATIVE_INFINITY,
+  });
+
+  const width = Math.max(1, bounds.right - bounds.left);
+  const height = Math.max(1, bounds.bottom - bounds.top);
+  const scale = Math.min(
+    (STAGE_SIZE - VIEWPORT_PADDING * 2) / width,
+    (STAGE_SIZE - VIEWPORT_PADDING * 2) / height,
+  );
+  const centerX = (bounds.left + bounds.right) / 2;
+  const centerY = (bounds.top + bounds.bottom) / 2;
+
+  return {
+    scale: Math.min(1, scale),
+    centerX,
+    centerY,
+  };
 }
 
 export default function TestCssPage() {
@@ -1214,21 +1187,21 @@ export default function TestCssPage() {
   const pathLength = useMemo(() => (
     segments.reduce((sum, segment) => sum + distance(segment.from, segment.to), 0)
   ), [segments]);
-  const stageScale = useMemo(() => computeStageScale(count), [count]);
   const placedGroups = useMemo(() => {
     const occupiedRects: LogicalRect[] = [];
     const placed: MockGroup[] = [];
 
     for (const layer of layeredPoints) {
       const directions = layer.map((_, index) => buildOutwardVector(layer, index));
+      const balancedBoundaryPositions = rebalanceBoundaryPositions(layer);
       const provisionalGroups = layer.map((point, index) => {
         const { photos, photoRect } = buildMockPhotos(point);
         const geometry = buildGroupGeometryFromPhotoRect(photoRect, `图片组 ${point.order}`);
         const direction = directions[index];
         const baseLength = computeAdaptiveVectorLength(point, direction, geometry.overallRect);
         const layerStep = computeLayerStep(geometry.overallRect);
-        const baseAngle = Math.atan2(direction.y, direction.x);
-        const initialAngle = baseAngle + direction.gapDrift * GAP_SHIFT_ANGLE_STEP * 2.2;
+        const boundaryTarget = boundaryPositionToPoint(balancedBoundaryPositions[index]);
+        const initialAngle = Math.atan2(boundaryTarget.y - point.y, boundaryTarget.x - point.x);
         let centerX = point.x + Math.cos(initialAngle) * baseLength;
         let centerY = point.y + Math.sin(initialAngle) * baseLength;
         const groupRect = geometry.overallRect;
@@ -1285,18 +1258,10 @@ export default function TestCssPage() {
           centerY: group.centerY,
         })),
       );
-      const rebalancedCenters = rebalanceByGap(
-        provisionalGroups.map((group, index) => ({
-          ...group,
-          centerX: resolvedCenters[index].x,
-          centerY: resolvedCenters[index].y,
-        })),
-        placed.map((group) => group.rect),
-      );
       for (let index = 0; index < provisionalGroups.length; index++) {
         const group = provisionalGroups[index];
-        const centerX = rebalancedCenters[index].x;
-        const centerY = rebalancedCenters[index].y;
+        const centerX = resolvedCenters[index].x;
+        const centerY = resolvedCenters[index].y;
         const placedRect = translateRect(group.rect, centerX, centerY);
         const linkTarget = findLinkTarget(group.point, group.geometry, centerX, centerY);
         placed.push({
@@ -1312,16 +1277,19 @@ export default function TestCssPage() {
 
     return avoidGlobalLinkCrossings(placed);
   }, [layeredPoints]);
+  const viewport = useMemo(() => buildAdaptiveViewport(placedGroups), [placedGroups]);
 
   return (
     <main className={styles.rootFull}>
       <section className={styles.stagePane}>
         <div className={styles.stage}>
           <svg viewBox={`0 0 ${STAGE_SIZE} ${STAGE_SIZE}`} className={styles.svg}>
-            <g transform={`translate(${STAGE_SIZE / 2} ${STAGE_SIZE / 2}) scale(${stageScale}) translate(${-STAGE_SIZE / 2} ${-STAGE_SIZE / 2})`}>
+            <g transform={`translate(${STAGE_SIZE / 2} ${STAGE_SIZE / 2})`}>
+              <g transform={`scale(${viewport.scale})`}>
+                <g transform={`translate(${-viewport.centerX} ${-viewport.centerY})`}>
               <rect
-                x={(STAGE_SIZE - MAP_SIZE) / 2}
-                y={(STAGE_SIZE - MAP_SIZE) / 2}
+                x={-MAP_SIZE / 2}
+                y={-MAP_SIZE / 2}
                 width={MAP_SIZE}
                 height={MAP_SIZE}
                 rx="24"
@@ -1331,10 +1299,10 @@ export default function TestCssPage() {
               {segments.map((segment) => (
                 <line
                   key={`line-${segment.from.id}-${segment.to.id}`}
-                  x1={STAGE_SIZE / 2 + segment.from.x}
-                  y1={STAGE_SIZE / 2 + segment.from.y}
-                  x2={STAGE_SIZE / 2 + segment.to.x}
-                  y2={STAGE_SIZE / 2 + segment.to.y}
+                  x1={segment.from.x}
+                  y1={segment.from.y}
+                  x2={segment.to.x}
+                  y2={segment.to.y}
                   className={styles.link}
                 />
               ))}
@@ -1342,10 +1310,10 @@ export default function TestCssPage() {
               {placedGroups.map((group) => (
                 <line
                   key={`group-link-${group.point.id}`}
-                  x1={STAGE_SIZE / 2 + group.point.x}
-                  y1={STAGE_SIZE / 2 + group.point.y}
-                  x2={STAGE_SIZE / 2 + group.linkTargetX}
-                  y2={STAGE_SIZE / 2 + group.linkTargetY}
+                  x1={group.point.x}
+                  y1={group.point.y}
+                  x2={group.linkTargetX}
+                  y2={group.linkTargetY}
                   className={styles.groupLink}
                 />
               ))}
@@ -1353,8 +1321,8 @@ export default function TestCssPage() {
               {placedGroups.map((group) => (
                 <g key={`group-${group.point.id}`}>
                   <rect
-                    x={STAGE_SIZE / 2 + group.rect.left}
-                    y={STAGE_SIZE / 2 + group.rect.top}
+                    x={group.rect.left}
+                    y={group.rect.top}
                     width={group.rect.right - group.rect.left}
                     height={group.rect.bottom - group.rect.top}
                     rx="20"
@@ -1364,8 +1332,8 @@ export default function TestCssPage() {
                   {group.photos.map((photo) => (
                     <rect
                       key={photo.id}
-                      x={STAGE_SIZE / 2 + group.centerX + photo.offsetX - photo.width / 2}
-                      y={STAGE_SIZE / 2 + group.centerY + photo.offsetY - photo.height / 2}
+                      x={group.centerX + photo.offsetX - photo.width / 2}
+                      y={group.centerY + photo.offsetY - photo.height / 2}
                       width={photo.width}
                       height={photo.height}
                       rx="14"
@@ -1374,8 +1342,8 @@ export default function TestCssPage() {
                   ))}
 
                   <text
-                    x={STAGE_SIZE / 2 + group.centerX + group.geometry.labelAnchorX}
-                    y={STAGE_SIZE / 2 + group.centerY + group.geometry.labelAnchorY}
+                    x={group.centerX + group.geometry.labelAnchorX}
+                    y={group.centerY + group.geometry.labelAnchorY}
                     textAnchor="middle"
                     dominantBaseline="middle"
                     className={styles.groupLabel}
@@ -1384,8 +1352,8 @@ export default function TestCssPage() {
                   </text>
 
                   <circle
-                    cx={STAGE_SIZE / 2 + group.centerX + group.geometry.lineAnchorX}
-                    cy={STAGE_SIZE / 2 + group.centerY + group.geometry.lineAnchorY}
+                    cx={group.centerX + group.geometry.lineAnchorX}
+                    cy={group.centerY + group.geometry.lineAnchorY}
                     r="5"
                     className={styles.groupAnchor}
                   />
@@ -1395,14 +1363,14 @@ export default function TestCssPage() {
               {orderedPoints.map((point) => (
                 <g key={`poi-${point.id}`}>
                   <circle
-                    cx={STAGE_SIZE / 2 + point.x}
-                    cy={STAGE_SIZE / 2 + point.y}
+                    cx={point.x}
+                    cy={point.y}
                     r="8"
                     className={styles.poi}
                   />
                   <text
-                    x={STAGE_SIZE / 2 + point.x}
-                    y={STAGE_SIZE / 2 + point.y - 16}
+                    x={point.x}
+                    y={point.y - 16}
                     textAnchor="middle"
                     className={styles.poiLabel}
                   >
@@ -1410,6 +1378,8 @@ export default function TestCssPage() {
                   </text>
                 </g>
               ))}
+                </g>
+              </g>
             </g>
           </svg>
         </div>
