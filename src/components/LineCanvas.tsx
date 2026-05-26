@@ -4,7 +4,7 @@ import { useRef, useEffect, useCallback } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
-import { buildGroupGeometry } from './localMapGroupGeometry';
+import { buildGroupGeometry, type LogicalRect } from './localMapGroupGeometry';
 
 interface Props {
   width: number;
@@ -43,16 +43,57 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
     y: ly * transform.scale + height / 2 + transform.ty,
   }), [transform, width, height]);
 
+  const intersectRayWithRect = useCallback((fromX: number, fromY: number, rect: LogicalRect) => {
+    const centerX = (rect.left + rect.right) / 2;
+    const centerY = (rect.top + rect.bottom) / 2;
+    const dx = centerX - fromX;
+    const dy = centerY - fromY;
+
+    if (dx === 0 && dy === 0) {
+      return { x: centerX, y: rect.top };
+    }
+
+    const candidates: Array<{ t: number; x: number; y: number }> = [];
+
+    if (dx !== 0) {
+      const leftT = (rect.left - fromX) / dx;
+      const leftY = fromY + dy * leftT;
+      if (leftT >= 0 && leftY >= rect.top && leftY <= rect.bottom) {
+        candidates.push({ t: leftT, x: rect.left, y: leftY });
+      }
+
+      const rightT = (rect.right - fromX) / dx;
+      const rightY = fromY + dy * rightT;
+      if (rightT >= 0 && rightY >= rect.top && rightY <= rect.bottom) {
+        candidates.push({ t: rightT, x: rect.right, y: rightY });
+      }
+    }
+
+    if (dy !== 0) {
+      const topT = (rect.top - fromY) / dy;
+      const topX = fromX + dx * topT;
+      if (topT >= 0 && topX >= rect.left && topX <= rect.right) {
+        candidates.push({ t: topT, x: topX, y: rect.top });
+      }
+
+      const bottomT = (rect.bottom - fromY) / dy;
+      const bottomX = fromX + dx * bottomT;
+      if (bottomT >= 0 && bottomX >= rect.left && bottomX <= rect.right) {
+        candidates.push({ t: bottomT, x: bottomX, y: rect.bottom });
+      }
+    }
+
+    const hit = candidates.sort((a, b) => a.t - b.t)[0];
+    return hit ? { x: hit.x, y: hit.y } : { x: centerX, y: centerY };
+  }, []);
+
   const getGroupAnchorPoint = useCallback((groupPhotos: PhotoItem[], poi: PoiPoint) => {
     const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize, transform.scale);
     if (!geometry) {
       return { x: poi.logicalX, y: poi.logicalY };
     }
-    return {
-      x: geometry.lineAnchorX,
-      y: geometry.lineAnchorY,
-    };
-  }, [getPhotoLogicalSize, transform.scale]);
+    return intersectRayWithRect(poi.logicalX, poi.logicalY, geometry.photoRect);
+  }, [getPhotoLogicalSize, intersectRayWithRect, transform.scale]);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;

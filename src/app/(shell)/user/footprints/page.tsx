@@ -768,10 +768,13 @@ function buildLargeGroupOutwardVector(groups: PendingPlaceGroup[], index: number
   const group = groups[index];
   const groupCount = groups.length;
   const orientation = polygonArea(groups);
-  const center = computeCenterOfGroups(groups);
+  const polygonCentroid = computePolygonCentroid(groups);
+  const fallback = normalizeVector(
+    group.logicalX - polygonCentroid.x,
+    group.logicalY - polygonCentroid.y,
+  );
 
   if (groupCount === 1) {
-    const fallback = normalizeVector(group.logicalX - center.x, group.logicalY - center.y);
     return { x: fallback.x, y: fallback.y, crowdAngle: Math.PI / 2 };
   }
 
@@ -785,7 +788,6 @@ function buildLargeGroupOutwardVector(groups: PendingPlaceGroup[], index: number
   const prevNormal = buildNormal(incoming.x, incoming.y);
   const nextNormal = buildNormal(outgoing.x, outgoing.y);
   const merged = normalizeVector(prevNormal.x + nextNormal.x, prevNormal.y + nextNormal.y);
-  const fallback = normalizeVector(group.logicalX - center.x, group.logicalY - center.y);
   const dot = Math.max(-1, Math.min(1, prevNormal.x * nextNormal.x + prevNormal.y * nextNormal.y));
   const crowdAngle = Math.acos(dot);
 
@@ -793,7 +795,11 @@ function buildLargeGroupOutwardVector(groups: PendingPlaceGroup[], index: number
     return { x: fallback.x, y: fallback.y, crowdAngle };
   }
 
-  return { x: merged.x, y: merged.y, crowdAngle };
+  const outward = merged.x * fallback.x + merged.y * fallback.y >= 0
+    ? merged
+    : { x: -merged.x, y: -merged.y };
+
+  return { x: outward.x, y: outward.y, crowdAngle };
 }
 
 function computeRayExitDistance(
