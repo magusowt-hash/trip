@@ -49,6 +49,7 @@ const GROUP_PADDING = 28;
 const PHOTO_GAP = 14;
 const MOCK_MIN_PHOTOS = 2;
 const MOCK_MAX_PHOTOS = 5;
+const MIN_STAGE_SCALE = 0.54;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -444,6 +445,12 @@ function countIntersections(segments: Segment[]) {
   return total;
 }
 
+function computeStageScale(count: number) {
+  if (count <= 12) return 1;
+  const progress = Math.min((count - 12) / (50 - 12), 1);
+  return 1 - (1 - MIN_STAGE_SCALE) * progress;
+}
+
 export default function TestCssPage() {
   const [count, setCount] = useState(9);
   const [seed, setSeed] = useState(0);
@@ -467,6 +474,7 @@ export default function TestCssPage() {
   const pathLength = useMemo(() => (
     segments.reduce((sum, segment) => sum + distance(segment.from, segment.to), 0)
   ), [segments]);
+  const stageScale = useMemo(() => computeStageScale(count), [count]);
   const placedGroups = useMemo(() => {
     const angleSequence = buildOrderedAngles(orderedPoints);
     const angleSlots = buildAngleSlots(angleSequence);
@@ -525,97 +533,99 @@ export default function TestCssPage() {
       <section className={styles.stagePane}>
         <div className={styles.stage}>
           <svg viewBox={`0 0 ${STAGE_SIZE} ${STAGE_SIZE}`} className={styles.svg}>
-            <rect
-              x={(STAGE_SIZE - MAP_SIZE) / 2}
-              y={(STAGE_SIZE - MAP_SIZE) / 2}
-              width={MAP_SIZE}
-              height={MAP_SIZE}
-              rx="24"
-              className={styles.mapRect}
-            />
-
-            {segments.map((segment) => (
-              <line
-                key={`line-${segment.from.id}-${segment.to.id}`}
-                x1={STAGE_SIZE / 2 + segment.from.x}
-                y1={STAGE_SIZE / 2 + segment.from.y}
-                x2={STAGE_SIZE / 2 + segment.to.x}
-                y2={STAGE_SIZE / 2 + segment.to.y}
-                className={styles.link}
+            <g transform={`translate(${STAGE_SIZE / 2} ${STAGE_SIZE / 2}) scale(${stageScale}) translate(${-STAGE_SIZE / 2} ${-STAGE_SIZE / 2})`}>
+              <rect
+                x={(STAGE_SIZE - MAP_SIZE) / 2}
+                y={(STAGE_SIZE - MAP_SIZE) / 2}
+                width={MAP_SIZE}
+                height={MAP_SIZE}
+                rx="24"
+                className={styles.mapRect}
               />
-            ))}
 
-            {placedGroups.map((group) => (
-              <line
-                key={`group-link-${group.point.id}`}
-                x1={STAGE_SIZE / 2 + group.point.x}
-                y1={STAGE_SIZE / 2 + group.point.y}
-                x2={STAGE_SIZE / 2 + group.linkTargetX}
-                y2={STAGE_SIZE / 2 + group.linkTargetY}
-                className={styles.groupLink}
-              />
-            ))}
-
-            {placedGroups.map((group) => (
-              <g key={`group-${group.point.id}`}>
-                <rect
-                  x={STAGE_SIZE / 2 + group.rect.left}
-                  y={STAGE_SIZE / 2 + group.rect.top}
-                  width={group.rect.right - group.rect.left}
-                  height={group.rect.bottom - group.rect.top}
-                  rx="20"
-                  className={styles.groupCard}
+              {segments.map((segment) => (
+                <line
+                  key={`line-${segment.from.id}-${segment.to.id}`}
+                  x1={STAGE_SIZE / 2 + segment.from.x}
+                  y1={STAGE_SIZE / 2 + segment.from.y}
+                  x2={STAGE_SIZE / 2 + segment.to.x}
+                  y2={STAGE_SIZE / 2 + segment.to.y}
+                  className={styles.link}
                 />
+              ))}
 
-                {group.photos.map((photo) => (
+              {placedGroups.map((group) => (
+                <line
+                  key={`group-link-${group.point.id}`}
+                  x1={STAGE_SIZE / 2 + group.point.x}
+                  y1={STAGE_SIZE / 2 + group.point.y}
+                  x2={STAGE_SIZE / 2 + group.linkTargetX}
+                  y2={STAGE_SIZE / 2 + group.linkTargetY}
+                  className={styles.groupLink}
+                />
+              ))}
+
+              {placedGroups.map((group) => (
+                <g key={`group-${group.point.id}`}>
                   <rect
-                    key={photo.id}
-                    x={STAGE_SIZE / 2 + group.centerX + photo.offsetX - photo.width / 2}
-                    y={STAGE_SIZE / 2 + group.centerY + photo.offsetY - photo.height / 2}
-                    width={photo.width}
-                    height={photo.height}
-                    rx="14"
-                    className={styles.groupPhoto}
+                    x={STAGE_SIZE / 2 + group.rect.left}
+                    y={STAGE_SIZE / 2 + group.rect.top}
+                    width={group.rect.right - group.rect.left}
+                    height={group.rect.bottom - group.rect.top}
+                    rx="20"
+                    className={styles.groupCard}
                   />
-                ))}
 
-                <text
-                  x={STAGE_SIZE / 2 + group.centerX + group.geometry.labelAnchorX}
-                  y={STAGE_SIZE / 2 + group.centerY + group.geometry.labelAnchorY}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  className={styles.groupLabel}
-                >
-                  {group.title}
-                </text>
+                  {group.photos.map((photo) => (
+                    <rect
+                      key={photo.id}
+                      x={STAGE_SIZE / 2 + group.centerX + photo.offsetX - photo.width / 2}
+                      y={STAGE_SIZE / 2 + group.centerY + photo.offsetY - photo.height / 2}
+                      width={photo.width}
+                      height={photo.height}
+                      rx="14"
+                      className={styles.groupPhoto}
+                    />
+                  ))}
 
-                <circle
-                  cx={STAGE_SIZE / 2 + group.centerX + group.geometry.lineAnchorX}
-                  cy={STAGE_SIZE / 2 + group.centerY + group.geometry.lineAnchorY}
-                  r="5"
-                  className={styles.groupAnchor}
-                />
-              </g>
-            ))}
+                  <text
+                    x={STAGE_SIZE / 2 + group.centerX + group.geometry.labelAnchorX}
+                    y={STAGE_SIZE / 2 + group.centerY + group.geometry.labelAnchorY}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    className={styles.groupLabel}
+                  >
+                    {group.title}
+                  </text>
 
-            {orderedPoints.map((point) => (
-              <g key={`poi-${point.id}`}>
-                <circle
-                  cx={STAGE_SIZE / 2 + point.x}
-                  cy={STAGE_SIZE / 2 + point.y}
-                  r="8"
-                  className={styles.poi}
-                />
-                <text
-                  x={STAGE_SIZE / 2 + point.x}
-                  y={STAGE_SIZE / 2 + point.y - 16}
-                  textAnchor="middle"
-                  className={styles.poiLabel}
-                >
-                  {point.order}
-                </text>
-              </g>
-            ))}
+                  <circle
+                    cx={STAGE_SIZE / 2 + group.centerX + group.geometry.lineAnchorX}
+                    cy={STAGE_SIZE / 2 + group.centerY + group.geometry.lineAnchorY}
+                    r="5"
+                    className={styles.groupAnchor}
+                  />
+                </g>
+              ))}
+
+              {orderedPoints.map((point) => (
+                <g key={`poi-${point.id}`}>
+                  <circle
+                    cx={STAGE_SIZE / 2 + point.x}
+                    cy={STAGE_SIZE / 2 + point.y}
+                    r="8"
+                    className={styles.poi}
+                  />
+                  <text
+                    x={STAGE_SIZE / 2 + point.x}
+                    y={STAGE_SIZE / 2 + point.y - 16}
+                    textAnchor="middle"
+                    className={styles.poiLabel}
+                  >
+                    {point.order}
+                  </text>
+                </g>
+              ))}
+            </g>
           </svg>
         </div>
       </section>
