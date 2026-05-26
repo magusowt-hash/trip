@@ -192,6 +192,64 @@ function buildRadialOrder(points: TestPoint[]) {
   return rotateToBestStart(sortByCenterAngle(points, center.x, center.y));
 }
 
+function countOrderIntersections(points: TestPoint[], orderedPoints: TestPoint[]) {
+  const total = orderedPoints.length;
+  if (total <= 2) return 0;
+
+  const layoutById = new Map<number, number>();
+  orderedPoints.forEach((point, index) => {
+    layoutById.set(point.id, index);
+  });
+
+  let intersections = 0;
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      const pointA = points[i];
+      const pointB = points[j];
+      const targetA = layoutById.get(pointA.id);
+      const targetB = layoutById.get(pointB.id);
+      if (targetA == null || targetB == null) continue;
+
+      const sourceOrder = pointA.id - pointB.id;
+      const targetOrder = targetA - targetB;
+      if (sourceOrder * targetOrder < 0) intersections++;
+    }
+  }
+
+  return intersections;
+}
+
+function reduceOrderCrossings(points: TestPoint[], orderedPoints: TestPoint[]) {
+  if (orderedPoints.length <= 3) return orderedPoints;
+
+  let improved = [...orderedPoints];
+  let bestScore = countOrderIntersections(points, improved);
+
+  for (let pass = 0; pass < 3; pass++) {
+    let changed = false;
+
+    for (let i = 0; i < improved.length - 1; i++) {
+      for (let j = i + 1; j < improved.length; j++) {
+        const candidate = [...improved];
+        const temp = candidate[i];
+        candidate[i] = candidate[j];
+        candidate[j] = temp;
+
+        const candidateScore = countOrderIntersections(points, candidate);
+        if (candidateScore < bestScore) {
+          improved = candidate;
+          bestScore = candidateScore;
+          changed = true;
+        }
+      }
+    }
+
+    if (!changed) break;
+  }
+
+  return improved;
+}
+
 function buildOrderedAngles(groups: Array<TestPoint & { theta: number }>) {
   if (groups.length <= 1) return groups.map((group) => group.theta);
 
@@ -229,7 +287,7 @@ function buildLayout(points: TestPoint[]) {
 
   const radialCenter = computeRadialReferenceCenter(points);
 
-  const orderedRadialPath = buildRadialOrder(points);
+  const orderedRadialPath = reduceOrderCrossings(points, buildRadialOrder(points));
   const orderedPoints = orderedRadialPath.map((point, index) => {
     const relativeX = point.x - radialCenter.x;
     const relativeY = point.y - radialCenter.y;
