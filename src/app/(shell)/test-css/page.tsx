@@ -10,6 +10,7 @@ type TestPoint = {
 };
 
 type LayoutGroup = TestPoint & {
+  order: number;
   theta: number;
   displayTheta: number;
   slotMin: number;
@@ -27,6 +28,7 @@ const STAGE_SIZE = 880;
 const MAP_SIZE = 420;
 const LAYOUT_RADIUS = 300;
 const GROUP_RADIUS = 28;
+const MAX_TWO_OPT_PASSES = 6;
 
 function normalizeRadians(angle: number) {
   let next = angle;
@@ -56,6 +58,118 @@ function buildRandomPoints(count: number) {
     });
   }
   return points;
+}
+
+function distance(a: TestPoint, b: TestPoint) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function pathLength(path: TestPoint[]) {
+  if (path.length <= 1) return 0;
+  let total = 0;
+  for (let i = 0; i < path.length; i++) {
+    total += distance(path[i], path[(i + 1) % path.length]);
+  }
+  return total;
+}
+
+function buildInitialTour(points: TestPoint[]) {
+  if (points.length <= 2) return [...points];
+
+  const sorted = [...points].sort((a, b) => a.id - b.id);
+  let first = sorted[0];
+  let second = sorted[1];
+  let bestDistance = -1;
+
+  for (let i = 0; i < sorted.length; i++) {
+    for (let j = i + 1; j < sorted.length; j++) {
+      const currentDistance = distance(sorted[i], sorted[j]);
+      if (currentDistance > bestDistance) {
+        bestDistance = currentDistance;
+        first = sorted[i];
+        second = sorted[j];
+      }
+    }
+  }
+
+  const remaining = sorted.filter((point) => point.id !== first.id && point.id !== second.id);
+  const tour = [first, second];
+
+  while (remaining.length > 0) {
+    let bestPointIndex = 0;
+    let bestInsertIndex = 0;
+    let bestCost = Number.POSITIVE_INFINITY;
+
+    for (let pointIndex = 0; pointIndex < remaining.length; pointIndex++) {
+      const candidate = remaining[pointIndex];
+      for (let insertIndex = 0; insertIndex < tour.length; insertIndex++) {
+        const current = tour[insertIndex];
+        const next = tour[(insertIndex + 1) % tour.length];
+        const insertionCost = distance(current, candidate) + distance(candidate, next) - distance(current, next);
+        const tieBreaker = candidate.id * 1e-6 + insertIndex * 1e-8;
+        const score = insertionCost + tieBreaker;
+        if (score < bestCost) {
+          bestCost = score;
+          bestPointIndex = pointIndex;
+          bestInsertIndex = insertIndex + 1;
+        }
+      }
+    }
+
+    const [chosen] = remaining.splice(bestPointIndex, 1);
+    tour.splice(bestInsertIndex, 0, chosen);
+  }
+
+  return tour;
+}
+
+function improveTourWithTwoOpt(points: TestPoint[]) {
+  if (points.length < 4) return [...points];
+
+  const tour = [...points];
+
+  for (let pass = 0; pass < MAX_TWO_OPT_PASSES; pass++) {
+    let improved = false;
+
+    for (let i = 0; i < tour.length - 1; i++) {
+      for (let j = i + 2; j < tour.length; j++) {
+        if (i === 0 && j === tour.length - 1) continue;
+
+        const a = tour[i];
+        const b = tour[(i + 1) % tour.length];
+        const c = tour[j];
+        const d = tour[(j + 1) % tour.length];
+
+        const current = distance(a, b) + distance(c, d);
+        const swapped = distance(a, c) + distance(b, d);
+
+        if (swapped + 1e-6 < current) {
+          const reversed = tour.slice(i + 1, j + 1).reverse();
+          tour.splice(i + 1, j - i, ...reversed);
+          improved = true;
+        }
+      }
+    }
+
+    if (!improved) break;
+  }
+
+  return tour;
+}
+
+function buildStableTour(points: TestPoint[]) {
+  const initialTour = buildInitialTour(points);
+  const improvedTour = improveTourWithTwoOpt(initialTour);
+
+  let bestStartIndex = 0;
+  for (let i = 1; i < improvedTour.length; i++) {
+    if (improvedTour[i].id < improvedTour[bestStartIndex].id) bestStartIndex = i;
+  }
+
+  const rotated = improvedTour.map((_, index) => improvedTour[(bestStartIndex + index) % improvedTour.length]);
+  const reversed = [rotated[0], ...rotated.slice(1).reverse()];
+
+  return pathLength(reversed) + 1e-6 < pathLength(rotated) ? reversed : rotated;
 }
 
 function buildOrderedAngles(groups: Array<TestPoint & { theta: number }>) {
@@ -96,18 +210,18 @@ function buildLayout(points: TestPoint[]) {
   const centerX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
   const centerY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
 
-  const orderedPoints = [...points]
-    .map((point) => {
-      const relativeX = point.x - centerX;
-      const relativeY = point.y - centerY;
-      const fallbackX = relativeX === 0 && relativeY === 0 ? point.x : relativeX;
-      const fallbackY = relativeX === 0 && relativeY === 0 ? point.y : relativeY;
-      return {
-        ...point,
-        theta: Math.atan2(fallbackY, fallbackX),
-      };
-    })
-    .sort((a, b) => a.theta - b.theta);
+  const stableTour = buildStableTour(points);
+  const orderedPoints = stableTour.map((point, index) => {
+    const relativeX = point.x - centerX;
+    const relativeY = point.y - centerY;
+    const fallbackX = relativeX === 0 && relativeY === 0 ? point.x : relativeX;
+    const fallbackY = relativeX === 0 && relativeY === 0 ? point.y : relativeY;
+    return {
+      ...point,
+      order: index + 1,
+      theta: Math.atan2(fallbackY, fallbackX),
+    };
+  });
 
   const orderedAngles = buildOrderedAngles(orderedPoints);
   const slots = buildAngleSlots(orderedAngles);
@@ -189,7 +303,7 @@ export default function TestCssPage() {
             <p className={styles.eyebrow}>Order Test</p>
             <h1>随机点排序与连线验证</h1>
             <p className={styles.description}>
-              目标是让坐标点顺序与图片组顺序完全一致，满足 `1-2-3-...-n-1` 的圆周映射，并检查是否存在相交。
+              使用轻量旅行商启发式生成稳定闭环顺序，再映射到圆周显示，检查顺序与相交情况。
             </p>
           </div>
           <div className={styles.controls}>
@@ -198,7 +312,7 @@ export default function TestCssPage() {
               <input
                 type="range"
                 min="3"
-                max="18"
+                max="50"
                 value={count}
                 onChange={(event) => setCount(Number(event.target.value))}
               />
@@ -301,7 +415,7 @@ export default function TestCssPage() {
               <tbody>
                 {layoutGroups.map((group) => (
                   <tr key={group.id}>
-                    <td>{group.id}</td>
+                    <td>{group.id} / {group.order}</td>
                     <td>{group.x.toFixed(1)}, {group.y.toFixed(1)}</td>
                     <td>{(group.theta * 180 / Math.PI).toFixed(1)}°</td>
                     <td>{(group.displayTheta * 180 / Math.PI).toFixed(1)}°</td>
