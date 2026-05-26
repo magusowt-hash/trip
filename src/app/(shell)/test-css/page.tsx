@@ -192,62 +192,31 @@ function buildRadialOrder(points: TestPoint[]) {
   return rotateToBestStart(sortByCenterAngle(points, center.x, center.y));
 }
 
-function countOrderIntersections(points: TestPoint[], orderedPoints: TestPoint[]) {
-  const total = orderedPoints.length;
-  if (total <= 2) return 0;
+function buildLayeredDisplayAngles(orderedPoints: Array<TestPoint & { theta: number }>) {
+  if (orderedPoints.length === 0) return [] as Array<{ theta: number; radius: number }>;
 
-  const layoutById = new Map<number, number>();
-  orderedPoints.forEach((point, index) => {
-    layoutById.set(point.id, index);
+  const orderedAngles = buildOrderedAngles(orderedPoints);
+  const center = computeCenterOfPoints(orderedPoints);
+  const densityBuckets = new Map<number, number>();
+
+  return orderedPoints.map((point, index) => {
+    const baseTheta = orderedAngles[index];
+    const bucketKey = Math.round((baseTheta * 180) / Math.PI / 18);
+    const bucketCount = densityBuckets.get(bucketKey) ?? 0;
+    densityBuckets.set(bucketKey, bucketCount + 1);
+
+    const layerIndex = Math.floor(bucketCount / 2);
+    const side = bucketCount % 2 === 0 ? -1 : 1;
+    const angleOffset = bucketCount === 0 ? 0 : side * Math.min((layerIndex + 1) * (Math.PI / 60), Math.PI / 10);
+    const radialDistance = Math.hypot(point.x - center.x, point.y - center.y);
+    const radiusWeight = radialDistance / Math.max(MAP_SIZE / 2, 1);
+    const radius = LAYOUT_RADIUS + layerIndex * 32 + radiusWeight * 18;
+
+    return {
+      theta: normalizeRadians(baseTheta + angleOffset),
+      radius,
+    };
   });
-
-  let intersections = 0;
-  for (let i = 0; i < points.length; i++) {
-    for (let j = i + 1; j < points.length; j++) {
-      const pointA = points[i];
-      const pointB = points[j];
-      const targetA = layoutById.get(pointA.id);
-      const targetB = layoutById.get(pointB.id);
-      if (targetA == null || targetB == null) continue;
-
-      const sourceOrder = pointA.id - pointB.id;
-      const targetOrder = targetA - targetB;
-      if (sourceOrder * targetOrder < 0) intersections++;
-    }
-  }
-
-  return intersections;
-}
-
-function reduceOrderCrossings(points: TestPoint[], orderedPoints: TestPoint[]) {
-  if (orderedPoints.length <= 3) return orderedPoints;
-
-  let improved = [...orderedPoints];
-  let bestScore = countOrderIntersections(points, improved);
-
-  for (let pass = 0; pass < 3; pass++) {
-    let changed = false;
-
-    for (let i = 0; i < improved.length - 1; i++) {
-      for (let j = i + 1; j < improved.length; j++) {
-        const candidate = [...improved];
-        const temp = candidate[i];
-        candidate[i] = candidate[j];
-        candidate[j] = temp;
-
-        const candidateScore = countOrderIntersections(points, candidate);
-        if (candidateScore < bestScore) {
-          improved = candidate;
-          bestScore = candidateScore;
-          changed = true;
-        }
-      }
-    }
-
-    if (!changed) break;
-  }
-
-  return improved;
 }
 
 function buildOrderedAngles(groups: Array<TestPoint & { theta: number }>) {
@@ -287,7 +256,7 @@ function buildLayout(points: TestPoint[]) {
 
   const radialCenter = computeRadialReferenceCenter(points);
 
-  const orderedRadialPath = reduceOrderCrossings(points, buildRadialOrder(points));
+  const orderedRadialPath = buildRadialOrder(points);
   const orderedPoints = orderedRadialPath.map((point, index) => {
     const relativeX = point.x - radialCenter.x;
     const relativeY = point.y - radialCenter.y;
@@ -300,11 +269,12 @@ function buildLayout(points: TestPoint[]) {
     };
   });
 
-  const orderedAngles = buildOrderedAngles(orderedPoints);
-  const slots = buildAngleSlots(orderedAngles);
+  const layeredDisplay = buildLayeredDisplayAngles(orderedPoints);
+  const slots = buildAngleSlots(layeredDisplay.map((item) => item.theta));
 
   return orderedPoints.map((point, index) => {
-    const displayTheta = orderedAngles[index];
+    const displayTheta = layeredDisplay[index]?.theta ?? point.theta;
+    const displayRadius = layeredDisplay[index]?.radius ?? LAYOUT_RADIUS;
     const slot = slots[index];
     const clampedTheta = Math.min(Math.max(displayTheta, slot.min), slot.max);
     return {
@@ -312,8 +282,8 @@ function buildLayout(points: TestPoint[]) {
       displayTheta,
       slotMin: slot.min,
       slotMax: slot.max,
-      layoutX: Math.cos(clampedTheta) * LAYOUT_RADIUS,
-      layoutY: Math.sin(clampedTheta) * LAYOUT_RADIUS,
+      layoutX: Math.cos(clampedTheta) * displayRadius,
+      layoutY: Math.sin(clampedTheta) * displayRadius,
     };
   });
 }
