@@ -86,8 +86,33 @@ function rotateToBestStart(points: TestPoint[]) {
   return points.map((_, index) => points[(bestIndex + index) % points.length]);
 }
 
+function computeCenterOfPoints(points: TestPoint[]) {
+  if (points.length === 0) return { x: 0, y: 0 };
+  return {
+    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+    y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
+  };
+}
+
+function sortByCenterAngle(points: TestPoint[], centerX?: number, centerY?: number) {
+  if (points.length <= 1) return [...points];
+
+  const center = centerX == null || centerY == null
+    ? computeCenterOfPoints(points)
+    : { x: centerX, y: centerY };
+
+  return [...points]
+    .map((point) => ({
+      point,
+      angle: Math.atan2(point.y - center.y, point.x - center.x),
+      radius: Math.hypot(point.x - center.x, point.y - center.y),
+    }))
+    .sort((a, b) => a.angle - b.angle || b.radius - a.radius || a.point.id - b.point.id)
+    .map(({ point }) => point);
+}
+
 function normalizeLayerDirection(points: TestPoint[]) {
-  if (points.length <= 2) return rotateToBestStart(points);
+  if (points.length <= 2) return rotateToBestStart(sortByCenterAngle(points));
 
   const clockwise = polygonArea(points) < 0 ? [...points] : [...points].reverse();
   const counterClockwise = [...clockwise].reverse();
@@ -100,7 +125,7 @@ function normalizeLayerDirection(points: TestPoint[]) {
 }
 
 function buildConvexHull(points: TestPoint[]) {
-  if (points.length <= 3) return normalizeLayerDirection([...points].sort((a, b) => a.x - b.x || a.y - b.y || a.id - b.id));
+  if (points.length <= 3) return normalizeLayerDirection(sortByCenterAngle(points));
 
   const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y || a.id - b.id);
   const lower: TestPoint[] = [];
@@ -125,58 +150,15 @@ function buildConvexHull(points: TestPoint[]) {
   return normalizeLayerDirection([...lower, ...upper]);
 }
 
-function orderInnerLayer(points: TestPoint[], centerX: number, centerY: number) {
-  return [...points]
-    .map((point) => ({
-      ...point,
-      angle: Math.atan2(point.y - centerY, point.x - centerX),
-      radius: Math.hypot(point.x - centerX, point.y - centerY),
-    }))
-    .sort((a, b) => a.angle - b.angle || b.radius - a.radius || a.id - b.id)
-    .map(({ angle: _angle, radius: _radius, ...point }) => point);
-}
-
-function stitchLayers(outer: TestPoint[], inner: TestPoint[]) {
-  if (outer.length === 0) return [...inner];
-  if (inner.length === 0) return [...outer];
-
-  let bestOuterIndex = 0;
-  let bestInnerIndex = 0;
-  let bestDistance = Number.POSITIVE_INFINITY;
-
-  for (let outerIndex = 0; outerIndex < outer.length; outerIndex++) {
-    for (let innerIndex = 0; innerIndex < inner.length; innerIndex++) {
-      const currentDistance = distance(outer[outerIndex], inner[innerIndex]);
-      if (currentDistance < bestDistance) {
-        bestDistance = currentDistance;
-        bestOuterIndex = outerIndex;
-        bestInnerIndex = innerIndex;
-      }
-    }
-  }
-
-  const rotatedOuter = outer.map((_, index) => outer[(bestOuterIndex + index) % outer.length]);
-  const rotatedInner = inner.map((_, index) => inner[(bestInnerIndex + index) % inner.length]);
-
-  return [...rotatedOuter, ...rotatedInner];
-}
-
-function buildConvexHullOrder(points: TestPoint[]) {
-  if (points.length <= 3) return normalizeLayerDirection([...points]);
-
-  const centerX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
-  const centerY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+function computeRadialReferenceCenter(points: TestPoint[]) {
+  if (points.length <= 2) return computeCenterOfPoints(points);
   const hull = buildConvexHull(points);
-  const hullIds = new Set(hull.map((point) => point.id));
-  const innerPoints = points.filter((point) => !hullIds.has(point.id));
+  return computePolygonCentroid(hull);
+}
 
-  if (innerPoints.length === 0) return hull;
-
-  const orderedInner = innerPoints.length <= 3
-    ? orderInnerLayer(innerPoints, centerX, centerY)
-    : buildConvexHullOrder(innerPoints);
-
-  return stitchLayers(hull, orderedInner);
+function buildRadialOrder(points: TestPoint[]) {
+  const center = computeRadialReferenceCenter(points);
+  return rotateToBestStart(sortByCenterAngle(points, center.x, center.y));
 }
 
 function buildOrderedAngles(groups: Array<TestPoint & { theta: number }>) {
@@ -214,13 +196,12 @@ function buildAngleSlots(angles: number[]) {
 function buildLayout(points: TestPoint[]) {
   if (points.length === 0) return [] as LayoutGroup[];
 
-  const centerX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
-  const centerY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+  const radialCenter = computeRadialReferenceCenter(points);
 
-  const orderedHullPath = buildConvexHullOrder(points);
-  const orderedPoints = orderedHullPath.map((point, index) => {
-    const relativeX = point.x - centerX;
-    const relativeY = point.y - centerY;
+  const orderedRadialPath = buildRadialOrder(points);
+  const orderedPoints = orderedRadialPath.map((point, index) => {
+    const relativeX = point.x - radialCenter.x;
+    const relativeY = point.y - radialCenter.y;
     const fallbackX = relativeX === 0 && relativeY === 0 ? point.x : relativeX;
     const fallbackY = relativeX === 0 && relativeY === 0 ? point.y : relativeY;
     return {
@@ -306,7 +287,7 @@ export default function TestCssPage() {
             <p className={styles.eyebrow}>Order Test</p>
             <h1>随机点排序与连线验证</h1>
             <p className={styles.description}>
-              使用优化版凸包分层算法生成稳定顺序，再映射到圆周显示，检查顺序与相交情况。
+              使用凸包质心修正后的全量极角排序生成稳定顺序，再映射到圆周显示，检查顺序与相交情况。
             </p>
           </div>
           <div className={styles.controls}>
