@@ -56,6 +56,7 @@ const ANGLE_BOUND = 1e-3;
 const SHARP_ANGLE = (150 * Math.PI) / 180;
 const NORMAL_ANGLE = (60 * Math.PI) / 180;
 const MAX_RADIAL_PULL_PASSES = 3;
+const DENSITY_NEIGHBOR_SPAN = 2;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -315,7 +316,27 @@ function classifyCurvature(prevNormal: { x: number; y: number }, nextNormal: { x
   return { beta, kind: 'smooth' as const };
 }
 
-function resolveOutwardNormal(points: LayoutGroup[], index: number) {
+function computeLocalDensity(points: LayoutGroup[], index: number) {
+  if (points.length <= 2) return 0;
+  const point = points[index];
+  let totalDistance = 0;
+  let sampleCount = 0;
+
+  for (let step = 1; step <= Math.min(DENSITY_NEIGHBOR_SPAN, Math.floor(points.length / 2)); step++) {
+    const prev = points[(index - step + points.length) % points.length];
+    const next = points[(index + step) % points.length];
+    totalDistance += distance(point, prev);
+    totalDistance += distance(point, next);
+    sampleCount += 2;
+  }
+
+  if (sampleCount === 0) return 0;
+  const avgDistance = totalDistance / sampleCount;
+  const mapNormalized = avgDistance / Math.max(MAP_SIZE, 1);
+  return Math.max(0, Math.min(1, 1 - mapNormalized * 3.2));
+}
+
+function resolveOutwardNormal(points: LayoutGroup[], index: number, localDensity: number) {
   const pointCount = points.length;
   const orientation = polygonArea(points);
   const point = points[index];
@@ -358,10 +379,17 @@ function resolveOutwardNormal(points: LayoutGroup[], index: number) {
     resolved = slerpVector(prevNormal, nextNormal, 0.5);
   }
 
+  if (!boundaryPoint && localDensity > 0.42) {
+    const densityBlend = Math.min(0.72, (localDensity - 0.42) / 0.58);
+    const softened = slerpVector(prevNormal, nextNormal, 0.5);
+    resolved = slerpVector(resolved, softened, densityBlend * 0.7);
+  }
+
   const outward = resolved.x * fallback.x + resolved.y * fallback.y >= 0
     ? resolved
     : { x: -resolved.x, y: -resolved.y };
-  const concaveBlend = isConcave ? Math.min(0.56, 0.18 + concaveDepth / Math.max(edgeSpan, 1) * 0.55) : 0;
+  const concaveBlendBase = isConcave ? Math.min(0.56, 0.18 + concaveDepth / Math.max(edgeSpan, 1) * 0.55) : 0;
+  const concaveBlend = Math.min(0.82, concaveBlendBase + localDensity * 0.18);
   const stabilized = concaveBlend > 0
     ? normalizeVector(
       outward.x * (1 - concaveBlend) + fallback.x * concaveBlend,
@@ -374,6 +402,7 @@ function resolveOutwardNormal(points: LayoutGroup[], index: number) {
     crowdAngle,
     concaveDepth,
     isConcave,
+    localDensity,
   };
 }
 
@@ -383,8 +412,10 @@ function buildOutwardVector(points: LayoutGroup[], index: number): {
   crowdAngle: number;
   concaveDepth: number;
   isConcave: boolean;
+  localDensity: number;
 } {
-  const resolved = resolveOutwardNormal(points, index);
+  const localDensity = computeLocalDensity(points, index);
+  const resolved = resolveOutwardNormal(points, index, localDensity);
 
   return {
     x: resolved.vector.x,
@@ -392,6 +423,7 @@ function buildOutwardVector(points: LayoutGroup[], index: number): {
     crowdAngle: resolved.crowdAngle,
     concaveDepth: resolved.concaveDepth,
     isConcave: resolved.isConcave,
+    localDensity: resolved.localDensity,
   };
 }
 
@@ -417,7 +449,7 @@ function computeRayExitDistance(
 
 function computeAdaptiveVectorLength(
   point: LayoutGroup,
-  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean },
+  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean; localDensity: number },
   rect: LogicalRect,
 ): number {
   const width = rect.right - rect.left;
@@ -435,7 +467,8 @@ function computeAdaptiveVectorLength(
   const concaveCompression = direction.isConcave
     ? Math.max(0.45, 1 - Math.min(0.42, direction.concaveDepth / Math.max(diagonal, 1)))
     : 1;
-  const extraLength = (maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8)) * concaveCompression;
+  const densityCompression = 1 - Math.min(0.28, direction.localDensity * 0.24);
+  const extraLength = (maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8)) * concaveCompression * densityCompression;
   return exitDistance + extraLength;
 }
 
