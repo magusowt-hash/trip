@@ -60,6 +60,7 @@ const DENSITY_NEIGHBOR_SPAN = 3;
 const MAX_DENSITY_ANGLE_SHIFT = Math.PI / 7;
 const MAX_LINK_AVOID_PASSES = 8;
 const LINK_AVOID_ANGLE_STEP = Math.PI / 40;
+const INITIAL_DENSITY_ANGLE_SHIFT = Math.PI / 5;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -744,6 +745,12 @@ function avoidLinkCrossings(
     centerY: number;
   }>,
   occupiedRects: LogicalRect[],
+  lockedGroups: Array<{
+    point: LayoutGroup;
+    geometry: ReturnType<typeof buildGroupGeometryFromPhotoRect>;
+    centerX: number;
+    centerY: number;
+  }> = [],
 ) {
   const centers = groups.map((group) => ({ x: group.centerX, y: group.centerY }));
 
@@ -755,6 +762,19 @@ function avoidLinkCrossings(
       const center = centers[index];
       const currentTarget = findLinkTarget(group.point, group.geometry, center.x, center.y);
       let hasCrossing = false;
+
+      for (const lockedGroup of lockedGroups) {
+        const lockedTarget = findLinkTarget(
+          lockedGroup.point,
+          lockedGroup.geometry,
+          lockedGroup.centerX,
+          lockedGroup.centerY,
+        );
+        if (lineSegmentsIntersect(group.point, currentTarget, lockedGroup.point, lockedTarget)) {
+          hasCrossing = true;
+          break;
+        }
+      }
 
       for (let prevIndex = 0; prevIndex < index; prevIndex++) {
         const prevGroup = groups[prevIndex];
@@ -772,7 +792,7 @@ function avoidLinkCrossings(
       const baseAngle = Math.atan2(center.y - group.point.y, center.x - group.point.x);
       let resolvedCenter = center;
 
-      for (let offsetStep = 1; offsetStep <= 6; offsetStep++) {
+      for (let offsetStep = 1; offsetStep <= 12; offsetStep++) {
         const candidateAngles = [
           baseAngle - LINK_AVOID_ANGLE_STEP * offsetStep,
           baseAngle + LINK_AVOID_ANGLE_STEP * offsetStep,
@@ -795,6 +815,19 @@ function avoidLinkCrossings(
           const candidateTarget = findLinkTarget(group.point, group.geometry, candidateCenter.x, candidateCenter.y);
 
           let conflict = false;
+          for (const lockedGroup of lockedGroups) {
+            const lockedTarget = findLinkTarget(
+              lockedGroup.point,
+              lockedGroup.geometry,
+              lockedGroup.centerX,
+              lockedGroup.centerY,
+            );
+            if (lineSegmentsIntersect(group.point, candidateTarget, lockedGroup.point, lockedTarget)) {
+              conflict = true;
+              break;
+            }
+          }
+
           for (let prevIndex = 0; prevIndex < index; prevIndex++) {
             const prevGroup = groups[prevIndex];
             const prevCenter = centers[prevIndex];
@@ -821,6 +854,47 @@ function avoidLinkCrossings(
   }
 
   return centers;
+}
+
+function avoidGlobalLinkCrossings(
+  groups: MockGroup[],
+) {
+  const ordered = [...groups].sort((a, b) => a.point.order - b.point.order);
+  const resolved: MockGroup[] = [];
+
+  for (const group of ordered) {
+    const adjustedCenter = avoidLinkCrossings(
+      [{
+        point: group.point,
+        rect: group.rect,
+        geometry: group.geometry,
+        centerX: group.centerX,
+        centerY: group.centerY,
+      }],
+      resolved.map((item) => item.rect),
+      resolved.map((item) => ({
+        point: item.point,
+        geometry: item.geometry,
+        centerX: item.centerX,
+        centerY: item.centerY,
+      })),
+    )[0];
+
+    const centerX = adjustedCenter.x;
+    const centerY = adjustedCenter.y;
+    const rect = translateRect(group.geometry.overallRect, centerX, centerY);
+    const linkTarget = findLinkTarget(group.point, group.geometry, centerX, centerY);
+    resolved.push({
+      ...group,
+      centerX,
+      centerY,
+      rect,
+      linkTargetX: linkTarget.x,
+      linkTargetY: linkTarget.y,
+    });
+  }
+
+  return resolved.sort((a, b) => a.point.order - b.point.order);
 }
 
 function edgesCross(a: TestPoint, b: TestPoint, c: TestPoint, d: TestPoint) {
@@ -1095,15 +1169,18 @@ export default function TestCssPage() {
         const direction = directions[index];
         const baseLength = computeAdaptiveVectorLength(point, direction, geometry.overallRect);
         const layerStep = computeLayerStep(geometry.overallRect);
-        let centerX = point.x + direction.x * baseLength;
-        let centerY = point.y + direction.y * baseLength;
+        const baseAngle = Math.atan2(direction.y, direction.x);
+        const densityAngleBias = direction.densityDrift * direction.localDensity * INITIAL_DENSITY_ANGLE_SHIFT;
+        const initialAngle = baseAngle + densityAngleBias;
+        let centerX = point.x + Math.cos(initialAngle) * baseLength;
+        let centerY = point.y + Math.sin(initialAngle) * baseLength;
         const groupRect = geometry.overallRect;
         let placedRect = translateRect(groupRect, centerX, centerY);
 
         for (let ring = 0; ring < MAX_VECTOR_LAYERS; ring++) {
           const nextLength = baseLength + ring * layerStep;
-          const nextCenterX = point.x + direction.x * nextLength;
-          const nextCenterY = point.y + direction.y * nextLength;
+          const nextCenterX = point.x + Math.cos(initialAngle) * nextLength;
+          const nextCenterY = point.y + Math.sin(initialAngle) * nextLength;
           const nextRect = translateRect(groupRect, nextCenterX, nextCenterY);
           if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
             continue;
@@ -1144,6 +1221,12 @@ export default function TestCssPage() {
           centerY: constrainedCenters[index].y,
         })),
         placed.map((group) => group.rect),
+        placed.map((group) => ({
+          point: group.point,
+          geometry: group.geometry,
+          centerX: group.centerX,
+          centerY: group.centerY,
+        })),
       );
       for (let index = 0; index < provisionalGroups.length; index++) {
         const group = provisionalGroups[index];
@@ -1162,7 +1245,7 @@ export default function TestCssPage() {
       }
     }
 
-    return placed;
+    return avoidGlobalLinkCrossings(placed);
   }, [layeredPoints]);
 
   return (
