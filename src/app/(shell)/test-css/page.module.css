@@ -1,6 +1,7 @@
 .rootFull {
   position: fixed;
   inset: 0;
+  z-index: 60;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
   background:
@@ -10,7 +11,21 @@
   overflow: hidden;
 }
 
+.rootFull::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 96px;
+  background:
+    radial-gradient(circle at top, rgba(14, 165, 233, 0.18), transparent 30%),
+    linear-gradient(180deg, #f8fafc 0%, rgba(248, 250, 252, 0.92) 100%);
+  z-index: 1;
+  pointer-events: none;
+}
+
 .stagePane {
+  position: relative;
+  z-index: 2;
   min-width: 0;
   padding: 28px;
   display: flex;
@@ -19,6 +34,8 @@
 }
 
 .sidePanel {
+  position: relative;
+  z-index: 2;
   border-left: 1px solid rgba(148, 163, 184, 0.28);
   background: rgba(255, 255, 255, 0.76);
   backdrop-filter: blur(18px);
