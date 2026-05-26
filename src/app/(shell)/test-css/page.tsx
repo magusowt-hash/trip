@@ -185,51 +185,6 @@ function buildRadialOrder(points: TestPoint[]) {
   return rotateToBestStart(sortByCenterAngle(points, center.x, center.y));
 }
 
-function angleBetweenPoints(from: TestPoint, to: TestPoint) {
-  return Math.atan2(to.y - from.y, to.x - from.x);
-}
-
-function angleDelta(fromAngle: number, toAngle: number) {
-  return Math.abs(normalizeRadians(toAngle - fromAngle));
-}
-
-function refineOrderByProximity(orderedPoints: TestPoint[]) {
-  if (orderedPoints.length <= 3) return orderedPoints;
-
-  const remaining = [...orderedPoints];
-  const refined: TestPoint[] = [];
-  let current = remaining.shift()!;
-  refined.push(current);
-  let heading = remaining.length > 0 ? angleBetweenPoints(current, remaining[0]) : 0;
-
-  const windowSize = Math.min(5, remaining.length);
-
-  while (remaining.length > 0) {
-    const candidateLimit = Math.min(windowSize, remaining.length);
-    let bestIndex = 0;
-    let bestScore = Number.POSITIVE_INFINITY;
-
-    for (let index = 0; index < candidateLimit; index++) {
-      const candidate = remaining[index];
-      const distanceScore = distance(current, candidate);
-      const candidateHeading = angleBetweenPoints(current, candidate);
-      const turnPenalty = angleDelta(heading, candidateHeading) * 90;
-      const orderPenalty = index * 14;
-      const score = distanceScore + turnPenalty + orderPenalty;
-      if (score < bestScore) {
-        bestScore = score;
-        bestIndex = index;
-      }
-    }
-
-    current = remaining.splice(bestIndex, 1)[0];
-    heading = refined.length > 0 ? angleBetweenPoints(refined[refined.length - 1], current) : heading;
-    refined.push(current);
-  }
-
-  return rotateToBestStart(refined);
-}
-
 function buildOrderedAngles(groups: Array<TestPoint & { theta: number }>) {
   if (groups.length <= 1) return groups.map((group) => group.theta);
 
@@ -262,12 +217,59 @@ function buildAngleSlots(angles: number[]) {
   });
 }
 
+function edgesCross(a: TestPoint, b: TestPoint, c: TestPoint, d: TestPoint) {
+  if (a.id === c.id || a.id === d.id || b.id === c.id || b.id === d.id) return false;
+
+  const abC = orientationCross(a, b, c);
+  const abD = orientationCross(a, b, d);
+  const cdA = orientationCross(c, d, a);
+  const cdB = orientationCross(c, d, b);
+
+  return abC * abD < 0 && cdA * cdB < 0;
+}
+
+function buildImprovedCycle(points: TestPoint[]) {
+  if (points.length <= 3) return points;
+
+  const cycle = [...points];
+
+  for (let pass = 0; pass < 8; pass++) {
+    let changed = false;
+
+    for (let i = 0; i < cycle.length; i++) {
+      const a = cycle[i];
+      const b = cycle[(i + 1) % cycle.length];
+
+      for (let j = i + 2; j < cycle.length; j++) {
+        if (i === 0 && j === cycle.length - 1) continue;
+
+        const c = cycle[j];
+        const d = cycle[(j + 1) % cycle.length];
+
+        if (!edgesCross(a, b, c, d)) continue;
+
+        const currentCost = distance(a, b) + distance(c, d);
+        const swappedCost = distance(a, c) + distance(b, d);
+        if (swappedCost <= currentCost + 1e-6) {
+          const reversed = cycle.slice(i + 1, j + 1).reverse();
+          cycle.splice(i + 1, j - i, ...reversed);
+          changed = true;
+        }
+      }
+    }
+
+    if (!changed) break;
+  }
+
+  return rotateToBestStart(cycle);
+}
+
 function buildLayout(points: TestPoint[]) {
   if (points.length === 0) return [] as LayoutGroup[];
 
   const radialCenter = computeRadialReferenceCenter(points);
 
-  const orderedRadialPath = refineOrderByProximity(buildRadialOrder(points));
+  const orderedRadialPath = buildImprovedCycle(buildRadialOrder(points));
   return orderedRadialPath.map((point, index) => {
     const relativeX = point.x - radialCenter.x;
     const relativeY = point.y - radialCenter.y;
@@ -291,17 +293,7 @@ function segmentsIntersect(first: Segment, second: Segment) {
     return false;
   }
 
-  const a = first.from;
-  const b = first.to;
-  const c = second.from;
-  const d = second.to;
-
-  const abC = orientationCross(a, b, c);
-  const abD = orientationCross(a, b, d);
-  const cdA = orientationCross(c, d, a);
-  const cdB = orientationCross(c, d, b);
-
-  return abC * abD < 0 && cdA * cdB < 0;
+  return edgesCross(first.from, first.to, second.from, second.to);
 }
 
 function countIntersections(segments: Segment[]) {
@@ -410,7 +402,7 @@ export default function TestCssPage() {
                   <circle
                     cx={STAGE_SIZE / 2 + point.x}
                     cy={STAGE_SIZE / 2 + point.y}
-                    r="10"
+                    r="16"
                     className={styles.poi}
                   />
                   <text
