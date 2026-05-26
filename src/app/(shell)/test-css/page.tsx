@@ -57,6 +57,9 @@ const SHARP_ANGLE = (150 * Math.PI) / 180;
 const NORMAL_ANGLE = (60 * Math.PI) / 180;
 const MAX_RADIAL_PULL_PASSES = 3;
 const DENSITY_NEIGHBOR_SPAN = 3;
+const MAX_DENSITY_ANGLE_SHIFT = Math.PI / 7;
+const MAX_LINK_AVOID_PASSES = 8;
+const LINK_AVOID_ANGLE_STEP = Math.PI / 40;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -375,7 +378,33 @@ function computeLocalDensity(points: LayoutGroup[], index: number) {
   return Math.max(0, Math.min(1, 1 - normalizedGap / 1.35));
 }
 
-function resolveOutwardNormal(points: LayoutGroup[], index: number, localDensity: number) {
+function computeDensityDrift(points: LayoutGroup[], index: number) {
+  if (points.length <= 2) return 0;
+
+  let drift = 0;
+  let weightSum = 0;
+  for (let step = 1; step <= Math.min(DENSITY_NEIGHBOR_SPAN, Math.floor(points.length / 2)); step++) {
+    const prevDensity = computeLocalDensity(points, (index - step + points.length) % points.length);
+    const nextDensity = computeLocalDensity(points, (index + step) % points.length);
+    const weight = 1 / step;
+    drift += (prevDensity - nextDensity) * weight;
+    weightSum += weight;
+  }
+
+  if (weightSum < TOL) return 0;
+  return Math.max(-1, Math.min(1, drift / weightSum));
+}
+
+function rotateVector(vector: { x: number; y: number }, angle: number) {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return {
+    x: vector.x * cos - vector.y * sin,
+    y: vector.x * sin + vector.y * cos,
+  };
+}
+
+function resolveOutwardNormal(points: LayoutGroup[], index: number, localDensity: number, densityDrift: number) {
   const pointCount = points.length;
   const orientation = polygonArea(points);
   const point = points[index];
@@ -424,6 +453,11 @@ function resolveOutwardNormal(points: LayoutGroup[], index: number, localDensity
     resolved = slerpVector(resolved, softened, densityBlend * 0.82);
   }
 
+  if (Math.abs(densityDrift) > 0.08 && localDensity > 0.28) {
+    const driftAngle = densityDrift * localDensity * MAX_DENSITY_ANGLE_SHIFT;
+    resolved = rotateVector(resolved, driftAngle);
+  }
+
   const outward = resolved.x * fallback.x + resolved.y * fallback.y >= 0
     ? resolved
     : { x: -resolved.x, y: -resolved.y };
@@ -452,9 +486,11 @@ function buildOutwardVector(points: LayoutGroup[], index: number): {
   concaveDepth: number;
   isConcave: boolean;
   localDensity: number;
+  densityDrift: number;
 } {
   const localDensity = computeLocalDensity(points, index);
-  const resolved = resolveOutwardNormal(points, index, localDensity);
+  const densityDrift = computeDensityDrift(points, index);
+  const resolved = resolveOutwardNormal(points, index, localDensity, densityDrift);
 
   return {
     x: resolved.vector.x,
@@ -463,6 +499,7 @@ function buildOutwardVector(points: LayoutGroup[], index: number): {
     concaveDepth: resolved.concaveDepth,
     isConcave: resolved.isConcave,
     localDensity: resolved.localDensity,
+    densityDrift,
   };
 }
 
@@ -488,7 +525,7 @@ function computeRayExitDistance(
 
 function computeAdaptiveVectorLength(
   point: LayoutGroup,
-  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean; localDensity: number },
+  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean; localDensity: number; densityDrift: number },
   rect: LogicalRect,
 ): number {
   const width = rect.right - rect.left;
@@ -506,7 +543,7 @@ function computeAdaptiveVectorLength(
   const concaveCompression = direction.isConcave
     ? Math.max(0.45, 1 - Math.min(0.42, direction.concaveDepth / Math.max(diagonal, 1)))
     : 1;
-  const densityCompression = 1 - Math.min(0.36, direction.localDensity * 0.34);
+  const densityCompression = 1 - Math.min(0.42, direction.localDensity * (0.26 + Math.abs(direction.densityDrift) * 0.18));
   const extraLength = (maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8)) * concaveCompression * densityCompression;
   return exitDistance + extraLength;
 }
@@ -675,6 +712,115 @@ function intersectRayWithRect(fromX: number, fromY: number, rect: LogicalRect) {
 
   const hit = candidates.sort((a, b) => a.t - b.t)[0];
   return hit ? { x: hit.x, y: hit.y } : { x: centerX, y: centerY };
+}
+
+function lineSegmentsIntersect(
+  aStart: { x: number; y: number },
+  aEnd: { x: number; y: number },
+  bStart: { x: number; y: number },
+  bEnd: { x: number; y: number },
+) {
+  const a = { id: -1, x: aStart.x, y: aStart.y };
+  const b = { id: -2, x: aEnd.x, y: aEnd.y };
+  const c = { id: -3, x: bStart.x, y: bStart.y };
+  const d = { id: -4, x: bEnd.x, y: bEnd.y };
+  return edgesCross(a, b, c, d);
+}
+
+function findLinkTarget(point: LayoutGroup, geometry: ReturnType<typeof buildGroupGeometryFromPhotoRect>, centerX: number, centerY: number) {
+  return intersectRayWithRect(
+    point.x,
+    point.y,
+    translateRect(geometry.photoRect, centerX, centerY),
+  );
+}
+
+function avoidLinkCrossings(
+  groups: Array<{
+    point: LayoutGroup;
+    rect: LogicalRect;
+    geometry: ReturnType<typeof buildGroupGeometryFromPhotoRect>;
+    centerX: number;
+    centerY: number;
+  }>,
+  occupiedRects: LogicalRect[],
+) {
+  const centers = groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+
+  for (let pass = 0; pass < MAX_LINK_AVOID_PASSES; pass++) {
+    let changed = false;
+
+    for (let index = 0; index < groups.length; index++) {
+      const group = groups[index];
+      const center = centers[index];
+      const currentTarget = findLinkTarget(group.point, group.geometry, center.x, center.y);
+      let hasCrossing = false;
+
+      for (let prevIndex = 0; prevIndex < index; prevIndex++) {
+        const prevGroup = groups[prevIndex];
+        const prevCenter = centers[prevIndex];
+        const prevTarget = findLinkTarget(prevGroup.point, prevGroup.geometry, prevCenter.x, prevCenter.y);
+        if (lineSegmentsIntersect(group.point, currentTarget, prevGroup.point, prevTarget)) {
+          hasCrossing = true;
+          break;
+        }
+      }
+
+      if (!hasCrossing) continue;
+
+      const baseRadius = Math.hypot(center.x - group.point.x, center.y - group.point.y);
+      const baseAngle = Math.atan2(center.y - group.point.y, center.x - group.point.x);
+      let resolvedCenter = center;
+
+      for (let offsetStep = 1; offsetStep <= 6; offsetStep++) {
+        const candidateAngles = [
+          baseAngle - LINK_AVOID_ANGLE_STEP * offsetStep,
+          baseAngle + LINK_AVOID_ANGLE_STEP * offsetStep,
+        ];
+
+        for (const candidateAngle of candidateAngles) {
+          const blockedRects = [...occupiedRects];
+          for (let otherIndex = 0; otherIndex < groups.length; otherIndex++) {
+            if (otherIndex === index) continue;
+            blockedRects.push(translateRect(groups[otherIndex].rect, centers[otherIndex].x, centers[otherIndex].y));
+          }
+
+          const candidateCenter = findRelaxedCenter(
+            group.point,
+            group.rect,
+            candidateAngle,
+            baseRadius,
+            blockedRects,
+          );
+          const candidateTarget = findLinkTarget(group.point, group.geometry, candidateCenter.x, candidateCenter.y);
+
+          let conflict = false;
+          for (let prevIndex = 0; prevIndex < index; prevIndex++) {
+            const prevGroup = groups[prevIndex];
+            const prevCenter = centers[prevIndex];
+            const prevTarget = findLinkTarget(prevGroup.point, prevGroup.geometry, prevCenter.x, prevCenter.y);
+            if (lineSegmentsIntersect(group.point, candidateTarget, prevGroup.point, prevTarget)) {
+              conflict = true;
+              break;
+            }
+          }
+
+          if (!conflict) {
+            resolvedCenter = candidateCenter;
+            changed = true;
+            offsetStep = 999;
+            break;
+          }
+        }
+      }
+
+      centers[index] = resolvedCenter;
+    }
+
+    if (!changed) break;
+  }
+
+  return centers;
 }
 
 function edgesCross(a: TestPoint, b: TestPoint, c: TestPoint, d: TestPoint) {
@@ -991,12 +1137,20 @@ export default function TestCssPage() {
         })),
         placed.map((group) => group.rect),
       );
+      const resolvedCenters = avoidLinkCrossings(
+        provisionalGroups.map((group, index) => ({
+          ...group,
+          centerX: constrainedCenters[index].x,
+          centerY: constrainedCenters[index].y,
+        })),
+        placed.map((group) => group.rect),
+      );
       for (let index = 0; index < provisionalGroups.length; index++) {
         const group = provisionalGroups[index];
-        const centerX = constrainedCenters[index].x;
-        const centerY = constrainedCenters[index].y;
+        const centerX = resolvedCenters[index].x;
+        const centerY = resolvedCenters[index].y;
         const placedRect = translateRect(group.rect, centerX, centerY);
-        const linkTarget = intersectRayWithRect(group.point.x, group.point.y, translateRect(group.geometry.photoRect, centerX, centerY));
+        const linkTarget = findLinkTarget(group.point, group.geometry, centerX, centerY);
         placed.push({
           ...group,
           centerX,
