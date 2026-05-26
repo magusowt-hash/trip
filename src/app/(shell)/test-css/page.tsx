@@ -360,7 +360,7 @@ export default function TestCssPage() {
                 <circle
                   cx={STAGE_SIZE / 2 + point.x}
                   cy={STAGE_SIZE / 2 + point.y}
-                  r="16"
+                  r="11"
                   className={styles.poi}
                 />
                 <text
