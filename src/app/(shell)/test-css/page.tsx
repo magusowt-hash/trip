@@ -192,6 +192,39 @@ function buildRadialOrder(points: TestPoint[]) {
   return rotateToBestStart(sortByCenterAngle(points, center.x, center.y));
 }
 
+function refineOrderByProximity(orderedPoints: TestPoint[]) {
+  if (orderedPoints.length <= 3) return orderedPoints;
+
+  const remaining = [...orderedPoints];
+  const refined: TestPoint[] = [];
+  let current = remaining.shift()!;
+  refined.push(current);
+
+  const windowSize = Math.min(5, remaining.length);
+
+  while (remaining.length > 0) {
+    const candidateLimit = Math.min(windowSize, remaining.length);
+    let bestIndex = 0;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (let index = 0; index < candidateLimit; index++) {
+      const candidate = remaining[index];
+      const distanceScore = distance(current, candidate);
+      const orderPenalty = index * 18;
+      const score = distanceScore + orderPenalty;
+      if (score < bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    }
+
+    current = remaining.splice(bestIndex, 1)[0];
+    refined.push(current);
+  }
+
+  return rotateToBestStart(refined);
+}
+
 function buildLayeredDisplayAngles(orderedPoints: Array<TestPoint & { theta: number }>) {
   if (orderedPoints.length === 0) return [] as Array<{ theta: number; radius: number }>;
 
@@ -256,7 +289,7 @@ function buildLayout(points: TestPoint[]) {
 
   const radialCenter = computeRadialReferenceCenter(points);
 
-  const orderedRadialPath = buildRadialOrder(points);
+  const orderedRadialPath = refineOrderByProximity(buildRadialOrder(points));
   const orderedPoints = orderedRadialPath.map((point, index) => {
     const relativeX = point.x - radialCenter.x;
     const relativeY = point.y - radialCenter.y;
