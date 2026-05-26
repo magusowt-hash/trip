@@ -49,6 +49,7 @@ const MOCK_MAX_PHOTOS = 5;
 const MIN_STAGE_SCALE = 0.54;
 const GROUP_SAFE_GAP = 14;
 const MAX_VECTOR_LAYERS = 24;
+const MAX_ANGULAR_RELAX_PASSES = 10;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -254,40 +255,89 @@ function normalizeVector(x: number, y: number) {
   return { x: x / length, y: y / length };
 }
 
+function normalizeAngle(angle: number) {
+  const tau = Math.PI * 2;
+  const normalized = angle % tau;
+  return normalized >= 0 ? normalized : normalized + tau;
+}
+
+function shortestSignedAngleDelta(from: number, to: number) {
+  const tau = Math.PI * 2;
+  let delta = normalizeAngle(to) - normalizeAngle(from);
+  if (delta > Math.PI) delta -= tau;
+  if (delta < -Math.PI) delta += tau;
+  return delta;
+}
+
 function buildOutwardVector(points: LayoutGroup[], index: number): {
   x: number;
   y: number;
   crowdAngle: number;
+  concaveDepth: number;
+  isConcave: boolean;
 } {
   const point = points[index];
   const pointCount = points.length;
   const orientation = polygonArea(points);
-  const center = computeCenterOfPoints(points);
+  const polygonCentroid = computePolygonCentroid(points);
+  const fallback = normalizeVector(point.x - polygonCentroid.x, point.y - polygonCentroid.y);
 
   if (pointCount === 1) {
-    const fallback = normalizeVector(point.x - center.x, point.y - center.y);
-    return { x: fallback.x, y: fallback.y, crowdAngle: Math.PI / 2 };
+    return {
+      x: fallback.x,
+      y: fallback.y,
+      crowdAngle: Math.PI / 2,
+      concaveDepth: 0,
+      isConcave: false,
+    };
   }
 
   const prev = points[(index - 1 + pointCount) % pointCount];
   const next = points[(index + 1) % pointCount];
   const incoming = normalizeVector(point.x - prev.x, point.y - prev.y);
   const outgoing = normalizeVector(next.x - point.x, next.y - point.y);
+  const edgeSpan = Math.max(1e-6, distance(prev, next));
+  const turnCross = orientationCross(prev, point, next);
+  const signedTurn = orientation >= 0 ? turnCross : -turnCross;
+  const concaveDepth = Math.max(0, -signedTurn) / edgeSpan;
+  const isConcave = signedTurn < 0;
   const buildNormal = orientation >= 0
     ? (vx: number, vy: number) => ({ x: vy, y: -vx })
     : (vx: number, vy: number) => ({ x: -vy, y: vx });
   const prevNormal = buildNormal(incoming.x, incoming.y);
   const nextNormal = buildNormal(outgoing.x, outgoing.y);
   const merged = normalizeVector(prevNormal.x + nextNormal.x, prevNormal.y + nextNormal.y);
-  const fallback = normalizeVector(point.x - center.x, point.y - center.y);
   const dot = Math.max(-1, Math.min(1, prevNormal.x * nextNormal.x + prevNormal.y * nextNormal.y));
   const crowdAngle = Math.acos(dot);
+  const concaveBlend = isConcave ? Math.min(0.82, 0.3 + concaveDepth / Math.max(edgeSpan, 1) * 0.9) : 0;
 
   if (Math.abs(merged.x) < 1e-6 && Math.abs(merged.y) < 1e-6) {
-    return { x: fallback.x, y: fallback.y, crowdAngle };
+    return {
+      x: fallback.x,
+      y: fallback.y,
+      crowdAngle,
+      concaveDepth,
+      isConcave,
+    };
   }
 
-  return { x: merged.x, y: merged.y, crowdAngle };
+  const outward = merged.x * fallback.x + merged.y * fallback.y >= 0
+    ? merged
+    : { x: -merged.x, y: -merged.y };
+  const stabilized = concaveBlend > 0
+    ? normalizeVector(
+      outward.x * (1 - concaveBlend) + fallback.x * concaveBlend,
+      outward.y * (1 - concaveBlend) + fallback.y * concaveBlend,
+    )
+    : outward;
+
+  return {
+    x: stabilized.x,
+    y: stabilized.y,
+    crowdAngle,
+    concaveDepth,
+    isConcave,
+  };
 }
 
 function computeRayExitDistance(
@@ -312,7 +362,7 @@ function computeRayExitDistance(
 
 function computeAdaptiveVectorLength(
   point: LayoutGroup,
-  direction: { x: number; y: number; crowdAngle: number },
+  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean },
   rect: LogicalRect,
 ): number {
   const width = rect.right - rect.left;
@@ -327,13 +377,25 @@ function computeAdaptiveVectorLength(
   };
   const exitDistance = computeRayExitDistance(point.x, point.y, direction.x, direction.y, expandedMapRect);
   const crowdRatio = 1 - Math.min(direction.crowdAngle, Math.PI) / Math.PI;
-  return exitDistance + maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8);
+  const concaveCompression = direction.isConcave
+    ? Math.max(0.45, 1 - Math.min(0.42, direction.concaveDepth / Math.max(diagonal, 1)))
+    : 1;
+  const extraLength = (maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8)) * concaveCompression;
+  return exitDistance + extraLength;
 }
 
 function computeLayerStep(rect: LogicalRect): number {
   const width = rect.right - rect.left;
   const height = rect.bottom - rect.top;
   return Math.max(GROUP_SAFE_GAP * 1.5, Math.max(width, height) * 0.45);
+}
+
+function computeAngularHalfSpan(rect: LogicalRect, radius: number) {
+  if (radius < 1e-6) return Math.PI / 2;
+  const width = rect.right - rect.left;
+  const height = rect.bottom - rect.top;
+  const diameter = Math.hypot(width, height) + GROUP_SAFE_GAP * 2;
+  return Math.min(Math.PI / 2, Math.asin(Math.min(0.999, diameter / (2 * radius))));
 }
 
 function buildMockPhotos(group: LayoutGroup) {
@@ -469,8 +531,6 @@ function buildImprovedCycle(points: TestPoint[]) {
 function buildLayout(points: TestPoint[]) {
   if (points.length === 0) return [] as LayoutGroup[];
 
-  const radialCenter = computeRadialReferenceCenter(points);
-
   const orderedRadialPath = buildImprovedCycle(buildRadialOrder(points));
   return orderedRadialPath.map((point, index) => {
     return {
@@ -509,6 +569,112 @@ function computeStageScale(count: number) {
   return 1 - (1 - MIN_STAGE_SCALE) * progress;
 }
 
+function findRelaxedCenter(
+  point: LayoutGroup,
+  rect: LogicalRect,
+  angle: number,
+  baseRadius: number,
+  occupiedRects: LogicalRect[],
+) {
+  const layerStep = computeLayerStep(rect);
+  for (let layer = 0; layer < MAX_VECTOR_LAYERS; layer++) {
+    const radius = baseRadius + layer * layerStep;
+    const centerCandidate = {
+      x: point.x + Math.cos(angle) * radius,
+      y: point.y + Math.sin(angle) * radius,
+    };
+    const nextRect = translateRect(rect, centerCandidate.x, centerCandidate.y);
+    if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) continue;
+    return centerCandidate;
+  }
+
+  return {
+    x: point.x + Math.cos(angle) * baseRadius,
+    y: point.y + Math.sin(angle) * baseRadius,
+  };
+}
+
+function relaxPlacedGroupAngles(
+  groups: Array<{
+    point: LayoutGroup;
+    rect: LogicalRect;
+    centerX: number;
+    centerY: number;
+  }>,
+) {
+  if (groups.length <= 2) return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+
+  let centers = groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+
+  for (let pass = 0; pass < MAX_ANGULAR_RELAX_PASSES; pass++) {
+    const ordered = groups.map((group, index) => ({
+      ...group,
+      index,
+      angle: normalizeAngle(Math.atan2(centers[index].y - group.point.y, centers[index].x - group.point.x)),
+      radius: Math.hypot(centers[index].x - group.point.x, centers[index].y - group.point.y),
+    })).sort((a, b) => a.angle - b.angle);
+
+    let changed = false;
+
+    for (let i = 0; i < ordered.length; i++) {
+      const current = ordered[i];
+      const next = ordered[(i + 1) % ordered.length];
+      const currentSpan = computeAngularHalfSpan(current.rect, current.radius);
+      const nextSpan = computeAngularHalfSpan(next.rect, next.radius);
+      const safeGap = currentSpan + nextSpan;
+      const delta = normalizeAngle(next.angle - current.angle);
+      if (delta >= safeGap - 1e-4) continue;
+
+      const deficit = safeGap - delta;
+      const currentTargetAngle = normalizeAngle(current.angle - deficit / 2);
+      const nextTargetAngle = normalizeAngle(next.angle + deficit / 2);
+      const currentOccupied = ordered
+        .filter((item) => item.index !== current.index)
+        .map((item) => translateRect(item.rect, centers[item.index].x, centers[item.index].y));
+      const nextOccupied = ordered
+        .filter((item) => item.index !== next.index)
+        .map((item) => translateRect(item.rect, centers[item.index].x, centers[item.index].y));
+
+      const currentCandidate = findRelaxedCenter(
+        current.point,
+        current.rect,
+        currentTargetAngle,
+        current.radius,
+        currentOccupied,
+      );
+      const nextCandidate = findRelaxedCenter(
+        next.point,
+        next.rect,
+        nextTargetAngle,
+        next.radius,
+        nextOccupied,
+      );
+
+      const currentRect = translateRect(current.rect, currentCandidate.x, currentCandidate.y);
+      const nextRect = translateRect(next.rect, nextCandidate.x, nextCandidate.y);
+      if (rectsOverlap(currentRect, nextRect, GROUP_SAFE_GAP)) continue;
+
+      const currentMoved = Math.abs(shortestSignedAngleDelta(
+        current.angle,
+        Math.atan2(currentCandidate.y - current.point.y, currentCandidate.x - current.point.x),
+      )) > 1e-4;
+      const nextMoved = Math.abs(shortestSignedAngleDelta(
+        next.angle,
+        Math.atan2(nextCandidate.y - next.point.y, nextCandidate.x - next.point.x),
+      )) > 1e-4;
+      if (!currentMoved && !nextMoved) continue;
+
+      centers[current.index] = currentCandidate;
+      centers[next.index] = nextCandidate;
+      changed = true;
+    }
+
+    if (!changed) break;
+  }
+
+  return centers;
+}
+
 export default function TestCssPage() {
   const [count, setCount] = useState(9);
   const [seed, setSeed] = useState(0);
@@ -534,10 +700,9 @@ export default function TestCssPage() {
   ), [segments]);
   const stageScale = useMemo(() => computeStageScale(count), [count]);
   const placedGroups = useMemo(() => {
-    const occupiedRects: LogicalRect[] = [];
     const directions = orderedPoints.map((_, index) => buildOutwardVector(orderedPoints, index));
-
-    return orderedPoints.map((point, index) => {
+    const occupiedRects: LogicalRect[] = [];
+    const provisionalGroups = orderedPoints.map((point, index) => {
       const { photos, photoRect } = buildMockPhotos(point);
       const geometry = buildGroupGeometryFromPhotoRect(photoRect, `图片组 ${point.order}`);
       const direction = directions[index];
@@ -545,13 +710,14 @@ export default function TestCssPage() {
       const layerStep = computeLayerStep(geometry.overallRect);
       let centerX = point.x + direction.x * baseLength;
       let centerY = point.y + direction.y * baseLength;
-      let placedRect = translateRect(geometry.overallRect, centerX, centerY);
+      const groupRect = geometry.overallRect;
+      let placedRect = translateRect(groupRect, centerX, centerY);
 
       for (let layer = 0; layer < MAX_VECTOR_LAYERS; layer++) {
         const nextLength = baseLength + layer * layerStep;
         const nextCenterX = point.x + direction.x * nextLength;
         const nextCenterY = point.y + direction.y * nextLength;
-        const nextRect = translateRect(geometry.overallRect, nextCenterX, nextCenterY);
+        const nextRect = translateRect(groupRect, nextCenterX, nextCenterY);
         if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
           continue;
         }
@@ -562,7 +728,6 @@ export default function TestCssPage() {
       }
 
       occupiedRects.push(placedRect);
-      const linkTarget = intersectRayWithRect(point.x, point.y, translateRect(geometry.photoRect, centerX, centerY));
 
       return {
         point,
@@ -570,6 +735,22 @@ export default function TestCssPage() {
         photos,
         localPhotoRect: photoRect,
         geometry,
+        centerX,
+        centerY,
+        rect: groupRect,
+      };
+    });
+
+    const relaxedCenters = relaxPlacedGroupAngles(provisionalGroups);
+
+    return provisionalGroups.map((group, index) => {
+      const centerX = relaxedCenters[index].x;
+      const centerY = relaxedCenters[index].y;
+      const placedRect = translateRect(group.rect, centerX, centerY);
+      const linkTarget = intersectRayWithRect(group.point.x, group.point.y, translateRect(group.geometry.photoRect, centerX, centerY));
+
+      return {
+        ...group,
         centerX,
         centerY,
         rect: placedRect,
