@@ -60,7 +60,9 @@ const DENSITY_NEIGHBOR_SPAN = 3;
 const MAX_DENSITY_ANGLE_SHIFT = Math.PI / 7;
 const MAX_LINK_AVOID_PASSES = 8;
 const LINK_AVOID_ANGLE_STEP = Math.PI / 40;
-const INITIAL_DENSITY_ANGLE_SHIFT = Math.PI / 5;
+const GAP_SHIFT_RATIO = 2;
+const MAX_GAP_SHIFT_PASSES = 4;
+const GAP_SHIFT_ANGLE_STEP = Math.PI / 18;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -379,21 +381,22 @@ function computeLocalDensity(points: LayoutGroup[], index: number) {
   return Math.max(0, Math.min(1, 1 - normalizedGap / 1.35));
 }
 
-function computeDensityDrift(points: LayoutGroup[], index: number) {
+function computeGapDrift(points: LayoutGroup[], index: number) {
   if (points.length <= 2) return 0;
+  const current = boundaryPerimeterPosition(projectPointToMapBoundary(points[index]));
+  const prev = boundaryPerimeterPosition(projectPointToMapBoundary(points[(index - 1 + points.length) % points.length]));
+  const next = boundaryPerimeterPosition(projectPointToMapBoundary(points[(index + 1) % points.length]));
+  const leftGap = perimeterGap(current, prev);
+  const rightGap = perimeterGap(current, next);
 
-  let drift = 0;
-  let weightSum = 0;
-  for (let step = 1; step <= Math.min(DENSITY_NEIGHBOR_SPAN, Math.floor(points.length / 2)); step++) {
-    const prevDensity = computeLocalDensity(points, (index - step + points.length) % points.length);
-    const nextDensity = computeLocalDensity(points, (index + step) % points.length);
-    const weight = 1 / step;
-    drift += (prevDensity - nextDensity) * weight;
-    weightSum += weight;
+  if (leftGap < TOL || rightGap < TOL) return 0;
+  if (leftGap >= rightGap * GAP_SHIFT_RATIO) {
+    return -Math.min(1, (leftGap / rightGap - GAP_SHIFT_RATIO) / GAP_SHIFT_RATIO + 0.35);
   }
-
-  if (weightSum < TOL) return 0;
-  return Math.max(-1, Math.min(1, drift / weightSum));
+  if (rightGap >= leftGap * GAP_SHIFT_RATIO) {
+    return Math.min(1, (rightGap / leftGap - GAP_SHIFT_RATIO) / GAP_SHIFT_RATIO + 0.35);
+  }
+  return 0;
 }
 
 function rotateVector(vector: { x: number; y: number }, angle: number) {
@@ -405,7 +408,7 @@ function rotateVector(vector: { x: number; y: number }, angle: number) {
   };
 }
 
-function resolveOutwardNormal(points: LayoutGroup[], index: number, localDensity: number, densityDrift: number) {
+function resolveOutwardNormal(points: LayoutGroup[], index: number, localDensity: number, gapDrift: number) {
   const pointCount = points.length;
   const orientation = polygonArea(points);
   const point = points[index];
@@ -454,8 +457,8 @@ function resolveOutwardNormal(points: LayoutGroup[], index: number, localDensity
     resolved = slerpVector(resolved, softened, densityBlend * 0.82);
   }
 
-  if (Math.abs(densityDrift) > 0.08 && localDensity > 0.28) {
-    const driftAngle = densityDrift * localDensity * MAX_DENSITY_ANGLE_SHIFT;
+  if (Math.abs(gapDrift) > 0.08 && localDensity > 0.28) {
+    const driftAngle = gapDrift * localDensity * MAX_DENSITY_ANGLE_SHIFT;
     resolved = rotateVector(resolved, driftAngle);
   }
 
@@ -487,11 +490,11 @@ function buildOutwardVector(points: LayoutGroup[], index: number): {
   concaveDepth: number;
   isConcave: boolean;
   localDensity: number;
-  densityDrift: number;
+  gapDrift: number;
 } {
   const localDensity = computeLocalDensity(points, index);
-  const densityDrift = computeDensityDrift(points, index);
-  const resolved = resolveOutwardNormal(points, index, localDensity, densityDrift);
+  const gapDrift = computeGapDrift(points, index);
+  const resolved = resolveOutwardNormal(points, index, localDensity, gapDrift);
 
   return {
     x: resolved.vector.x,
@@ -500,7 +503,7 @@ function buildOutwardVector(points: LayoutGroup[], index: number): {
     concaveDepth: resolved.concaveDepth,
     isConcave: resolved.isConcave,
     localDensity: resolved.localDensity,
-    densityDrift,
+    gapDrift,
   };
 }
 
@@ -526,7 +529,7 @@ function computeRayExitDistance(
 
 function computeAdaptiveVectorLength(
   point: LayoutGroup,
-  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean; localDensity: number; densityDrift: number },
+  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean; localDensity: number; gapDrift: number },
   rect: LogicalRect,
 ): number {
   const width = rect.right - rect.left;
@@ -544,7 +547,7 @@ function computeAdaptiveVectorLength(
   const concaveCompression = direction.isConcave
     ? Math.max(0.45, 1 - Math.min(0.42, direction.concaveDepth / Math.max(diagonal, 1)))
     : 1;
-  const densityCompression = 1 - Math.min(0.42, direction.localDensity * (0.26 + Math.abs(direction.densityDrift) * 0.18));
+  const densityCompression = 1 - Math.min(0.42, direction.localDensity * (0.26 + Math.abs(direction.gapDrift) * 0.18));
   const extraLength = (maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8)) * concaveCompression * densityCompression;
   return exitDistance + extraLength;
 }
@@ -1120,6 +1123,61 @@ function relaxPlacedGroupAngles(
   return centers;
 }
 
+function rebalanceByGap(
+  groups: Array<{
+    point: LayoutGroup;
+    rect: LogicalRect;
+    geometry: ReturnType<typeof buildGroupGeometryFromPhotoRect>;
+    centerX: number;
+    centerY: number;
+  }>,
+  occupiedRects: LogicalRect[],
+) {
+  if (groups.length <= 2) return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+
+  let centers = groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+
+  for (let pass = 0; pass < MAX_GAP_SHIFT_PASSES; pass++) {
+    let changed = false;
+
+    for (let index = 0; index < groups.length; index++) {
+      const group = groups[index];
+      const drift = computeGapDrift(groups.map((item) => item.point), index);
+      if (Math.abs(drift) < 0.08) continue;
+
+      const radius = Math.hypot(centers[index].x - group.point.x, centers[index].y - group.point.y);
+      const baseAngle = Math.atan2(centers[index].y - group.point.y, centers[index].x - group.point.x);
+      const targetAngle = baseAngle + drift * GAP_SHIFT_ANGLE_STEP;
+      const blockedRects = [...occupiedRects];
+      for (let otherIndex = 0; otherIndex < groups.length; otherIndex++) {
+        if (otherIndex === index) continue;
+        blockedRects.push(translateRect(groups[otherIndex].rect, centers[otherIndex].x, centers[otherIndex].y));
+      }
+
+      const candidate = findRelaxedCenter(
+        group.point,
+        group.rect,
+        targetAngle,
+        radius,
+        blockedRects,
+      );
+
+      const moved = Math.abs(shortestSignedAngleDelta(
+        baseAngle,
+        Math.atan2(candidate.y - group.point.y, candidate.x - group.point.x),
+      )) > 1e-4;
+      if (!moved) continue;
+
+      centers[index] = candidate;
+      changed = true;
+    }
+
+    if (!changed) break;
+  }
+
+  return centers;
+}
+
 export default function TestCssPage() {
   const [count, setCount] = useState(9);
   const [seed, setSeed] = useState(0);
@@ -1170,8 +1228,7 @@ export default function TestCssPage() {
         const baseLength = computeAdaptiveVectorLength(point, direction, geometry.overallRect);
         const layerStep = computeLayerStep(geometry.overallRect);
         const baseAngle = Math.atan2(direction.y, direction.x);
-        const densityAngleBias = direction.densityDrift * direction.localDensity * INITIAL_DENSITY_ANGLE_SHIFT;
-        const initialAngle = baseAngle + densityAngleBias;
+        const initialAngle = baseAngle + direction.gapDrift * GAP_SHIFT_ANGLE_STEP * 2.2;
         let centerX = point.x + Math.cos(initialAngle) * baseLength;
         let centerY = point.y + Math.sin(initialAngle) * baseLength;
         const groupRect = geometry.overallRect;
@@ -1228,10 +1285,18 @@ export default function TestCssPage() {
           centerY: group.centerY,
         })),
       );
+      const rebalancedCenters = rebalanceByGap(
+        provisionalGroups.map((group, index) => ({
+          ...group,
+          centerX: resolvedCenters[index].x,
+          centerY: resolvedCenters[index].y,
+        })),
+        placed.map((group) => group.rect),
+      );
       for (let index = 0; index < provisionalGroups.length; index++) {
         const group = provisionalGroups[index];
-        const centerX = resolvedCenters[index].x;
-        const centerY = resolvedCenters[index].y;
+        const centerX = rebalancedCenters[index].x;
+        const centerY = rebalancedCenters[index].y;
         const placedRect = translateRect(group.rect, centerX, centerY);
         const linkTarget = findLinkTarget(group.point, group.geometry, centerX, centerY);
         placed.push({
