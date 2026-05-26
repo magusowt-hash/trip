@@ -47,7 +47,7 @@ const GROUP_PADDING = 28;
 const PHOTO_GAP = 14;
 const MOCK_MIN_PHOTOS = 2;
 const MOCK_MAX_PHOTOS = 5;
-const MIN_STAGE_SCALE = 0.54;
+const MIN_STAGE_SCALE = 0.46;
 const GROUP_SAFE_GAP = 14;
 const MAX_VECTOR_LAYERS = 24;
 const MAX_ANGULAR_RELAX_PASSES = 10;
@@ -56,7 +56,7 @@ const ANGLE_BOUND = 1e-3;
 const SHARP_ANGLE = (150 * Math.PI) / 180;
 const NORMAL_ANGLE = (60 * Math.PI) / 180;
 const MAX_RADIAL_PULL_PASSES = 3;
-const DENSITY_NEIGHBOR_SPAN = 2;
+const DENSITY_NEIGHBOR_SPAN = 3;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -316,24 +316,63 @@ function classifyCurvature(prevNormal: { x: number; y: number }, nextNormal: { x
   return { beta, kind: 'smooth' as const };
 }
 
+function projectPointToMapBoundary(point: LayoutGroup) {
+  const half = MAP_SIZE / 2;
+  const dx = point.x;
+  const dy = point.y;
+
+  if (Math.abs(dx) < TOL && Math.abs(dy) < TOL) {
+    return { x: half, y: 0 };
+  }
+
+  const tx = Math.abs(dx) > TOL ? half / Math.abs(dx) : Number.POSITIVE_INFINITY;
+  const ty = Math.abs(dy) > TOL ? half / Math.abs(dy) : Number.POSITIVE_INFINITY;
+  const t = Math.min(tx, ty);
+
+  return {
+    x: dx * t,
+    y: dy * t,
+  };
+}
+
+function boundaryPerimeterPosition(boundaryPoint: { x: number; y: number }) {
+  const half = MAP_SIZE / 2;
+  const side = MAP_SIZE;
+  const perimeter = side * 4;
+  const { x, y } = boundaryPoint;
+
+  if (Math.abs(y + half) < 1e-4) return x + half;
+  if (Math.abs(x - half) < 1e-4) return side + (y + half);
+  if (Math.abs(y - half) < 1e-4) return side * 2 + (half - x);
+  if (Math.abs(x + half) < 1e-4) return side * 3 + (half - y);
+
+  return ((Math.atan2(y, x) + Math.PI) / (Math.PI * 2)) * perimeter;
+}
+
+function perimeterGap(a: number, b: number) {
+  const perimeter = MAP_SIZE * 4;
+  const direct = Math.abs(a - b);
+  return Math.min(direct, perimeter - direct);
+}
+
 function computeLocalDensity(points: LayoutGroup[], index: number) {
   if (points.length <= 2) return 0;
-  const point = points[index];
-  let totalDistance = 0;
+  const perimeterPoint = boundaryPerimeterPosition(projectPointToMapBoundary(points[index]));
+  let totalGap = 0;
   let sampleCount = 0;
 
   for (let step = 1; step <= Math.min(DENSITY_NEIGHBOR_SPAN, Math.floor(points.length / 2)); step++) {
-    const prev = points[(index - step + points.length) % points.length];
-    const next = points[(index + step) % points.length];
-    totalDistance += distance(point, prev);
-    totalDistance += distance(point, next);
+    const prevPerimeter = boundaryPerimeterPosition(projectPointToMapBoundary(points[(index - step + points.length) % points.length]));
+    const nextPerimeter = boundaryPerimeterPosition(projectPointToMapBoundary(points[(index + step) % points.length]));
+    totalGap += perimeterGap(perimeterPoint, prevPerimeter);
+    totalGap += perimeterGap(perimeterPoint, nextPerimeter);
     sampleCount += 2;
   }
 
   if (sampleCount === 0) return 0;
-  const avgDistance = totalDistance / sampleCount;
-  const mapNormalized = avgDistance / Math.max(MAP_SIZE, 1);
-  return Math.max(0, Math.min(1, 1 - mapNormalized * 3.2));
+  const avgGap = totalGap / sampleCount;
+  const normalizedGap = avgGap / Math.max(MAP_SIZE, 1);
+  return Math.max(0, Math.min(1, 1 - normalizedGap / 1.35));
 }
 
 function resolveOutwardNormal(points: LayoutGroup[], index: number, localDensity: number) {
@@ -379,17 +418,17 @@ function resolveOutwardNormal(points: LayoutGroup[], index: number, localDensity
     resolved = slerpVector(prevNormal, nextNormal, 0.5);
   }
 
-  if (!boundaryPoint && localDensity > 0.42) {
-    const densityBlend = Math.min(0.72, (localDensity - 0.42) / 0.58);
+  if (!boundaryPoint && localDensity > 0.35) {
+    const densityBlend = Math.min(0.82, (localDensity - 0.35) / 0.65);
     const softened = slerpVector(prevNormal, nextNormal, 0.5);
-    resolved = slerpVector(resolved, softened, densityBlend * 0.7);
+    resolved = slerpVector(resolved, softened, densityBlend * 0.82);
   }
 
   const outward = resolved.x * fallback.x + resolved.y * fallback.y >= 0
     ? resolved
     : { x: -resolved.x, y: -resolved.y };
   const concaveBlendBase = isConcave ? Math.min(0.56, 0.18 + concaveDepth / Math.max(edgeSpan, 1) * 0.55) : 0;
-  const concaveBlend = Math.min(0.82, concaveBlendBase + localDensity * 0.18);
+  const concaveBlend = Math.min(0.86, concaveBlendBase + localDensity * 0.24);
   const stabilized = concaveBlend > 0
     ? normalizeVector(
       outward.x * (1 - concaveBlend) + fallback.x * concaveBlend,
@@ -467,7 +506,7 @@ function computeAdaptiveVectorLength(
   const concaveCompression = direction.isConcave
     ? Math.max(0.45, 1 - Math.min(0.42, direction.concaveDepth / Math.max(diagonal, 1)))
     : 1;
-  const densityCompression = 1 - Math.min(0.28, direction.localDensity * 0.24);
+  const densityCompression = 1 - Math.min(0.36, direction.localDensity * 0.34);
   const extraLength = (maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8)) * concaveCompression * densityCompression;
   return exitDistance + extraLength;
 }
