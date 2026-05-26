@@ -608,9 +608,30 @@ function sortGroupsByCenterAngle<T extends PendingPlaceGroup>(
 function rotateGroupsToBestStart<T extends PendingPlaceGroup>(groups: T[]) {
   if (groups.length === 0) return [] as T[];
   let bestIndex = 0;
-  for (let i = 1; i < groups.length; i++) {
-    if (groups[i].placeKey.localeCompare(groups[bestIndex].placeKey, 'zh-CN') < 0) {
+  let bestDistance = Infinity;
+  let bestAxisOffset = Infinity;
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i];
+    const edgeDistance = Math.min(
+      Math.abs(group.logicalX),
+      Math.abs(group.logicalY),
+    );
+    const axisOffset = Math.abs(group.logicalX) <= Math.abs(group.logicalY)
+      ? Math.abs(group.logicalY)
+      : Math.abs(group.logicalX);
+
+    if (
+      edgeDistance < bestDistance
+      || (edgeDistance === bestDistance && axisOffset < bestAxisOffset)
+      || (
+        edgeDistance === bestDistance
+        && axisOffset === bestAxisOffset
+        && group.placeKey.localeCompare(groups[bestIndex].placeKey, 'zh-CN') < 0
+      )
+    ) {
       bestIndex = i;
+      bestDistance = edgeDistance;
+      bestAxisOffset = axisOffset;
     }
   }
   return groups.map((_, index) => groups[(bestIndex + index) % groups.length]);

@@ -142,8 +142,28 @@ function computePolygonCentroid(points: TestPoint[]) {
 function rotateToBestStart(points: TestPoint[]) {
   if (points.length === 0) return [];
   let bestIndex = 0;
-  for (let i = 1; i < points.length; i++) {
-    if (points[i].id < points[bestIndex].id) bestIndex = i;
+  let bestDistance = Infinity;
+  let bestAxisOffset = Infinity;
+  for (let i = 0; i < points.length; i++) {
+    const point = points[i];
+    const leftDistance = point.x + MAP_SIZE / 2;
+    const rightDistance = MAP_SIZE / 2 - point.x;
+    const topDistance = point.y + MAP_SIZE / 2;
+    const bottomDistance = MAP_SIZE / 2 - point.y;
+    const edgeDistance = Math.min(leftDistance, rightDistance, topDistance, bottomDistance);
+    const axisOffset = edgeDistance === leftDistance || edgeDistance === rightDistance
+      ? Math.abs(point.y)
+      : Math.abs(point.x);
+
+    if (
+      edgeDistance < bestDistance
+      || (edgeDistance === bestDistance && axisOffset < bestAxisOffset)
+      || (edgeDistance === bestDistance && axisOffset === bestAxisOffset && point.id < points[bestIndex].id)
+    ) {
+      bestIndex = i;
+      bestDistance = edgeDistance;
+      bestAxisOffset = axisOffset;
+    }
   }
   return points.map((_, index) => points[(bestIndex + index) % points.length]);
 }
