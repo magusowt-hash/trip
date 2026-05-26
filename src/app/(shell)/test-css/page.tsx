@@ -61,6 +61,9 @@ const GAP_SHIFT_RATIO = 2;
 const MAX_GAP_SHIFT_PASSES = 12;
 const MIN_PERIMETER_GAP = 18;
 const GAP_REBALANCE_STRENGTH = 0.34;
+const DENSITY_NEIGHBOR_SPAN = 2;
+const DENSITY_SHIFT_RATIO = 1.18;
+const DENSITY_SHIFT_STRENGTH = 0.42;
 const VIEWPORT_PADDING = 96;
 
 function randomUnit() {
@@ -1059,6 +1062,38 @@ function unwrapPerimeterPositions(positions: number[]) {
   return unwrapped;
 }
 
+function computeDirectionalGapAverage(positions: number[], index: number, direction: -1 | 1) {
+  if (positions.length <= 2) return Number.POSITIVE_INFINITY;
+  const perimeter = MAP_SIZE * 4;
+  let total = 0;
+  let samples = 0;
+  let unwrappedCursor = positions[index];
+
+  for (let step = 0; step < DENSITY_NEIGHBOR_SPAN; step++) {
+    const neighborIndex = ((index + direction * (step + 1)) % positions.length + positions.length) % positions.length;
+    let neighborPosition = positions[neighborIndex];
+    if (direction > 0) {
+      while (neighborPosition <= unwrappedCursor) {
+        neighborPosition += perimeter;
+      }
+      total += neighborPosition - unwrappedCursor;
+    } else {
+      while (neighborPosition >= unwrappedCursor) {
+        neighborPosition -= perimeter;
+      }
+      total += unwrappedCursor - neighborPosition;
+    }
+
+    const rawGap = Math.abs(neighborPosition - unwrappedCursor);
+    if (rawGap > TOL) {
+      samples += 1;
+    }
+    unwrappedCursor = neighborPosition;
+  }
+
+  return samples === 0 ? Number.POSITIVE_INFINITY : total / samples;
+}
+
 function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
   const perimeter = MAP_SIZE * 4;
   if (layer.length <= 2) {
@@ -1080,12 +1115,32 @@ function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
       const rightGap = next - current;
       const smallerGap = Math.min(leftGap, rightGap);
       const largerGap = Math.max(leftGap, rightGap);
+      const leftDensityGap = computeDirectionalGapAverage(adjusted, index, -1);
+      const rightDensityGap = computeDirectionalGapAverage(adjusted, index, 1);
+      const densitySmallerGap = Math.min(leftDensityGap, rightDensityGap);
+      const densityLargerGap = Math.max(leftDensityGap, rightDensityGap);
 
-      if (smallerGap < TOL || largerGap < smallerGap * GAP_SHIFT_RATIO) continue;
+      const gapTriggered = smallerGap >= TOL && largerGap >= smallerGap * GAP_SHIFT_RATIO;
+      const densityTriggered = Number.isFinite(densitySmallerGap)
+        && Number.isFinite(densityLargerGap)
+        && densitySmallerGap >= TOL
+        && densityLargerGap >= densitySmallerGap * DENSITY_SHIFT_RATIO;
 
-      const shiftDirection = rightGap > leftGap ? 1 : -1;
+      if (!gapTriggered && !densityTriggered) continue;
+
+      const gapDirection = rightGap > leftGap ? 1 : -1;
+      const densityDirection = rightDensityGap > leftDensityGap ? 1 : -1;
+      const shiftDirection = gapTriggered && densityTriggered && gapDirection !== densityDirection
+        ? (largerGap - smallerGap >= densityLargerGap - densitySmallerGap ? gapDirection : densityDirection)
+        : (gapTriggered ? gapDirection : densityDirection);
       const gapDelta = largerGap - smallerGap;
-      const preferredShift = Math.max(MIN_PERIMETER_GAP, gapDelta * GAP_REBALANCE_STRENGTH);
+      const densityDelta = Number.isFinite(densityLargerGap) && Number.isFinite(densitySmallerGap)
+        ? densityLargerGap - densitySmallerGap
+        : 0;
+      const preferredShift = Math.max(
+        MIN_PERIMETER_GAP * 0.65,
+        gapDelta * GAP_REBALANCE_STRENGTH + densityDelta * DENSITY_SHIFT_STRENGTH,
+      );
       const candidate = current + shiftDirection * preferredShift;
       const minAllowed = prev + MIN_PERIMETER_GAP;
       const maxAllowed = next - MIN_PERIMETER_GAP;
