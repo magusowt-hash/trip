@@ -12,6 +12,7 @@ type TestPoint = {
 
 type LayoutGroup = TestPoint & {
   order: number;
+  layerIndex: number;
 };
 
 type Segment = {
@@ -581,16 +582,45 @@ function buildImprovedCycle(points: TestPoint[]) {
   return rotateToBestStart(cycle);
 }
 
+function buildConvexHullIds(points: TestPoint[]) {
+  return new Set(buildConvexHull(points).map((point) => point.id));
+}
+
+function buildLayeredContours(points: TestPoint[]) {
+  const remaining = [...points];
+  const layers: TestPoint[][] = [];
+
+  while (remaining.length > 0) {
+    if (remaining.length <= 3) {
+      layers.push(buildImprovedCycle(buildRadialOrder(remaining)));
+      break;
+    }
+
+    const hull = buildConvexHull(remaining);
+    const hullIds = buildConvexHullIds(remaining);
+    layers.push(buildImprovedCycle(hull));
+
+    const nextRemaining = remaining.filter((point) => !hullIds.has(point.id));
+    if (nextRemaining.length === remaining.length) {
+      layers.push(buildImprovedCycle(buildRadialOrder(nextRemaining)));
+      break;
+    }
+    remaining.splice(0, remaining.length, ...nextRemaining);
+  }
+
+  return layers;
+}
+
 function buildLayout(points: TestPoint[]) {
   if (points.length === 0) return [] as LayoutGroup[];
 
-  const orderedRadialPath = buildImprovedCycle(buildRadialOrder(points));
-  return orderedRadialPath.map((point, index) => {
-    return {
-      ...point,
-      order: index + 1,
-    };
-  });
+  const layers = buildLayeredContours(points);
+  let order = 1;
+  return layers.flatMap((layer, layerIndex) => layer.map((point) => ({
+    ...point,
+    order: order++,
+    layerIndex,
+  })));
 }
 
 function segmentsIntersect(first: Segment, second: Segment) {
@@ -738,14 +768,27 @@ export default function TestCssPage() {
   }, [count, seed]);
 
   const orderedPoints = useMemo(() => buildLayout(points), [points]);
+  const layeredPoints = useMemo(() => {
+    const buckets = new Map<number, LayoutGroup[]>();
+    for (const point of orderedPoints) {
+      const layer = buckets.get(point.layerIndex) || [];
+      layer.push(point);
+      buckets.set(point.layerIndex, layer);
+    }
+    return [...buckets.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, layer]) => layer);
+  }, [orderedPoints]);
 
   const segments = useMemo(() => {
-    if (orderedPoints.length <= 1) return [] as Segment[];
-    return orderedPoints.map((point, index) => ({
-      from: point,
-      to: orderedPoints[(index + 1) % orderedPoints.length],
-    }));
-  }, [orderedPoints]);
+    return layeredPoints.flatMap((layer) => {
+      if (layer.length <= 1) return [] as Segment[];
+      return layer.map((point, index) => ({
+        from: point,
+        to: layer[(index + 1) % layer.length],
+      }));
+    });
+  }, [layeredPoints]);
 
   const intersectionCount = useMemo(() => countIntersections(segments), [segments]);
   const pathLength = useMemo(() => (
@@ -753,65 +796,70 @@ export default function TestCssPage() {
   ), [segments]);
   const stageScale = useMemo(() => computeStageScale(count), [count]);
   const placedGroups = useMemo(() => {
-    const directions = orderedPoints.map((_, index) => buildOutwardVector(orderedPoints, index));
     const occupiedRects: LogicalRect[] = [];
-    const provisionalGroups = orderedPoints.map((point, index) => {
-      const { photos, photoRect } = buildMockPhotos(point);
-      const geometry = buildGroupGeometryFromPhotoRect(photoRect, `图片组 ${point.order}`);
-      const direction = directions[index];
-      const baseLength = computeAdaptiveVectorLength(point, direction, geometry.overallRect);
-      const layerStep = computeLayerStep(geometry.overallRect);
-      let centerX = point.x + direction.x * baseLength;
-      let centerY = point.y + direction.y * baseLength;
-      const groupRect = geometry.overallRect;
-      let placedRect = translateRect(groupRect, centerX, centerY);
+    const placed: MockGroup[] = [];
 
-      for (let layer = 0; layer < MAX_VECTOR_LAYERS; layer++) {
-        const nextLength = baseLength + layer * layerStep;
-        const nextCenterX = point.x + direction.x * nextLength;
-        const nextCenterY = point.y + direction.y * nextLength;
-        const nextRect = translateRect(groupRect, nextCenterX, nextCenterY);
-        if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
-          continue;
+    for (const layer of layeredPoints) {
+      const directions = layer.map((_, index) => buildOutwardVector(layer, index));
+      const provisionalGroups = layer.map((point, index) => {
+        const { photos, photoRect } = buildMockPhotos(point);
+        const geometry = buildGroupGeometryFromPhotoRect(photoRect, `图片组 ${point.order}`);
+        const direction = directions[index];
+        const baseLength = computeAdaptiveVectorLength(point, direction, geometry.overallRect);
+        const layerStep = computeLayerStep(geometry.overallRect);
+        let centerX = point.x + direction.x * baseLength;
+        let centerY = point.y + direction.y * baseLength;
+        const groupRect = geometry.overallRect;
+        let placedRect = translateRect(groupRect, centerX, centerY);
+
+        for (let ring = 0; ring < MAX_VECTOR_LAYERS; ring++) {
+          const nextLength = baseLength + ring * layerStep;
+          const nextCenterX = point.x + direction.x * nextLength;
+          const nextCenterY = point.y + direction.y * nextLength;
+          const nextRect = translateRect(groupRect, nextCenterX, nextCenterY);
+          if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
+            continue;
+          }
+          centerX = nextCenterX;
+          centerY = nextCenterY;
+          placedRect = nextRect;
+          break;
         }
-        centerX = nextCenterX;
-        centerY = nextCenterY;
-        placedRect = nextRect;
-        break;
+
+        occupiedRects.push(placedRect);
+
+        return {
+          point,
+          title: `图片组 ${point.order}`,
+          photos,
+          localPhotoRect: photoRect,
+          geometry,
+          centerX,
+          centerY,
+          rect: groupRect,
+        };
+      });
+
+      const relaxedCenters = relaxPlacedGroupAngles(provisionalGroups);
+      for (let index = 0; index < provisionalGroups.length; index++) {
+        const group = provisionalGroups[index];
+        const centerX = relaxedCenters[index].x;
+        const centerY = relaxedCenters[index].y;
+        const placedRect = translateRect(group.rect, centerX, centerY);
+        const linkTarget = intersectRayWithRect(group.point.x, group.point.y, translateRect(group.geometry.photoRect, centerX, centerY));
+        placed.push({
+          ...group,
+          centerX,
+          centerY,
+          rect: placedRect,
+          linkTargetX: linkTarget.x,
+          linkTargetY: linkTarget.y,
+        });
       }
+    }
 
-      occupiedRects.push(placedRect);
-
-      return {
-        point,
-        title: `图片组 ${point.order}`,
-        photos,
-        localPhotoRect: photoRect,
-        geometry,
-        centerX,
-        centerY,
-        rect: groupRect,
-      };
-    });
-
-    const relaxedCenters = relaxPlacedGroupAngles(provisionalGroups);
-
-    return provisionalGroups.map((group, index) => {
-      const centerX = relaxedCenters[index].x;
-      const centerY = relaxedCenters[index].y;
-      const placedRect = translateRect(group.rect, centerX, centerY);
-      const linkTarget = intersectRayWithRect(group.point.x, group.point.y, translateRect(group.geometry.photoRect, centerX, centerY));
-
-      return {
-        ...group,
-        centerX,
-        centerY,
-        rect: placedRect,
-        linkTargetX: linkTarget.x,
-        linkTargetY: linkTarget.y,
-      } satisfies MockGroup;
-    });
-  }, [orderedPoints]);
+    return placed;
+  }, [layeredPoints]);
 
   return (
     <main className={styles.rootFull}>
