@@ -139,6 +139,19 @@ function computePolygonCentroid(points: TestPoint[]) {
   };
 }
 
+function getPointEdgePriority(point: TestPoint) {
+  const leftDistance = point.x + MAP_SIZE / 2;
+  const rightDistance = MAP_SIZE / 2 - point.x;
+  const topDistance = point.y + MAP_SIZE / 2;
+  const bottomDistance = MAP_SIZE / 2 - point.y;
+  const edgeDistance = Math.min(leftDistance, rightDistance, topDistance, bottomDistance);
+  const axisOffset = edgeDistance === leftDistance || edgeDistance === rightDistance
+    ? Math.abs(point.y)
+    : Math.abs(point.x);
+
+  return { edgeDistance, axisOffset };
+}
+
 function rotateToBestStart(points: TestPoint[]) {
   if (points.length === 0) return [];
   let bestIndex = 0;
@@ -146,14 +159,7 @@ function rotateToBestStart(points: TestPoint[]) {
   let bestAxisOffset = Infinity;
   for (let i = 0; i < points.length; i++) {
     const point = points[i];
-    const leftDistance = point.x + MAP_SIZE / 2;
-    const rightDistance = MAP_SIZE / 2 - point.x;
-    const topDistance = point.y + MAP_SIZE / 2;
-    const bottomDistance = MAP_SIZE / 2 - point.y;
-    const edgeDistance = Math.min(leftDistance, rightDistance, topDistance, bottomDistance);
-    const axisOffset = edgeDistance === leftDistance || edgeDistance === rightDistance
-      ? Math.abs(point.y)
-      : Math.abs(point.x);
+    const { edgeDistance, axisOffset } = getPointEdgePriority(point);
 
     if (
       edgeDistance < bestDistance

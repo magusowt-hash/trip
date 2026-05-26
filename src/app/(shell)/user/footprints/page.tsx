@@ -92,10 +92,6 @@ const REGION_CENTER_ANGLE: Record<RegionKey, number> = {
   W: 180,
   N: 270,
 };
-const LARGE_FAN_MIN_BASE_RADIUS = 0.28;
-const LARGE_FAN_MAX_BASE_RADIUS = 0.42;
-const LARGE_FAN_DENSITY_WINDOW = Math.PI / 6;
-const LARGE_FAN_CIRCLE_UTILIZATION = 0.9;
 const LARGE_FAN_BASE_RADIUS_OFFSET = 176;
 const LARGE_FAN_RADIUS_STEP = 54;
 
@@ -605,20 +601,38 @@ function sortGroupsByCenterAngle<T extends PendingPlaceGroup>(
     .map(({ group }) => group);
 }
 
+function getGroupEdgePriority<T extends PendingPlaceGroup>(group: T, bounds: {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}) {
+  const leftDistance = group.logicalX - bounds.left;
+  const rightDistance = bounds.right - group.logicalX;
+  const topDistance = group.logicalY - bounds.top;
+  const bottomDistance = bounds.bottom - group.logicalY;
+  const edgeDistance = Math.min(leftDistance, rightDistance, topDistance, bottomDistance);
+  const axisOffset = edgeDistance === leftDistance || edgeDistance === rightDistance
+    ? Math.abs(group.logicalY - (bounds.top + bounds.bottom) / 2)
+    : Math.abs(group.logicalX - (bounds.left + bounds.right) / 2);
+
+  return { edgeDistance, axisOffset };
+}
+
 function rotateGroupsToBestStart<T extends PendingPlaceGroup>(groups: T[]) {
   if (groups.length === 0) return [] as T[];
+  const bounds = {
+    left: Math.min(...groups.map((group) => group.logicalX)),
+    right: Math.max(...groups.map((group) => group.logicalX)),
+    top: Math.min(...groups.map((group) => group.logicalY)),
+    bottom: Math.max(...groups.map((group) => group.logicalY)),
+  };
   let bestIndex = 0;
   let bestDistance = Infinity;
   let bestAxisOffset = Infinity;
   for (let i = 0; i < groups.length; i++) {
     const group = groups[i];
-    const edgeDistance = Math.min(
-      Math.abs(group.logicalX),
-      Math.abs(group.logicalY),
-    );
-    const axisOffset = Math.abs(group.logicalX) <= Math.abs(group.logicalY)
-      ? Math.abs(group.logicalY)
-      : Math.abs(group.logicalX);
+    const { edgeDistance, axisOffset } = getGroupEdgePriority(group, bounds);
 
     if (
       edgeDistance < bestDistance
@@ -750,10 +764,6 @@ function buildImprovedCycle(groups: PendingPlaceGroup[]) {
   return rotateGroupsToBestStart(cycle);
 }
 
-function circularAngleDiff(a: number, b: number) {
-  return Math.abs(normalizeRadians(a - b));
-}
-
 function buildLargeFanOrder(groups: PendingPlaceGroup[]) {
   if (groups.length === 0) return [];
 
@@ -828,28 +838,6 @@ function computeOrderedFanAngles(groups: ReturnType<typeof buildLargeFanOrder>, 
   return adjusted.map((angle) => normalizeRadians(angle));
 }
 
-function computeFanAngleSlots(angles: number[]) {
-  if (angles.length === 0) return [] as Array<{ min: number; max: number }>;
-  if (angles.length === 1) {
-    return [{ min: angles[0] - Math.PI, max: angles[0] + Math.PI }];
-  }
-
-  const unwrapped = unwrapAngles(angles);
-  const slots: Array<{ min: number; max: number }> = [];
-
-  for (let i = 0; i < unwrapped.length; i++) {
-    const current = unwrapped[i];
-    const prev = i === 0 ? unwrapped[unwrapped.length - 1] - Math.PI * 2 : unwrapped[i - 1];
-    const next = i === unwrapped.length - 1 ? unwrapped[0] + Math.PI * 2 : unwrapped[i + 1];
-    slots.push({
-      min: (prev + current) / 2,
-      max: (current + next) / 2,
-    });
-  }
-
-  return slots;
-}
-
 function findFanPlacementCenter(
   group: ReturnType<typeof buildLargeFanOrder>[number],
   occupiedRects: LogicalRect[],
@@ -857,13 +845,8 @@ function findFanPlacementCenter(
   gap: number,
   baseRadius: number,
   displayTheta: number,
-  minTheta: number,
-  maxTheta: number,
 ) {
   let chosenCenter = buildFanCandidateCenter(displayTheta, baseRadius);
-  void minTheta;
-  void maxTheta;
-  void group;
   for (let radiusStep = 0; radiusStep < 10; radiusStep++) {
     const radius = baseRadius + radiusStep * LARGE_FAN_RADIUS_STEP;
     const centerCandidate = buildFanCandidateCenter(displayTheta, radius);
@@ -1478,8 +1461,6 @@ function UserFootprintsPageInner() {
           cardSize,
           baseRadius,
           orderedAngles[index] ?? group.theta,
-          0,
-          0,
         );
 
         for (let i = 0; i < group.placePhotos.length; i++) {
