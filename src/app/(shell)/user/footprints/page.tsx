@@ -524,23 +524,239 @@ function normalizeRadians(angle: number) {
   return next;
 }
 
+function orientationCross(
+  a: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  b: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  c: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+) {
+  return (b.logicalX - a.logicalX) * (c.logicalY - a.logicalY)
+    - (b.logicalY - a.logicalY) * (c.logicalX - a.logicalX);
+}
+
+function polygonArea(points: Array<Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>>) {
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const current = points[i];
+    const next = points[(i + 1) % points.length];
+    area += current.logicalX * next.logicalY - next.logicalX * current.logicalY;
+  }
+  return area / 2;
+}
+
+function computeCenterOfGroups(groups: Array<Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>>) {
+  if (groups.length === 0) return { x: 0, y: 0 };
+  return {
+    x: groups.reduce((sum, group) => sum + group.logicalX, 0) / groups.length,
+    y: groups.reduce((sum, group) => sum + group.logicalY, 0) / groups.length,
+  };
+}
+
+function computePolygonCentroid(points: Array<Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>>) {
+  if (points.length === 0) return { x: 0, y: 0 };
+  if (points.length === 1) return { x: points[0].logicalX, y: points[0].logicalY };
+  if (points.length === 2) {
+    return {
+      x: (points[0].logicalX + points[1].logicalX) / 2,
+      y: (points[0].logicalY + points[1].logicalY) / 2,
+    };
+  }
+
+  const area = polygonArea(points);
+  if (Math.abs(area) < 1e-6) {
+    return computeCenterOfGroups(points);
+  }
+
+  let x = 0;
+  let y = 0;
+  for (let i = 0; i < points.length; i++) {
+    const current = points[i];
+    const next = points[(i + 1) % points.length];
+    const factor = current.logicalX * next.logicalY - next.logicalX * current.logicalY;
+    x += (current.logicalX + next.logicalX) * factor;
+    y += (current.logicalY + next.logicalY) * factor;
+  }
+
+  return {
+    x: x / (6 * area),
+    y: y / (6 * area),
+  };
+}
+
+function sortGroupsByCenterAngle<T extends PendingPlaceGroup>(
+  groups: T[],
+  centerX?: number,
+  centerY?: number,
+) {
+  if (groups.length <= 1) return [...groups];
+
+  const center = centerX == null || centerY == null
+    ? computeCenterOfGroups(groups)
+    : { x: centerX, y: centerY };
+
+  return [...groups]
+    .map((group) => ({
+      group,
+      angle: Math.atan2(group.logicalY - center.y, group.logicalX - center.x),
+      radius: Math.hypot(group.logicalX - center.x, group.logicalY - center.y),
+    }))
+    .sort((a, b) => a.angle - b.angle || b.radius - a.radius || a.group.placeKey.localeCompare(b.group.placeKey, 'zh-CN'))
+    .map(({ group }) => group);
+}
+
+function rotateGroupsToBestStart<T extends PendingPlaceGroup>(groups: T[]) {
+  if (groups.length === 0) return [] as T[];
+  let bestIndex = 0;
+  for (let i = 1; i < groups.length; i++) {
+    if (groups[i].placeKey.localeCompare(groups[bestIndex].placeKey, 'zh-CN') < 0) {
+      bestIndex = i;
+    }
+  }
+  return groups.map((_, index) => groups[(bestIndex + index) % groups.length]);
+}
+
+function normalizeGroupLayerDirection<T extends PendingPlaceGroup>(groups: T[]) {
+  if (groups.length <= 2) return rotateGroupsToBestStart(sortGroupsByCenterAngle(groups));
+
+  const clockwise = polygonArea(groups) < 0 ? [...groups] : [...groups].reverse();
+  const counterClockwise = [...clockwise].reverse();
+  const rotatedClockwise = rotateGroupsToBestStart(clockwise);
+  const rotatedCounterClockwise = rotateGroupsToBestStart(counterClockwise);
+  const clockwiseSignature = rotatedClockwise.map((group) => group.placeKey).join(',');
+  const counterClockwiseSignature = rotatedCounterClockwise.map((group) => group.placeKey).join(',');
+  return clockwiseSignature <= counterClockwiseSignature ? rotatedClockwise : rotatedCounterClockwise;
+}
+
+function buildConvexHull(groups: PendingPlaceGroup[]) {
+  if (groups.length <= 3) return normalizeGroupLayerDirection(sortGroupsByCenterAngle(groups));
+
+  const sorted = [...groups].sort((a, b) => (
+    a.logicalX - b.logicalX
+    || a.logicalY - b.logicalY
+    || a.placeKey.localeCompare(b.placeKey, 'zh-CN')
+  ));
+  const lower: PendingPlaceGroup[] = [];
+  for (const group of sorted) {
+    while (
+      lower.length >= 2
+      && orientationCross(lower[lower.length - 2], lower[lower.length - 1], group) <= 0
+    ) {
+      lower.pop();
+    }
+    lower.push(group);
+  }
+
+  const upper: PendingPlaceGroup[] = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const group = sorted[i];
+    while (
+      upper.length >= 2
+      && orientationCross(upper[upper.length - 2], upper[upper.length - 1], group) <= 0
+    ) {
+      upper.pop();
+    }
+    upper.push(group);
+  }
+
+  lower.pop();
+  upper.pop();
+  return normalizeGroupLayerDirection([...lower, ...upper]);
+}
+
+function computeRadialReferenceCenter(groups: PendingPlaceGroup[]) {
+  if (groups.length <= 2) return computeCenterOfGroups(groups);
+  const hull = buildConvexHull(groups);
+  return computePolygonCentroid(hull);
+}
+
+function distanceBetweenGroups(
+  a: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  b: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+) {
+  return Math.hypot(a.logicalX - b.logicalX, a.logicalY - b.logicalY);
+}
+
+function edgesCross(
+  a: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  b: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  c: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  d: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+) {
+  if (a === c || a === d || b === c || b === d) return false;
+
+  const abC = orientationCross(a, b, c);
+  const abD = orientationCross(a, b, d);
+  const cdA = orientationCross(c, d, a);
+  const cdB = orientationCross(c, d, b);
+
+  return abC * abD < 0 && cdA * cdB < 0;
+}
+
+function buildImprovedCycle(groups: PendingPlaceGroup[]) {
+  if (groups.length <= 3) return groups;
+
+  const cycle = [...groups];
+
+  for (let pass = 0; pass < 8; pass++) {
+    let changed = false;
+
+    for (let i = 0; i < cycle.length; i++) {
+      const a = cycle[i];
+      const b = cycle[(i + 1) % cycle.length];
+
+      for (let j = i + 2; j < cycle.length; j++) {
+        if (i === 0 && j === cycle.length - 1) continue;
+
+        const c = cycle[j];
+        const d = cycle[(j + 1) % cycle.length];
+
+        if (!edgesCross(a, b, c, d)) continue;
+
+        const currentCost = distanceBetweenGroups(a, b) + distanceBetweenGroups(c, d);
+        const swappedCost = distanceBetweenGroups(a, c) + distanceBetweenGroups(b, d);
+        if (swappedCost <= currentCost + 1e-6) {
+          const reversed = cycle.slice(i + 1, j + 1).reverse();
+          cycle.splice(i + 1, j - i, ...reversed);
+          changed = true;
+        }
+      }
+    }
+
+    if (!changed) break;
+  }
+
+  return rotateGroupsToBestStart(cycle);
+}
+
 function circularAngleDiff(a: number, b: number) {
   return Math.abs(normalizeRadians(a - b));
 }
 
 function buildLargeFanOrder(groups: PendingPlaceGroup[]) {
-  return [...groups]
-    .map((group) => ({
-      ...group,
-      theta: Math.atan2(group.logicalY, group.logicalX),
-      radiusWeight: Math.max(1, Math.sqrt(group.photoCount)),
-      rectArea: rectArea(group.groupRect),
-      tangentSize: Math.max(
-        group.groupRect.right - group.groupRect.left,
-        group.groupRect.bottom - group.groupRect.top,
-      ),
-    }))
-    .sort((a, b) => a.theta - b.theta);
+  if (groups.length === 0) return [];
+
+  const radialCenter = computeRadialReferenceCenter(groups);
+  const orderedRadialPath = buildImprovedCycle(
+    rotateGroupsToBestStart(sortGroupsByCenterAngle(groups, radialCenter.x, radialCenter.y)),
+  );
+
+  return orderedRadialPath
+    .map((group) => {
+      const relativeX = group.logicalX - radialCenter.x;
+      const relativeY = group.logicalY - radialCenter.y;
+      const fallbackX = relativeX === 0 && relativeY === 0 ? group.logicalX : relativeX;
+      const fallbackY = relativeX === 0 && relativeY === 0 ? group.logicalY : relativeY;
+
+      return {
+        ...group,
+        theta: Math.atan2(fallbackY, fallbackX),
+        radiusWeight: Math.max(1, Math.sqrt(group.photoCount)),
+        rectArea: rectArea(group.groupRect),
+        tangentSize: Math.max(
+          group.groupRect.right - group.groupRect.left,
+          group.groupRect.bottom - group.groupRect.top,
+        ),
+      };
+    });
 }
 
 function computeLargeFanBaseRadius(groups: ReturnType<typeof buildLargeFanOrder>, viewportWidth: number, viewportHeight: number) {
@@ -613,11 +829,7 @@ function computeOrderedFanAngles(groups: ReturnType<typeof buildLargeFanOrder>, 
     return rawAngles.slice();
   }
 
-  const rawCenter = (unwrapped[0] + unwrapped[unwrapped.length - 1]) / 2;
-  const preferredStart = rawCenter - totalRequiredSpan / 2;
-  const minStart = unwrapped[unwrapped.length - 1] - availableSpan;
-  const maxStart = unwrapped[0];
-  const start = Math.min(Math.max(preferredStart, minStart), maxStart);
+  const start = unwrapped[0];
 
   const adjusted = [start];
   for (let i = 0; i < requiredSteps.length; i++) {
