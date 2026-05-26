@@ -77,6 +77,37 @@ function polygonArea(points: TestPoint[]) {
   return area / 2;
 }
 
+function computePolygonCentroid(points: TestPoint[]) {
+  if (points.length === 0) return { x: 0, y: 0 };
+  if (points.length === 1) return { x: points[0].x, y: points[0].y };
+  if (points.length === 2) {
+    return {
+      x: (points[0].x + points[1].x) / 2,
+      y: (points[0].y + points[1].y) / 2,
+    };
+  }
+
+  const area = polygonArea(points);
+  if (Math.abs(area) < 1e-6) {
+    return computeCenterOfPoints(points);
+  }
+
+  let x = 0;
+  let y = 0;
+  for (let i = 0; i < points.length; i++) {
+    const current = points[i];
+    const next = points[(i + 1) % points.length];
+    const factor = current.x * next.y - next.x * current.y;
+    x += (current.x + next.x) * factor;
+    y += (current.y + next.y) * factor;
+  }
+
+  return {
+    x: x / (6 * area),
+    y: y / (6 * area),
+  };
+}
+
 function rotateToBestStart(points: TestPoint[]) {
   if (points.length === 0) return [];
   let bestIndex = 0;
