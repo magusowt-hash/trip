@@ -331,9 +331,9 @@ export default function TestCssPage() {
   ), [segments]);
 
   return (
-    <main className={styles.page}>
-      <section className={styles.panel}>
-        <div className={styles.toolbar}>
+    <main className={styles.rootFull}>
+      <section className={styles.stagePane}>
+        <div className={styles.stageHeader}>
           <div>
             <p className={styles.eyebrow}>Order Test</p>
             <h1>随机点排序与连线验证</h1>
@@ -341,24 +341,53 @@ export default function TestCssPage() {
               当前只验证一件事：各点按顺序首尾相连时，整条路径是否自交。
             </p>
           </div>
-          <div className={styles.controls}>
-            <label className={styles.control}>
-              <span>数量</span>
-              <input
-                type="range"
-                min="3"
-                max="50"
-                value={count}
-                onChange={(event) => setCount(Number(event.target.value))}
-              />
-              <strong>{count}</strong>
-            </label>
-            <button className={styles.button} onClick={() => setSeed((value) => value + 1)}>
-              随机重排
-            </button>
-          </div>
         </div>
 
+        <div className={styles.stage}>
+          <svg viewBox={`0 0 ${STAGE_SIZE} ${STAGE_SIZE}`} className={styles.svg}>
+            <rect
+              x={(STAGE_SIZE - MAP_SIZE) / 2}
+              y={(STAGE_SIZE - MAP_SIZE) / 2}
+              width={MAP_SIZE}
+              height={MAP_SIZE}
+              rx="24"
+              className={styles.mapRect}
+            />
+
+            {segments.map((segment) => (
+              <line
+                key={`line-${segment.from.id}-${segment.to.id}`}
+                x1={STAGE_SIZE / 2 + segment.from.x}
+                y1={STAGE_SIZE / 2 + segment.from.y}
+                x2={STAGE_SIZE / 2 + segment.to.x}
+                y2={STAGE_SIZE / 2 + segment.to.y}
+                className={styles.link}
+              />
+            ))}
+
+            {orderedPoints.map((point) => (
+              <g key={`poi-${point.id}`}>
+                <circle
+                  cx={STAGE_SIZE / 2 + point.x}
+                  cy={STAGE_SIZE / 2 + point.y}
+                  r="16"
+                  className={styles.poi}
+                />
+                <text
+                  x={STAGE_SIZE / 2 + point.x}
+                  y={STAGE_SIZE / 2 + point.y - 16}
+                  textAnchor="middle"
+                  className={styles.poiLabel}
+                >
+                  {point.order}
+                </text>
+              </g>
+            ))}
+          </svg>
+        </div>
+      </section>
+
+      <aside className={styles.sidePanel}>
         <div className={styles.summary}>
           <div className={styles.metric}>
             <span>坐标点数量</span>
@@ -374,51 +403,23 @@ export default function TestCssPage() {
           </div>
         </div>
 
-        <div className={styles.workspace}>
-          <div className={styles.stage}>
-            <svg viewBox={`0 0 ${STAGE_SIZE} ${STAGE_SIZE}`} className={styles.svg}>
-              <rect
-                x={(STAGE_SIZE - MAP_SIZE) / 2}
-                y={(STAGE_SIZE - MAP_SIZE) / 2}
-                width={MAP_SIZE}
-                height={MAP_SIZE}
-                rx="24"
-                className={styles.mapRect}
-              />
-
-              {segments.map((segment) => (
-                <line
-                  key={`line-${segment.from.id}-${segment.to.id}`}
-                  x1={STAGE_SIZE / 2 + segment.from.x}
-                  y1={STAGE_SIZE / 2 + segment.from.y}
-                  x2={STAGE_SIZE / 2 + segment.to.x}
-                  y2={STAGE_SIZE / 2 + segment.to.y}
-                  className={styles.link}
-                />
-              ))}
-
-              {orderedPoints.map((point) => (
-                <g key={`poi-${point.id}`}>
-                  <circle
-                    cx={STAGE_SIZE / 2 + point.x}
-                    cy={STAGE_SIZE / 2 + point.y}
-                    r="16"
-                    className={styles.poi}
-                  />
-                  <text
-                    x={STAGE_SIZE / 2 + point.x}
-                    y={STAGE_SIZE / 2 + point.y - 16}
-                    textAnchor="middle"
-                    className={styles.poiLabel}
-                  >
-                    {point.order}
-                  </text>
-                </g>
-              ))}
-            </svg>
-          </div>
+        <div className={styles.controls}>
+          <label className={styles.control}>
+            <span>数量</span>
+            <input
+              type="range"
+              min="3"
+              max="50"
+              value={count}
+              onChange={(event) => setCount(Number(event.target.value))}
+            />
+            <strong>{count}</strong>
+          </label>
+          <button className={styles.button} onClick={() => setSeed((value) => value + 1)}>
+            随机重排
+          </button>
         </div>
-      </section>
+      </aside>
     </main>
   );
 }

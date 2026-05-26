@@ -1,29 +1,40 @@
-.page {
-  min-height: 100vh;
-  padding: 32px;
+.rootFull {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
   background:
     radial-gradient(circle at top, rgba(14, 165, 233, 0.18), transparent 30%),
     linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
   color: #0f172a;
+  overflow: hidden;
 }
 
-.panel {
-  width: min(1400px, 100%);
-  margin: 0 auto;
+.stagePane {
+  min-width: 0;
   padding: 28px;
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(148, 163, 184, 0.32);
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
-  backdrop-filter: blur(18px);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.toolbar {
+.sidePanel {
+  border-left: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.76);
+  backdrop-filter: blur(18px);
+  padding: 28px 22px;
   display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  align-items: flex-start;
-  margin-bottom: 24px;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+}
+
+.stageHeader {
+  padding: 24px 28px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
 }
 
 .eyebrow {
@@ -46,13 +57,6 @@
   max-width: 760px;
   line-height: 1.7;
   color: #475569;
-}
-
-.controls {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 240px;
 }
 
 .control {
@@ -83,10 +87,9 @@
 }
 
 .summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .metric {
@@ -115,10 +118,6 @@
   color: #dc2626;
 }
 
-.workspace {
-  display: block;
-}
-
 .stage {
   border-radius: 28px;
   background:
@@ -126,13 +125,14 @@
     #f8fafc;
   border: 1px solid rgba(148, 163, 184, 0.28);
   overflow: hidden;
-  min-height: 78vh;
+  min-height: 0;
+  flex: 1;
 }
 
 .svg {
   display: block;
   width: 100%;
-  height: min(78vh, 1120px);
+  height: 100%;
 }
 
 .mapRect {
@@ -158,26 +158,23 @@
 }
 
 @media (max-width: 1080px) {
-  .toolbar {
+  .rootFull {
     grid-template-columns: 1fr;
-    display: grid;
+  }
+  
+  .stagePane {
+    padding: 18px;
   }
 
-  .controls {
-    min-width: 0;
+  .sidePanel {
+    border-left: 0;
+    border-top: 1px solid rgba(148, 163, 184, 0.28);
+    padding: 18px;
   }
 }
 
 @media (max-width: 720px) {
-  .page {
-    padding: 18px;
-  }
-
-  .panel {
-    padding: 18px;
-  }
-
   .summary {
-    grid-template-columns: 1fr;
+    gap: 10px;
   }
 }
