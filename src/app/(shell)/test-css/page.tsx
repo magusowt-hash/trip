@@ -55,6 +55,7 @@ const TOL = 1e-8;
 const ANGLE_BOUND = 1e-3;
 const SHARP_ANGLE = (150 * Math.PI) / 180;
 const NORMAL_ANGLE = (60 * Math.PI) / 180;
+const MAX_RADIAL_PULL_PASSES = 3;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -452,6 +453,75 @@ function computeAngularHalfSpan(rect: LogicalRect, radius: number) {
   return Math.min(Math.PI / 2, Math.asin(Math.min(0.999, diameter / (2 * radius))));
 }
 
+function computeMedian(values: number[]) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[middle];
+  return (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function findRadialBand(rects: LogicalRect[], centers: Array<{ x: number; y: number }>) {
+  const radii = centers.map((center) => Math.hypot(center.x, center.y));
+  const medianRadius = computeMedian(radii);
+  const deviations = radii.map((radius) => Math.abs(radius - medianRadius));
+  const medianDeviation = computeMedian(deviations);
+  const maxRectSize = rects.reduce((max, rect) => Math.max(max, rect.right - rect.left, rect.bottom - rect.top), 0);
+  const lower = Math.max(0, medianRadius - Math.max(maxRectSize * 0.4, medianDeviation * 2.2));
+  const upper = medianRadius + Math.max(maxRectSize * 0.8, medianDeviation * 2.6, GROUP_SAFE_GAP * 6);
+  return { lower, upper };
+}
+
+function constrainLayerRadii(
+  groups: Array<{
+    point: LayoutGroup;
+    rect: LogicalRect;
+    centerX: number;
+    centerY: number;
+  }>,
+  occupiedRects: LogicalRect[],
+) {
+  if (groups.length <= 2) return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+
+  let centers = groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+
+  for (let pass = 0; pass < MAX_RADIAL_PULL_PASSES; pass++) {
+    const band = findRadialBand(groups.map((group) => group.rect), centers);
+    let changed = false;
+
+    for (let index = 0; index < groups.length; index++) {
+      const group = groups[index];
+      const center = centers[index];
+      const radius = Math.hypot(center.x, center.y);
+      if (radius <= band.upper + 1e-4 && radius >= band.lower - 1e-4) continue;
+
+      const angle = Math.atan2(center.y - group.point.y, center.x - group.point.x);
+      const targetRadius = Math.min(Math.max(radius, band.lower), band.upper);
+      const blockedRects = [...occupiedRects];
+      for (let otherIndex = 0; otherIndex < groups.length; otherIndex++) {
+        if (otherIndex === index) continue;
+        blockedRects.push(translateRect(groups[otherIndex].rect, centers[otherIndex].x, centers[otherIndex].y));
+      }
+      const candidate = findRelaxedCenter(
+        group.point,
+        group.rect,
+        angle,
+        targetRadius,
+        blockedRects,
+      );
+      const candidateRadius = Math.hypot(candidate.x - group.point.x, candidate.y - group.point.y);
+      if (candidateRadius > band.upper + 1e-4) continue;
+
+      centers[index] = candidate;
+      changed = true;
+    }
+
+    if (!changed) break;
+  }
+
+  return centers;
+}
+
 function buildMockPhotos(group: LayoutGroup) {
   const photoCount = MOCK_MIN_PHOTOS + ((group.id * 7 + group.order) % (MOCK_MAX_PHOTOS - MOCK_MIN_PHOTOS + 1));
   const photos: MockPhoto[] = [];
@@ -841,10 +911,18 @@ export default function TestCssPage() {
       });
 
       const relaxedCenters = relaxPlacedGroupAngles(provisionalGroups);
+      const constrainedCenters = constrainLayerRadii(
+        provisionalGroups.map((group, index) => ({
+          ...group,
+          centerX: relaxedCenters[index].x,
+          centerY: relaxedCenters[index].y,
+        })),
+        placed.map((group) => group.rect),
+      );
       for (let index = 0; index < provisionalGroups.length; index++) {
         const group = provisionalGroups[index];
-        const centerX = relaxedCenters[index].x;
-        const centerY = relaxedCenters[index].y;
+        const centerX = constrainedCenters[index].x;
+        const centerY = constrainedCenters[index].y;
         const placedRect = translateRect(group.rect, centerX, centerY);
         const linkTarget = intersectRayWithRect(group.point.x, group.point.y, translateRect(group.geometry.photoRect, centerX, centerY));
         placed.push({
