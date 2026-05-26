@@ -96,6 +96,8 @@ const LARGE_FAN_MIN_BASE_RADIUS = 0.28;
 const LARGE_FAN_MAX_BASE_RADIUS = 0.42;
 const LARGE_FAN_DENSITY_WINDOW = Math.PI / 6;
 const LARGE_FAN_CIRCLE_UTILIZATION = 0.9;
+const LARGE_FAN_BASE_RADIUS_OFFSET = 176;
+const LARGE_FAN_RADIUS_STEP = 54;
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -760,28 +762,10 @@ function buildLargeFanOrder(groups: PendingPlaceGroup[]) {
 }
 
 function computeLargeFanBaseRadius(groups: ReturnType<typeof buildLargeFanOrder>, viewportWidth: number, viewportHeight: number) {
-  const viewportMax = Math.max(viewportWidth, viewportHeight);
-  const totalArea = groups.reduce((sum, group) => sum + group.rectArea, 0);
-  const avgArea = totalArea / Math.max(groups.length, 1);
-  const areaScale = Math.min(1, avgArea / 65000);
-
-  const sortedAngles = groups.map((group) => group.theta);
-  let tightPairs = 0;
-  for (let i = 1; i < sortedAngles.length; i++) {
-    if (circularAngleDiff(sortedAngles[i], sortedAngles[i - 1]) < LARGE_FAN_DENSITY_WINDOW / 2) tightPairs++;
-  }
-  const densityRatio = groups.length <= 1 ? 0 : tightPairs / (groups.length - 1);
-  const spreadRatio = Math.max(0, 1 - densityRatio);
-  const circumferenceDemand = groups.reduce((sum, group) => sum + group.tangentSize + 18, 0);
-  const radiusByCircumference = circumferenceDemand / (Math.PI * 2 * LARGE_FAN_CIRCLE_UTILIZATION);
-  const groupPressure = Math.min(1, groups.length / 12);
-  const normalized = LARGE_FAN_MIN_BASE_RADIUS
-    + (LARGE_FAN_MAX_BASE_RADIUS - LARGE_FAN_MIN_BASE_RADIUS)
-    * spreadRatio
-    * (1 - areaScale * 0.45)
-    * (1 - groupPressure * 0.4);
-
-  return Math.max(viewportMax * normalized, radiusByCircumference);
+  void groups;
+  const mapWidth = viewportWidth * 0.6;
+  const mapHeight = viewportHeight * 0.8;
+  return Math.max(mapWidth, mapHeight) / 2 + LARGE_FAN_BASE_RADIUS_OFFSET;
 }
 
 function buildFanCandidateCenter(
@@ -809,31 +793,15 @@ function unwrapAngles(angles: number[]) {
 function computeOrderedFanAngles(groups: ReturnType<typeof buildLargeFanOrder>, baseRadius: number) {
   if (groups.length === 0) return [] as number[];
   if (groups.length === 1) return [groups[0].theta];
-
-  const minGaps = groups.map((group) => {
-    const chord = group.tangentSize + 16;
-    return 2 * Math.asin(Math.min(1, chord / Math.max(baseRadius * 2, 1)));
-  });
+  void baseRadius;
 
   const rawAngles = groups.map((group) => group.theta);
   const unwrapped = unwrapAngles(rawAngles);
-
-  const requiredSteps: number[] = [];
-  for (let i = 1; i < minGaps.length; i++) {
-    requiredSteps.push((minGaps[i - 1] + minGaps[i]) / 2);
-  }
-
-  const totalRequiredSpan = requiredSteps.reduce((sum, step) => sum + step, 0);
-  const availableSpan = Math.PI * 2 - minGaps[0];
-  if (totalRequiredSpan > availableSpan) {
-    return rawAngles.slice();
-  }
-
+  const step = (Math.PI * 2) / groups.length;
   const start = unwrapped[0];
-
   const adjusted = [start];
-  for (let i = 0; i < requiredSteps.length; i++) {
-    adjusted.push(adjusted[i] + requiredSteps[i]);
+  for (let i = 1; i < groups.length; i++) {
+    adjusted.push(adjusted[i - 1] + step);
   }
 
   return adjusted.map((angle) => normalizeRadians(angle));
@@ -871,50 +839,30 @@ function findFanPlacementCenter(
   minTheta: number,
   maxTheta: number,
 ) {
-  const groupWidth = group.groupRect.right - group.groupRect.left;
-  const groupHeight = group.groupRect.bottom - group.groupRect.top;
-  const selfSizeOffset = Math.max(groupWidth, groupHeight) * 0.18;
-  const radialStep = Math.max(20, Math.max(groupWidth, groupHeight) * 0.3);
-  const maxRadiusSteps = 28;
   const slotMin = Math.min(minTheta, maxTheta);
   const slotMax = Math.max(minTheta, maxTheta);
-  const slotSpan = Math.max(slotMax - slotMin, Math.PI / 180);
-  const slotCenter = Math.min(Math.max(displayTheta, slotMin), slotMax);
-  const angularStep = Math.max(Math.min(slotSpan / 8, Math.PI / 24), Math.PI / 180);
+  const candidateAngles = slotMax > slotMin
+    ? [
+      displayTheta,
+      slotMin + (slotMax - slotMin) * 0.28,
+      slotMin + (slotMax - slotMin) * 0.72,
+    ]
+    : [displayTheta];
 
-  let bestCandidate: { x: number; y: number } | null = null;
-  let bestScore = Infinity;
-
-  for (let radiusStep = 0; radiusStep < maxRadiusSteps; radiusStep++) {
-    const radius = baseRadius + selfSizeOffset + radiusStep * radialStep;
-    const maxAngularLevels = Math.max(0, Math.ceil((slotSpan / 2) / angularStep));
-
-    for (let angularLevel = 0; angularLevel <= maxAngularLevels; angularLevel++) {
-      const offsets = angularLevel === 0
-        ? [0]
-        : [-angularLevel * angularStep, angularLevel * angularStep];
-
-      for (const angleOffset of offsets) {
-        const theta = slotCenter + angleOffset;
-        if (theta < slotMin || theta > slotMax) continue;
-
-        const centerCandidate = buildFanCandidateCenter(theta, radius);
-        const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
-        if (!fitsAroundMap(centerRect, mapRect, gap)) continue;
-        if (occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, gap))) continue;
-
-        const score = radiusStep * 1000 + Math.abs(theta - displayTheta) * 100;
-        if (score < bestScore) {
-          bestScore = score;
-          bestCandidate = centerCandidate;
-        }
-      }
+  let chosenCenter = buildFanCandidateCenter(displayTheta, baseRadius);
+  for (let radiusStep = 0; radiusStep < 10; radiusStep++) {
+    const radius = baseRadius + radiusStep * LARGE_FAN_RADIUS_STEP;
+    for (const theta of candidateAngles) {
+      const centerCandidate = buildFanCandidateCenter(theta, radius);
+      const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
+      if (!fitsAroundMap(centerRect, mapRect, gap)) continue;
+      if (occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, 14))) continue;
+      chosenCenter = centerCandidate;
+      return chosenCenter;
     }
-
-    if (bestCandidate) return bestCandidate;
   }
 
-  return buildFanCandidateCenter(slotCenter, baseRadius + selfSizeOffset + maxRadiusSteps * radialStep);
+  return chosenCenter;
 }
 
 function rectDistanceToMap(rect: LogicalRect, mapRect: LogicalRect) {
