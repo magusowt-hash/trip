@@ -258,23 +258,6 @@ function buildOrderedAngles(groups: Array<TestPoint & { theta: number }>) {
   return ordered.map((angle) => normalizeRadians(angle));
 }
 
-function buildAngleSlots(angles: number[]) {
-  if (angles.length === 0) return [] as Array<{ min: number; max: number }>;
-  if (angles.length === 1) {
-    return [{ min: angles[0] - Math.PI, max: angles[0] + Math.PI }];
-  }
-
-  const unwrapped = unwrapAngles(angles);
-  return unwrapped.map((current, index) => {
-    const prev = index === 0 ? unwrapped[unwrapped.length - 1] - Math.PI * 2 : unwrapped[index - 1];
-    const next = index === unwrapped.length - 1 ? unwrapped[0] + Math.PI * 2 : unwrapped[index + 1];
-    return {
-      min: (prev + current) / 2,
-      max: (current + next) / 2,
-    };
-  });
-}
-
 function rectsOverlap(a: LogicalRect, b: LogicalRect, gap = 0) {
   return !(
     a.right + gap <= b.left ||
@@ -497,37 +480,29 @@ export default function TestCssPage() {
   const stageScale = useMemo(() => computeStageScale(count), [count]);
   const placedGroups = useMemo(() => {
     const angleSequence = buildOrderedAngles(orderedPoints);
-    const angleSlots = buildAngleSlots(angleSequence);
     const occupiedRects: LogicalRect[] = [];
 
     return orderedPoints.map((point, index) => {
       const { photos, photoRect } = buildMockPhotos(point);
       const geometry = buildGroupGeometryFromPhotoRect(photoRect, `图片组 ${point.order}`);
       const angle = angleSequence[index] ?? point.theta;
-      const slot = angleSlots[index];
-      const candidateAngles = slot
-        ? [angle, slot.min + (slot.max - slot.min) * 0.28, slot.min + (slot.max - slot.min) * 0.72]
-        : [angle];
 
       let centerX = Math.cos(angle) * GROUP_RADIUS;
       let centerY = Math.sin(angle) * GROUP_RADIUS;
       let placedRect = translateRect(geometry.overallRect, centerX, centerY);
 
-      outer:
       for (let radiusStep = 0; radiusStep < 10; radiusStep++) {
         const radius = GROUP_RADIUS + radiusStep * GROUP_RADIUS_STEP;
-        for (const candidateAngle of candidateAngles) {
-          const nextCenterX = Math.cos(candidateAngle) * radius;
-          const nextCenterY = Math.sin(candidateAngle) * radius;
-          const nextRect = translateRect(geometry.overallRect, nextCenterX, nextCenterY);
-          if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, 14))) {
-            continue;
-          }
-          centerX = nextCenterX;
-          centerY = nextCenterY;
-          placedRect = nextRect;
-          break outer;
+        const nextCenterX = Math.cos(angle) * radius;
+        const nextCenterY = Math.sin(angle) * radius;
+        const nextRect = translateRect(geometry.overallRect, nextCenterX, nextCenterY);
+        if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, 14))) {
+          continue;
         }
+        centerX = nextCenterX;
+        centerY = nextCenterY;
+        placedRect = nextRect;
+        break;
       }
 
       occupiedRects.push(placedRect);

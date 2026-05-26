@@ -860,27 +860,18 @@ function findFanPlacementCenter(
   minTheta: number,
   maxTheta: number,
 ) {
-  const slotMin = Math.min(minTheta, maxTheta);
-  const slotMax = Math.max(minTheta, maxTheta);
-  const candidateAngles = slotMax > slotMin
-    ? [
-      displayTheta,
-      slotMin + (slotMax - slotMin) * 0.28,
-      slotMin + (slotMax - slotMin) * 0.72,
-    ]
-    : [displayTheta];
-
   let chosenCenter = buildFanCandidateCenter(displayTheta, baseRadius);
+  void minTheta;
+  void maxTheta;
+  void group;
   for (let radiusStep = 0; radiusStep < 10; radiusStep++) {
     const radius = baseRadius + radiusStep * LARGE_FAN_RADIUS_STEP;
-    for (const theta of candidateAngles) {
-      const centerCandidate = buildFanCandidateCenter(theta, radius);
-      const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
-      if (!fitsAroundMap(centerRect, mapRect, gap)) continue;
-      if (occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, 14))) continue;
-      chosenCenter = centerCandidate;
-      return chosenCenter;
-    }
+    const centerCandidate = buildFanCandidateCenter(displayTheta, radius);
+    const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
+    if (!fitsAroundMap(centerRect, mapRect, gap)) continue;
+    if (occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, 14))) continue;
+    chosenCenter = centerCandidate;
+    return chosenCenter;
   }
 
   return chosenCenter;
@@ -1478,14 +1469,8 @@ function UserFootprintsPageInner() {
       const fanGroups = buildLargeFanOrder(pendingNewGroups);
       const baseRadius = computeLargeFanBaseRadius(fanGroups, viewportWidth, viewportHeight);
       const orderedAngles = computeOrderedFanAngles(fanGroups, baseRadius);
-      const angleSlots = computeFanAngleSlots(orderedAngles);
-
       for (let index = 0; index < fanGroups.length; index++) {
         const group = fanGroups[index];
-        const slot = angleSlots[index] ?? {
-          min: (orderedAngles[index] ?? group.theta) - Math.PI / 12,
-          max: (orderedAngles[index] ?? group.theta) + Math.PI / 12,
-        };
         const chosenCenter = findFanPlacementCenter(
           group,
           occupiedRects,
@@ -1493,8 +1478,8 @@ function UserFootprintsPageInner() {
           cardSize,
           baseRadius,
           orderedAngles[index] ?? group.theta,
-          slot.min,
-          slot.max,
+          0,
+          0,
         );
 
         for (let i = 0; i < group.placePhotos.length; i++) {
