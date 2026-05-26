@@ -13,6 +13,7 @@ import PlanMap from './PlanMap';
 interface Props {
   markers: MapMarker[];
   photos: PhotoItem[];
+  onPoiPointsChange?: (points: PoiPoint[]) => void;
   focusPosition?: [number, number] | null;
   onMarkerClick?: (marker: MapMarker) => void;
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
@@ -36,6 +37,7 @@ interface Props {
 export default function OuterFrame({
   markers,
   photos,
+  onPoiPointsChange,
   focusPosition,
   onMarkerClick,
   onPhotoDragEnd,
@@ -147,6 +149,10 @@ export default function OuterFrame({
     rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
   }, [mapReady, computePoiPoints]);
+
+  useEffect(() => {
+    onPoiPointsChange?.(poiPoints);
+  }, [poiPoints, onPoiPointsChange]);
 
   return (
     <div

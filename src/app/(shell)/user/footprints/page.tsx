@@ -10,7 +10,7 @@ import LegendPanel from '@/components/LegendPanel';
 import LocalMapModal, { type LocalMappedAssetDraft, type LocalMapLayoutSettings } from '@/components/LocalMapModal';
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
-import type { PhotoItem } from '@/components/OuterFrameCanvas';
+import type { PhotoItem, PoiPoint } from '@/components/OuterFrameCanvas';
 import { buildPhotoRect, buildGroupGeometryFromPhotoRect, expandPhotoRect } from '@/components/localMapGroupGeometry';
 import type { Viewport } from '@/lib/outerFrameCoords';
 import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
@@ -495,21 +495,7 @@ function sortGroupsForRegion(region: RegionKey, groups: PendingRegionGroup[]) {
 function buildRegionSequence(
   pendingGroups: PendingRegionGroup[],
 ): RegionSequence[] {
-  const buckets = pendingGroups.length < 5
-    ? buildSmallGroupBuckets(pendingGroups)
-    : new Map<RegionKey, PendingRegionGroup[]>([
-      ['N', []],
-      ['W', []],
-      ['S', []],
-      ['E', []],
-    ]);
-
-  if (pendingGroups.length >= 5) {
-    for (const group of pendingGroups) {
-      const region = getRegionByPoint(group.logicalX, group.logicalY);
-      buckets.get(region)!.push(group);
-    }
-  }
+  const buckets = buildSmallGroupBuckets(pendingGroups);
 
   for (const [region, groups] of buckets) {
     sortGroupsForRegion(region, groups);
@@ -830,6 +816,20 @@ function computeRayExitDistance(
   return Math.max(0, Math.min(...positive));
 }
 
+function computeAnchorDistance(
+  direction: { x: number; y: number },
+  rect: LogicalRect,
+  mapRect: LogicalRect,
+): number {
+  const expandedMapRect = {
+    left: mapRect.left - GROUP_SAFE_GAP - rect.right,
+    right: mapRect.right + GROUP_SAFE_GAP - rect.left,
+    top: mapRect.top - GROUP_SAFE_GAP - rect.bottom,
+    bottom: mapRect.bottom + GROUP_SAFE_GAP - rect.top,
+  };
+  return computeRayExitDistance(0, 0, direction.x, direction.y, expandedMapRect);
+}
+
 function computeAdaptiveVectorLength(
   group: PendingPlaceGroup,
   direction: { x: number; y: number; crowdAngle: number },
@@ -839,21 +839,9 @@ function computeAdaptiveVectorLength(
   const height = group.groupRect.bottom - group.groupRect.top;
   const maxSize = Math.max(width, height);
   const diagonal = Math.hypot(width, height);
-  const expandedMapRect = {
-    left: mapRect.left - GROUP_SAFE_GAP - group.groupRect.right,
-    right: mapRect.right + GROUP_SAFE_GAP - group.groupRect.left,
-    top: mapRect.top - GROUP_SAFE_GAP - group.groupRect.bottom,
-    bottom: mapRect.bottom + GROUP_SAFE_GAP - group.groupRect.top,
-  };
-  const exitDistance = computeRayExitDistance(
-    group.logicalX,
-    group.logicalY,
-    direction.x,
-    direction.y,
-    expandedMapRect,
-  );
+  const anchorDistance = computeAnchorDistance(direction, group.groupRect, mapRect);
   const crowdRatio = 1 - Math.min(direction.crowdAngle, Math.PI) / Math.PI;
-  return exitDistance + maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8);
+  return anchorDistance + maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8);
 }
 
 function computeLayerStep(rect: LogicalRect): number {
@@ -871,15 +859,15 @@ function findLargeGroupPlacementCenter(
   const baseLength = computeAdaptiveVectorLength(group, direction, mapRect);
   const layerStep = computeLayerStep(group.groupRect);
   let chosenCenter = {
-    x: group.logicalX + direction.x * baseLength,
-    y: group.logicalY + direction.y * baseLength,
+    x: direction.x * baseLength,
+    y: direction.y * baseLength,
   };
 
   for (let layer = 0; layer < MAX_VECTOR_LAYERS; layer++) {
     const nextLength = baseLength + layer * layerStep;
     const centerCandidate = {
-      x: group.logicalX + direction.x * nextLength,
-      y: group.logicalY + direction.y * nextLength,
+      x: direction.x * nextLength,
+      y: direction.y * nextLength,
     };
     const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
     if (!fitsAroundMap(centerRect, mapRect, GROUP_SAFE_GAP)) continue;
@@ -1009,6 +997,7 @@ function UserFootprintsPageInner() {
   const [items, setItems] = useState<FootprintItem[]>([]);
   const [markers, setMarkers] = useState<MapMarker[]>([]);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [poiPoints, setPoiPoints] = useState<PoiPoint[]>([]);
   const [photosLoaded, setPhotosLoaded] = useState(false);
   const [focusPosition, setFocusPosition] = useState<[number, number] | null>(null);
   const [albumItem, setAlbumItem] = useState<FootprintItem | null>(null);
@@ -1320,7 +1309,7 @@ function UserFootprintsPageInner() {
     }
 
     setPhotos(allPhotos);
-  }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId]);
+  }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints]);
 
   function autoPlacePhotos(
     unplaced: PhotoItem[],
@@ -1338,14 +1327,9 @@ function UserFootprintsPageInner() {
       arr.push(p);
       byPlace.set(p.placeKey, arr);
     }
-    const logicalPointByPlaceKey = new Map<string, { x: number; y: number }>();
-    for (const item of items) {
-      if (!item.lng || !item.lat) continue;
-      logicalPointByPlaceKey.set(buildFootprintPhotoScopeKey(item.id), {
-        x: parseFloat(item.lng),
-        y: -parseFloat(item.lat),
-      });
-    }
+    const logicalPointByPlaceKey = new Map<string, { x: number; y: number }>(
+      poiPoints.map((point) => [point.placeKey, { x: point.logicalX, y: point.logicalY }]),
+    );
 
     const cardSize = 80;
     const mapRect = {
@@ -2094,6 +2078,7 @@ function UserFootprintsPageInner() {
       <OuterFrame
         markers={markers}
         photos={photos}
+        onPoiPointsChange={setPoiPoints}
         focusPosition={focusPosition}
         onMarkerClick={handleMapMarkerClick}
         onPhotoDragEnd={handlePhotoDragEnd}
