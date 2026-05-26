@@ -22,6 +22,15 @@ type Segment = {
 const STAGE_SIZE = 1120;
 const MAP_SIZE = 420;
 
+function randomUnit() {
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
+    const values = new Uint32Array(1);
+    globalThis.crypto.getRandomValues(values);
+    return values[0] / 0xffffffff;
+  }
+  return Math.random();
+}
+
 function normalizeRadians(angle: number) {
   let next = angle;
   while (next <= -Math.PI) next += Math.PI * 2;
@@ -45,8 +54,8 @@ function buildRandomPoints(count: number) {
   for (let i = 0; i < count; i++) {
     points.push({
       id: i + 1,
-      x: Math.random() * MAP_SIZE - MAP_SIZE / 2,
-      y: Math.random() * MAP_SIZE - MAP_SIZE / 2,
+      x: randomUnit() * MAP_SIZE - MAP_SIZE / 2,
+      y: randomUnit() * MAP_SIZE - MAP_SIZE / 2,
     });
   }
   return points;
@@ -360,7 +369,7 @@ export default function TestCssPage() {
                 <circle
                   cx={STAGE_SIZE / 2 + point.x}
                   cy={STAGE_SIZE / 2 + point.y}
-                  r="11"
+                  r="8"
                   className={styles.poi}
                 />
                 <text
