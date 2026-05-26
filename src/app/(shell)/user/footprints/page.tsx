@@ -779,6 +779,8 @@ function buildLargeGroupOutwardVector(groups: PendingPlaceGroup[], index: number
   x: number;
   y: number;
   crowdAngle: number;
+  concaveDepth: number;
+  isConcave: boolean;
 } {
   const group = groups[index];
   const groupCount = groups.length;
@@ -790,13 +792,24 @@ function buildLargeGroupOutwardVector(groups: PendingPlaceGroup[], index: number
   );
 
   if (groupCount === 1) {
-    return { x: fallback.x, y: fallback.y, crowdAngle: Math.PI / 2 };
+    return {
+      x: fallback.x,
+      y: fallback.y,
+      crowdAngle: Math.PI / 2,
+      concaveDepth: 0,
+      isConcave: false,
+    };
   }
 
   const prev = groups[(index - 1 + groupCount) % groupCount];
   const next = groups[(index + 1) % groupCount];
   const incoming = normalizeVector(group.logicalX - prev.logicalX, group.logicalY - prev.logicalY);
   const outgoing = normalizeVector(next.logicalX - group.logicalX, next.logicalY - group.logicalY);
+  const edgeSpan = Math.max(1e-6, distanceBetweenGroups(prev, next));
+  const turnCross = orientationCross(prev, group, next);
+  const signedTurn = orientation >= 0 ? turnCross : -turnCross;
+  const concaveDepth = Math.max(0, -signedTurn) / edgeSpan;
+  const isConcave = signedTurn < 0;
   const buildNormal = orientation >= 0
     ? (vx: number, vy: number) => ({ x: vy, y: -vx })
     : (vx: number, vy: number) => ({ x: -vy, y: vx });
@@ -805,16 +818,35 @@ function buildLargeGroupOutwardVector(groups: PendingPlaceGroup[], index: number
   const merged = normalizeVector(prevNormal.x + nextNormal.x, prevNormal.y + nextNormal.y);
   const dot = Math.max(-1, Math.min(1, prevNormal.x * nextNormal.x + prevNormal.y * nextNormal.y));
   const crowdAngle = Math.acos(dot);
+  const concaveBlend = isConcave ? Math.min(0.82, 0.3 + concaveDepth / Math.max(edgeSpan, 1) * 0.9) : 0;
 
   if (Math.abs(merged.x) < 1e-6 && Math.abs(merged.y) < 1e-6) {
-    return { x: fallback.x, y: fallback.y, crowdAngle };
+    return {
+      x: fallback.x,
+      y: fallback.y,
+      crowdAngle,
+      concaveDepth,
+      isConcave,
+    };
   }
 
   const outward = merged.x * fallback.x + merged.y * fallback.y >= 0
     ? merged
     : { x: -merged.x, y: -merged.y };
+  const stabilized = concaveBlend > 0
+    ? normalizeVector(
+      outward.x * (1 - concaveBlend) + fallback.x * concaveBlend,
+      outward.y * (1 - concaveBlend) + fallback.y * concaveBlend,
+    )
+    : outward;
 
-  return { x: outward.x, y: outward.y, crowdAngle };
+  return {
+    x: stabilized.x,
+    y: stabilized.y,
+    crowdAngle,
+    concaveDepth,
+    isConcave,
+  };
 }
 
 function computeRayExitDistance(
@@ -853,7 +885,7 @@ function computeAnchorDistance(
 
 function computeAdaptiveVectorLength(
   group: PendingPlaceGroup,
-  direction: { x: number; y: number; crowdAngle: number },
+  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean },
   mapRect: LogicalRect,
 ): number {
   const width = group.groupRect.right - group.groupRect.left;
@@ -862,7 +894,11 @@ function computeAdaptiveVectorLength(
   const diagonal = Math.hypot(width, height);
   const anchorDistance = computeAnchorDistance(direction, group.groupRect, mapRect);
   const crowdRatio = 1 - Math.min(direction.crowdAngle, Math.PI) / Math.PI;
-  return anchorDistance + maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8);
+  const concaveCompression = direction.isConcave
+    ? Math.max(0.45, 1 - Math.min(0.42, direction.concaveDepth / Math.max(diagonal, 1)))
+    : 1;
+  const extraLength = (maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8)) * concaveCompression;
+  return anchorDistance + extraLength;
 }
 
 function computeLayerStep(rect: LogicalRect): number {
@@ -881,7 +917,7 @@ function computeAngularHalfSpan(rect: LogicalRect, radius: number) {
 
 function findLargeGroupPlacementCenter(
   group: PendingPlaceGroup,
-  direction: { x: number; y: number; crowdAngle: number },
+  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean },
   occupiedRects: LogicalRect[],
   mapRect: LogicalRect,
 ) {
