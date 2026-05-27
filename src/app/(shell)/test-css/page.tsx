@@ -48,6 +48,20 @@ type GapReport = {
   mean: number;
 };
 
+type LinkLengthEntry = {
+  key: string;
+  pointId: number;
+  groupId: number;
+  value: number;
+};
+
+type LinkLengthReport = {
+  min: number;
+  max: number;
+  mean: number;
+  entries: LinkLengthEntry[];
+};
+
 type MockPhoto = {
   id: string;
   width: number;
@@ -1552,6 +1566,27 @@ function buildGapReports(placedGroups: MockGroup[]) {
   }];
 }
 
+function buildLinkLengthReport(placedGroups: MockGroup[]) {
+  if (placedGroups.length === 0) return null as LinkLengthReport | null;
+
+  const entries = [...placedGroups]
+    .sort((a, b) => a.point.order - b.point.order)
+    .map((group) => ({
+      key: `link-length-${group.point.id}`,
+      pointId: group.point.id,
+      groupId: group.point.order,
+      value: Math.hypot(group.linkTargetX - group.point.x, group.linkTargetY - group.point.y),
+    }));
+
+  const values = entries.map((entry) => entry.value);
+  return {
+    entries,
+    min: Math.min(...values),
+    max: Math.max(...values),
+    mean: computeGapMean(values),
+  };
+}
+
 function buildAdaptiveViewport(groups: MockGroup[]) {
   const rects = groups.map((group) => group.rect);
   rects.push({
@@ -1709,6 +1744,7 @@ export default function TestCssPage() {
   }, [layeredPoints]);
   const gapLabels = useMemo(() => buildGapLabels(placedGroups), [placedGroups]);
   const gapReports = useMemo(() => buildGapReports(placedGroups), [placedGroups]);
+  const linkLengthReport = useMemo(() => buildLinkLengthReport(placedGroups), [placedGroups]);
   const viewport = useMemo(() => buildAdaptiveViewport(placedGroups), [placedGroups]);
 
   return (
@@ -1873,6 +1909,26 @@ export default function TestCssPage() {
         </div>
 
         <div className={styles.gapPanel}>
+          {linkLengthReport && (
+            <section className={styles.gapSection}>
+              <div className={styles.gapSectionHead}>
+                <strong>线长</strong>
+                <span>
+                  min {Math.round(linkLengthReport.min)} / max {Math.round(linkLengthReport.max)} / avg {Math.round(linkLengthReport.mean)}
+                </span>
+              </div>
+              <div className={styles.gapList}>
+                {linkLengthReport.entries.map((entry) => (
+                  <div key={entry.key} className={styles.gapRow}>
+                    <span>
+                      点 {entry.pointId} → 组 {entry.groupId}
+                    </span>
+                    <strong>{Math.round(entry.value)}</strong>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
           {gapReports.map((report) => (
             <section key={`gap-panel-${report.label}`} className={styles.gapSection}>
               <div className={styles.gapSectionHead}>
