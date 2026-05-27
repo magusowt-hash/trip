@@ -1410,8 +1410,14 @@ function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
     return layer.map((point) => circlePerimeterPosition(projectPointToCircle(point, radius), radius));
   }
 
+  const provisional = layer.map((point) => ({
+    point,
+    centerX: point.x,
+    centerY: point.y,
+  }));
+
   return unwrapPerimeterPositions(
-    layer.map((point) => circlePerimeterPosition(projectPointToCircle(point, radius), radius)),
+    buildSmoothedBoundaryAnchorPositions(provisional, radius),
     perimeter,
   );
 }
