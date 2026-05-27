@@ -57,6 +57,8 @@ const NORMAL_ANGLE = (60 * Math.PI) / 180;
 const MAX_RADIAL_PULL_PASSES = 3;
 const MAX_LINK_AVOID_PASSES = 8;
 const LINK_AVOID_ANGLE_STEP = Math.PI / 40;
+const INTRA_LAYER_ANGLE_SCAN_STEPS = 10;
+const INTRA_LAYER_ANGLE_SCAN_STEP = Math.PI / 30;
 const GAP_SHIFT_RATIO = 2;
 const MAX_GAP_SHIFT_PASSES = 12;
 const MIN_PERIMETER_GAP = 18;
@@ -65,6 +67,7 @@ const DENSITY_NEIGHBOR_SPAN = 2;
 const DENSITY_SHIFT_RATIO = 1.18;
 const DENSITY_SHIFT_STRENGTH = 0.42;
 const VIEWPORT_PADDING = 96;
+const SMALL_SET_SINGLE_RING_LIMIT = 9;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -525,6 +528,9 @@ function constrainLayerRadii(
   occupiedRects: LogicalRect[],
 ) {
   if (groups.length <= 2) return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+  if (groups.length <= SMALL_SET_SINGLE_RING_LIMIT) {
+    return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+  }
 
   let centers = groups.map((group) => ({ x: group.centerX, y: group.centerY }));
 
@@ -966,6 +972,46 @@ function findRelaxedCenter(
   };
 }
 
+function findLayerBalancedCenter(
+  point: LayoutGroup,
+  rect: LogicalRect,
+  baseAngle: number,
+  baseRadius: number,
+  occupiedRects: LogicalRect[],
+) {
+  const layerStep = computeLayerStep(rect);
+
+  for (let layer = 0; layer < MAX_VECTOR_LAYERS; layer++) {
+    const radius = baseRadius + layer * layerStep;
+
+    for (let offsetStep = 0; offsetStep <= INTRA_LAYER_ANGLE_SCAN_STEPS; offsetStep++) {
+      const candidateAngles = offsetStep === 0
+        ? [baseAngle]
+        : [
+          baseAngle - INTRA_LAYER_ANGLE_SCAN_STEP * offsetStep,
+          baseAngle + INTRA_LAYER_ANGLE_SCAN_STEP * offsetStep,
+        ];
+
+      for (const candidateAngle of candidateAngles) {
+        const centerCandidate = {
+          x: point.x + Math.cos(candidateAngle) * radius,
+          y: point.y + Math.sin(candidateAngle) * radius,
+        };
+        const nextRect = translateRect(rect, centerCandidate.x, centerCandidate.y);
+        if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
+          continue;
+        }
+        return centerCandidate;
+      }
+    }
+  }
+
+  return {
+    x: point.x + Math.cos(baseAngle) * baseRadius,
+    y: point.y + Math.sin(baseAngle) * baseRadius,
+  };
+}
+
 function relaxPlacedGroupAngles(
   groups: Array<{
     point: LayoutGroup;
@@ -1249,34 +1295,24 @@ export default function TestCssPage() {
     for (const layer of layeredPoints) {
       const directions = layer.map((_, index) => buildOutwardVector(layer, index));
       const balancedBoundaryPositions = rebalanceBoundaryPositions(layer);
+      const layerOccupiedRects = [...occupiedRects];
       const provisionalGroups = layer.map((point, index) => {
         const { photos, photoRect } = buildMockPhotos(point);
         const geometry = buildGroupGeometryFromPhotoRect(photoRect, `图片组 ${point.order}`);
         const direction = directions[index];
         const baseLength = computeAdaptiveVectorLength(point, direction, geometry.overallRect);
-        const layerStep = computeLayerStep(geometry.overallRect);
         const boundaryTarget = boundaryPositionToPoint(balancedBoundaryPositions[index]);
         const initialAngle = Math.atan2(boundaryTarget.y - point.y, boundaryTarget.x - point.x);
-        let centerX = point.x + Math.cos(initialAngle) * baseLength;
-        let centerY = point.y + Math.sin(initialAngle) * baseLength;
         const groupRect = geometry.overallRect;
-        let placedRect = translateRect(groupRect, centerX, centerY);
-
-        for (let ring = 0; ring < MAX_VECTOR_LAYERS; ring++) {
-          const nextLength = baseLength + ring * layerStep;
-          const nextCenterX = point.x + Math.cos(initialAngle) * nextLength;
-          const nextCenterY = point.y + Math.sin(initialAngle) * nextLength;
-          const nextRect = translateRect(groupRect, nextCenterX, nextCenterY);
-          if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
-            continue;
-          }
-          centerX = nextCenterX;
-          centerY = nextCenterY;
-          placedRect = nextRect;
-          break;
-        }
-
-        occupiedRects.push(placedRect);
+        const center = findLayerBalancedCenter(
+          point,
+          groupRect,
+          initialAngle,
+          baseLength,
+          layerOccupiedRects,
+        );
+        const placedRect = translateRect(groupRect, center.x, center.y);
+        layerOccupiedRects.push(placedRect);
 
         return {
           point,
@@ -1284,8 +1320,8 @@ export default function TestCssPage() {
           photos,
           localPhotoRect: photoRect,
           geometry,
-          centerX,
-          centerY,
+          centerX: center.x,
+          centerY: center.y,
           rect: groupRect,
         };
       });
@@ -1327,6 +1363,7 @@ export default function TestCssPage() {
           linkTargetX: linkTarget.x,
           linkTargetY: linkTarget.y,
         });
+        occupiedRects.push(placedRect);
       }
     }
 
