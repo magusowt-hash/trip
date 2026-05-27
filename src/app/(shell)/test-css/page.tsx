@@ -48,6 +48,7 @@ const PHOTO_GAP = 14;
 const MOCK_MIN_PHOTOS = 2;
 const MOCK_MAX_PHOTOS = 5;
 const GROUP_SAFE_GAP = 14;
+const TOL = 1e-8;
 const MAX_LINK_AVOID_PASSES = 8;
 const LINK_AVOID_ANGLE_STEP = Math.PI / 40;
 const INTRA_LAYER_ANGLE_SCAN_STEPS = 10;
