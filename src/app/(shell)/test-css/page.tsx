@@ -100,7 +100,11 @@ const CONSERVATION_ALPHA = 0.42;
 const BOUNDARY_CIRCLE_PADDING = 36;
 const GLOBAL_REBALANCE_ANGLE_RATIO = 0.4;
 const GLOBAL_REBALANCE_MAX_RADIUS_OFFSET = 12;
-const LOCAL_GAP_TRIGGER_RATIO = 1.45;
+const LOCAL_GAP_TRIGGER_RATIO_HIGH = 1.25;
+const LOCAL_GAP_TRIGGER_RATIO_LOW = 0.78;
+const LOCAL_GAP_NEIGHBOR_DEPTH = 1;
+const LOCAL_GAP_MIN_ANGLE_RATIO = 0.18;
+const LOCAL_GAP_MAX_ANGLE_RATIO = 0.68;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -693,9 +697,12 @@ function rebalanceGlobalBoundaryGaps(groups: MockGroup[]) {
   const adjustable = new Set<number>();
 
   for (let index = 0; index < gaps.length; index++) {
-    if (gaps[index] <= meanGap * LOCAL_GAP_TRIGGER_RATIO) continue;
-    adjustable.add(index);
-    adjustable.add((index + 1) % groupsWithTargets.length);
+    const gap = gaps[index];
+    if (gap <= meanGap * LOCAL_GAP_TRIGGER_RATIO_HIGH && gap >= meanGap * LOCAL_GAP_TRIGGER_RATIO_LOW) continue;
+
+    for (let offset = -LOCAL_GAP_NEIGHBOR_DEPTH; offset <= LOCAL_GAP_NEIGHBOR_DEPTH + 1; offset++) {
+      adjustable.add((index + offset + groupsWithTargets.length) % groupsWithTargets.length);
+    }
   }
 
   if (adjustable.size === 0) return groups;
@@ -714,6 +721,17 @@ function rebalanceGlobalBoundaryGaps(groups: MockGroup[]) {
 
     const currentBoundaryPoint = circlePositionToPoint(item.currentPosition, radius);
     const targetBoundaryPoint = circlePositionToPoint(item.targetPosition, radius);
+    const leftGap = gaps[(orderedIndex - 1 + gaps.length) % gaps.length];
+    const rightGap = gaps[orderedIndex];
+    const severity = Math.max(
+      Math.abs(leftGap - meanGap) / Math.max(meanGap, 1e-6),
+      Math.abs(rightGap - meanGap) / Math.max(meanGap, 1e-6),
+    );
+    const angleRatio = clamp(
+      LOCAL_GAP_MIN_ANGLE_RATIO + severity * 0.32,
+      LOCAL_GAP_MIN_ANGLE_RATIO,
+      LOCAL_GAP_MAX_ANGLE_RATIO,
+    );
     const currentAngle = Math.atan2(
       currentBoundaryPoint.y - item.group.point.y,
       currentBoundaryPoint.x - item.group.point.x,
@@ -722,7 +740,7 @@ function rebalanceGlobalBoundaryGaps(groups: MockGroup[]) {
       targetBoundaryPoint.y - item.group.point.y,
       targetBoundaryPoint.x - item.group.point.x,
     );
-    const adjustedAngle = currentAngle + shortestSignedAngleDelta(currentAngle, targetAngle) * GLOBAL_REBALANCE_ANGLE_RATIO;
+    const adjustedAngle = currentAngle + shortestSignedAngleDelta(currentAngle, targetAngle) * angleRatio;
     const radiusRange = getIndependentLayerRadiusRange(item.group.point.layerIndex);
     const currentRadius = Math.hypot(
       item.group.centerX - item.group.point.x,
@@ -736,7 +754,7 @@ function rebalanceGlobalBoundaryGaps(groups: MockGroup[]) {
       Math.min(radiusRange.max, currentRadius + GLOBAL_REBALANCE_MAX_RADIUS_OFFSET),
       occupiedRects,
       currentRadius,
-      allowedAngleOffset,
+      Math.min(allowedAngleOffset * (0.8 + severity * 0.35), getAllowedAngleOffset(groups.length)),
     );
 
     centers[item.index] = center;
