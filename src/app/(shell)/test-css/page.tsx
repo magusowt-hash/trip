@@ -28,6 +28,11 @@ type GapLabel = {
   layerIndex: number;
 };
 
+type BoundaryAnchor = {
+  index: number;
+  position: number;
+};
+
 type MockPhoto = {
   id: string;
   width: number;
@@ -987,6 +992,26 @@ function buildRawBoundaryAnchorPositions(
   });
 }
 
+function buildOrderedBoundaryAnchors(
+  groups: Array<{
+    point: LayoutGroup;
+    centerX: number;
+    centerY: number;
+  }>,
+  half: number,
+) {
+  const perimeter = half * 8;
+  const sorted = buildRawBoundaryAnchorPositions(groups, half)
+    .map((position, index) => ({ index, position }))
+    .sort((a, b) => a.position - b.position || a.index - b.index);
+  const unwrapped = unwrapPerimeterPositions(sorted.map((item) => item.position), perimeter);
+
+  return sorted.map((item, index) => ({
+    ...item,
+    position: unwrapped[index],
+  }));
+}
+
 function buildSmoothedBoundaryAnchorPositions(
   groups: Array<{
     point: LayoutGroup;
@@ -996,7 +1021,18 @@ function buildSmoothedBoundaryAnchorPositions(
   half: number,
 ) {
   const perimeter = half * 8;
-  return smoothBoundaryPositionsWithClip(buildRawBoundaryAnchorPositions(groups, half), perimeter);
+  const ordered = buildOrderedBoundaryAnchors(groups, half);
+  const smoothed = smoothBoundaryPositionsWithClip(
+    ordered.map((item) => item.position),
+    perimeter,
+  );
+  const mapped = new Array(groups.length);
+
+  for (let index = 0; index < ordered.length; index++) {
+    mapped[ordered[index].index] = smoothed[index];
+  }
+
+  return mapped;
 }
 
 function distributeLayerByIntervals(
@@ -1128,20 +1164,21 @@ function buildGapLabels(
         centerY: group.centerY,
       }));
     if (orderedPlaced.length !== layer.length) continue;
-    const positions = unwrapPerimeterPositions(
-      buildRawBoundaryAnchorPositions(orderedPlaced, half),
-      perimeter,
-    );
+    const orderedAnchors = buildOrderedBoundaryAnchors(orderedPlaced, half);
 
-    for (let index = 0; index < layer.length; index++) {
-      const current = positions[index];
-      const next = index === layer.length - 1 ? positions[0] + perimeter : positions[index + 1];
-      const gap = next - current;
-      const midpoint = current + gap / 2;
+    for (let index = 0; index < orderedAnchors.length; index++) {
+      const current = orderedAnchors[index];
+      const next = index === orderedAnchors.length - 1
+        ? { ...orderedAnchors[0], position: orderedAnchors[0].position + perimeter }
+        : orderedAnchors[index + 1];
+      const gap = next.position - current.position;
+      const midpoint = current.position + gap / 2;
       const anchor = boundaryPositionToPointByHalf(midpoint, half);
+      const fromGroup = orderedPlaced[current.index];
+      const toGroup = orderedPlaced[next.index % orderedPlaced.length];
 
       labels.push({
-        key: `gap-${layerIndex}-${layer[index].id}-${layer[(index + 1) % layer.length].id}`,
+        key: `gap-${layerIndex}-${fromGroup.point.id}-${toGroup.point.id}`,
         x: anchor.x,
         y: anchor.y,
         value: gap,
