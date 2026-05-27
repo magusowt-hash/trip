@@ -79,6 +79,7 @@ const INTERVAL_BUFFER_RATIO = 0.36;
 const GAP_CLIP_STD_SCALE = 1.1;
 const GAP_CLIP_RATIO_MIN = 0.72;
 const GAP_CLIP_RATIO_MAX = 1.32;
+const GAUSSIAN_KERNEL = [1, 4, 6, 4, 1];
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -881,6 +882,25 @@ function computeGapStdDev(gaps: number[], mean: number) {
   return Math.sqrt(variance);
 }
 
+function gaussianSmoothCircular(values: number[]) {
+  if (values.length <= 2) return values;
+
+  const kernelSum = GAUSSIAN_KERNEL.reduce((sum, weight) => sum + weight, 0);
+  const radius = Math.floor(GAUSSIAN_KERNEL.length / 2);
+
+  return values.map((_, index) => {
+    let total = 0;
+
+    for (let offset = -radius; offset <= radius; offset++) {
+      const sourceIndex = (index + offset + values.length) % values.length;
+      const kernelIndex = offset + radius;
+      total += values[sourceIndex] * GAUSSIAN_KERNEL[kernelIndex];
+    }
+
+    return total / kernelSum;
+  });
+}
+
 function smoothBoundaryPositionsWithClip(positions: number[], perimeter: number) {
   if (positions.length <= 2) return positions;
 
@@ -896,11 +916,7 @@ function smoothBoundaryPositionsWithClip(positions: number[], perimeter: number)
     Math.max(mean * GAP_CLIP_RATIO_MIN, mean - stdDev * GAP_CLIP_STD_SCALE),
     Math.min(mean * GAP_CLIP_RATIO_MAX, mean + stdDev * GAP_CLIP_STD_SCALE),
   ));
-  const smoothedGaps = clippedGaps.map((gap, index) => {
-    const prev = clippedGaps[(index - 1 + clippedGaps.length) % clippedGaps.length];
-    const next = clippedGaps[(index + 1) % clippedGaps.length];
-    return (prev + gap * 2 + next) / 4;
-  });
+  const smoothedGaps = gaussianSmoothCircular(clippedGaps);
   const smoothedTotal = smoothedGaps.reduce((sum, gap) => sum + gap, 0);
   const scale = smoothedTotal > 1e-6 ? perimeter / smoothedTotal : 1;
   const scaledGaps = smoothedGaps.map((gap) => gap * scale);
