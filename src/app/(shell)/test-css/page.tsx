@@ -54,7 +54,6 @@ const TOL = 1e-8;
 const ANGLE_BOUND = 1e-3;
 const SHARP_ANGLE = (150 * Math.PI) / 180;
 const NORMAL_ANGLE = (60 * Math.PI) / 180;
-const MAX_RADIAL_PULL_PASSES = 3;
 const MAX_LINK_AVOID_PASSES = 8;
 const LINK_AVOID_ANGLE_STEP = Math.PI / 40;
 const INTRA_LAYER_ANGLE_SCAN_STEPS = 10;
@@ -66,11 +65,22 @@ const GAP_REBALANCE_STRENGTH = 0.34;
 const DENSITY_NEIGHBOR_SPAN = 2;
 const DENSITY_SHIFT_RATIO = 1.18;
 const DENSITY_SHIFT_STRENGTH = 0.42;
+const DENSITY_K = 4;
+const DENSITY_LAYER_LIMIT = 4;
+const CLUSTER_LINK_SCALE = 1.3;
 const VIEWPORT_PADDING = 96;
-const SMALL_SET_SINGLE_RING_LIMIT = 9;
-const MEDIUM_SET_SOFT_RING_LIMIT = 20;
 const VIRTUAL_BOUNDARY_GAP = 34;
-const RADIAL_SOFT_THRESHOLD_FACTOR = 0.22;
+const LAYER_RADIUS_BASE = 132;
+const LAYER_RADIUS_GAP = 118;
+const INTERVAL_BUFFER_RATIO = 0.36;
+const ANNEAL_STEPS = 18;
+const ENERGY_ALPHA = 1;
+const ENERGY_BETA = 0.7;
+const ENERGY_GAMMA = 0.45;
+const FORCE_ITERATIONS = 36;
+const FORCE_REPULSION = 4200;
+const FORCE_ANCHOR = 0.028;
+const FORCE_CENTER = 0.01;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -510,80 +520,9 @@ function computeMedian(values: number[]) {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 1) return sorted[middle];
-  return (sorted[middle - 1] + sorted[middle]) / 2;
-}
-
-function findRadialBand(rects: LogicalRect[], centers: Array<{ x: number; y: number }>) {
-  const radii = centers.map((center) => Math.hypot(center.x, center.y));
-  const medianRadius = computeMedian(radii);
-  const deviations = radii.map((radius) => Math.abs(radius - medianRadius));
-  const medianDeviation = computeMedian(deviations);
-  const sizes = rects.map((rect) => Math.hypot(rect.right - rect.left, rect.bottom - rect.top));
-  const avgGroupSize = sizes.reduce((sum, size) => sum + size, 0) / Math.max(1, sizes.length);
-  const radiusBandWidth = medianRadius * 0.2 + avgGroupSize * rects.length * 0.05;
-  const adaptiveHalfBand = Math.max(radiusBandWidth / 2, medianDeviation * 2.4, avgGroupSize * 0.4, GROUP_SAFE_GAP * 5);
-  return {
-    lower: Math.max(0, medianRadius - adaptiveHalfBand),
-    upper: medianRadius + adaptiveHalfBand,
-    threshold: Math.max(avgGroupSize * RADIAL_SOFT_THRESHOLD_FACTOR, GROUP_SAFE_GAP * 1.5),
-  };
-}
-
-function constrainLayerRadii(
-  groups: Array<{
-    point: LayoutGroup;
-    rect: LogicalRect;
-    centerX: number;
-    centerY: number;
-  }>,
-  occupiedRects: LogicalRect[],
-) {
-  if (groups.length <= 2) return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
-  if (groups.length <= SMALL_SET_SINGLE_RING_LIMIT) {
-    return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
-  }
-
-  let centers = groups.map((group) => ({ x: group.centerX, y: group.centerY }));
-
-  for (let pass = 0; pass < MAX_RADIAL_PULL_PASSES; pass++) {
-    const band = findRadialBand(groups.map((group) => group.rect), centers);
-    let changed = false;
-
-    for (let index = 0; index < groups.length; index++) {
-      const group = groups[index];
-      const center = centers[index];
-      const radius = Math.hypot(center.x, center.y);
-      if (radius <= band.upper + band.threshold + 1e-4 && radius >= band.lower - band.threshold - 1e-4) continue;
-
-      const angle = Math.atan2(center.y - group.point.y, center.x - group.point.x);
-      const targetRadius = groups.length <= MEDIUM_SET_SOFT_RING_LIMIT
-        ? Math.min(Math.max(radius, band.lower - band.threshold), band.upper + band.threshold)
-        : Math.min(Math.max(radius, band.lower), band.upper);
-      const blockedRects = [...occupiedRects];
-      for (let otherIndex = 0; otherIndex < groups.length; otherIndex++) {
-        if (otherIndex === index) continue;
-        blockedRects.push(translateRect(groups[otherIndex].rect, centers[otherIndex].x, centers[otherIndex].y));
-      }
-      const candidate = findRelaxedCenter(
-        group.point,
-        group.rect,
-        angle,
-        targetRadius,
-        blockedRects,
-      );
-      const candidateRadius = Math.hypot(candidate.x - group.point.x, candidate.y - group.point.y);
-      if (candidateRadius > band.upper + band.threshold + 1e-4) continue;
-      if (candidateRadius < Math.max(0, band.lower - band.threshold) - 1e-4) continue;
-
-      centers[index] = candidate;
-      changed = true;
-    }
-
-    if (!changed) break;
-  }
-
-  return centers;
+  return sorted.length % 2 === 1
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 function buildMockPhotos(group: LayoutGroup) {
@@ -813,7 +752,12 @@ function avoidLinkCrossings(
 function avoidGlobalLinkCrossings(
   groups: MockGroup[],
 ) {
-  const ordered = [...groups].sort((a, b) => a.point.order - b.point.order);
+  const ordered = [...groups].sort((a, b) => {
+    if (a.point.layerIndex !== b.point.layerIndex) return a.point.layerIndex - b.point.layerIndex;
+    const radiusA = Math.hypot(a.centerX, a.centerY);
+    const radiusB = Math.hypot(b.centerX, b.centerY);
+    return radiusA - radiusB || a.point.order - b.point.order;
+  });
   const resolved: MockGroup[] = [];
 
   for (const group of ordered) {
@@ -849,6 +793,56 @@ function avoidGlobalLinkCrossings(
   }
 
   return resolved.sort((a, b) => a.point.order - b.point.order);
+}
+
+function applyForceLayout(groups: MockGroup[]) {
+  const centers = groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+
+  for (let iter = 0; iter < FORCE_ITERATIONS; iter++) {
+    for (let index = 0; index < groups.length; index++) {
+      const group = groups[index];
+      let forceX = 0;
+      let forceY = 0;
+
+      for (let otherIndex = 0; otherIndex < groups.length; otherIndex++) {
+        if (otherIndex === index) continue;
+        const dx = centers[index].x - centers[otherIndex].x;
+        const dy = centers[index].y - centers[otherIndex].y;
+        const distSq = Math.max(dx * dx + dy * dy, 1);
+        const strength = FORCE_REPULSION / distSq;
+        const norm = normalizeVector(dx, dy);
+        forceX += norm.x * strength;
+        forceY += norm.y * strength;
+      }
+
+      const anchorDx = group.centerX - centers[index].x;
+      const anchorDy = group.centerY - centers[index].y;
+      forceX += anchorDx * FORCE_ANCHOR;
+      forceY += anchorDy * FORCE_ANCHOR;
+      forceX += -centers[index].x * FORCE_CENTER;
+      forceY += -centers[index].y * FORCE_CENTER;
+
+      centers[index] = {
+        x: centers[index].x + forceX * 0.02,
+        y: centers[index].y + forceY * 0.02,
+      };
+    }
+  }
+
+  return groups.map((group, index) => {
+    const centerX = centers[index].x;
+    const centerY = centers[index].y;
+    const rect = translateRect(group.geometry.overallRect, centerX, centerY);
+    const linkTarget = findLinkTarget(group.point, group.geometry, centerX, centerY);
+    return {
+      ...group,
+      centerX,
+      centerY,
+      rect,
+      linkTargetX: linkTarget.x,
+      linkTargetY: linkTarget.y,
+    };
+  });
 }
 
 function edgesCross(a: TestPoint, b: TestPoint, c: TestPoint, d: TestPoint) {
@@ -902,35 +896,84 @@ function buildConvexHullIds(points: TestPoint[]) {
   return new Set(buildConvexHull(points).map((point) => point.id));
 }
 
-function buildLayeredContours(points: TestPoint[]) {
-  const remaining = [...points];
-  const layers: TestPoint[][] = [];
+function computeKDistance(points: TestPoint[], point: TestPoint, k: number) {
+  const distances = points
+    .filter((candidate) => candidate.id !== point.id)
+    .map((candidate) => distance(point, candidate))
+    .sort((a, b) => a - b);
+  if (distances.length === 0) return 0;
+  return distances[Math.min(k - 1, distances.length - 1)];
+}
 
-  while (remaining.length > 0) {
-    if (remaining.length <= 3) {
-      layers.push(buildImprovedCycle(buildRadialOrder(remaining)));
-      break;
+function buildDensityLayers(points: TestPoint[]) {
+  if (points.length <= 3) return [buildImprovedCycle(buildRadialOrder(points))];
+
+  const k = Math.min(DENSITY_K, Math.max(1, points.length - 1));
+  const enriched = points.map((point) => ({
+    point,
+    coreDistance: computeKDistance(points, point, k),
+  }));
+  const sortedByDensity = [...enriched].sort((a, b) => a.coreDistance - b.coreDistance || a.point.id - b.point.id);
+  const medianCore = computeMedian(sortedByDensity.map((item) => item.coreDistance));
+  const threshold = Math.max(medianCore * CLUSTER_LINK_SCALE, 24);
+  const visited = new Set<number>();
+  const clusters: TestPoint[][] = [];
+
+  for (const entry of sortedByDensity) {
+    if (visited.has(entry.point.id)) continue;
+    const cluster: TestPoint[] = [];
+    const queue = [entry.point];
+    visited.add(entry.point.id);
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      cluster.push(current);
+
+      for (const candidate of sortedByDensity) {
+        if (visited.has(candidate.point.id)) continue;
+        const reachDistance = Math.max(
+          computeKDistance(points, current, k),
+          candidate.coreDistance,
+          distance(current, candidate.point),
+        );
+        if (reachDistance <= threshold) {
+          visited.add(candidate.point.id);
+          queue.push(candidate.point);
+        }
+      }
     }
 
-    const hull = buildConvexHull(remaining);
-    const hullIds = buildConvexHullIds(remaining);
-    layers.push(buildImprovedCycle(hull));
-
-    const nextRemaining = remaining.filter((point) => !hullIds.has(point.id));
-    if (nextRemaining.length === remaining.length) {
-      layers.push(buildImprovedCycle(buildRadialOrder(nextRemaining)));
-      break;
-    }
-    remaining.splice(0, remaining.length, ...nextRemaining);
+    clusters.push(cluster);
   }
 
-  return layers;
+  const ranked = clusters
+    .map((cluster) => ({
+      cluster,
+      density: cluster.length <= 1
+        ? Number.POSITIVE_INFINITY
+        : cluster.reduce((sum, point) => sum + 1 / Math.max(computeKDistance(points, point, k), 1e-6), 0) / cluster.length,
+    }))
+    .sort((a, b) => b.density - a.density || b.cluster.length - a.cluster.length);
+
+  const limited = ranked.slice(0, DENSITY_LAYER_LIMIT - 1).map((entry) => entry.cluster);
+  const consumed = new Set(limited.flat().map((point) => point.id));
+  const remaining = points.filter((point) => !consumed.has(point.id));
+  if (remaining.length > 0) {
+    limited.push(remaining);
+  }
+
+  return limited
+    .filter((layer) => layer.length > 0)
+    .map((layer) => {
+      if (layer.length <= 3) return buildImprovedCycle(buildRadialOrder(layer));
+      return buildImprovedCycle(buildRadialOrder(layer));
+    });
 }
 
 function buildLayout(points: TestPoint[]) {
   if (points.length === 0) return [] as LayoutGroup[];
 
-  const layers = buildLayeredContours(points);
+  const layers = buildDensityLayers(points);
   let order = 1;
   return layers.flatMap((layer, layerIndex) => layer.map((point) => ({
     ...point,
@@ -1027,7 +1070,15 @@ function findLayerBalancedCenter(
   };
 }
 
-function relaxPlacedGroupAngles(
+function getIndependentLayerRadiusRange(layerIndex: number) {
+  const min = LAYER_RADIUS_BASE + layerIndex * LAYER_RADIUS_GAP;
+  return {
+    min,
+    max: min + LAYER_RADIUS_GAP * 0.82,
+  };
+}
+
+function distributeLayerByIntervals(
   groups: Array<{
     point: LayoutGroup;
     rect: LogicalRect;
@@ -1036,73 +1087,42 @@ function relaxPlacedGroupAngles(
   }>,
 ) {
   if (groups.length <= 2) return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
-
-  let centers = groups.map((group) => ({ x: group.centerX, y: group.centerY }));
-
-  for (let pass = 0; pass < MAX_ANGULAR_RELAX_PASSES; pass++) {
-    const ordered = groups.map((group, index) => ({
+  const layerIndex = groups[0]?.point.layerIndex ?? 0;
+  const radiusRange = getIndependentLayerRadiusRange(layerIndex);
+  const provisional = groups.map((group, index) => {
+    const angle = normalizeAngle(Math.atan2(group.centerY - group.point.y, group.centerX - group.point.x));
+    const baseRadius = Math.min(
+      radiusRange.max,
+      Math.max(radiusRange.min, Math.hypot(group.centerX - group.point.x, group.centerY - group.point.y)),
+    );
+    const span = computeAngularHalfSpan(group.rect, baseRadius);
+    return {
       ...group,
       index,
-      angle: normalizeAngle(Math.atan2(centers[index].y - group.point.y, centers[index].x - group.point.x)),
-      radius: Math.hypot(centers[index].x - group.point.x, centers[index].y - group.point.y),
-    })).sort((a, b) => a.angle - b.angle);
+      baseAngle: angle,
+      radius: baseRadius,
+      span,
+    };
+  }).sort((a, b) => a.baseAngle - b.baseAngle);
 
-    let changed = false;
+  const totalSpan = provisional.reduce((sum, item) => sum + item.span * 2, 0);
+  const freeAngle = Math.max(0, Math.PI * 2 - totalSpan);
+  const buffer = provisional.length > 0 ? (freeAngle / provisional.length) * INTERVAL_BUFFER_RATIO : 0;
 
-    for (let i = 0; i < ordered.length; i++) {
-      const current = ordered[i];
-      const next = ordered[(i + 1) % ordered.length];
-      const currentSpan = computeAngularHalfSpan(current.rect, current.radius);
-      const nextSpan = computeAngularHalfSpan(next.rect, next.radius);
-      const safeGap = currentSpan + nextSpan;
-      const delta = normalizeAngle(next.angle - current.angle);
-      if (delta >= safeGap - 1e-4) continue;
+  let cursor = provisional[0].baseAngle;
+  const centers = new Array(groups.length);
 
-      const deficit = safeGap - delta;
-      const currentTargetAngle = normalizeAngle(current.angle - deficit / 2);
-      const nextTargetAngle = normalizeAngle(next.angle + deficit / 2);
-      const currentOccupied = ordered
-        .filter((item) => item.index !== current.index)
-        .map((item) => translateRect(item.rect, centers[item.index].x, centers[item.index].y));
-      const nextOccupied = ordered
-        .filter((item) => item.index !== next.index)
-        .map((item) => translateRect(item.rect, centers[item.index].x, centers[item.index].y));
-
-      const currentCandidate = findRelaxedCenter(
-        current.point,
-        current.rect,
-        currentTargetAngle,
-        current.radius,
-        currentOccupied,
-      );
-      const nextCandidate = findRelaxedCenter(
-        next.point,
-        next.rect,
-        nextTargetAngle,
-        next.radius,
-        nextOccupied,
-      );
-
-      const currentRect = translateRect(current.rect, currentCandidate.x, currentCandidate.y);
-      const nextRect = translateRect(next.rect, nextCandidate.x, nextCandidate.y);
-      if (rectsOverlap(currentRect, nextRect, GROUP_SAFE_GAP)) continue;
-
-      const currentMoved = Math.abs(shortestSignedAngleDelta(
-        current.angle,
-        Math.atan2(currentCandidate.y - current.point.y, currentCandidate.x - current.point.x),
-      )) > 1e-4;
-      const nextMoved = Math.abs(shortestSignedAngleDelta(
-        next.angle,
-        Math.atan2(nextCandidate.y - next.point.y, nextCandidate.x - next.point.x),
-      )) > 1e-4;
-      if (!currentMoved && !nextMoved) continue;
-
-      centers[current.index] = currentCandidate;
-      centers[next.index] = nextCandidate;
-      changed = true;
-    }
-
-    if (!changed) break;
+  for (let i = 0; i < provisional.length; i++) {
+    const item = provisional[i];
+    const minAngle = cursor + item.span + buffer / 2;
+    const targetAngle = i === 0
+      ? item.baseAngle
+      : Math.max(item.baseAngle, minAngle);
+    cursor = targetAngle + item.span + buffer / 2;
+    centers[item.index] = {
+      x: item.point.x + Math.cos(targetAngle) * item.radius,
+      y: item.point.y + Math.sin(targetAngle) * item.radius,
+    };
   }
 
   return centers;
@@ -1155,6 +1175,36 @@ function computeDirectionalGapAverage(positions: number[], index: number, direct
   return samples === 0 ? Number.POSITIVE_INFINITY : total / samples;
 }
 
+function computeBoundaryEnergy(
+  positions: number[],
+  originalPositions: number[],
+  outwardAngles: number[],
+) {
+  if (positions.length <= 2) return 0;
+  const perimeter = Math.max(...positions) - Math.min(...positions) + MAP_SIZE * 2;
+  const gaps = positions.map((position, index) => {
+    const next = index === positions.length - 1 ? positions[0] + perimeter : positions[index + 1];
+    return next - position;
+  });
+  const meanGap = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length;
+  const gapVariance = gaps.reduce((sum, gap) => sum + (gap - meanGap) ** 2, 0) / gaps.length;
+
+  const densities = positions.map((_, index) => {
+    const left = computeDirectionalGapAverage(positions, index, -1);
+    const right = computeDirectionalGapAverage(positions, index, 1);
+    return Math.abs(left - right);
+  });
+  const meanDensity = densities.reduce((sum, value) => sum + value, 0) / densities.length;
+  const densityVariance = densities.reduce((sum, value) => sum + (value - meanDensity) ** 2, 0) / densities.length;
+
+  const directionPenalty = positions.reduce((sum, position, index) => {
+    const delta = Math.abs(position - originalPositions[index]);
+    return sum + delta * Math.max(0.2, Math.cos(outwardAngles[index]) ** 2);
+  }, 0) / positions.length;
+
+  return ENERGY_ALPHA * gapVariance + ENERGY_BETA * densityVariance + ENERGY_GAMMA * directionPenalty;
+}
+
 function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
   const half = getLayerBoundaryHalf(layer[0]?.layerIndex ?? 0);
   const perimeter = half * 8;
@@ -1162,12 +1212,15 @@ function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
     return layer.map((point) => boundaryPerimeterPosition(projectPointToBoundary(point, half), half));
   }
 
-  const adjusted = unwrapPerimeterPositions(
+  const original = unwrapPerimeterPositions(
     layer.map((point) => boundaryPerimeterPosition(projectPointToBoundary(point, half), half)),
   );
+  const adjusted = [...original];
+  const outwardAngles = layer.map((point) => Math.atan2(point.y, point.x));
 
-  for (let pass = 0; pass < MAX_GAP_SHIFT_PASSES; pass++) {
+  for (let pass = 0; pass < Math.max(MAX_GAP_SHIFT_PASSES, ANNEAL_STEPS); pass++) {
     let changed = false;
+    let currentEnergy = computeBoundaryEnergy(adjusted, original, outwardAngles);
 
     for (let index = 0; index < adjusted.length; index++) {
       const prev = index === 0 ? adjusted[adjusted.length - 1] - perimeter : adjusted[index - 1];
@@ -1199,17 +1252,38 @@ function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
       const densityDelta = Number.isFinite(densityLargerGap) && Number.isFinite(densitySmallerGap)
         ? densityLargerGap - densitySmallerGap
         : 0;
-      const preferredShift = Math.max(
+      const preferredShiftBase = Math.max(
         MIN_PERIMETER_GAP * 0.65,
         gapDelta * GAP_REBALANCE_STRENGTH + densityDelta * DENSITY_SHIFT_STRENGTH,
       );
-      const candidate = current + shiftDirection * preferredShift;
+      const candidateShifts = [
+        shiftDirection * preferredShiftBase,
+        shiftDirection * preferredShiftBase * 0.5,
+        -shiftDirection * preferredShiftBase * 0.35,
+      ];
       const minAllowed = prev + MIN_PERIMETER_GAP;
       const maxAllowed = next - MIN_PERIMETER_GAP;
-      const clamped = Math.max(minAllowed, Math.min(maxAllowed, candidate));
 
-      if (Math.abs(clamped - current) < 1e-4) continue;
-      adjusted[index] = clamped;
+      let bestPosition = current;
+      let bestEnergy = currentEnergy;
+
+      for (const shift of candidateShifts) {
+        const candidate = current + shift;
+        const clamped = Math.max(minAllowed, Math.min(maxAllowed, candidate));
+        if (Math.abs(clamped - current) < 1e-4) continue;
+        const snapshot = adjusted[index];
+        adjusted[index] = clamped;
+        const energy = computeBoundaryEnergy(adjusted, original, outwardAngles);
+        adjusted[index] = snapshot;
+        if (energy < bestEnergy) {
+          bestEnergy = energy;
+          bestPosition = clamped;
+        }
+      }
+
+      if (Math.abs(bestPosition - current) < 1e-4) continue;
+      adjusted[index] = bestPosition;
+      currentEnergy = bestEnergy;
       changed = true;
     }
 
@@ -1347,15 +1421,7 @@ export default function TestCssPage() {
         };
       });
 
-      const relaxedCenters = relaxPlacedGroupAngles(provisionalGroups);
-      const constrainedCenters = constrainLayerRadii(
-        provisionalGroups.map((group, index) => ({
-          ...group,
-          centerX: relaxedCenters[index].x,
-          centerY: relaxedCenters[index].y,
-        })),
-        placed.map((group) => group.rect),
-      );
+      const constrainedCenters = distributeLayerByIntervals(provisionalGroups);
       const resolvedCenters = avoidLinkCrossings(
         provisionalGroups.map((group, index) => ({
           ...group,
@@ -1388,7 +1454,7 @@ export default function TestCssPage() {
       }
     }
 
-    return avoidGlobalLinkCrossings(placed);
+    return applyForceLayout(avoidGlobalLinkCrossings(placed));
   }, [layeredPoints]);
   const viewport = useMemo(() => buildAdaptiveViewport(placedGroups), [placedGroups]);
 
