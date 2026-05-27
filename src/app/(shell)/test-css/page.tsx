@@ -1128,7 +1128,10 @@ function buildGapLabels(
         centerY: group.centerY,
       }));
     if (orderedPlaced.length !== layer.length) continue;
-    const positions = buildRawBoundaryAnchorPositions(orderedPlaced, half);
+    const positions = unwrapPerimeterPositions(
+      buildRawBoundaryAnchorPositions(orderedPlaced, half),
+      perimeter,
+    );
 
     for (let index = 0; index < layer.length; index++) {
       const current = positions[index];
