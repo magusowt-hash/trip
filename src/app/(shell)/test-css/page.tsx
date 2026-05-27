@@ -322,6 +322,10 @@ function getLayerBoundaryHalf(layerIndex: number) {
   return MAP_SIZE / 2 + layerIndex * VIRTUAL_BOUNDARY_GAP;
 }
 
+function getMapBoundaryHalf() {
+  return MAP_SIZE / 2;
+}
+
 function projectPointToBoundary(point: LayoutGroup, half: number) {
   const dx = point.x;
   const dy = point.y;
@@ -1104,7 +1108,7 @@ function distributeLayerByIntervals(
 ) {
   if (groups.length <= 2) return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
   const layerIndex = groups[0]?.point.layerIndex ?? 0;
-  const half = getLayerBoundaryHalf(layerIndex);
+  const half = getMapBoundaryHalf();
   const radiusRange = getIndependentLayerRadiusRange(layerIndex);
   const allowedAngleOffset = getAllowedAngleOffset(groups.length);
   const provisional = groups.map((group, index) => {
@@ -1212,7 +1216,7 @@ function buildGapLabels(
     if (layer.length <= 1) continue;
 
     const layerIndex = layer[0]?.layerIndex ?? 0;
-    const half = getLayerBoundaryHalf(layerIndex);
+    const half = getMapBoundaryHalf();
     const perimeter = half * 8;
     const orderedPlaced = layer
       .map((point) => placedById.get(point.id))
@@ -1260,7 +1264,7 @@ function buildGapReports(
     if (layer.length <= 1) continue;
 
     const layerIndex = layer[0]?.layerIndex ?? 0;
-    const half = getLayerBoundaryHalf(layerIndex);
+    const half = getMapBoundaryHalf();
     const perimeter = half * 8;
     const orderedPlaced = layer
       .map((point) => placedById.get(point.id))
