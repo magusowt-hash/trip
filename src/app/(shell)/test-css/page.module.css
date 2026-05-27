@@ -129,6 +129,52 @@
   gap: 16px;
 }
 
+.gapPanel {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 12px;
+}
+
+.gapSection {
+  border-radius: 20px;
+  background: rgba(241, 245, 249, 0.88);
+  padding: 14px 14px 10px;
+}
+
+.gapSectionHead {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.gapSectionHead strong {
+  font-size: 14px;
+}
+
+.gapSectionHead span {
+  font-size: 12px;
+  color: #475569;
+}
+
+.gapList {
+  display: grid;
+  gap: 6px;
+}
+
+.gapRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: #334155;
+}
+
+.gapRow strong {
+  font-size: 13px;
+  color: #0f172a;
+}
+
 .svg {
   display: block;
   width: 100%;
