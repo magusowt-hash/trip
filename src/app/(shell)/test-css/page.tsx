@@ -1821,24 +1821,17 @@ function distributeLayerByIntervals(
 ) {
   if (groups.length <= 2) return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
   const layerIndex = groups[0]?.point.layerIndex ?? 0;
-  const radius = getMapBoundaryCircleRadius();
   const radiusRange = getIndependentLayerRadiusRange(layerIndex);
-  const provisional = groups.map((group, index) => {
-    const baseRadius = (radiusRange.min + radiusRange.max) / 2;
+  const structured = groups.map((group, index) => {
+    const targetAngle = Math.atan2(group.centerY - group.point.y, group.centerX - group.point.x);
+    const baseRadius = Math.hypot(group.centerX - group.point.x, group.centerY - group.point.y);
     return {
       ...group,
       index,
-      radius: baseRadius,
+      baseRadius,
+      targetAngle,
     };
   }).sort((a, b) => a.point.order - b.point.order);
-  const targetPositions = buildSmoothedBoundaryAnchorPositions(provisional, radius);
-  const structured = targetPositions.map((position, index) => {
-    const target = circlePositionToPoint(position, radius);
-    return {
-      ...provisional[index],
-      targetAngle: Math.atan2(target.y - provisional[index].point.y, target.x - provisional[index].point.x),
-    };
-  });
   const constrained = structured.map((item, index) => {
     const prev = index > 0 ? structured[index - 1] : structured[structured.length - 1];
     const next = index < structured.length - 1 ? structured[index + 1] : structured[0];
