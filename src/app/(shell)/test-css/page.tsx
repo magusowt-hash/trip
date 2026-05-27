@@ -97,6 +97,8 @@ const GAP_CLIP_RATIO_MAX = 1.32;
 const GAUSSIAN_KERNEL = [1, 4, 6, 4, 1];
 const CONSERVATION_WINDOW_RADIUS = 2;
 const CONSERVATION_ALPHA = 0.42;
+const GAP_EQUALIZE_ALPHA = 0.68;
+const GAP_EQUALIZE_PASSES = 2;
 const BOUNDARY_CIRCLE_PADDING = 36;
 const GLOBAL_REBALANCE_ANGLE_RATIO = 0.4;
 const GLOBAL_REBALANCE_MAX_RADIUS_OFFSET = 12;
@@ -387,12 +389,6 @@ function computeMedian(values: number[]) {
   return sorted.length % 2 === 1
     ? sorted[middle]
     : (sorted[middle - 1] + sorted[middle]) / 2;
-}
-
-function normalizeVector(x: number, y: number) {
-  const length = Math.hypot(x, y);
-  if (length < TOL) return { x: 0, y: -1 };
-  return { x: x / length, y: y / length };
 }
 
 function seededUnit(seed: number) {
@@ -1068,6 +1064,22 @@ function compressGapDifferencesWithConservation(values: number[]) {
   return next.map((value) => value * scale);
 }
 
+function equalizeCircularGaps(values: number[]) {
+  if (values.length <= 2) return values;
+
+  let next = [...values];
+  for (let pass = 0; pass < GAP_EQUALIZE_PASSES; pass++) {
+    const mean = computeGapMean(next);
+    next = next.map((value) => Math.max(0, value + (mean - value) * GAP_EQUALIZE_ALPHA));
+    const total = next.reduce((sum, value) => sum + value, 0);
+    if (total > TOL) {
+      const scale = values.reduce((sum, value) => sum + value, 0) / total;
+      next = next.map((value) => value * scale);
+    }
+  }
+  return next;
+}
+
 function smoothBoundaryPositionsWithClip(positions: number[], perimeter: number) {
   if (positions.length <= 2) return positions;
 
@@ -1085,9 +1097,10 @@ function smoothBoundaryPositionsWithClip(positions: number[], perimeter: number)
   ));
   const compressedGaps = compressGapDifferencesWithConservation(clippedGaps);
   const smoothedGaps = gaussianSmoothCircular(compressedGaps);
-  const smoothedTotal = smoothedGaps.reduce((sum, gap) => sum + gap, 0);
+  const equalizedGaps = equalizeCircularGaps(smoothedGaps);
+  const smoothedTotal = equalizedGaps.reduce((sum, gap) => sum + gap, 0);
   const scale = smoothedTotal > 1e-6 ? perimeter / smoothedTotal : 1;
-  const scaledGaps = smoothedGaps.map((gap) => gap * scale);
+  const scaledGaps = equalizedGaps.map((gap) => gap * scale);
   const rebuilt = [unwrapped[0]];
 
   for (let index = 1; index < unwrapped.length; index++) {
@@ -1279,61 +1292,25 @@ function computeMinRadiusOutsideMap(
   );
 }
 
-function computeTipGapScale(groups: Array<{
-  point: LayoutGroup;
-}>, index: number) {
-  if (groups.length < 3) return 1;
-
-  const prev = groups[(index - 1 + groups.length) % groups.length].point;
-  const current = groups[index].point;
-  const next = groups[(index + 1) % groups.length].point;
-  const incoming = normalizeVector(current.x - prev.x, current.y - prev.y);
-  const outgoing = normalizeVector(next.x - current.x, next.y - current.y);
-  const dot = clamp(incoming.x * outgoing.x + incoming.y * outgoing.y, -1, 1);
-  const angle = Math.acos(dot);
-  const sharpness = 1 - Math.min(angle, Math.PI) / Math.PI;
-
-  if (sharpness < 0.45) return 1;
-  return clamp(1 - (sharpness - 0.45) * 0.75, 0.62, 1);
-}
-
-function findCenterAlongFixedAngle(
+function computeMinRadiusToCircleBoundary(
   point: LayoutGroup,
-  rect: LogicalRect,
   angle: number,
-  minRadius: number,
-  maxRadius: number,
-  occupiedRects: LogicalRect[],
-  preferredRadius: number,
+  circleRadius: number,
 ) {
-  let bestCenter: { x: number; y: number; cost: number } | null = null;
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  const a = dx * dx + dy * dy;
+  const b = 2 * (point.x * dx + point.y * dy);
+  const c = point.x * point.x + point.y * point.y - circleRadius * circleRadius;
+  const discriminant = b * b - 4 * a * c;
+  if (discriminant <= 0) return 0;
 
-  for (const radius of buildRadiusSamples(minRadius, maxRadius, LAYER_LENGTH_FINE_STEP)) {
-    const center = buildCenterByAngleAndRadius(point, angle, radius);
-    const nextRect = translateRect(rect, center.x, center.y);
-    if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
-      continue;
-    }
-
-    const cost = Math.abs(radius - preferredRadius);
-    if (!bestCenter || cost < bestCenter.cost) {
-      bestCenter = {
-        x: center.x,
-        y: center.y,
-        cost,
-      };
-    }
-  }
-
-  if (bestCenter) {
-    return {
-      x: bestCenter.x,
-      y: bestCenter.y,
-    };
-  }
-
-  const fallbackRadius = clamp(preferredRadius, minRadius, maxRadius);
-  return buildCenterByAngleAndRadius(point, angle, fallbackRadius);
+  const sqrt = Math.sqrt(discriminant);
+  const t1 = (-b - sqrt) / (2 * a);
+  const t2 = (-b + sqrt) / (2 * a);
+  const candidates = [t1, t2].filter((value) => Number.isFinite(value) && value >= 0);
+  if (candidates.length === 0) return 0;
+  return Math.min(...candidates);
 }
 
 function buildRadiusSamples(min: number, max: number, step: number) {
@@ -1371,9 +1348,8 @@ function distributeLayerByIntervals(
 
   for (let index = 0; index < structured.length; index++) {
     const item = structured[index];
-    const tipGapScale = computeTipGapScale(structured, index);
     const minOutsideRadius = Math.max(
-      circleRadius + LAYER_LENGTH_BASE_PADDING,
+      computeMinRadiusToCircleBoundary(item.point, item.targetAngle, circleRadius) + LAYER_LENGTH_BASE_PADDING,
       computeMinRadiusOutsideMap(
         item.point,
         item.rect,
@@ -1390,8 +1366,7 @@ function distributeLayerByIntervals(
     )) {
       const center = buildCenterByAngleAndRadius(item.point, item.targetAngle, radius);
       const nextRect = translateRect(item.rect, center.x, center.y);
-      const collisionGap = GROUP_SAFE_GAP * tipGapScale;
-      if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, collisionGap))) {
+      if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
         continue;
       }
       resolvedRadius = radius;
