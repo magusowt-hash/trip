@@ -1810,15 +1810,6 @@ export default function TestCssPage() {
 
               {placedGroups.map((group) => (
                 <g key={`group-${group.point.id}`}>
-                  <rect
-                    x={group.rect.left}
-                    y={group.rect.top}
-                    width={group.rect.right - group.rect.left}
-                    height={group.rect.bottom - group.rect.top}
-                    rx="20"
-                    className={styles.groupCard}
-                  />
-
                   {group.photos.map((photo) => (
                     <rect
                       key={photo.id}
@@ -1842,8 +1833,8 @@ export default function TestCssPage() {
                   </text>
 
                   <circle
-                    cx={group.centerX + group.geometry.lineAnchorX}
-                    cy={group.centerY + group.geometry.lineAnchorY}
+                    cx={group.linkTargetX}
+                    cy={group.linkTargetY}
                     r="5"
                     className={styles.groupAnchor}
                   />
