@@ -95,6 +95,10 @@ const REGION_CENTER_ANGLE: Record<RegionKey, number> = {
 const GROUP_SAFE_GAP = 14;
 const MAX_VECTOR_LAYERS = 24;
 const MAX_ANGULAR_RELAX_PASSES = 10;
+const LARGE_GROUP_LINK_AVOID_MAX_ANGLE_OFFSET = Math.PI / 15;
+const LARGE_GROUP_LINK_AVOID_ANGLE_STEP = Math.PI / 90;
+const LARGE_GROUP_LINK_AVOID_RADIUS_STEP = 28;
+const LARGE_GROUP_LINK_AVOID_RADIUS_LAYERS = 3;
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -775,6 +779,87 @@ function buildLargeGroupOrder(groups: PendingPlaceGroup[]) {
   return orderedRadialPath;
 }
 
+function lineSegmentsIntersect(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  c: { x: number; y: number },
+  d: { x: number; y: number },
+) {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const acx = c.x - a.x;
+  const acy = c.y - a.y;
+  const adx = d.x - a.x;
+  const ady = d.y - a.y;
+  const cdx = d.x - c.x;
+  const cdy = d.y - c.y;
+  const cax = a.x - c.x;
+  const cay = a.y - c.y;
+  const cbx = b.x - c.x;
+  const cby = b.y - c.y;
+  const cross1 = abx * acy - aby * acx;
+  const cross2 = abx * ady - aby * adx;
+  const cross3 = cdx * cay - cdy * cax;
+  const cross4 = cdx * cby - cdy * cbx;
+  const eps = 1e-6;
+  return cross1 * cross2 < -eps && cross3 * cross4 < -eps;
+}
+
+function findRectLinkTarget(
+  sourceX: number,
+  sourceY: number,
+  rect: LogicalRect,
+  fallbackCenterX: number,
+  fallbackCenterY: number,
+) {
+  const dx = fallbackCenterX - sourceX;
+  const dy = fallbackCenterY - sourceY;
+  const candidates: Array<{ t: number; x: number; y: number }> = [];
+
+  if (Math.abs(dx) > 1e-6) {
+    const tLeft = (rect.left - sourceX) / dx;
+    const yLeft = sourceY + dy * tLeft;
+    if (tLeft >= 0 && tLeft <= 1 && yLeft >= rect.top - 1e-6 && yLeft <= rect.bottom + 1e-6) {
+      candidates.push({ t: tLeft, x: rect.left, y: yLeft });
+    }
+    const tRight = (rect.right - sourceX) / dx;
+    const yRight = sourceY + dy * tRight;
+    if (tRight >= 0 && tRight <= 1 && yRight >= rect.top - 1e-6 && yRight <= rect.bottom + 1e-6) {
+      candidates.push({ t: tRight, x: rect.right, y: yRight });
+    }
+  }
+
+  if (Math.abs(dy) > 1e-6) {
+    const tTop = (rect.top - sourceY) / dy;
+    const xTop = sourceX + dx * tTop;
+    if (tTop >= 0 && tTop <= 1 && xTop >= rect.left - 1e-6 && xTop <= rect.right + 1e-6) {
+      candidates.push({ t: tTop, x: xTop, y: rect.top });
+    }
+    const tBottom = (rect.bottom - sourceY) / dy;
+    const xBottom = sourceX + dx * tBottom;
+    if (tBottom >= 0 && tBottom <= 1 && xBottom >= rect.left - 1e-6 && xBottom <= rect.right + 1e-6) {
+      candidates.push({ t: tBottom, x: xBottom, y: rect.bottom });
+    }
+  }
+
+  if (candidates.length === 0) {
+    return { x: fallbackCenterX, y: fallbackCenterY };
+  }
+
+  candidates.sort((a, b) => a.t - b.t);
+  return { x: candidates[0].x, y: candidates[0].y };
+}
+
+function buildLargeGroupAvoidanceAngles() {
+  const offsets = [0];
+  const maxSteps = Math.max(1, Math.round(LARGE_GROUP_LINK_AVOID_MAX_ANGLE_OFFSET / LARGE_GROUP_LINK_AVOID_ANGLE_STEP));
+  for (let step = 1; step <= maxSteps; step++) {
+    const value = step * LARGE_GROUP_LINK_AVOID_ANGLE_STEP;
+    offsets.push(-value, value);
+  }
+  return offsets;
+}
+
 function buildLargeGroupOutwardVector(groups: PendingPlaceGroup[], index: number): {
   x: number;
   y: number;
@@ -847,6 +932,87 @@ function buildLargeGroupOutwardVector(groups: PendingPlaceGroup[], index: number
     concaveDepth,
     isConcave,
   };
+}
+
+function avoidLargeGroupLinkCrossings(
+  groups: PendingPlaceGroup[],
+  centers: Array<{ x: number; y: number }>,
+  baseOccupiedRects: LogicalRect[],
+  mapRect: LogicalRect,
+) {
+  if (groups.length <= 1) return centers;
+
+  const resolvedCenters = [...centers];
+  const locked: Array<{
+    source: { x: number; y: number };
+    target: { x: number; y: number };
+  }> = [];
+  const angleOffsets = buildLargeGroupAvoidanceAngles();
+
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const source = { x: group.logicalX, y: group.logicalY };
+    const currentCenter = resolvedCenters[index];
+    const baseAngle = Math.atan2(currentCenter.y, currentCenter.x);
+    const baseRadius = Math.hypot(currentCenter.x, currentCenter.y);
+    let chosenCenter = currentCenter;
+    let chosenRect = translateRect(group.groupRect, chosenCenter.x, chosenCenter.y);
+    let chosenTarget = findRectLinkTarget(source.x, source.y, chosenRect, chosenCenter.x, chosenCenter.y);
+
+    const hasConflict = (target: { x: number; y: number }) => locked.some((item) => (
+      lineSegmentsIntersect(source, target, item.source, item.target)
+    ));
+
+    if (hasConflict(chosenTarget)) {
+      let resolved = false;
+
+      for (let radiusLayer = 0; radiusLayer <= LARGE_GROUP_LINK_AVOID_RADIUS_LAYERS && !resolved; radiusLayer++) {
+        const radius = baseRadius + radiusLayer * LARGE_GROUP_LINK_AVOID_RADIUS_STEP;
+        for (const angleOffset of angleOffsets) {
+          const angle = baseAngle + angleOffset;
+          const candidateCenter = {
+            x: Math.cos(angle) * radius,
+            y: Math.sin(angle) * radius,
+          };
+          const candidateRect = translateRect(group.groupRect, candidateCenter.x, candidateCenter.y);
+          if (!fitsAroundMap(candidateRect, mapRect, GROUP_SAFE_GAP)) continue;
+
+          const occupiedByOthers = [
+            ...baseOccupiedRects,
+            ...resolvedCenters.flatMap((center, centerIndex) => (
+              centerIndex === index
+                ? []
+                : [translateRect(groups[centerIndex].groupRect, center.x, center.y)]
+            )),
+          ];
+          if (occupiedByOthers.some((occupied) => rectsOverlap(candidateRect, occupied, GROUP_SAFE_GAP))) continue;
+
+          const candidateTarget = findRectLinkTarget(
+            source.x,
+            source.y,
+            candidateRect,
+            candidateCenter.x,
+            candidateCenter.y,
+          );
+          if (hasConflict(candidateTarget)) continue;
+
+          chosenCenter = candidateCenter;
+          chosenRect = candidateRect;
+          chosenTarget = candidateTarget;
+          resolved = true;
+          break;
+        }
+      }
+    }
+
+    resolvedCenters[index] = chosenCenter;
+    locked.push({
+      source,
+      target: chosenTarget,
+    });
+  }
+
+  return resolvedCenters;
 }
 
 function computeRayExitDistance(
@@ -1651,10 +1817,16 @@ function UserFootprintsPageInner() {
         baseOccupiedRects,
         mapRect,
       );
+      const resolvedCenters = avoidLargeGroupLinkCrossings(
+        largeGroups,
+        relaxedCenters,
+        baseOccupiedRects,
+        mapRect,
+      );
 
       for (let index = 0; index < largeGroups.length; index++) {
         const group = largeGroups[index];
-        const chosenCenter = relaxedCenters[index];
+        const chosenCenter = resolvedCenters[index];
         for (let i = 0; i < group.placePhotos.length; i++) {
           group.placePhotos[i].frameX = chosenCenter.x + group.offsets[i].offsetX;
           group.placePhotos[i].frameY = chosenCenter.y + group.offsets[i].offsetY;
