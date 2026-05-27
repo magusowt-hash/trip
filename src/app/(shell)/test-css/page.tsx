@@ -656,6 +656,68 @@ function avoidGlobalLinkCrossings(
   return resolved.sort((a, b) => a.point.order - b.point.order);
 }
 
+function rebalanceGlobalBoundaryGaps(groups: MockGroup[]) {
+  if (groups.length <= 2) return groups;
+
+  const half = getMapBoundaryHalf();
+  const targetPositions = buildSmoothedBoundaryAnchorPositions(
+    groups.map((group) => ({
+      point: group.point,
+      centerX: group.centerX,
+      centerY: group.centerY,
+    })),
+    half,
+  );
+  const groupsWithTargets = groups.map((group, index) => ({
+    group,
+    index,
+    targetPosition: targetPositions[index],
+  })).sort((a, b) => a.targetPosition - b.targetPosition || a.group.point.order - b.group.point.order);
+
+  const centers = new Array(groups.length);
+  const occupiedRects: LogicalRect[] = [];
+
+  for (const item of groupsWithTargets) {
+    const boundaryTarget = boundaryPositionToPointByHalf(item.targetPosition, half);
+    const targetAngle = Math.atan2(
+      boundaryTarget.y - item.group.point.y,
+      boundaryTarget.x - item.group.point.x,
+    );
+    const radiusRange = getIndependentLayerRadiusRange(item.group.point.layerIndex);
+    const currentRadius = Math.hypot(
+      item.group.centerX - item.group.point.x,
+      item.group.centerY - item.group.point.y,
+    );
+    const center = findCenterInRadiusRange(
+      item.group.point,
+      item.group.geometry.overallRect,
+      targetAngle,
+      radiusRange.min,
+      radiusRange.max,
+      occupiedRects,
+      currentRadius,
+      getAllowedAngleOffset(groups.length),
+    );
+
+    centers[item.index] = center;
+    occupiedRects.push(translateRect(item.group.geometry.overallRect, center.x, center.y));
+  }
+
+  return groups.map((group, index) => {
+    const center = centers[index] ?? { x: group.centerX, y: group.centerY };
+    const rect = translateRect(group.geometry.overallRect, center.x, center.y);
+    const linkTarget = findLinkTarget(group.point, group.geometry, center.x, center.y);
+    return {
+      ...group,
+      centerX: center.x,
+      centerY: center.y,
+      rect,
+      linkTargetX: linkTarget.x,
+      linkTargetY: linkTarget.y,
+    };
+  });
+}
+
 function edgesCross(a: TestPoint, b: TestPoint, c: TestPoint, d: TestPoint) {
   if (a.id === c.id || a.id === d.id || b.id === c.id || b.id === d.id) return false;
 
@@ -1429,7 +1491,7 @@ export default function TestCssPage() {
       }
     }
 
-    return avoidGlobalLinkCrossings(placed);
+    return avoidGlobalLinkCrossings(rebalanceGlobalBoundaryGaps(avoidGlobalLinkCrossings(placed)));
   }, [layeredPoints]);
   const gapLabels = useMemo(() => buildGapLabels(placedGroups), [placedGroups]);
   const gapReports = useMemo(() => buildGapReports(placedGroups), [placedGroups]);
