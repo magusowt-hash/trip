@@ -15,11 +15,6 @@ type LayoutGroup = TestPoint & {
   layerIndex: number;
 };
 
-type Segment = {
-  from: LayoutGroup;
-  to: LayoutGroup;
-};
-
 type GapLabel = {
   key: string;
   x: number;
@@ -933,29 +928,6 @@ function buildLayout(points: TestPoint[]) {
   })));
 }
 
-function segmentsIntersect(first: Segment, second: Segment) {
-  if (
-    first.from.id === second.from.id ||
-    first.from.id === second.to.id ||
-    first.to.id === second.from.id ||
-    first.to.id === second.to.id
-  ) {
-    return false;
-  }
-
-  return edgesCross(first.from, first.to, second.from, second.to);
-}
-
-function countIntersections(segments: Segment[]) {
-  let total = 0;
-  for (let i = 0; i < segments.length; i++) {
-    for (let j = i + 1; j < segments.length; j++) {
-      if (segmentsIntersect(segments[i], segments[j])) total++;
-    }
-  }
-  return total;
-}
-
 function buildAngleCandidates(baseAngle: number, allowedAngleOffset: number) {
   const maxSteps = Math.max(
     0,
@@ -1645,21 +1617,6 @@ export default function TestCssPage() {
       .sort((a, b) => a[0] - b[0])
       .map(([, layer]) => layer);
   }, [orderedPoints]);
-
-  const segments = useMemo(() => {
-    return layeredPoints.flatMap((layer) => {
-      if (layer.length <= 1) return [] as Segment[];
-      return layer.map((point, index) => ({
-        from: point,
-        to: layer[(index + 1) % layer.length],
-      }));
-    });
-  }, [layeredPoints]);
-
-  const intersectionCount = useMemo(() => countIntersections(segments), [segments]);
-  const pathLength = useMemo(() => (
-    segments.reduce((sum, segment) => sum + distance(segment.from, segment.to), 0)
-  ), [segments]);
   const placedGroups = useMemo(() => {
     const occupiedRects: LogicalRect[] = [];
     const placed: MockGroup[] = [];
@@ -1764,17 +1721,6 @@ export default function TestCssPage() {
                 className={styles.mapRect}
               />
 
-              {segments.map((segment) => (
-                <line
-                  key={`line-${segment.from.id}-${segment.to.id}`}
-                  x1={segment.from.x}
-                  y1={segment.from.y}
-                  x2={segment.to.x}
-                  y2={segment.to.y}
-                  className={styles.link}
-                />
-              ))}
-
               {gapLabels.map((label) => (
                 <g key={label.key}>
                   <rect
@@ -1871,14 +1817,6 @@ export default function TestCssPage() {
           <div className={styles.metric}>
             <span>坐标点数量</span>
             <strong>{points.length}</strong>
-          </div>
-          <div className={styles.metric}>
-            <span>路径总长</span>
-            <strong>{pathLength.toFixed(0)}</strong>
-          </div>
-          <div className={styles.metric}>
-            <span>线段相交数</span>
-            <strong className={intersectionCount === 0 ? styles.good : styles.bad}>{intersectionCount}</strong>
           </div>
         </div>
 
