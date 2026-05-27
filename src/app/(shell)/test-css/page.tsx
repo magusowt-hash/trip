@@ -969,7 +969,25 @@ function getIndependentLayerRadiusRange(layerIndex: number) {
   };
 }
 
-function buildBoundaryAnchorPositions(
+function buildRawBoundaryAnchorPositions(
+  groups: Array<{
+    point: LayoutGroup;
+    centerX: number;
+    centerY: number;
+  }>,
+  half: number,
+) {
+  return groups.map((group) => {
+    const boundaryPoint = intersectLinkWithBoundary(
+      group.point,
+      { x: group.centerX, y: group.centerY },
+      half,
+    );
+    return boundaryPerimeterPosition(boundaryPoint, half);
+  });
+}
+
+function buildSmoothedBoundaryAnchorPositions(
   groups: Array<{
     point: LayoutGroup;
     centerX: number;
@@ -978,16 +996,7 @@ function buildBoundaryAnchorPositions(
   half: number,
 ) {
   const perimeter = half * 8;
-  const positions = groups.map((group) => {
-    const boundaryPoint = intersectLinkWithBoundary(
-      group.point,
-      { x: group.centerX, y: group.centerY },
-      half,
-    );
-    return boundaryPerimeterPosition(boundaryPoint, half);
-  });
-
-  return smoothBoundaryPositionsWithClip(positions, perimeter);
+  return smoothBoundaryPositionsWithClip(buildRawBoundaryAnchorPositions(groups, half), perimeter);
 }
 
 function distributeLayerByIntervals(
@@ -1015,7 +1024,7 @@ function distributeLayerByIntervals(
       span,
     };
   }).sort((a, b) => a.baseAngle - b.baseAngle);
-  const targetPositions = buildBoundaryAnchorPositions(provisional, half);
+  const targetPositions = buildSmoothedBoundaryAnchorPositions(provisional, half);
   const targetAngles = targetPositions.map((position, index) => {
     const target = boundaryPositionToPointByHalf(position, half);
     return Math.atan2(target.y - provisional[index].point.y, target.x - provisional[index].point.x);
@@ -1119,7 +1128,7 @@ function buildGapLabels(
         centerY: group.centerY,
       }));
     if (orderedPlaced.length !== layer.length) continue;
-    const positions = buildBoundaryAnchorPositions(orderedPlaced, half);
+    const positions = buildRawBoundaryAnchorPositions(orderedPlaced, half);
 
     for (let index = 0; index < layer.length; index++) {
       const current = positions[index];
