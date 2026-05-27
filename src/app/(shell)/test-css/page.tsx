@@ -105,6 +105,10 @@ const LOCAL_GAP_TRIGGER_RATIO_LOW = 0.78;
 const LOCAL_GAP_NEIGHBOR_DEPTH = 1;
 const LOCAL_GAP_MIN_ANGLE_RATIO = 0.18;
 const LOCAL_GAP_MAX_ANGLE_RATIO = 0.68;
+const LAYER_LENGTH_SAMPLE_STEP = 4;
+const LAYER_LENGTH_FINE_STEP = 1;
+const LAYER_LENGTH_ADJACENT_PASSES = 10;
+const LAYER_LENGTH_GLOBAL_PASSES = 12;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -384,6 +388,11 @@ function computeMedian(values: number[]) {
   return sorted.length % 2 === 1
     ? sorted[middle]
     : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function seededUnit(seed: number) {
+  const value = Math.sin(seed * 12.9898 + seed * seed * 0.0001) * 43758.5453;
+  return value - Math.floor(value);
 }
 
 function buildMockPhotos(group: LayoutGroup) {
@@ -1205,6 +1214,521 @@ function buildSmoothedBoundaryAnchorPositions(
   return mapped;
 }
 
+function buildCenterByAngleAndRadius(point: LayoutGroup, angle: number, radius: number) {
+  return {
+    x: point.x + Math.cos(angle) * radius,
+    y: point.y + Math.sin(angle) * radius,
+  };
+}
+
+function buildRectByAngleAndRadius(
+  point: LayoutGroup,
+  rect: LogicalRect,
+  angle: number,
+  radius: number,
+) {
+  const center = buildCenterByAngleAndRadius(point, angle, radius);
+  return translateRect(rect, center.x, center.y);
+}
+
+function buildRadiusSamples(min: number, max: number, step: number) {
+  const samples: number[] = [];
+  for (let value = min; value <= max + TOL; value += step) {
+    samples.push(Number(value.toFixed(6)));
+  }
+  const clampedMax = Number(max.toFixed(6));
+  if (samples.length === 0 || Math.abs(samples[samples.length - 1] - clampedMax) > TOL) {
+    samples.push(clampedMax);
+  }
+  return samples;
+}
+
+function isRadiusCandidateSafeAgainstNeighbors(
+  item: {
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+  },
+  radius: number,
+  prev: {
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+  } | null,
+  prevRadius: number,
+  next: {
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+  } | null,
+  nextRadius: number,
+) {
+  const candidateRect = buildRectByAngleAndRadius(item.point, item.rect, item.targetAngle, radius);
+  const collidesPrev = prev
+    ? rectsOverlap(
+      candidateRect,
+      buildRectByAngleAndRadius(prev.point, prev.rect, prev.targetAngle, prevRadius),
+      GROUP_SAFE_GAP,
+    )
+    : false;
+  const collidesNext = next
+    ? rectsOverlap(
+      candidateRect,
+      buildRectByAngleAndRadius(next.point, next.rect, next.targetAngle, nextRadius),
+      GROUP_SAFE_GAP,
+    )
+    : false;
+
+  return {
+    candidateRect,
+    collidesPrev,
+    collidesNext,
+  };
+}
+
+function rectCollidesWithOtherLayerItems(
+  items: Array<{
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+  }>,
+  radii: number[],
+  currentIndex: number,
+  candidateRect: LogicalRect,
+  ignoreIndices: number[] = [],
+) {
+  const ignore = new Set<number>([currentIndex, ...ignoreIndices]);
+  for (let index = 0; index < items.length; index++) {
+    if (ignore.has(index)) continue;
+    const otherRect = buildRectByAngleAndRadius(
+      items[index].point,
+      items[index].rect,
+      items[index].targetAngle,
+      radii[index],
+    );
+    if (rectsOverlap(candidateRect, otherRect, GROUP_SAFE_GAP)) return true;
+  }
+  return false;
+}
+
+function computeLayerLegalRadiusRange(
+  item: {
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+    baseRadius: number;
+  },
+  prev: {
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+    baseRadius: number;
+  } | null,
+  next: {
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+    baseRadius: number;
+  } | null,
+  radiusRange: { min: number; max: number },
+) {
+  let bestRadius = clamp(item.baseRadius, radiusRange.min, radiusRange.max);
+  let bestScore = Number.POSITIVE_INFINITY;
+  let low = bestRadius;
+  let high = bestRadius;
+  let foundStart = false;
+  let foundEnd = false;
+
+  for (const radius of buildRadiusSamples(radiusRange.min, radiusRange.max, LAYER_LENGTH_SAMPLE_STEP)) {
+    const { collidesPrev, collidesNext } = isRadiusCandidateSafeAgainstNeighbors(
+      item,
+      radius,
+      prev,
+      prev?.baseRadius ?? radius,
+      next,
+      next?.baseRadius ?? radius,
+    );
+
+    const conflictCount = Number(collidesPrev) + Number(collidesNext);
+    const score = conflictCount * 10000 + Math.abs(radius - item.baseRadius);
+    if (score < bestScore) {
+      bestScore = score;
+      bestRadius = radius;
+    }
+
+    if (collidesPrev || collidesNext) {
+      if (foundStart && !foundEnd) {
+        high = Math.max(low, radius - LAYER_LENGTH_SAMPLE_STEP);
+        foundEnd = true;
+      }
+      continue;
+    }
+    if (!foundStart) {
+      low = radius;
+      high = radius;
+      foundStart = true;
+      continue;
+    }
+    high = radius;
+  }
+
+  if (foundStart) {
+    return {
+      low,
+      high: Math.max(low, high),
+    };
+  }
+
+  return {
+    low: bestRadius,
+    high: bestRadius,
+  };
+}
+
+function computeDynamicLayerLegalRadiusRange(
+  items: Array<{
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+    baseRadius: number;
+    radiusLow: number;
+    radiusHigh: number;
+  }>,
+  radii: number[],
+  index: number,
+) {
+  const current = items[index];
+  const prevIndex = (index - 1 + items.length) % items.length;
+  const nextIndex = (index + 1) % items.length;
+  const prev = items[prevIndex];
+  const next = items[nextIndex];
+  const prevRadius = radii[prevIndex];
+  const nextRadius = radii[nextIndex];
+  let bestRadius = clamp(radii[index], current.radiusLow, current.radiusHigh);
+  let bestScore = Number.POSITIVE_INFINITY;
+  let low = bestRadius;
+  let high = bestRadius;
+  let foundStart = false;
+  let foundEnd = false;
+
+  for (const radius of buildRadiusSamples(current.radiusLow, current.radiusHigh, LAYER_LENGTH_SAMPLE_STEP)) {
+    const { collidesPrev, collidesNext } = isRadiusCandidateSafeAgainstNeighbors(
+      current,
+      radius,
+      prev,
+      prevRadius,
+      next,
+      nextRadius,
+    );
+    const conflictCount = Number(collidesPrev) + Number(collidesNext);
+    const score = conflictCount * 10000 + Math.abs(radius - current.baseRadius);
+    if (score < bestScore) {
+      bestScore = score;
+      bestRadius = radius;
+    }
+
+    if (collidesPrev || collidesNext) {
+      if (foundStart && !foundEnd) {
+        high = Math.max(low, radius - LAYER_LENGTH_SAMPLE_STEP);
+        foundEnd = true;
+      }
+      continue;
+    }
+
+    if (!foundStart) {
+      low = radius;
+      high = radius;
+      foundStart = true;
+      continue;
+    }
+    high = radius;
+  }
+
+  if (foundStart) {
+    return {
+      low,
+      high: Math.max(low, high),
+    };
+  }
+
+  return {
+    low: bestRadius,
+    high: bestRadius,
+  };
+}
+
+function findBestPairRadiiForCollision(
+  items: Array<{
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+    baseRadius: number;
+    radiusLow: number;
+    radiusHigh: number;
+  }>,
+  radii: number[],
+  currentIndex: number,
+  nextIndex: number,
+  current: {
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+    baseRadius: number;
+    radiusLow: number;
+    radiusHigh: number;
+  },
+  next: {
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+    baseRadius: number;
+    radiusLow: number;
+    radiusHigh: number;
+  },
+  currentRadius: number,
+  nextRadius: number,
+) {
+  let bestPair: { currentRadius: number; nextRadius: number; score: number } | null = null;
+  const currentCoarse = buildRadiusSamples(current.radiusLow, current.radiusHigh, LAYER_LENGTH_SAMPLE_STEP);
+  const nextCoarse = buildRadiusSamples(next.radiusLow, next.radiusHigh, LAYER_LENGTH_SAMPLE_STEP);
+
+  for (const currentCandidate of currentCoarse) {
+    for (const nextCandidate of nextCoarse) {
+      const currentRect = buildRectByAngleAndRadius(
+        current.point,
+        current.rect,
+        current.targetAngle,
+        currentCandidate,
+      );
+      const nextRect = buildRectByAngleAndRadius(
+        next.point,
+        next.rect,
+        next.targetAngle,
+        nextCandidate,
+      );
+      if (rectsOverlap(currentRect, nextRect, GROUP_SAFE_GAP)) continue;
+      if (rectCollidesWithOtherLayerItems(items, radii, currentIndex, currentRect, [nextIndex])) continue;
+      if (rectCollidesWithOtherLayerItems(items, radii, nextIndex, nextRect, [currentIndex])) continue;
+
+      const score = Math.abs(currentCandidate - currentRadius)
+        + Math.abs(nextCandidate - nextRadius)
+        + Math.abs(currentCandidate - current.baseRadius) * 0.3
+        + Math.abs(nextCandidate - next.baseRadius) * 0.3;
+      if (!bestPair || score < bestPair.score) {
+        bestPair = {
+          currentRadius: currentCandidate,
+          nextRadius: nextCandidate,
+          score,
+        };
+      }
+    }
+  }
+
+  if (!bestPair) return null;
+
+  const currentFineMin = Math.max(current.radiusLow, bestPair.currentRadius - LAYER_LENGTH_SAMPLE_STEP);
+  const currentFineMax = Math.min(current.radiusHigh, bestPair.currentRadius + LAYER_LENGTH_SAMPLE_STEP);
+  const nextFineMin = Math.max(next.radiusLow, bestPair.nextRadius - LAYER_LENGTH_SAMPLE_STEP);
+  const nextFineMax = Math.min(next.radiusHigh, bestPair.nextRadius + LAYER_LENGTH_SAMPLE_STEP);
+
+  for (const currentCandidate of buildRadiusSamples(currentFineMin, currentFineMax, LAYER_LENGTH_FINE_STEP)) {
+    for (const nextCandidate of buildRadiusSamples(nextFineMin, nextFineMax, LAYER_LENGTH_FINE_STEP)) {
+      const currentRect = buildRectByAngleAndRadius(
+        current.point,
+        current.rect,
+        current.targetAngle,
+        currentCandidate,
+      );
+      const nextRect = buildRectByAngleAndRadius(
+        next.point,
+        next.rect,
+        next.targetAngle,
+        nextCandidate,
+      );
+      if (rectsOverlap(currentRect, nextRect, GROUP_SAFE_GAP)) continue;
+      if (rectCollidesWithOtherLayerItems(items, radii, currentIndex, currentRect, [nextIndex])) continue;
+      if (rectCollidesWithOtherLayerItems(items, radii, nextIndex, nextRect, [currentIndex])) continue;
+
+      const score = Math.abs(currentCandidate - currentRadius)
+        + Math.abs(nextCandidate - nextRadius)
+        + Math.abs(currentCandidate - current.baseRadius) * 0.3
+        + Math.abs(nextCandidate - next.baseRadius) * 0.3;
+      if (score < bestPair.score) {
+        bestPair = {
+          currentRadius: currentCandidate,
+          nextRadius: nextCandidate,
+          score,
+        };
+      }
+    }
+  }
+
+  return bestPair;
+}
+
+function resolveAdjacentLayerRadiusConflicts(
+  items: Array<{
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+    baseRadius: number;
+    radiusLow: number;
+    radiusHigh: number;
+  }>,
+  radii: number[],
+) {
+  const nextRadii = [...radii];
+
+  for (let pass = 0; pass < LAYER_LENGTH_ADJACENT_PASSES; pass++) {
+    let changed = false;
+
+    for (let index = 0; index < items.length; index++) {
+      const nextIndex = (index + 1) % items.length;
+      const current = items[index];
+      const next = items[nextIndex];
+      const currentRange = computeDynamicLayerLegalRadiusRange(items, nextRadii, index);
+      const nextRange = computeDynamicLayerLegalRadiusRange(items, nextRadii, nextIndex);
+      const currentRect = buildRectByAngleAndRadius(current.point, current.rect, current.targetAngle, nextRadii[index]);
+      const nextRect = buildRectByAngleAndRadius(next.point, next.rect, next.targetAngle, nextRadii[nextIndex]);
+      if (!rectsOverlap(currentRect, nextRect, GROUP_SAFE_GAP)) continue;
+
+      const bestPair = findBestPairRadiiForCollision(
+        items,
+        nextRadii,
+        index,
+        nextIndex,
+        {
+          ...current,
+          radiusLow: currentRange.low,
+          radiusHigh: currentRange.high,
+        },
+        {
+          ...next,
+          radiusLow: nextRange.low,
+          radiusHigh: nextRange.high,
+        },
+        nextRadii[index],
+        nextRadii[nextIndex],
+      );
+      if (!bestPair) continue;
+      if (Math.abs(bestPair.currentRadius - nextRadii[index]) > TOL || Math.abs(bestPair.nextRadius - nextRadii[nextIndex]) > TOL) {
+        nextRadii[index] = bestPair.currentRadius;
+        nextRadii[nextIndex] = bestPair.nextRadius;
+        changed = true;
+      }
+    }
+
+    if (!changed) break;
+  }
+
+  return nextRadii;
+}
+
+function resolveGlobalLayerRadiusConflicts(
+  items: Array<{
+    point: LayoutGroup;
+    rect: LogicalRect;
+    targetAngle: number;
+    baseRadius: number;
+    radiusLow: number;
+    radiusHigh: number;
+  }>,
+  radii: number[],
+) {
+  const nextRadii = [...radii];
+
+  for (let pass = 0; pass < LAYER_LENGTH_GLOBAL_PASSES; pass++) {
+    let changed = false;
+
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const rectA = buildRectByAngleAndRadius(items[i].point, items[i].rect, items[i].targetAngle, nextRadii[i]);
+        const rectB = buildRectByAngleAndRadius(items[j].point, items[j].rect, items[j].targetAngle, nextRadii[j]);
+        if (!rectsOverlap(rectA, rectB, GROUP_SAFE_GAP)) continue;
+
+        let bestPair: { radiusI: number; radiusJ: number; score: number } | null = null;
+
+        for (const radiusI of buildRadiusSamples(items[i].radiusLow, items[i].radiusHigh, LAYER_LENGTH_SAMPLE_STEP)) {
+          for (const radiusJ of buildRadiusSamples(items[j].radiusLow, items[j].radiusHigh, LAYER_LENGTH_SAMPLE_STEP)) {
+            const candidateRectA = buildRectByAngleAndRadius(
+              items[i].point,
+              items[i].rect,
+              items[i].targetAngle,
+              radiusI,
+            );
+            const candidateRectB = buildRectByAngleAndRadius(
+              items[j].point,
+              items[j].rect,
+              items[j].targetAngle,
+              radiusJ,
+            );
+            if (rectsOverlap(candidateRectA, candidateRectB, GROUP_SAFE_GAP)) continue;
+            if (rectCollidesWithOtherLayerItems(items, nextRadii, i, candidateRectA, [j])) continue;
+            if (rectCollidesWithOtherLayerItems(items, nextRadii, j, candidateRectB, [i])) continue;
+
+            const score = Math.abs(radiusI - nextRadii[i])
+              + Math.abs(radiusJ - nextRadii[j])
+              + Math.abs(radiusI - items[i].baseRadius) * 0.3
+              + Math.abs(radiusJ - items[j].baseRadius) * 0.3;
+            if (!bestPair || score < bestPair.score) {
+              bestPair = { radiusI, radiusJ, score };
+            }
+          }
+        }
+
+        if (bestPair) {
+          const fineMinI = Math.max(items[i].radiusLow, bestPair.radiusI - LAYER_LENGTH_SAMPLE_STEP);
+          const fineMaxI = Math.min(items[i].radiusHigh, bestPair.radiusI + LAYER_LENGTH_SAMPLE_STEP);
+          const fineMinJ = Math.max(items[j].radiusLow, bestPair.radiusJ - LAYER_LENGTH_SAMPLE_STEP);
+          const fineMaxJ = Math.min(items[j].radiusHigh, bestPair.radiusJ + LAYER_LENGTH_SAMPLE_STEP);
+
+          for (const radiusI of buildRadiusSamples(fineMinI, fineMaxI, LAYER_LENGTH_FINE_STEP)) {
+            for (const radiusJ of buildRadiusSamples(fineMinJ, fineMaxJ, LAYER_LENGTH_FINE_STEP)) {
+              const candidateRectA = buildRectByAngleAndRadius(
+                items[i].point,
+                items[i].rect,
+                items[i].targetAngle,
+                radiusI,
+              );
+              const candidateRectB = buildRectByAngleAndRadius(
+                items[j].point,
+                items[j].rect,
+                items[j].targetAngle,
+                radiusJ,
+              );
+              if (rectsOverlap(candidateRectA, candidateRectB, GROUP_SAFE_GAP)) continue;
+              if (rectCollidesWithOtherLayerItems(items, nextRadii, i, candidateRectA, [j])) continue;
+              if (rectCollidesWithOtherLayerItems(items, nextRadii, j, candidateRectB, [i])) continue;
+
+              const score = Math.abs(radiusI - nextRadii[i])
+                + Math.abs(radiusJ - nextRadii[j])
+                + Math.abs(radiusI - items[i].baseRadius) * 0.3
+                + Math.abs(radiusJ - items[j].baseRadius) * 0.3;
+              if (score < bestPair.score) {
+                bestPair = { radiusI, radiusJ, score };
+              }
+            }
+          }
+        }
+
+        if (!bestPair) continue;
+        if (Math.abs(bestPair.radiusI - nextRadii[i]) > TOL) {
+          nextRadii[i] = bestPair.radiusI;
+          changed = true;
+        }
+        if (Math.abs(bestPair.radiusJ - nextRadii[j]) > TOL) {
+          nextRadii[j] = bestPair.radiusJ;
+          changed = true;
+        }
+      }
+    }
+
+    if (!changed) break;
+  }
+
+  return nextRadii;
+}
+
 function distributeLayerByIntervals(
   groups: Array<{
     point: LayoutGroup;
@@ -1217,58 +1741,47 @@ function distributeLayerByIntervals(
   const layerIndex = groups[0]?.point.layerIndex ?? 0;
   const radius = getMapBoundaryCircleRadius();
   const radiusRange = getIndependentLayerRadiusRange(layerIndex);
-  const allowedAngleOffset = getAllowedAngleOffset(groups.length);
   const provisional = groups.map((group, index) => {
-    const angle = normalizeAngle(Math.atan2(group.centerY - group.point.y, group.centerX - group.point.x));
     const baseRadius = (radiusRange.min + radiusRange.max) / 2;
-    const span = computeAngularHalfSpan(group.rect, baseRadius);
     return {
       ...group,
       index,
-      baseAngle: angle,
       radius: baseRadius,
-      span,
     };
-  }).sort((a, b) => a.baseAngle - b.baseAngle);
+  }).sort((a, b) => a.point.order - b.point.order);
   const targetPositions = buildSmoothedBoundaryAnchorPositions(provisional, radius);
-  const targetAngles = targetPositions.map((position, index) => {
+  const structured = targetPositions.map((position, index) => {
     const target = circlePositionToPoint(position, radius);
-    return Math.atan2(target.y - provisional[index].point.y, target.x - provisional[index].point.x);
+    return {
+      ...provisional[index],
+      targetAngle: Math.atan2(target.y - provisional[index].point.y, target.x - provisional[index].point.x),
+    };
   });
-
-  const totalSpan = provisional.reduce((sum, item) => sum + item.span * 2, 0);
-  const freeAngle = Math.max(0, Math.PI * 2 - totalSpan);
-  const buffer = provisional.length > 0 ? (freeAngle / provisional.length) * INTERVAL_BUFFER_RATIO : 0;
-
-  let cursor = targetAngles[0];
+  const constrained = structured.map((item, index) => {
+    const prev = index > 0 ? structured[index - 1] : structured[structured.length - 1];
+    const next = index < structured.length - 1 ? structured[index + 1] : structured[0];
+    const legal = computeLayerLegalRadiusRange(item, prev, next, radiusRange);
+    return {
+      ...item,
+      radiusLow: legal.low,
+      radiusHigh: legal.high,
+    };
+  });
+  const sampledRadii = constrained.map((item) => {
+    const seed = item.point.id * 97 + item.point.order * 131 + item.point.layerIndex * 173;
+    const unit = seededUnit(seed);
+    return item.radiusLow + (item.radiusHigh - item.radiusLow) * unit;
+  });
+  const adjacentResolved = resolveAdjacentLayerRadiusConflicts(constrained, sampledRadii);
+  const globallyResolved = resolveGlobalLayerRadiusConflicts(constrained, adjacentResolved);
   const centers = new Array(groups.length);
-  const occupiedRects: LogicalRect[] = [];
 
-  for (let i = 0; i < provisional.length; i++) {
-    const item = provisional[i];
-    const minAngle = cursor + item.span + buffer / 2;
-    const targetAngle = targetAngles[i];
-    const structuralAngle = i === 0
-      ? targetAngle
-      : Math.max(targetAngle, minAngle);
-    const clampedAngle = clamp(
-      structuralAngle,
-      item.baseAngle - allowedAngleOffset,
-      item.baseAngle + allowedAngleOffset,
+  for (let index = 0; index < constrained.length; index++) {
+    centers[constrained[index].index] = buildCenterByAngleAndRadius(
+      constrained[index].point,
+      constrained[index].targetAngle,
+      globallyResolved[index],
     );
-    cursor = structuralAngle + item.span + buffer / 2;
-    const center = findCenterInRadiusRange(
-      item.point,
-      item.rect,
-      clampedAngle,
-      radiusRange.min,
-      radiusRange.max,
-      occupiedRects,
-      item.radius,
-      allowedAngleOffset,
-    );
-    centers[item.index] = center;
-    occupiedRects.push(translateRect(item.rect, center.x, center.y));
   }
 
   return centers;
