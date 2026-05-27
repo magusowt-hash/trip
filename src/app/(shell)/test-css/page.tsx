@@ -13,6 +13,7 @@ type TestPoint = {
 type LayoutGroup = TestPoint & {
   order: number;
   layerIndex: number;
+  tipSharpness: number;
 };
 
 type GapLabel = {
@@ -99,6 +100,10 @@ const LAYER_RADIUS_BASE = 156;
 const LAYER_RADIUS_GAP = 124;
 const MAX_ANGLE_OFFSET = Math.PI / 15;
 const MAX_RADIUS_OFFSET = 24;
+const SHARP_TIP_ANGLE_THRESHOLD = (112 * Math.PI) / 180;
+const SHARP_TIP_ANGLE_FLOOR = (42 * Math.PI) / 180;
+const SHARP_TIP_ANGLE_SCALE = 0.42;
+const SHARP_TIP_RADIUS_SCORE = 7;
 const INTERVAL_BUFFER_RATIO = 0.36;
 const GAP_CLIP_STD_SCALE = 1.1;
 const GAP_CLIP_RATIO_MIN = 0.72;
@@ -340,6 +345,11 @@ function getAllowedAngleOffset(groupCount: number) {
   return groupCount <= 9 ? Math.min(MAX_ANGLE_OFFSET, Math.PI / 18) : MAX_ANGLE_OFFSET;
 }
 
+function getTipAwareAngleOffset(groupCount: number, tipSharpness: number) {
+  const base = getAllowedAngleOffset(groupCount);
+  return base * (1 - tipSharpness * (1 - SHARP_TIP_ANGLE_SCALE));
+}
+
 function getLayerBoundaryHalf(layerIndex: number) {
   return MAP_SIZE / 2 + layerIndex * VIRTUAL_BOUNDARY_GAP;
 }
@@ -398,6 +408,42 @@ function computeMedian(values: number[]) {
   return sorted.length % 2 === 1
     ? sorted[middle]
     : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function computeVertexAngle(prev: TestPoint, current: TestPoint, next: TestPoint) {
+  const ax = prev.x - current.x;
+  const ay = prev.y - current.y;
+  const bx = next.x - current.x;
+  const by = next.y - current.y;
+  const aLen = Math.hypot(ax, ay);
+  const bLen = Math.hypot(bx, by);
+  if (aLen < TOL || bLen < TOL) return Math.PI;
+  const cosine = clamp((ax * bx + ay * by) / (aLen * bLen), -1, 1);
+  return Math.acos(cosine);
+}
+
+function annotateLayerTipSharpness(layer: TestPoint[]) {
+  if (layer.length <= 2) {
+    return layer.map((point) => ({
+      ...point,
+      tipSharpness: 0,
+    }));
+  }
+
+  return layer.map((point, index) => {
+    const prev = layer[(index - 1 + layer.length) % layer.length];
+    const next = layer[(index + 1) % layer.length];
+    const angle = computeVertexAngle(prev, point, next);
+    const tipSharpness = clamp(
+      (SHARP_TIP_ANGLE_THRESHOLD - angle) / Math.max(SHARP_TIP_ANGLE_THRESHOLD - SHARP_TIP_ANGLE_FLOOR, TOL),
+      0,
+      1,
+    );
+    return {
+      ...point,
+      tipSharpness,
+    };
+  });
 }
 
 function seededUnit(seed: number) {
@@ -563,16 +609,20 @@ function avoidLinkCrossings(
 
       const baseRadius = Math.hypot(center.x - group.point.x, center.y - group.point.y);
       const baseAngle = Math.atan2(center.y - group.point.y, center.x - group.point.x);
-      const allowedAngleOffset = getAllowedAngleOffset(groups.length);
+      const allowedAngleOffset = getTipAwareAngleOffset(groups.length, group.point.tipSharpness);
+      const initialRadius = Math.hypot(group.centerX - group.point.x, group.centerY - group.point.y);
       let resolvedCenter = center;
+      let bestScore = Number.POSITIVE_INFINITY;
 
-      for (let offsetStep = 1; offsetStep <= INTRA_LAYER_ANGLE_SCAN_STEPS; offsetStep++) {
-        const candidateAngles = [
-          baseAngle - LINK_AVOID_ANGLE_STEP * offsetStep,
-          baseAngle + LINK_AVOID_ANGLE_STEP * offsetStep,
-        ].filter((candidateAngle) => (
-          Math.abs(shortestSignedAngleDelta(baseAngle, candidateAngle)) <= allowedAngleOffset + 1e-6
-        ));
+      for (let offsetStep = 0; offsetStep <= INTRA_LAYER_ANGLE_SCAN_STEPS; offsetStep++) {
+        const candidateAngles = offsetStep === 0
+          ? [baseAngle]
+          : [
+            baseAngle - LINK_AVOID_ANGLE_STEP * offsetStep,
+            baseAngle + LINK_AVOID_ANGLE_STEP * offsetStep,
+          ].filter((candidateAngle) => (
+            Math.abs(shortestSignedAngleDelta(baseAngle, candidateAngle)) <= allowedAngleOffset + 1e-6
+          ));
 
         for (const candidateAngle of candidateAngles) {
           const blockedRects = [...occupiedRects];
@@ -592,6 +642,11 @@ function avoidLinkCrossings(
             allowedAngleOffset,
           );
           const candidateTarget = findLinkTarget(group.point, group.geometry, candidateCenter.x, candidateCenter.y);
+          const candidateRadius = Math.hypot(
+            candidateCenter.x - group.point.x,
+            candidateCenter.y - group.point.y,
+          );
+          const angleDelta = Math.abs(shortestSignedAngleDelta(baseAngle, candidateAngle));
 
           let conflict = false;
           for (const lockedGroup of lockedGroups) {
@@ -618,14 +673,22 @@ function avoidLinkCrossings(
           }
 
           if (!conflict) {
-            resolvedCenter = candidateCenter;
-            changed = true;
-            offsetStep = 999;
-            break;
+            const score = (
+              Math.abs(candidateRadius - initialRadius) * (6 + group.point.tipSharpness * SHARP_TIP_RADIUS_SCORE)
+              + Math.abs(candidateRadius - baseRadius) * 3
+              + angleDelta * 180
+            );
+            if (score < bestScore) {
+              bestScore = score;
+              resolvedCenter = candidateCenter;
+            }
           }
         }
       }
 
+      if (bestScore < Number.POSITIVE_INFINITY) {
+        changed = true;
+      }
       centers[index] = resolvedCenter;
     }
 
@@ -921,7 +984,7 @@ function buildLayout(points: TestPoint[]) {
 
   const layers = buildDensityLayers(points);
   let order = 1;
-  return layers.flatMap((layer, layerIndex) => layer.map((point) => ({
+  return layers.flatMap((layer, layerIndex) => annotateLayerTipSharpness(layer).map((point) => ({
     ...point,
     order: order++,
     layerIndex,
@@ -1383,13 +1446,18 @@ function resolveSequentialOverlaps(
     centerX: number;
     centerY: number;
   }>,
+  lockedRects: LogicalRect[] = [],
 ) {
   const centers = groups.map((group) => ({ x: group.centerX, y: group.centerY }));
-  const occupiedRects: LogicalRect[] = [];
+  const occupiedRects: LogicalRect[] = [...lockedRects];
 
   for (let index = 0; index < groups.length; index++) {
     const group = groups[index];
     const angle = Math.atan2(centers[index].y - group.point.y, centers[index].x - group.point.x);
+    const allowedAngleOffset = Math.min(
+      getTipAwareAngleOffset(groups.length, group.point.tipSharpness),
+      Math.PI / 20,
+    );
     let baseRadius = Math.hypot(centers[index].x - group.point.x, centers[index].y - group.point.y);
     const minOutsideRadius = Math.max(
       computeMinRadiusToCircleBoundary(group.point, angle, getMapBoundaryCircleRadius()) + LAYER_LENGTH_BASE_PADDING,
@@ -1400,20 +1468,48 @@ function resolveSequentialOverlaps(
     let resolvedRect = translateRect(group.rect, resolvedCenter.x, resolvedCenter.y);
 
     if (occupiedRects.some((occupiedRect) => rectsOverlap(resolvedRect, occupiedRect, GROUP_SAFE_GAP))) {
-      let found = false;
+      const angleCandidates = buildAngleCandidates(angle, allowedAngleOffset);
+      let bestCandidate: { center: { x: number; y: number }; rect: LogicalRect; score: number } | null = null;
+
       for (const radius of buildRadiusSamples(baseRadius, baseRadius + LAYER_LENGTH_MAX_EXTRA, LAYER_LENGTH_STEP)) {
-        const candidateCenter = buildCenterByAngleAndRadius(group.point, angle, radius);
-        const candidateRect = translateRect(group.rect, candidateCenter.x, candidateCenter.y);
-        if (occupiedRects.some((occupiedRect) => rectsOverlap(candidateRect, occupiedRect, GROUP_SAFE_GAP))) {
-          continue;
+        for (const candidateAngle of angleCandidates) {
+          const candidateMinOutsideRadius = Math.max(
+            computeMinRadiusToCircleBoundary(group.point, candidateAngle, getMapBoundaryCircleRadius())
+            + LAYER_LENGTH_BASE_PADDING,
+            computeMinRadiusOutsideMap(group.point, group.rect, candidateAngle),
+          );
+          if (radius + TOL < candidateMinOutsideRadius) {
+            continue;
+          }
+
+          const candidateCenter = buildCenterByAngleAndRadius(group.point, candidateAngle, radius);
+          const candidateRect = translateRect(group.rect, candidateCenter.x, candidateCenter.y);
+          if (occupiedRects.some((occupiedRect) => rectsOverlap(candidateRect, occupiedRect, GROUP_SAFE_GAP))) {
+            continue;
+          }
+
+          const score = (
+            Math.abs(radius - baseRadius) * (5 + group.point.tipSharpness * SHARP_TIP_RADIUS_SCORE)
+            + Math.abs(shortestSignedAngleDelta(angle, candidateAngle)) * 160
+          );
+          if (!bestCandidate || score < bestCandidate.score) {
+            bestCandidate = {
+              center: candidateCenter,
+              rect: candidateRect,
+              score,
+            };
+          }
         }
-        resolvedCenter = candidateCenter;
-        resolvedRect = candidateRect;
-        found = true;
-        break;
+
+        if (bestCandidate && Math.abs(radius - baseRadius) <= TOL) {
+          break;
+        }
       }
 
-      if (!found) {
+      if (bestCandidate) {
+        resolvedCenter = bestCandidate.center;
+        resolvedRect = bestCandidate.rect;
+      } else {
         const fallbackRadius = baseRadius + LAYER_LENGTH_MAX_EXTRA;
         resolvedCenter = buildCenterByAngleAndRadius(group.point, angle, fallbackRadius);
         resolvedRect = translateRect(group.rect, resolvedCenter.x, resolvedCenter.y);
@@ -1678,6 +1774,7 @@ export default function TestCssPage() {
           centerX: resolvedCenters[index].x,
           centerY: resolvedCenters[index].y,
         })),
+        placed.map((group) => group.rect),
       );
       for (let index = 0; index < provisionalGroups.length; index++) {
         const group = provisionalGroups[index];
