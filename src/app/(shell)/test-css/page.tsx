@@ -106,7 +106,7 @@ const LOCAL_GAP_NEIGHBOR_DEPTH = 1;
 const LOCAL_GAP_MIN_ANGLE_RATIO = 0.18;
 const LOCAL_GAP_MAX_ANGLE_RATIO = 0.68;
 const LAYER_LENGTH_BASE_PADDING = 0;
-const LAYER_LENGTH_STEP = 2;
+const LAYER_LENGTH_STEP = 1;
 const LAYER_LENGTH_MAX_EXTRA = 720;
 
 function randomUnit() {
@@ -387,6 +387,12 @@ function computeMedian(values: number[]) {
   return sorted.length % 2 === 1
     ? sorted[middle]
     : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function normalizeVector(x: number, y: number) {
+  const length = Math.hypot(x, y);
+  if (length < TOL) return { x: 0, y: -1 };
+  return { x: x / length, y: y / length };
 }
 
 function seededUnit(seed: number) {
@@ -1273,6 +1279,24 @@ function computeMinRadiusOutsideMap(
   );
 }
 
+function computeTipGapScale(groups: Array<{
+  point: LayoutGroup;
+}>, index: number) {
+  if (groups.length < 3) return 1;
+
+  const prev = groups[(index - 1 + groups.length) % groups.length].point;
+  const current = groups[index].point;
+  const next = groups[(index + 1) % groups.length].point;
+  const incoming = normalizeVector(current.x - prev.x, current.y - prev.y);
+  const outgoing = normalizeVector(next.x - current.x, next.y - current.y);
+  const dot = clamp(incoming.x * outgoing.x + incoming.y * outgoing.y, -1, 1);
+  const angle = Math.acos(dot);
+  const sharpness = 1 - Math.min(angle, Math.PI) / Math.PI;
+
+  if (sharpness < 0.45) return 1;
+  return clamp(1 - (sharpness - 0.45) * 0.75, 0.62, 1);
+}
+
 function findCenterAlongFixedAngle(
   point: LayoutGroup,
   rect: LogicalRect,
@@ -1347,6 +1371,7 @@ function distributeLayerByIntervals(
 
   for (let index = 0; index < structured.length; index++) {
     const item = structured[index];
+    const tipGapScale = computeTipGapScale(structured, index);
     const minOutsideRadius = Math.max(
       circleRadius + LAYER_LENGTH_BASE_PADDING,
       computeMinRadiusOutsideMap(
@@ -1365,7 +1390,8 @@ function distributeLayerByIntervals(
     )) {
       const center = buildCenterByAngleAndRadius(item.point, item.targetAngle, radius);
       const nextRect = translateRect(item.rect, center.x, center.y);
-      if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
+      const collisionGap = GROUP_SAFE_GAP * tipGapScale;
+      if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, collisionGap))) {
         continue;
       }
       resolvedRadius = radius;
