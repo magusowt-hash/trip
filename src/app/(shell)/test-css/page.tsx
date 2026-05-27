@@ -80,6 +80,8 @@ const GAP_CLIP_STD_SCALE = 1.1;
 const GAP_CLIP_RATIO_MIN = 0.72;
 const GAP_CLIP_RATIO_MAX = 1.32;
 const GAUSSIAN_KERNEL = [1, 4, 6, 4, 1];
+const CONSERVATION_WINDOW_RADIUS = 2;
+const CONSERVATION_ALPHA = 0.42;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -901,6 +903,31 @@ function gaussianSmoothCircular(values: number[]) {
   });
 }
 
+function compressGapDifferencesWithConservation(values: number[]) {
+  if (values.length <= 2) return values;
+
+  const next = [...values];
+  const width = CONSERVATION_WINDOW_RADIUS * 2 + 1;
+
+  for (let index = 0; index < values.length; index++) {
+    let windowSum = 0;
+    for (let offset = -CONSERVATION_WINDOW_RADIUS; offset <= CONSERVATION_WINDOW_RADIUS; offset++) {
+      const sourceIndex = (index + offset + values.length) % values.length;
+      windowSum += values[sourceIndex];
+    }
+
+    const mean = windowSum / width;
+    next[index] = Math.max(0, values[index] + CONSERVATION_ALPHA * (mean - values[index]));
+  }
+
+  const originalTotal = values.reduce((sum, value) => sum + value, 0);
+  const nextTotal = next.reduce((sum, value) => sum + value, 0);
+  if (nextTotal <= 1e-6) return values;
+
+  const scale = originalTotal / nextTotal;
+  return next.map((value) => value * scale);
+}
+
 function smoothBoundaryPositionsWithClip(positions: number[], perimeter: number) {
   if (positions.length <= 2) return positions;
 
@@ -916,7 +943,8 @@ function smoothBoundaryPositionsWithClip(positions: number[], perimeter: number)
     Math.max(mean * GAP_CLIP_RATIO_MIN, mean - stdDev * GAP_CLIP_STD_SCALE),
     Math.min(mean * GAP_CLIP_RATIO_MAX, mean + stdDev * GAP_CLIP_STD_SCALE),
   ));
-  const smoothedGaps = gaussianSmoothCircular(clippedGaps);
+  const compressedGaps = compressGapDifferencesWithConservation(clippedGaps);
+  const smoothedGaps = gaussianSmoothCircular(compressedGaps);
   const smoothedTotal = smoothedGaps.reduce((sum, gap) => sum + gap, 0);
   const scale = smoothedTotal > 1e-6 ? perimeter / smoothedTotal : 1;
   const scaledGaps = smoothedGaps.map((gap) => gap * scale);
