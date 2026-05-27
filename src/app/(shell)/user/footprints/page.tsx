@@ -78,6 +78,7 @@ type PendingPlaceGroup = {
   logicalX: number;
   logicalY: number;
   offsets: LogicalOffset[];
+  tipSharpness?: number;
 };
 type RegionSequence = {
   region: RegionKey;
@@ -93,12 +94,31 @@ const REGION_CENTER_ANGLE: Record<RegionKey, number> = {
   N: 270,
 };
 const GROUP_SAFE_GAP = 14;
-const MAX_VECTOR_LAYERS = 24;
 const MAX_ANGULAR_RELAX_PASSES = 10;
 const LARGE_GROUP_LINK_AVOID_MAX_ANGLE_OFFSET = Math.PI / 15;
 const LARGE_GROUP_LINK_AVOID_ANGLE_STEP = Math.PI / 90;
 const LARGE_GROUP_LINK_AVOID_RADIUS_STEP = 28;
 const LARGE_GROUP_LINK_AVOID_RADIUS_LAYERS = 3;
+const LARGE_GROUP_RADIUS_LAYERS = 24;
+const INTRA_LAYER_ANGLE_SCAN_STEPS = 10;
+const INTRA_LAYER_ANGLE_SCAN_STEP = Math.PI / 30;
+const MAX_RADIUS_OFFSET = 24;
+const BOUNDARY_CIRCLE_PADDING = 36;
+const LAYER_LENGTH_BASE_PADDING = 0;
+const LAYER_LENGTH_STEP = 1;
+const LAYER_LENGTH_MAX_EXTRA = 720;
+const GAP_CLIP_STD_SCALE = 1.1;
+const GAP_CLIP_RATIO_MIN = 0.72;
+const GAP_CLIP_RATIO_MAX = 1.32;
+const GAUSSIAN_KERNEL = [1, 4, 6, 4, 1];
+const CONSERVATION_WINDOW_RADIUS = 2;
+const CONSERVATION_ALPHA = 0.42;
+const GAP_EQUALIZE_ALPHA = 0.68;
+const GAP_EQUALIZE_PASSES = 2;
+const SHARP_TIP_ANGLE_THRESHOLD = (112 * Math.PI) / 180;
+const SHARP_TIP_ANGLE_FLOOR = (42 * Math.PI) / 180;
+const SHARP_TIP_ANGLE_SCALE = 0.42;
+const SHARP_TIP_RADIUS_SCORE = 7;
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -384,12 +404,6 @@ function getRegionByPoint(x: number, y: number): RegionKey {
   return y < 0 ? 'N' : 'S';
 }
 
-function normalizeVector(x: number, y: number) {
-  const length = Math.hypot(x, y);
-  if (length < 1e-6) return { x: 0, y: -1 };
-  return { x: x / length, y: y / length };
-}
-
 function normalizeAngle(angle: number) {
   const tau = Math.PI * 2;
   const normalized = angle % tau;
@@ -402,6 +416,230 @@ function shortestSignedAngleDelta(from: number, to: number) {
   if (delta > Math.PI) delta -= tau;
   if (delta < -Math.PI) delta += tau;
   return delta;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function computeVertexAngle(
+  prev: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  current: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  next: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+) {
+  const ax = prev.logicalX - current.logicalX;
+  const ay = prev.logicalY - current.logicalY;
+  const bx = next.logicalX - current.logicalX;
+  const by = next.logicalY - current.logicalY;
+  const aLen = Math.hypot(ax, ay);
+  const bLen = Math.hypot(bx, by);
+  if (aLen < 1e-6 || bLen < 1e-6) return Math.PI;
+  const cosine = clamp((ax * bx + ay * by) / (aLen * bLen), -1, 1);
+  return Math.acos(cosine);
+}
+
+function getTipAwareAngleOffset(baseAngleOffset: number, tipSharpness = 0) {
+  return baseAngleOffset * (1 - tipSharpness * (1 - SHARP_TIP_ANGLE_SCALE));
+}
+
+function computeGapMean(gaps: number[]) {
+  return gaps.reduce((sum, gap) => sum + gap, 0) / Math.max(1, gaps.length);
+}
+
+function computeGapStdDev(gaps: number[], mean: number) {
+  if (gaps.length === 0) return 0;
+  const variance = gaps.reduce((sum, gap) => sum + (gap - mean) ** 2, 0) / gaps.length;
+  return Math.sqrt(variance);
+}
+
+function gaussianSmoothCircular(values: number[]) {
+  if (values.length <= 2) return values;
+
+  const kernelSum = GAUSSIAN_KERNEL.reduce((sum, weight) => sum + weight, 0);
+  const radius = Math.floor(GAUSSIAN_KERNEL.length / 2);
+
+  return values.map((_, index) => {
+    let total = 0;
+
+    for (let offset = -radius; offset <= radius; offset++) {
+      const sourceIndex = (index + offset + values.length) % values.length;
+      const kernelIndex = offset + radius;
+      total += values[sourceIndex] * GAUSSIAN_KERNEL[kernelIndex];
+    }
+
+    return total / kernelSum;
+  });
+}
+
+function compressGapDifferencesWithConservation(values: number[]) {
+  if (values.length <= 2) return values;
+
+  const next = [...values];
+  const width = CONSERVATION_WINDOW_RADIUS * 2 + 1;
+
+  for (let index = 0; index < values.length; index++) {
+    let windowSum = 0;
+    for (let offset = -CONSERVATION_WINDOW_RADIUS; offset <= CONSERVATION_WINDOW_RADIUS; offset++) {
+      const sourceIndex = (index + offset + values.length) % values.length;
+      windowSum += values[sourceIndex];
+    }
+
+    const mean = windowSum / width;
+    next[index] = Math.max(0, values[index] + CONSERVATION_ALPHA * (mean - values[index]));
+  }
+
+  const originalTotal = values.reduce((sum, value) => sum + value, 0);
+  const nextTotal = next.reduce((sum, value) => sum + value, 0);
+  if (nextTotal <= 1e-6) return values;
+
+  const scale = originalTotal / nextTotal;
+  return next.map((value) => value * scale);
+}
+
+function equalizeCircularGaps(values: number[]) {
+  if (values.length <= 2) return values;
+
+  let next = [...values];
+  for (let pass = 0; pass < GAP_EQUALIZE_PASSES; pass++) {
+    const mean = computeGapMean(next);
+    next = next.map((value) => Math.max(0, value + (mean - value) * GAP_EQUALIZE_ALPHA));
+    const total = next.reduce((sum, value) => sum + value, 0);
+    if (total > 1e-6) {
+      const scale = values.reduce((sum, value) => sum + value, 0) / total;
+      next = next.map((value) => value * scale);
+    }
+  }
+  return next;
+}
+
+function annotateLargeGroupTipSharpness(groups: PendingPlaceGroup[]) {
+  if (groups.length <= 2) {
+    return groups.map((group) => ({
+      ...group,
+      tipSharpness: 0,
+    }));
+  }
+
+  return groups.map((group, index) => {
+    const prev = groups[(index - 1 + groups.length) % groups.length];
+    const next = groups[(index + 1) % groups.length];
+    const angle = computeVertexAngle(prev, group, next);
+    const tipSharpness = clamp(
+      (SHARP_TIP_ANGLE_THRESHOLD - angle) / Math.max(SHARP_TIP_ANGLE_THRESHOLD - SHARP_TIP_ANGLE_FLOOR, 1e-6),
+      0,
+      1,
+    );
+    return {
+      ...group,
+      tipSharpness,
+    };
+  });
+}
+
+function getLargeGroupAllowedAngleOffset(groupCount: number) {
+  return groupCount <= 9 ? Math.min(LARGE_GROUP_LINK_AVOID_MAX_ANGLE_OFFSET, Math.PI / 18) : LARGE_GROUP_LINK_AVOID_MAX_ANGLE_OFFSET;
+}
+
+function getMapBoundaryCircleRadius(mapRect: LogicalRect) {
+  return Math.hypot(mapRect.right, mapRect.bottom) + BOUNDARY_CIRCLE_PADDING;
+}
+
+function circlePerimeterPosition(point: { x: number; y: number }, radius: number) {
+  return normalizeAngle(Math.atan2(point.y, point.x)) * radius;
+}
+
+function circlePositionToPoint(position: number, radius: number) {
+  const normalized = position / Math.max(radius, 1e-6);
+  return {
+    x: Math.cos(normalized) * radius,
+    y: Math.sin(normalized) * radius,
+  };
+}
+
+function projectPointToCircle(point: { x: number; y: number }, radius: number) {
+  const dx = point.x;
+  const dy = point.y;
+  if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) {
+    return { x: radius, y: 0 };
+  }
+  const length = Math.hypot(dx, dy);
+  const scale = radius / Math.max(length, 1e-6);
+  return { x: dx * scale, y: dy * scale };
+}
+
+function intersectLinkWithCircle(
+  point: { x: number; y: number },
+  target: { x: number; y: number },
+  radius: number,
+) {
+  const dx = target.x - point.x;
+  const dy = target.y - point.y;
+  const a = dx * dx + dy * dy;
+  const b = 2 * (point.x * dx + point.y * dy);
+  const c = point.x * point.x + point.y * point.y - radius * radius;
+  const discriminant = b * b - 4 * a * c;
+
+  if (a < 1e-6 || discriminant < 0) {
+    return projectPointToCircle(target, radius);
+  }
+
+  const sqrtDiscriminant = Math.sqrt(discriminant);
+  const t1 = (-b - sqrtDiscriminant) / (2 * a);
+  const t2 = (-b + sqrtDiscriminant) / (2 * a);
+  const candidates = [t1, t2].filter((t) => t >= 0);
+  if (candidates.length === 0) {
+    return projectPointToCircle(target, radius);
+  }
+
+  const t = Math.min(...candidates);
+  return {
+    x: point.x + dx * t,
+    y: point.y + dy * t,
+  };
+}
+
+function unwrapPerimeterPositions(positions: number[], perimeter: number) {
+  if (positions.length === 0) return [];
+
+  const unwrapped = [positions[0]];
+  for (let index = 1; index < positions.length; index++) {
+    let next = positions[index];
+    while (next <= unwrapped[index - 1]) {
+      next += perimeter;
+    }
+    unwrapped.push(next);
+  }
+  return unwrapped;
+}
+
+function smoothBoundaryPositionsWithClip(positions: number[], perimeter: number) {
+  if (positions.length <= 2) return positions;
+
+  const unwrapped = unwrapPerimeterPositions(positions, perimeter);
+  const gaps = unwrapped.map((position, index) => {
+    const next = index === unwrapped.length - 1 ? unwrapped[0] + perimeter : unwrapped[index + 1];
+    return next - position;
+  });
+  const mean = computeGapMean(gaps);
+  const stdDev = computeGapStdDev(gaps, mean);
+  const clippedGaps = gaps.map((gap) => clamp(
+    gap,
+    Math.max(mean * GAP_CLIP_RATIO_MIN, mean - stdDev * GAP_CLIP_STD_SCALE),
+    Math.min(mean * GAP_CLIP_RATIO_MAX, mean + stdDev * GAP_CLIP_STD_SCALE),
+  ));
+  const compressedGaps = compressGapDifferencesWithConservation(clippedGaps);
+  const smoothedGaps = gaussianSmoothCircular(compressedGaps);
+  const equalizedGaps = equalizeCircularGaps(smoothedGaps);
+  const smoothedTotal = equalizedGaps.reduce((sum, gap) => sum + gap, 0);
+  const scale = smoothedTotal > 1e-6 ? perimeter / smoothedTotal : 1;
+  const scaledGaps = equalizedGaps.map((gap) => gap * scale);
+  const rebuilt = [unwrapped[0]];
+
+  for (let index = 1; index < unwrapped.length; index++) {
+    rebuilt.push(rebuilt[index - 1] + scaledGaps[index - 1]);
+  }
+
+  return rebuilt;
 }
 
 function getRegionDistanceScore(group: PendingRegionGroup, region: RegionKey) {
@@ -776,7 +1014,7 @@ function buildLargeGroupOrder(groups: PendingPlaceGroup[]) {
     rotateGroupsToBestStart(sortGroupsByCenterAngle(groups, radialCenter.x, radialCenter.y)),
   );
 
-  return orderedRadialPath;
+  return annotateLargeGroupTipSharpness(orderedRadialPath);
 }
 
 function lineSegmentsIntersect(
@@ -860,80 +1098,6 @@ function buildLargeGroupAvoidanceAngles() {
   return offsets;
 }
 
-function buildLargeGroupOutwardVector(groups: PendingPlaceGroup[], index: number): {
-  x: number;
-  y: number;
-  crowdAngle: number;
-  concaveDepth: number;
-  isConcave: boolean;
-} {
-  const group = groups[index];
-  const groupCount = groups.length;
-  const orientation = polygonArea(groups);
-  const polygonCentroid = computePolygonCentroid(groups);
-  const fallback = normalizeVector(
-    group.logicalX - polygonCentroid.x,
-    group.logicalY - polygonCentroid.y,
-  );
-
-  if (groupCount === 1) {
-    return {
-      x: fallback.x,
-      y: fallback.y,
-      crowdAngle: Math.PI / 2,
-      concaveDepth: 0,
-      isConcave: false,
-    };
-  }
-
-  const prev = groups[(index - 1 + groupCount) % groupCount];
-  const next = groups[(index + 1) % groupCount];
-  const incoming = normalizeVector(group.logicalX - prev.logicalX, group.logicalY - prev.logicalY);
-  const outgoing = normalizeVector(next.logicalX - group.logicalX, next.logicalY - group.logicalY);
-  const edgeSpan = Math.max(1e-6, distanceBetweenGroups(prev, next));
-  const turnCross = orientationCross(prev, group, next);
-  const signedTurn = orientation >= 0 ? turnCross : -turnCross;
-  const concaveDepth = Math.max(0, -signedTurn) / edgeSpan;
-  const isConcave = signedTurn < 0;
-  const buildNormal = orientation >= 0
-    ? (vx: number, vy: number) => ({ x: vy, y: -vx })
-    : (vx: number, vy: number) => ({ x: -vy, y: vx });
-  const prevNormal = buildNormal(incoming.x, incoming.y);
-  const nextNormal = buildNormal(outgoing.x, outgoing.y);
-  const merged = normalizeVector(prevNormal.x + nextNormal.x, prevNormal.y + nextNormal.y);
-  const dot = Math.max(-1, Math.min(1, prevNormal.x * nextNormal.x + prevNormal.y * nextNormal.y));
-  const crowdAngle = Math.acos(dot);
-  const concaveBlend = isConcave ? Math.min(0.82, 0.3 + concaveDepth / Math.max(edgeSpan, 1) * 0.9) : 0;
-
-  if (Math.abs(merged.x) < 1e-6 && Math.abs(merged.y) < 1e-6) {
-    return {
-      x: fallback.x,
-      y: fallback.y,
-      crowdAngle,
-      concaveDepth,
-      isConcave,
-    };
-  }
-
-  const outward = merged.x * fallback.x + merged.y * fallback.y >= 0
-    ? merged
-    : { x: -merged.x, y: -merged.y };
-  const stabilized = concaveBlend > 0
-    ? normalizeVector(
-      outward.x * (1 - concaveBlend) + fallback.x * concaveBlend,
-      outward.y * (1 - concaveBlend) + fallback.y * concaveBlend,
-    )
-    : outward;
-
-  return {
-    x: stabilized.x,
-    y: stabilized.y,
-    crowdAngle,
-    concaveDepth,
-    isConcave,
-  };
-}
-
 function avoidLargeGroupLinkCrossings(
   groups: PendingPlaceGroup[],
   centers: Array<{ x: number; y: number }>,
@@ -953,11 +1117,14 @@ function avoidLargeGroupLinkCrossings(
     const group = groups[index];
     const source = { x: group.logicalX, y: group.logicalY };
     const currentCenter = resolvedCenters[index];
-    const baseAngle = Math.atan2(currentCenter.y, currentCenter.x);
-    const baseRadius = Math.hypot(currentCenter.x, currentCenter.y);
+    const baseAngle = Math.atan2(currentCenter.y - source.y, currentCenter.x - source.x);
+    const baseRadius = Math.hypot(currentCenter.x - source.x, currentCenter.y - source.y);
+    const tipSharpness = group.tipSharpness ?? 0;
+    const allowedAngleOffset = getTipAwareAngleOffset(LARGE_GROUP_LINK_AVOID_MAX_ANGLE_OFFSET, tipSharpness);
     let chosenCenter = currentCenter;
     let chosenRect = translateRect(group.groupRect, chosenCenter.x, chosenCenter.y);
     let chosenTarget = findRectLinkTarget(source.x, source.y, chosenRect, chosenCenter.x, chosenCenter.y);
+    let bestScore = Number.POSITIVE_INFINITY;
 
     const hasConflict = (target: { x: number; y: number }) => locked.some((item) => (
       lineSegmentsIntersect(source, target, item.source, item.target)
@@ -969,10 +1136,11 @@ function avoidLargeGroupLinkCrossings(
       for (let radiusLayer = 0; radiusLayer <= LARGE_GROUP_LINK_AVOID_RADIUS_LAYERS && !resolved; radiusLayer++) {
         const radius = baseRadius + radiusLayer * LARGE_GROUP_LINK_AVOID_RADIUS_STEP;
         for (const angleOffset of angleOffsets) {
+          if (Math.abs(angleOffset) > allowedAngleOffset + 1e-6) continue;
           const angle = baseAngle + angleOffset;
           const candidateCenter = {
-            x: Math.cos(angle) * radius,
-            y: Math.sin(angle) * radius,
+            x: source.x + Math.cos(angle) * radius,
+            y: source.y + Math.sin(angle) * radius,
           };
           const candidateRect = translateRect(group.groupRect, candidateCenter.x, candidateCenter.y);
           if (!fitsAroundMap(candidateRect, mapRect, GROUP_SAFE_GAP)) continue;
@@ -996,11 +1164,17 @@ function avoidLargeGroupLinkCrossings(
           );
           if (hasConflict(candidateTarget)) continue;
 
-          chosenCenter = candidateCenter;
-          chosenRect = candidateRect;
-          chosenTarget = candidateTarget;
-          resolved = true;
-          break;
+          const score = (
+            Math.abs(radius - baseRadius) * (5 + tipSharpness * SHARP_TIP_RADIUS_SCORE)
+            + Math.abs(angleOffset) * 160
+          );
+          if (score < bestScore) {
+            bestScore = score;
+            chosenCenter = candidateCenter;
+            chosenRect = candidateRect;
+            chosenTarget = candidateTarget;
+            resolved = true;
+          }
         }
       }
     }
@@ -1035,38 +1209,6 @@ function computeRayExitDistance(
   return Math.max(0, Math.min(...positive));
 }
 
-function computeAnchorDistance(
-  direction: { x: number; y: number },
-  rect: LogicalRect,
-  mapRect: LogicalRect,
-): number {
-  const expandedMapRect = {
-    left: mapRect.left - GROUP_SAFE_GAP - rect.right,
-    right: mapRect.right + GROUP_SAFE_GAP - rect.left,
-    top: mapRect.top - GROUP_SAFE_GAP - rect.bottom,
-    bottom: mapRect.bottom + GROUP_SAFE_GAP - rect.top,
-  };
-  return computeRayExitDistance(0, 0, direction.x, direction.y, expandedMapRect);
-}
-
-function computeAdaptiveVectorLength(
-  group: PendingPlaceGroup,
-  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean },
-  mapRect: LogicalRect,
-): number {
-  const width = group.groupRect.right - group.groupRect.left;
-  const height = group.groupRect.bottom - group.groupRect.top;
-  const maxSize = Math.max(width, height);
-  const diagonal = Math.hypot(width, height);
-  const anchorDistance = computeAnchorDistance(direction, group.groupRect, mapRect);
-  const crowdRatio = 1 - Math.min(direction.crowdAngle, Math.PI) / Math.PI;
-  const concaveCompression = direction.isConcave
-    ? Math.max(0.45, 1 - Math.min(0.42, direction.concaveDepth / Math.max(diagonal, 1)))
-    : 1;
-  const extraLength = (maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8)) * concaveCompression;
-  return anchorDistance + extraLength;
-}
-
 function computeLayerStep(rect: LogicalRect): number {
   const width = rect.right - rect.left;
   const height = rect.bottom - rect.top;
@@ -1081,33 +1223,151 @@ function computeAngularHalfSpan(rect: LogicalRect, radius: number) {
   return Math.min(Math.PI / 2, Math.asin(Math.min(0.999, diameter / (2 * radius))));
 }
 
-function findLargeGroupPlacementCenter(
-  group: PendingPlaceGroup,
-  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean },
-  occupiedRects: LogicalRect[],
-  mapRect: LogicalRect,
-) {
-  const baseLength = computeAdaptiveVectorLength(group, direction, mapRect);
-  const layerStep = computeLayerStep(group.groupRect);
-  let chosenCenter = {
-    x: direction.x * baseLength,
-    y: direction.y * baseLength,
-  };
+function buildAngleCandidates(baseAngle: number, allowedAngleOffset: number) {
+  const maxSteps = Math.max(
+    0,
+    Math.min(INTRA_LAYER_ANGLE_SCAN_STEPS, Math.ceil(allowedAngleOffset / INTRA_LAYER_ANGLE_SCAN_STEP)),
+  );
+  const candidates = [baseAngle];
 
-  for (let layer = 0; layer < MAX_VECTOR_LAYERS; layer++) {
-    const nextLength = baseLength + layer * layerStep;
-    const centerCandidate = {
-      x: direction.x * nextLength,
-      y: direction.y * nextLength,
-    };
-    const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
-    if (!fitsAroundMap(centerRect, mapRect, GROUP_SAFE_GAP)) continue;
-    if (occupiedRects.some((occupied) => rectsOverlap(centerRect, occupied, GROUP_SAFE_GAP))) continue;
-    chosenCenter = centerCandidate;
-    return chosenCenter;
+  for (let step = 1; step <= maxSteps; step++) {
+    const delta = INTRA_LAYER_ANGLE_SCAN_STEP * step;
+    if (delta > allowedAngleOffset + 1e-6) break;
+    candidates.push(baseAngle - delta, baseAngle + delta);
   }
 
-  return chosenCenter;
+  return candidates;
+}
+
+function buildRadiusCandidates(minRadius: number, maxRadius: number, preferredRadius: number, layerStep: number) {
+  const center = clamp(preferredRadius, minRadius, maxRadius);
+  const candidates = [center];
+  const maxDistance = Math.max(center - minRadius, maxRadius - center);
+  const stepCount = Math.max(1, Math.ceil(maxDistance / layerStep));
+
+  for (let step = 1; step <= stepCount; step++) {
+    const delta = step * layerStep;
+    const lower = center - delta;
+    const upper = center + delta;
+
+    if (lower >= minRadius + 1e-6) candidates.push(lower);
+    if (upper <= maxRadius - 1e-6) candidates.push(upper);
+  }
+
+  if (!candidates.some((value) => Math.abs(value - minRadius) < 1e-6)) candidates.push(minRadius);
+  if (!candidates.some((value) => Math.abs(value - maxRadius) < 1e-6)) candidates.push(maxRadius);
+
+  return candidates;
+}
+
+function findCenterInRadiusRange(
+  point: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY' | 'tipSharpness'>,
+  rect: LogicalRect,
+  baseAngle: number,
+  minRadius: number,
+  maxRadius: number,
+  occupiedRects: LogicalRect[],
+  preferredRadius = (minRadius + maxRadius) / 2,
+  allowedAngleOffset = LARGE_GROUP_LINK_AVOID_MAX_ANGLE_OFFSET,
+) {
+  const layerStep = Math.max(8, computeLayerStep(rect) * 0.35);
+  const radiusCandidates = buildRadiusCandidates(minRadius, maxRadius, preferredRadius, layerStep);
+  const angleCandidates = buildAngleCandidates(baseAngle, allowedAngleOffset);
+  let bestCandidate: { x: number; y: number; cost: number } | null = null;
+
+  for (const radius of radiusCandidates) {
+    for (const candidateAngle of angleCandidates) {
+      const centerCandidate = {
+        x: point.logicalX + Math.cos(candidateAngle) * radius,
+        y: point.logicalY + Math.sin(candidateAngle) * radius,
+      };
+      const nextRect = translateRect(rect, centerCandidate.x, centerCandidate.y);
+      if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
+        continue;
+      }
+
+      const radiusCost = Math.abs(radius - preferredRadius) / Math.max(1, layerStep);
+      const angleCost = Math.abs(shortestSignedAngleDelta(baseAngle, candidateAngle)) / Math.max(INTRA_LAYER_ANGLE_SCAN_STEP, 1e-6);
+      const cost = radiusCost + angleCost * 1.1;
+
+      if (!bestCandidate || cost < bestCandidate.cost) {
+        bestCandidate = {
+          x: centerCandidate.x,
+          y: centerCandidate.y,
+          cost,
+        };
+      }
+    }
+  }
+
+  if (bestCandidate) {
+    return {
+      x: bestCandidate.x,
+      y: bestCandidate.y,
+    };
+  }
+
+  return {
+    x: point.logicalX + Math.cos(baseAngle) * clamp(preferredRadius, minRadius, maxRadius),
+    y: point.logicalY + Math.sin(baseAngle) * clamp(preferredRadius, minRadius, maxRadius),
+  };
+}
+
+function computeMinRadiusOutsideMap(
+  point: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  rect: LogicalRect,
+  angle: number,
+  mapRect: LogicalRect,
+) {
+  const dirX = Math.cos(angle);
+  const dirY = Math.sin(angle);
+  const expandedMapRect = {
+    left: mapRect.left - GROUP_SAFE_GAP - rect.right,
+    right: mapRect.right + GROUP_SAFE_GAP - rect.left,
+    top: mapRect.top - GROUP_SAFE_GAP - rect.bottom,
+    bottom: mapRect.bottom + GROUP_SAFE_GAP - rect.top,
+  };
+
+  return computeRayExitDistance(
+    point.logicalX,
+    point.logicalY,
+    dirX,
+    dirY,
+    expandedMapRect,
+  );
+}
+
+function computeMinRadiusToCircleBoundary(
+  point: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  angle: number,
+  circleRadius: number,
+) {
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  const a = dx * dx + dy * dy;
+  const b = 2 * (point.logicalX * dx + point.logicalY * dy);
+  const c = point.logicalX * point.logicalX + point.logicalY * point.logicalY - circleRadius * circleRadius;
+  const discriminant = b * b - 4 * a * c;
+  if (discriminant <= 0) return 0;
+
+  const sqrt = Math.sqrt(discriminant);
+  const t1 = (-b - sqrt) / (2 * a);
+  const t2 = (-b + sqrt) / (2 * a);
+  const candidates = [t1, t2].filter((value) => Number.isFinite(value) && value >= 0);
+  if (candidates.length === 0) return 0;
+  return Math.min(...candidates);
+}
+
+function buildRadiusSamples(min: number, max: number, step: number) {
+  const samples: number[] = [];
+  for (let value = min; value <= max + 1e-6; value += step) {
+    samples.push(Number(value.toFixed(6)));
+  }
+  const clampedMax = Number(max.toFixed(6));
+  if (samples.length === 0 || Math.abs(samples[samples.length - 1] - clampedMax) > 1e-6) {
+    samples.push(clampedMax);
+  }
+  return samples;
 }
 
 function findRelaxedLargeGroupCenter(
@@ -1118,11 +1378,11 @@ function findRelaxedLargeGroupCenter(
   mapRect: LogicalRect,
 ) {
   const layerStep = computeLayerStep(group.groupRect);
-  for (let layer = 0; layer < MAX_VECTOR_LAYERS; layer++) {
+  for (let layer = 0; layer < LARGE_GROUP_RADIUS_LAYERS; layer++) {
     const radius = baseRadius + layer * layerStep;
     const centerCandidate = {
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius,
+      x: group.logicalX + Math.cos(angle) * radius,
+      y: group.logicalY + Math.sin(angle) * radius,
     };
     const centerRect = translateRect(group.groupRect, centerCandidate.x, centerCandidate.y);
     if (!fitsAroundMap(centerRect, mapRect, GROUP_SAFE_GAP)) continue;
@@ -1131,9 +1391,292 @@ function findRelaxedLargeGroupCenter(
   }
 
   return {
-    x: Math.cos(angle) * baseRadius,
-    y: Math.sin(angle) * baseRadius,
+    x: group.logicalX + Math.cos(angle) * baseRadius,
+    y: group.logicalY + Math.sin(angle) * baseRadius,
   };
+}
+
+function resolveLargeGroupOverlaps(
+  groups: PendingPlaceGroup[],
+  centers: Array<{ x: number; y: number }>,
+  lockedRects: LogicalRect[],
+  mapRect: LogicalRect,
+) {
+  const resolvedCenters = [...centers];
+  const occupiedRects = [...lockedRects];
+
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const currentCenter = resolvedCenters[index];
+    const angle = Math.atan2(currentCenter.y - group.logicalY, currentCenter.x - group.logicalX);
+    const baseRadius = Math.hypot(currentCenter.x - group.logicalX, currentCenter.y - group.logicalY);
+    const allowedAngleOffset = Math.min(
+      getTipAwareAngleOffset(LARGE_GROUP_LINK_AVOID_MAX_ANGLE_OFFSET, group.tipSharpness ?? 0),
+      Math.PI / 20,
+    );
+    let chosenCenter = currentCenter;
+    let chosenRect = translateRect(group.groupRect, chosenCenter.x, chosenCenter.y);
+
+    if (occupiedRects.some((occupied) => rectsOverlap(chosenRect, occupied, GROUP_SAFE_GAP))) {
+      const angleOffsets = buildLargeGroupAvoidanceAngles().filter((offset) => (
+        Math.abs(offset) <= allowedAngleOffset + 1e-6
+      ));
+      let bestCandidate: { center: { x: number; y: number }; rect: LogicalRect; score: number } | null = null;
+      const layerStep = computeLayerStep(group.groupRect);
+
+      for (let layer = 0; layer < LARGE_GROUP_RADIUS_LAYERS; layer++) {
+        const radius = baseRadius + layer * layerStep;
+        for (const angleOffset of angleOffsets) {
+          const candidateAngle = angle + angleOffset;
+          const candidateCenter = {
+            x: group.logicalX + Math.cos(candidateAngle) * radius,
+            y: group.logicalY + Math.sin(candidateAngle) * radius,
+          };
+          const candidateRect = translateRect(group.groupRect, candidateCenter.x, candidateCenter.y);
+          if (!fitsAroundMap(candidateRect, mapRect, GROUP_SAFE_GAP)) continue;
+          if (occupiedRects.some((occupied) => rectsOverlap(candidateRect, occupied, GROUP_SAFE_GAP))) continue;
+
+          const score = (
+            Math.abs(radius - baseRadius) * (5 + (group.tipSharpness ?? 0) * SHARP_TIP_RADIUS_SCORE)
+            + Math.abs(angleOffset) * 160
+          );
+          if (!bestCandidate || score < bestCandidate.score) {
+            bestCandidate = {
+              center: candidateCenter,
+              rect: candidateRect,
+              score,
+            };
+          }
+        }
+
+        if (
+          bestCandidate
+          && Math.abs(
+            Math.hypot(
+              bestCandidate.center.x - group.logicalX,
+              bestCandidate.center.y - group.logicalY,
+            ) - baseRadius,
+          ) <= 1e-6
+        ) {
+          break;
+        }
+      }
+
+      if (bestCandidate) {
+        chosenCenter = bestCandidate.center;
+        chosenRect = bestCandidate.rect;
+      }
+    }
+
+    resolvedCenters[index] = chosenCenter;
+    occupiedRects.push(chosenRect);
+  }
+
+  return resolvedCenters;
+}
+
+function avoidGlobalLargeGroupLinkCrossings(
+  groups: PendingPlaceGroup[],
+  centers: Array<{ x: number; y: number }>,
+  lockedRects: LogicalRect[],
+  mapRect: LogicalRect,
+) {
+  const ordered = groups.map((group, index) => ({
+    group,
+    index,
+    center: centers[index],
+    radius: Math.hypot(
+      centers[index].x - group.logicalX,
+      centers[index].y - group.logicalY,
+    ),
+  })).sort((a, b) => a.radius - b.radius || a.index - b.index);
+
+  const resolved = new Array(centers.length) as Array<{ x: number; y: number }>;
+  const placedRects = [...lockedRects];
+  const placedLinks: Array<{ source: { x: number; y: number }; target: { x: number; y: number } }> = [];
+
+  for (const item of ordered) {
+    const group = item.group;
+    const currentCenter = item.center;
+    const source = { x: group.logicalX, y: group.logicalY };
+    const baseAngle = Math.atan2(currentCenter.y - source.y, currentCenter.x - source.x);
+    const baseRadius = Math.hypot(currentCenter.x - source.x, currentCenter.y - source.y);
+    const allowedAngleOffset = getTipAwareAngleOffset(
+      LARGE_GROUP_LINK_AVOID_MAX_ANGLE_OFFSET,
+      group.tipSharpness ?? 0,
+    );
+    const angleOffsets = buildLargeGroupAvoidanceAngles().filter((offset) => (
+      Math.abs(offset) <= allowedAngleOffset + 1e-6
+    ));
+    let bestCenter = currentCenter;
+    let bestRect = translateRect(group.groupRect, currentCenter.x, currentCenter.y);
+    let bestTarget = findRectLinkTarget(source.x, source.y, bestRect, currentCenter.x, currentCenter.y);
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (let layer = 0; layer < LARGE_GROUP_RADIUS_LAYERS; layer++) {
+      const radius = baseRadius + layer * computeLayerStep(group.groupRect);
+      for (const angleOffset of angleOffsets) {
+        const candidateAngle = baseAngle + angleOffset;
+        const candidateCenter = {
+          x: source.x + Math.cos(candidateAngle) * radius,
+          y: source.y + Math.sin(candidateAngle) * radius,
+        };
+        const candidateRect = translateRect(group.groupRect, candidateCenter.x, candidateCenter.y);
+        if (!fitsAroundMap(candidateRect, mapRect, GROUP_SAFE_GAP)) continue;
+        if (placedRects.some((occupied) => rectsOverlap(candidateRect, occupied, GROUP_SAFE_GAP))) continue;
+
+        const candidateTarget = findRectLinkTarget(
+          source.x,
+          source.y,
+          candidateRect,
+          candidateCenter.x,
+          candidateCenter.y,
+        );
+        if (placedLinks.some((placed) => lineSegmentsIntersect(source, candidateTarget, placed.source, placed.target))) {
+          continue;
+        }
+
+        const score = (
+          Math.abs(radius - baseRadius) * (6 + (group.tipSharpness ?? 0) * SHARP_TIP_RADIUS_SCORE)
+          + Math.abs(angleOffset) * 180
+        );
+        if (score < bestScore) {
+          bestScore = score;
+          bestCenter = candidateCenter;
+          bestRect = candidateRect;
+          bestTarget = candidateTarget;
+        }
+      }
+
+      if (bestScore < Number.POSITIVE_INFINITY && Math.abs(
+        Math.hypot(bestCenter.x - source.x, bestCenter.y - source.y) - baseRadius,
+      ) <= 1e-6) {
+        break;
+      }
+    }
+
+    resolved[item.index] = bestCenter;
+    placedRects.push(bestRect);
+    placedLinks.push({ source, target: bestTarget });
+  }
+
+  return resolved;
+}
+
+function buildRawBoundaryAnchorPositions(
+  groups: Array<{
+    group: PendingPlaceGroup;
+    centerX: number;
+    centerY: number;
+  }>,
+  radius: number,
+) {
+  return groups.map((item) => {
+    const boundaryPoint = intersectLinkWithCircle(
+      { x: item.group.logicalX, y: item.group.logicalY },
+      { x: item.centerX, y: item.centerY },
+      radius,
+    );
+    return circlePerimeterPosition(boundaryPoint, radius);
+  });
+}
+
+function buildOrderedBoundaryAnchors(
+  groups: Array<{
+    group: PendingPlaceGroup;
+    centerX: number;
+    centerY: number;
+  }>,
+  radius: number,
+) {
+  const perimeter = Math.PI * 2 * radius;
+  const sorted = buildRawBoundaryAnchorPositions(groups, radius)
+    .map((position, index) => ({ index, position }))
+    .sort((a, b) => a.position - b.position || a.index - b.index);
+  const unwrapped = unwrapPerimeterPositions(sorted.map((item) => item.position), perimeter);
+
+  return sorted.map((item, index) => ({
+    ...item,
+    position: unwrapped[index],
+  }));
+}
+
+function buildSmoothedBoundaryAnchorPositions(
+  groups: Array<{
+    group: PendingPlaceGroup;
+    centerX: number;
+    centerY: number;
+  }>,
+  radius: number,
+) {
+  const perimeter = Math.PI * 2 * radius;
+  const ordered = buildOrderedBoundaryAnchors(groups, radius);
+  const smoothed = smoothBoundaryPositionsWithClip(
+    ordered.map((item) => item.position),
+    perimeter,
+  );
+  const mapped = new Array(groups.length);
+
+  for (let index = 0; index < ordered.length; index++) {
+    mapped[ordered[index].index] = smoothed[index];
+  }
+
+  return mapped;
+}
+
+function rebalanceBoundaryPositions(groups: PendingPlaceGroup[], mapRect: LogicalRect) {
+  const radius = getMapBoundaryCircleRadius(mapRect);
+  const perimeter = Math.PI * 2 * radius;
+  if (groups.length <= 2) {
+    return groups.map((group) => circlePerimeterPosition(projectPointToCircle({ x: group.logicalX, y: group.logicalY }, radius), radius));
+  }
+
+  const provisional = groups.map((group) => ({
+    group,
+    centerX: group.logicalX,
+    centerY: group.logicalY,
+  }));
+
+  return unwrapPerimeterPositions(
+    buildSmoothedBoundaryAnchorPositions(provisional, radius),
+    perimeter,
+  );
+}
+
+function distributeLargeGroupsByBoundary(
+  groups: PendingPlaceGroup[],
+  mapRect: LogicalRect,
+) {
+  const circleRadius = getMapBoundaryCircleRadius(mapRect);
+  const balancedBoundaryPositions = rebalanceBoundaryPositions(groups, mapRect);
+  const occupiedRects: LogicalRect[] = [];
+  const centers = new Array(groups.length);
+
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const boundaryTarget = circlePositionToPoint(balancedBoundaryPositions[index], circleRadius);
+    const initialAngle = Math.atan2(boundaryTarget.y - group.logicalY, boundaryTarget.x - group.logicalX);
+    const radiusBase = computeMinRadiusToCircleBoundary(group, initialAngle, circleRadius) + LAYER_LENGTH_BASE_PADDING;
+    const minRadius = Math.max(
+      radiusBase,
+      computeMinRadiusOutsideMap(group, group.groupRect, initialAngle, mapRect),
+    );
+    const preferredRadius = minRadius + MAX_RADIUS_OFFSET;
+    const center = findCenterInRadiusRange(
+      group,
+      group.groupRect,
+      initialAngle,
+      minRadius,
+      minRadius + MAX_RADIUS_OFFSET * 2,
+      occupiedRects,
+      preferredRadius,
+      getLargeGroupAllowedAngleOffset(groups.length),
+    );
+    centers[index] = center;
+    occupiedRects.push(translateRect(group.groupRect, center.x, center.y));
+  }
+
+  return centers;
 }
 
 function relaxLargeGroupAngles(
@@ -1150,8 +1693,14 @@ function relaxLargeGroupAngles(
     const ordered = groups.map((group, index) => ({
       group,
       index,
-      angle: normalizeAngle(Math.atan2(relaxedCenters[index].y, relaxedCenters[index].x)),
-      radius: Math.hypot(relaxedCenters[index].x, relaxedCenters[index].y),
+      angle: normalizeAngle(Math.atan2(
+        relaxedCenters[index].y - group.logicalY,
+        relaxedCenters[index].x - group.logicalX,
+      )),
+      radius: Math.hypot(
+        relaxedCenters[index].x - group.logicalX,
+        relaxedCenters[index].y - group.logicalY,
+      ),
     })).sort((a, b) => a.angle - b.angle);
 
     let changed = false;
@@ -1166,8 +1715,10 @@ function relaxLargeGroupAngles(
       if (delta >= safeGap - 1e-4) continue;
 
       const deficit = safeGap - delta;
-      const currentTargetAngle = normalizeAngle(current.angle - deficit / 2);
-      const nextTargetAngle = normalizeAngle(next.angle + deficit / 2);
+      const currentTipAngleFactor = 1 - (current.group.tipSharpness ?? 0) * 0.55;
+      const nextTipAngleFactor = 1 - (next.group.tipSharpness ?? 0) * 0.55;
+      const currentTargetAngle = normalizeAngle(current.angle - (deficit / 2) * currentTipAngleFactor);
+      const nextTargetAngle = normalizeAngle(next.angle + (deficit / 2) * nextTipAngleFactor);
       const currentOccupied = ordered
         .filter((item) => item.index !== current.index)
         .map((item) => translateRect(item.group.groupRect, relaxedCenters[item.index].x, relaxedCenters[item.index].y));
@@ -1194,8 +1745,14 @@ function relaxLargeGroupAngles(
       const nextRect = translateRect(next.group.groupRect, nextCandidate.x, nextCandidate.y);
       if (rectsOverlap(currentRect, nextRect, GROUP_SAFE_GAP)) continue;
 
-      const currentMoved = Math.abs(shortestSignedAngleDelta(current.angle, Math.atan2(currentCandidate.y, currentCandidate.x))) > 1e-4;
-      const nextMoved = Math.abs(shortestSignedAngleDelta(next.angle, Math.atan2(nextCandidate.y, nextCandidate.x))) > 1e-4;
+      const currentMoved = Math.abs(shortestSignedAngleDelta(
+        current.angle,
+        Math.atan2(currentCandidate.y - current.group.logicalY, currentCandidate.x - current.group.logicalX),
+      )) > 1e-4;
+      const nextMoved = Math.abs(shortestSignedAngleDelta(
+        next.angle,
+        Math.atan2(nextCandidate.y - next.group.logicalY, nextCandidate.x - next.group.logicalX),
+      )) > 1e-4;
       if (!currentMoved && !nextMoved) continue;
 
       relaxedCenters[current.index] = currentCandidate;
@@ -1795,22 +2352,8 @@ function UserFootprintsPageInner() {
       }
     } else {
       const largeGroups = buildLargeGroupOrder(pendingNewGroups);
-      const outwardVectors = largeGroups.map((_, index) => buildLargeGroupOutwardVector(largeGroups, index));
       const baseOccupiedRects = [...occupiedRects];
-      const provisionalCenters: Array<{ x: number; y: number }> = [];
-      for (let index = 0; index < largeGroups.length; index++) {
-        const group = largeGroups[index];
-        const chosenCenter = findLargeGroupPlacementCenter(
-          group,
-          outwardVectors[index],
-          occupiedRects,
-          mapRect,
-        );
-        provisionalCenters.push(chosenCenter);
-        occupiedRects.push(translateRect(group.groupRect, chosenCenter.x, chosenCenter.y));
-      }
-
-      occupiedRects.length = baseOccupiedRects.length;
+      const provisionalCenters = distributeLargeGroupsByBoundary(largeGroups, mapRect);
       const relaxedCenters = relaxLargeGroupAngles(
         largeGroups,
         provisionalCenters,
@@ -1823,10 +2366,22 @@ function UserFootprintsPageInner() {
         baseOccupiedRects,
         mapRect,
       );
+      const overlapResolvedCenters = resolveLargeGroupOverlaps(
+        largeGroups,
+        resolvedCenters,
+        baseOccupiedRects,
+        mapRect,
+      );
+      const finalCenters = avoidGlobalLargeGroupLinkCrossings(
+        largeGroups,
+        overlapResolvedCenters,
+        baseOccupiedRects,
+        mapRect,
+      );
 
       for (let index = 0; index < largeGroups.length; index++) {
         const group = largeGroups[index];
-        const chosenCenter = resolvedCenters[index];
+        const chosenCenter = finalCenters[index];
         for (let i = 0; i < group.placePhotos.length; i++) {
           group.placePhotos[i].frameX = chosenCenter.x + group.offsets[i].offsetX;
           group.placePhotos[i].frameY = chosenCenter.y + group.offsets[i].offsetY;
