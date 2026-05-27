@@ -71,8 +71,9 @@ const LAYER_RADIUS_GAP = 124;
 const MAX_ANGLE_OFFSET = Math.PI / 15;
 const MAX_RADIUS_OFFSET = 24;
 const INTERVAL_BUFFER_RATIO = 0.36;
-const EVEN_DISTRIBUTION_BLEND_MIN = 0.16;
-const EVEN_DISTRIBUTION_BLEND_MAX = 0.42;
+const GAP_CLIP_STD_SCALE = 1.1;
+const GAP_CLIP_RATIO_MIN = 0.72;
+const GAP_CLIP_RATIO_MAX = 1.32;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -821,6 +822,92 @@ function buildRadiusCandidates(minRadius: number, maxRadius: number, preferredRa
   return candidates;
 }
 
+function intersectLinkWithBoundary(
+  point: { x: number; y: number },
+  target: { x: number; y: number },
+  half: number,
+) {
+  const dx = target.x - point.x;
+  const dy = target.y - point.y;
+  const candidates: Array<{ t: number; x: number; y: number }> = [];
+
+  if (Math.abs(dx) > TOL) {
+    const leftT = (-half - point.x) / dx;
+    const leftY = point.y + dy * leftT;
+    if (leftT >= 0 && leftT <= 1.5 && leftY >= -half - 1e-4 && leftY <= half + 1e-4) {
+      candidates.push({ t: leftT, x: -half, y: leftY });
+    }
+
+    const rightT = (half - point.x) / dx;
+    const rightY = point.y + dy * rightT;
+    if (rightT >= 0 && rightT <= 1.5 && rightY >= -half - 1e-4 && rightY <= half + 1e-4) {
+      candidates.push({ t: rightT, x: half, y: rightY });
+    }
+  }
+
+  if (Math.abs(dy) > TOL) {
+    const topT = (-half - point.y) / dy;
+    const topX = point.x + dx * topT;
+    if (topT >= 0 && topT <= 1.5 && topX >= -half - 1e-4 && topX <= half + 1e-4) {
+      candidates.push({ t: topT, x: topX, y: -half });
+    }
+
+    const bottomT = (half - point.y) / dy;
+    const bottomX = point.x + dx * bottomT;
+    if (bottomT >= 0 && bottomT <= 1.5 && bottomX >= -half - 1e-4 && bottomX <= half + 1e-4) {
+      candidates.push({ t: bottomT, x: bottomX, y: half });
+    }
+  }
+
+  const hit = candidates
+    .filter((candidate) => candidate.t >= 0)
+    .sort((a, b) => a.t - b.t)[0];
+
+  return hit ?? projectPointToBoundary({ id: -1, x: target.x, y: target.y, order: -1, layerIndex: -1 }, half);
+}
+
+function computeGapMean(gaps: number[]) {
+  return gaps.reduce((sum, gap) => sum + gap, 0) / Math.max(1, gaps.length);
+}
+
+function computeGapStdDev(gaps: number[], mean: number) {
+  if (gaps.length === 0) return 0;
+  const variance = gaps.reduce((sum, gap) => sum + (gap - mean) ** 2, 0) / gaps.length;
+  return Math.sqrt(variance);
+}
+
+function smoothBoundaryPositionsWithClip(positions: number[], perimeter: number) {
+  if (positions.length <= 2) return positions;
+
+  const unwrapped = unwrapPerimeterPositions(positions, perimeter);
+  const gaps = unwrapped.map((position, index) => {
+    const next = index === unwrapped.length - 1 ? unwrapped[0] + perimeter : unwrapped[index + 1];
+    return next - position;
+  });
+  const mean = computeGapMean(gaps);
+  const stdDev = computeGapStdDev(gaps, mean);
+  const clippedGaps = gaps.map((gap) => clamp(
+    gap,
+    Math.max(mean * GAP_CLIP_RATIO_MIN, mean - stdDev * GAP_CLIP_STD_SCALE),
+    Math.min(mean * GAP_CLIP_RATIO_MAX, mean + stdDev * GAP_CLIP_STD_SCALE),
+  ));
+  const smoothedGaps = clippedGaps.map((gap, index) => {
+    const prev = clippedGaps[(index - 1 + clippedGaps.length) % clippedGaps.length];
+    const next = clippedGaps[(index + 1) % clippedGaps.length];
+    return (prev + gap * 2 + next) / 4;
+  });
+  const smoothedTotal = smoothedGaps.reduce((sum, gap) => sum + gap, 0);
+  const scale = smoothedTotal > 1e-6 ? perimeter / smoothedTotal : 1;
+  const scaledGaps = smoothedGaps.map((gap) => gap * scale);
+  const rebuilt = [unwrapped[0]];
+
+  for (let index = 1; index < unwrapped.length; index++) {
+    rebuilt.push(rebuilt[index - 1] + scaledGaps[index - 1]);
+  }
+
+  return rebuilt;
+}
+
 function findCenterInRadiusRange(
   point: LayoutGroup,
   rect: LogicalRect,
@@ -882,29 +969,25 @@ function getIndependentLayerRadiusRange(layerIndex: number) {
   };
 }
 
-function computeBalancedTargetAngles(baseAngles: number[]) {
-  if (baseAngles.length <= 2) return baseAngles;
-
-  const tau = Math.PI * 2;
-  const unwrapped = unwrapPerimeterPositions(baseAngles, tau);
-  const evenStep = tau / baseAngles.length;
-  const anchor = unwrapped.reduce((sum, angle, index) => sum + (angle - index * evenStep), 0) / baseAngles.length;
-  const gaps = unwrapped.map((angle, index) => {
-    const next = index === unwrapped.length - 1 ? unwrapped[0] + tau : unwrapped[index + 1];
-    return next - angle;
+function buildBoundaryAnchorPositions(
+  groups: Array<{
+    point: LayoutGroup;
+    centerX: number;
+    centerY: number;
+  }>,
+  half: number,
+) {
+  const perimeter = half * 8;
+  const positions = groups.map((group) => {
+    const boundaryPoint = intersectLinkWithBoundary(
+      group.point,
+      { x: group.centerX, y: group.centerY },
+      half,
+    );
+    return boundaryPerimeterPosition(boundaryPoint, half);
   });
-  const averageGap = tau / baseAngles.length;
-  const meanGapDeviation = gaps.reduce((sum, gap) => sum + Math.abs(gap - averageGap), 0) / gaps.length;
-  const blend = clamp(
-    meanGapDeviation / Math.max(averageGap, 1e-6) * 0.6,
-    EVEN_DISTRIBUTION_BLEND_MIN,
-    EVEN_DISTRIBUTION_BLEND_MAX,
-  );
 
-  return unwrapped.map((angle, index) => {
-    const evenAngle = anchor + index * evenStep;
-    return angle + (evenAngle - angle) * blend;
-  });
+  return smoothBoundaryPositionsWithClip(positions, perimeter);
 }
 
 function distributeLayerByIntervals(
@@ -917,6 +1000,7 @@ function distributeLayerByIntervals(
 ) {
   if (groups.length <= 2) return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
   const layerIndex = groups[0]?.point.layerIndex ?? 0;
+  const half = getLayerBoundaryHalf(layerIndex);
   const radiusRange = getIndependentLayerRadiusRange(layerIndex);
   const allowedAngleOffset = getAllowedAngleOffset(groups.length);
   const provisional = groups.map((group, index) => {
@@ -931,7 +1015,11 @@ function distributeLayerByIntervals(
       span,
     };
   }).sort((a, b) => a.baseAngle - b.baseAngle);
-  const targetAngles = computeBalancedTargetAngles(provisional.map((item) => item.baseAngle));
+  const targetPositions = buildBoundaryAnchorPositions(provisional, half);
+  const targetAngles = targetPositions.map((position, index) => {
+    const target = boundaryPositionToPointByHalf(position, half);
+    return Math.atan2(target.y - provisional[index].point.y, target.x - provisional[index].point.x);
+  });
 
   const totalSpan = provisional.reduce((sum, item) => sum + item.span * 2, 0);
   const freeAngle = Math.max(0, Math.PI * 2 - totalSpan);
@@ -1009,8 +1097,12 @@ function boundaryPositionToPointByHalf(position: number, half: number) {
   return { x: -half, y: half - (normalized - side * 3) };
 }
 
-function buildGapLabels(layers: LayoutGroup[][]) {
+function buildGapLabels(
+  layers: LayoutGroup[][],
+  placedGroups: MockGroup[],
+) {
   const labels: GapLabel[] = [];
+  const placedById = new Map(placedGroups.map((group) => [group.point.id, group] as const));
 
   for (const layer of layers) {
     if (layer.length <= 1) continue;
@@ -1018,7 +1110,16 @@ function buildGapLabels(layers: LayoutGroup[][]) {
     const layerIndex = layer[0]?.layerIndex ?? 0;
     const half = getLayerBoundaryHalf(layerIndex);
     const perimeter = half * 8;
-    const positions = rebalanceBoundaryPositions(layer);
+    const orderedPlaced = layer
+      .map((point) => placedById.get(point.id))
+      .filter((group): group is MockGroup => Boolean(group))
+      .map((group) => ({
+        point: group.point,
+        centerX: group.centerX,
+        centerY: group.centerY,
+      }));
+    if (orderedPlaced.length !== layer.length) continue;
+    const positions = buildBoundaryAnchorPositions(orderedPlaced, half);
 
     for (let index = 0; index < layer.length; index++) {
       const current = positions[index];
@@ -1188,7 +1289,7 @@ export default function TestCssPage() {
 
     return avoidGlobalLinkCrossings(placed);
   }, [layeredPoints]);
-  const gapLabels = useMemo(() => buildGapLabels(layeredPoints), [layeredPoints]);
+  const gapLabels = useMemo(() => buildGapLabels(layeredPoints, placedGroups), [layeredPoints, placedGroups]);
   const viewport = useMemo(() => buildAdaptiveViewport(placedGroups), [placedGroups]);
 
   return (
