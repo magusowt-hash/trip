@@ -41,7 +41,7 @@ type GapEntry = {
 };
 
 type GapReport = {
-  layerIndex: number;
+  label: string;
   entries: GapEntry[];
   min: number;
   max: number;
@@ -1205,106 +1205,82 @@ function boundaryPositionToPointByHalf(position: number, half: number) {
   return { x: -half, y: half - (normalized - side * 3) };
 }
 
-function buildGapLabels(
-  layers: LayoutGroup[][],
-  placedGroups: MockGroup[],
-) {
+function buildGapLabels(placedGroups: MockGroup[]) {
   const labels: GapLabel[] = [];
-  const placedById = new Map(placedGroups.map((group) => [group.point.id, group] as const));
+  if (placedGroups.length <= 1) return labels;
 
-  for (const layer of layers) {
-    if (layer.length <= 1) continue;
+  const half = getMapBoundaryHalf();
+  const perimeter = half * 8;
+  const anchors = buildOrderedBoundaryAnchors(
+    placedGroups.map((group) => ({
+      point: group.point,
+      centerX: group.centerX,
+      centerY: group.centerY,
+    })),
+    half,
+  );
 
-    const layerIndex = layer[0]?.layerIndex ?? 0;
-    const half = getMapBoundaryHalf();
-    const perimeter = half * 8;
-    const orderedPlaced = layer
-      .map((point) => placedById.get(point.id))
-      .filter((group): group is MockGroup => Boolean(group))
-      .map((group) => ({
-        point: group.point,
-        centerX: group.centerX,
-        centerY: group.centerY,
-      }));
-    if (orderedPlaced.length !== layer.length) continue;
-    const orderedAnchors = buildOrderedBoundaryAnchors(orderedPlaced, half);
+  for (let index = 0; index < anchors.length; index++) {
+    const current = anchors[index];
+    const next = index === anchors.length - 1
+      ? { ...anchors[0], position: anchors[0].position + perimeter }
+      : anchors[index + 1];
+    const gap = next.position - current.position;
+    const midpoint = current.position + gap / 2;
+    const anchor = boundaryPositionToPointByHalf(midpoint, half);
+    const fromGroup = placedGroups[current.index];
+    const toGroup = placedGroups[next.index % placedGroups.length];
 
-    for (let index = 0; index < orderedAnchors.length; index++) {
-      const current = orderedAnchors[index];
-      const next = index === orderedAnchors.length - 1
-        ? { ...orderedAnchors[0], position: orderedAnchors[0].position + perimeter }
-        : orderedAnchors[index + 1];
-      const gap = next.position - current.position;
-      const midpoint = current.position + gap / 2;
-      const anchor = boundaryPositionToPointByHalf(midpoint, half);
-      const fromGroup = orderedPlaced[current.index];
-      const toGroup = orderedPlaced[next.index % orderedPlaced.length];
-
-      labels.push({
-        key: `gap-${layerIndex}-${fromGroup.point.id}-${toGroup.point.id}`,
-        x: anchor.x,
-        y: anchor.y,
-        value: gap,
-        layerIndex,
-      });
-    }
+    labels.push({
+      key: `gap-global-${fromGroup.point.id}-${toGroup.point.id}`,
+      x: anchor.x,
+      y: anchor.y,
+      value: gap,
+      layerIndex: -1,
+    });
   }
 
   return labels;
 }
 
-function buildGapReports(
-  layers: LayoutGroup[][],
-  placedGroups: MockGroup[],
-) {
-  const reports: GapReport[] = [];
-  const placedById = new Map(placedGroups.map((group) => [group.point.id, group] as const));
+function buildGapReports(placedGroups: MockGroup[]) {
+  if (placedGroups.length <= 1) return [] as GapReport[];
 
-  for (const layer of layers) {
-    if (layer.length <= 1) continue;
+  const half = getMapBoundaryHalf();
+  const perimeter = half * 8;
+  const anchors = buildOrderedBoundaryAnchors(
+    placedGroups.map((group) => ({
+      point: group.point,
+      centerX: group.centerX,
+      centerY: group.centerY,
+    })),
+    half,
+  );
+  const entries: GapEntry[] = [];
 
-    const layerIndex = layer[0]?.layerIndex ?? 0;
-    const half = getMapBoundaryHalf();
-    const perimeter = half * 8;
-    const orderedPlaced = layer
-      .map((point) => placedById.get(point.id))
-      .filter((group): group is MockGroup => Boolean(group))
-      .map((group) => ({
-        point: group.point,
-        centerX: group.centerX,
-        centerY: group.centerY,
-      }));
-    if (orderedPlaced.length !== layer.length) continue;
-
-    const orderedAnchors = buildOrderedBoundaryAnchors(orderedPlaced, half);
-    const entries: GapEntry[] = [];
-
-    for (let index = 0; index < orderedAnchors.length; index++) {
-      const current = orderedAnchors[index];
-      const next = index === orderedAnchors.length - 1
-        ? { ...orderedAnchors[0], position: orderedAnchors[0].position + perimeter }
-        : orderedAnchors[index + 1];
-      const fromGroup = orderedPlaced[current.index];
-      const toGroup = orderedPlaced[next.index % orderedPlaced.length];
-      entries.push({
-        key: `gap-report-${layerIndex}-${fromGroup.point.id}-${toGroup.point.id}`,
-        fromId: fromGroup.point.id,
-        toId: toGroup.point.id,
-        value: next.position - current.position,
-      });
-    }
-
-    const values = entries.map((entry) => entry.value);
-    reports.push({
-      layerIndex,
-      entries,
-      min: Math.min(...values),
-      max: Math.max(...values),
-      mean: computeGapMean(values),
+  for (let index = 0; index < anchors.length; index++) {
+    const current = anchors[index];
+    const next = index === anchors.length - 1
+      ? { ...anchors[0], position: anchors[0].position + perimeter }
+      : anchors[index + 1];
+    const fromGroup = placedGroups[current.index];
+    const toGroup = placedGroups[next.index % placedGroups.length];
+    entries.push({
+      key: `gap-report-global-${fromGroup.point.id}-${toGroup.point.id}`,
+      fromId: fromGroup.point.id,
+      toId: toGroup.point.id,
+      value: next.position - current.position,
     });
   }
 
-  return reports;
+  const values = entries.map((entry) => entry.value);
+  return [{
+    label: '全局',
+    entries,
+    min: Math.min(...values),
+    max: Math.max(...values),
+    mean: computeGapMean(values),
+  }];
 }
 
 function buildAdaptiveViewport(groups: MockGroup[]) {
@@ -1455,8 +1431,8 @@ export default function TestCssPage() {
 
     return avoidGlobalLinkCrossings(placed);
   }, [layeredPoints]);
-  const gapLabels = useMemo(() => buildGapLabels(layeredPoints, placedGroups), [layeredPoints, placedGroups]);
-  const gapReports = useMemo(() => buildGapReports(layeredPoints, placedGroups), [layeredPoints, placedGroups]);
+  const gapLabels = useMemo(() => buildGapLabels(placedGroups), [placedGroups]);
+  const gapReports = useMemo(() => buildGapReports(placedGroups), [placedGroups]);
   const viewport = useMemo(() => buildAdaptiveViewport(placedGroups), [placedGroups]);
 
   return (
@@ -1622,9 +1598,9 @@ export default function TestCssPage() {
 
         <div className={styles.gapPanel}>
           {gapReports.map((report) => (
-            <section key={`gap-panel-${report.layerIndex}`} className={styles.gapSection}>
+            <section key={`gap-panel-${report.label}`} className={styles.gapSection}>
               <div className={styles.gapSectionHead}>
-                <strong>层 {report.layerIndex + 1}</strong>
+                <strong>{report.label}</strong>
                 <span>
                   min {Math.round(report.min)} / max {Math.round(report.max)} / avg {Math.round(report.mean)}
                 </span>
