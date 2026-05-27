@@ -98,6 +98,8 @@ const GAUSSIAN_KERNEL = [1, 4, 6, 4, 1];
 const CONSERVATION_WINDOW_RADIUS = 2;
 const CONSERVATION_ALPHA = 0.42;
 const BOUNDARY_CIRCLE_PADDING = 36;
+const GLOBAL_REBALANCE_ANGLE_RATIO = 0.4;
+const GLOBAL_REBALANCE_MAX_RADIUS_OFFSET = 12;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -659,6 +661,14 @@ function rebalanceGlobalBoundaryGaps(groups: MockGroup[]) {
   if (groups.length <= 2) return groups;
 
   const radius = getMapBoundaryCircleRadius();
+  const currentPositions = buildRawBoundaryAnchorPositions(
+    groups.map((group) => ({
+      point: group.point,
+      centerX: group.centerX,
+      centerY: group.centerY,
+    })),
+    radius,
+  );
   const targetPositions = buildSmoothedBoundaryAnchorPositions(
     groups.map((group) => ({
       point: group.point,
@@ -670,18 +680,26 @@ function rebalanceGlobalBoundaryGaps(groups: MockGroup[]) {
   const groupsWithTargets = groups.map((group, index) => ({
     group,
     index,
+    currentPosition: currentPositions[index],
     targetPosition: targetPositions[index],
-  })).sort((a, b) => a.targetPosition - b.targetPosition || a.group.point.order - b.group.point.order);
+  })).sort((a, b) => a.currentPosition - b.currentPosition || a.group.point.order - b.group.point.order);
 
   const centers = new Array(groups.length);
   const occupiedRects: LogicalRect[] = [];
+  const allowedAngleOffset = getAllowedAngleOffset(groups.length) * GLOBAL_REBALANCE_ANGLE_RATIO;
 
   for (const item of groupsWithTargets) {
-    const boundaryTarget = circlePositionToPoint(item.targetPosition, radius);
-    const targetAngle = Math.atan2(
-      boundaryTarget.y - item.group.point.y,
-      boundaryTarget.x - item.group.point.x,
+    const currentBoundaryPoint = circlePositionToPoint(item.currentPosition, radius);
+    const targetBoundaryPoint = circlePositionToPoint(item.targetPosition, radius);
+    const currentAngle = Math.atan2(
+      currentBoundaryPoint.y - item.group.point.y,
+      currentBoundaryPoint.x - item.group.point.x,
     );
+    const targetAngle = Math.atan2(
+      targetBoundaryPoint.y - item.group.point.y,
+      targetBoundaryPoint.x - item.group.point.x,
+    );
+    const adjustedAngle = currentAngle + shortestSignedAngleDelta(currentAngle, targetAngle) * GLOBAL_REBALANCE_ANGLE_RATIO;
     const radiusRange = getIndependentLayerRadiusRange(item.group.point.layerIndex);
     const currentRadius = Math.hypot(
       item.group.centerX - item.group.point.x,
@@ -690,12 +708,12 @@ function rebalanceGlobalBoundaryGaps(groups: MockGroup[]) {
     const center = findCenterInRadiusRange(
       item.group.point,
       item.group.geometry.overallRect,
-      targetAngle,
-      radiusRange.min,
-      radiusRange.max,
+      adjustedAngle,
+      Math.max(radiusRange.min, currentRadius - GLOBAL_REBALANCE_MAX_RADIUS_OFFSET),
+      Math.min(radiusRange.max, currentRadius + GLOBAL_REBALANCE_MAX_RADIUS_OFFSET),
       occupiedRects,
       currentRadius,
-      getAllowedAngleOffset(groups.length),
+      allowedAngleOffset,
     );
 
     centers[item.index] = center;
