@@ -97,6 +97,7 @@ const GAP_CLIP_RATIO_MAX = 1.32;
 const GAUSSIAN_KERNEL = [1, 4, 6, 4, 1];
 const CONSERVATION_WINDOW_RADIUS = 2;
 const CONSERVATION_ALPHA = 0.42;
+const BOUNDARY_CIRCLE_PADDING = 36;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -322,39 +323,37 @@ function getLayerBoundaryHalf(layerIndex: number) {
   return MAP_SIZE / 2 + layerIndex * VIRTUAL_BOUNDARY_GAP;
 }
 
-function getMapBoundaryHalf() {
-  return MAP_SIZE / 2;
+function getMapBoundaryCircleRadius() {
+  return Math.hypot(MAP_SIZE / 2, MAP_SIZE / 2) + BOUNDARY_CIRCLE_PADDING;
 }
 
-function projectPointToBoundary(point: LayoutGroup, half: number) {
+function projectPointToCircle(point: { x: number; y: number }, radius: number) {
   const dx = point.x;
   const dy = point.y;
 
   if (Math.abs(dx) < TOL && Math.abs(dy) < TOL) {
-    return { x: half, y: 0 };
+    return { x: radius, y: 0 };
   }
 
-  const tx = Math.abs(dx) > TOL ? half / Math.abs(dx) : Number.POSITIVE_INFINITY;
-  const ty = Math.abs(dy) > TOL ? half / Math.abs(dy) : Number.POSITIVE_INFINITY;
-  const t = Math.min(tx, ty);
+  const length = Math.hypot(dx, dy);
+  const scale = radius / Math.max(length, TOL);
 
   return {
-    x: dx * t,
-    y: dy * t,
+    x: dx * scale,
+    y: dy * scale,
   };
 }
 
-function boundaryPerimeterPosition(boundaryPoint: { x: number; y: number }, half: number) {
-  const side = half * 2;
-  const perimeter = side * 4;
-  const { x, y } = boundaryPoint;
+function circlePerimeterPosition(point: { x: number; y: number }, radius: number) {
+  return normalizeAngle(Math.atan2(point.y, point.x)) * radius;
+}
 
-  if (Math.abs(y + half) < 1e-4) return x + half;
-  if (Math.abs(x - half) < 1e-4) return side + (y + half);
-  if (Math.abs(y - half) < 1e-4) return side * 2 + (half - x);
-  if (Math.abs(x + half) < 1e-4) return side * 3 + (half - y);
-
-  return ((Math.atan2(y, x) + Math.PI) / (Math.PI * 2)) * perimeter;
+function circlePositionToPoint(position: number, radius: number) {
+  const normalized = position / Math.max(radius, TOL);
+  return {
+    x: Math.cos(normalized) * radius,
+    y: Math.sin(normalized) * radius,
+  };
 }
 
 function computeLayerStep(rect: LogicalRect): number {
@@ -659,14 +658,14 @@ function avoidGlobalLinkCrossings(
 function rebalanceGlobalBoundaryGaps(groups: MockGroup[]) {
   if (groups.length <= 2) return groups;
 
-  const half = getMapBoundaryHalf();
+  const radius = getMapBoundaryCircleRadius();
   const targetPositions = buildSmoothedBoundaryAnchorPositions(
     groups.map((group) => ({
       point: group.point,
       centerX: group.centerX,
       centerY: group.centerY,
     })),
-    half,
+    radius,
   );
   const groupsWithTargets = groups.map((group, index) => ({
     group,
@@ -678,7 +677,7 @@ function rebalanceGlobalBoundaryGaps(groups: MockGroup[]) {
   const occupiedRects: LogicalRect[] = [];
 
   for (const item of groupsWithTargets) {
-    const boundaryTarget = boundaryPositionToPointByHalf(item.targetPosition, half);
+    const boundaryTarget = circlePositionToPoint(item.targetPosition, radius);
     const targetAngle = Math.atan2(
       boundaryTarget.y - item.group.point.y,
       boundaryTarget.x - item.group.point.x,
@@ -911,48 +910,35 @@ function buildRadiusCandidates(minRadius: number, maxRadius: number, preferredRa
   return candidates;
 }
 
-function intersectLinkWithBoundary(
+function intersectLinkWithCircle(
   point: { x: number; y: number },
   target: { x: number; y: number },
-  half: number,
+  radius: number,
 ) {
   const dx = target.x - point.x;
   const dy = target.y - point.y;
-  const candidates: Array<{ t: number; x: number; y: number }> = [];
+  const a = dx * dx + dy * dy;
+  const b = 2 * (point.x * dx + point.y * dy);
+  const c = point.x * point.x + point.y * point.y - radius * radius;
+  const discriminant = b * b - 4 * a * c;
 
-  if (Math.abs(dx) > TOL) {
-    const leftT = (-half - point.x) / dx;
-    const leftY = point.y + dy * leftT;
-    if (leftT >= 0 && leftT <= 1.5 && leftY >= -half - 1e-4 && leftY <= half + 1e-4) {
-      candidates.push({ t: leftT, x: -half, y: leftY });
-    }
-
-    const rightT = (half - point.x) / dx;
-    const rightY = point.y + dy * rightT;
-    if (rightT >= 0 && rightT <= 1.5 && rightY >= -half - 1e-4 && rightY <= half + 1e-4) {
-      candidates.push({ t: rightT, x: half, y: rightY });
-    }
+  if (a < TOL || discriminant < 0) {
+    return projectPointToCircle(target, radius);
   }
 
-  if (Math.abs(dy) > TOL) {
-    const topT = (-half - point.y) / dy;
-    const topX = point.x + dx * topT;
-    if (topT >= 0 && topT <= 1.5 && topX >= -half - 1e-4 && topX <= half + 1e-4) {
-      candidates.push({ t: topT, x: topX, y: -half });
-    }
-
-    const bottomT = (half - point.y) / dy;
-    const bottomX = point.x + dx * bottomT;
-    if (bottomT >= 0 && bottomT <= 1.5 && bottomX >= -half - 1e-4 && bottomX <= half + 1e-4) {
-      candidates.push({ t: bottomT, x: bottomX, y: half });
-    }
+  const sqrtDiscriminant = Math.sqrt(discriminant);
+  const t1 = (-b - sqrtDiscriminant) / (2 * a);
+  const t2 = (-b + sqrtDiscriminant) / (2 * a);
+  const candidates = [t1, t2].filter((t) => t >= 0);
+  if (candidates.length === 0) {
+    return projectPointToCircle(target, radius);
   }
 
-  const hit = candidates
-    .filter((candidate) => candidate.t >= 0)
-    .sort((a, b) => a.t - b.t)[0];
-
-  return hit ?? projectPointToBoundary({ id: -1, x: target.x, y: target.y, order: -1, layerIndex: -1 }, half);
+  const t = Math.min(...candidates);
+  return {
+    x: point.x + dx * t,
+    y: point.y + dy * t,
+  };
 }
 
 function computeGapMean(gaps: number[]) {
@@ -1105,15 +1091,15 @@ function buildRawBoundaryAnchorPositions(
     centerX: number;
     centerY: number;
   }>,
-  half: number,
+  radius: number,
 ) {
   return groups.map((group) => {
-    const boundaryPoint = intersectLinkWithBoundary(
+    const boundaryPoint = intersectLinkWithCircle(
       group.point,
       { x: group.centerX, y: group.centerY },
-      half,
+      radius,
     );
-    return boundaryPerimeterPosition(boundaryPoint, half);
+    return circlePerimeterPosition(boundaryPoint, radius);
   });
 }
 
@@ -1123,10 +1109,10 @@ function buildOrderedBoundaryAnchors(
     centerX: number;
     centerY: number;
   }>,
-  half: number,
+  radius: number,
 ) {
-  const perimeter = half * 8;
-  const sorted = buildRawBoundaryAnchorPositions(groups, half)
+  const perimeter = Math.PI * 2 * radius;
+  const sorted = buildRawBoundaryAnchorPositions(groups, radius)
     .map((position, index) => ({ index, position }))
     .sort((a, b) => a.position - b.position || a.index - b.index);
   const unwrapped = unwrapPerimeterPositions(sorted.map((item) => item.position), perimeter);
@@ -1143,10 +1129,10 @@ function buildSmoothedBoundaryAnchorPositions(
     centerX: number;
     centerY: number;
   }>,
-  half: number,
+  radius: number,
 ) {
-  const perimeter = half * 8;
-  const ordered = buildOrderedBoundaryAnchors(groups, half);
+  const perimeter = Math.PI * 2 * radius;
+  const ordered = buildOrderedBoundaryAnchors(groups, radius);
   const smoothed = smoothBoundaryPositionsWithClip(
     ordered.map((item) => item.position),
     perimeter,
@@ -1170,7 +1156,7 @@ function distributeLayerByIntervals(
 ) {
   if (groups.length <= 2) return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
   const layerIndex = groups[0]?.point.layerIndex ?? 0;
-  const half = getMapBoundaryHalf();
+  const radius = getMapBoundaryCircleRadius();
   const radiusRange = getIndependentLayerRadiusRange(layerIndex);
   const allowedAngleOffset = getAllowedAngleOffset(groups.length);
   const provisional = groups.map((group, index) => {
@@ -1185,9 +1171,9 @@ function distributeLayerByIntervals(
       span,
     };
   }).sort((a, b) => a.baseAngle - b.baseAngle);
-  const targetPositions = buildSmoothedBoundaryAnchorPositions(provisional, half);
+  const targetPositions = buildSmoothedBoundaryAnchorPositions(provisional, radius);
   const targetAngles = targetPositions.map((position, index) => {
-    const target = boundaryPositionToPointByHalf(position, half);
+    const target = circlePositionToPoint(position, radius);
     return Math.atan2(target.y - provisional[index].point.y, target.x - provisional[index].point.x);
   });
 
@@ -1244,42 +1230,31 @@ function unwrapPerimeterPositions(positions: number[], perimeter: number) {
 }
 
 function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
-  const half = getMapBoundaryHalf();
-  const perimeter = half * 8;
+  const radius = getMapBoundaryCircleRadius();
+  const perimeter = Math.PI * 2 * radius;
   if (layer.length <= 2) {
-    return layer.map((point) => boundaryPerimeterPosition(projectPointToBoundary(point, half), half));
+    return layer.map((point) => circlePerimeterPosition(projectPointToCircle(point, radius), radius));
   }
 
   return unwrapPerimeterPositions(
-    layer.map((point) => boundaryPerimeterPosition(projectPointToBoundary(point, half), half)),
+    layer.map((point) => circlePerimeterPosition(projectPointToCircle(point, radius), radius)),
     perimeter,
   );
-}
-
-function boundaryPositionToPointByHalf(position: number, half: number) {
-  const side = half * 2;
-  const perimeter = side * 4;
-  const normalized = ((position % perimeter) + perimeter) % perimeter;
-
-  if (normalized <= side) return { x: normalized - half, y: -half };
-  if (normalized <= side * 2) return { x: half, y: normalized - side - half };
-  if (normalized <= side * 3) return { x: half - (normalized - side * 2), y: half };
-  return { x: -half, y: half - (normalized - side * 3) };
 }
 
 function buildGapLabels(placedGroups: MockGroup[]) {
   const labels: GapLabel[] = [];
   if (placedGroups.length <= 1) return labels;
 
-  const half = getMapBoundaryHalf();
-  const perimeter = half * 8;
+  const radius = getMapBoundaryCircleRadius();
+  const perimeter = Math.PI * 2 * radius;
   const anchors = buildOrderedBoundaryAnchors(
     placedGroups.map((group) => ({
       point: group.point,
       centerX: group.centerX,
       centerY: group.centerY,
     })),
-    half,
+    radius,
   );
 
   for (let index = 0; index < anchors.length; index++) {
@@ -1289,7 +1264,7 @@ function buildGapLabels(placedGroups: MockGroup[]) {
       : anchors[index + 1];
     const gap = next.position - current.position;
     const midpoint = current.position + gap / 2;
-    const anchor = boundaryPositionToPointByHalf(midpoint, half);
+    const anchor = circlePositionToPoint(midpoint, radius);
     const fromGroup = placedGroups[current.index];
     const toGroup = placedGroups[next.index % placedGroups.length];
 
@@ -1308,15 +1283,15 @@ function buildGapLabels(placedGroups: MockGroup[]) {
 function buildGapReports(placedGroups: MockGroup[]) {
   if (placedGroups.length <= 1) return [] as GapReport[];
 
-  const half = getMapBoundaryHalf();
-  const perimeter = half * 8;
+  const radius = getMapBoundaryCircleRadius();
+  const perimeter = Math.PI * 2 * radius;
   const anchors = buildOrderedBoundaryAnchors(
     placedGroups.map((group) => ({
       point: group.point,
       centerX: group.centerX,
       centerY: group.centerY,
     })),
-    half,
+    radius,
   );
   const entries: GapEntry[] = [];
 
@@ -1424,13 +1399,13 @@ export default function TestCssPage() {
 
     for (const layer of layeredPoints) {
       const balancedBoundaryPositions = rebalanceBoundaryPositions(layer);
-      const boundaryHalf = getMapBoundaryHalf();
+      const boundaryRadius = getMapBoundaryCircleRadius();
       const radiusRange = getIndependentLayerRadiusRange(layer[0]?.layerIndex ?? 0);
       const layerOccupiedRects = [...occupiedRects];
       const provisionalGroups = layer.map((point, index) => {
         const { photos, photoRect } = buildMockPhotos(point);
         const geometry = buildGroupGeometryFromPhotoRect(photoRect, `图片组 ${point.order}`);
-        const boundaryTarget = boundaryPositionToPointByHalf(balancedBoundaryPositions[index], boundaryHalf);
+        const boundaryTarget = circlePositionToPoint(balancedBoundaryPositions[index], boundaryRadius);
         const initialAngle = Math.atan2(boundaryTarget.y - point.y, boundaryTarget.x - point.x);
         const groupRect = geometry.overallRect;
         const center = findCenterInRadiusRange(
