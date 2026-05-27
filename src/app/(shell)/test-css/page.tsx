@@ -1182,7 +1182,7 @@ function unwrapPerimeterPositions(positions: number[], perimeter: number) {
 }
 
 function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
-  const half = getLayerBoundaryHalf(layer[0]?.layerIndex ?? 0);
+  const half = getMapBoundaryHalf();
   const perimeter = half * 8;
   if (layer.length <= 2) {
     return layer.map((point) => boundaryPerimeterPosition(projectPointToBoundary(point, half), half));
@@ -1386,7 +1386,7 @@ export default function TestCssPage() {
 
     for (const layer of layeredPoints) {
       const balancedBoundaryPositions = rebalanceBoundaryPositions(layer);
-      const boundaryHalf = getLayerBoundaryHalf(layer[0]?.layerIndex ?? 0);
+      const boundaryHalf = getMapBoundaryHalf();
       const radiusRange = getIndependentLayerRadiusRange(layer[0]?.layerIndex ?? 0);
       const layerOccupiedRects = [...occupiedRects];
       const provisionalGroups = layer.map((point, index) => {
