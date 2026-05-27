@@ -68,6 +68,9 @@ const DENSITY_SHIFT_RATIO = 1.18;
 const DENSITY_SHIFT_STRENGTH = 0.42;
 const VIEWPORT_PADDING = 96;
 const SMALL_SET_SINGLE_RING_LIMIT = 9;
+const MEDIUM_SET_SOFT_RING_LIMIT = 20;
+const VIRTUAL_BOUNDARY_GAP = 34;
+const RADIAL_SOFT_THRESHOLD_FACTOR = 0.22;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -327,8 +330,11 @@ function classifyCurvature(prevNormal: { x: number; y: number }, nextNormal: { x
   return { beta, kind: 'smooth' as const };
 }
 
-function projectPointToMapBoundary(point: LayoutGroup) {
-  const half = MAP_SIZE / 2;
+function getLayerBoundaryHalf(layerIndex: number) {
+  return MAP_SIZE / 2 + layerIndex * VIRTUAL_BOUNDARY_GAP;
+}
+
+function projectPointToBoundary(point: LayoutGroup, half: number) {
   const dx = point.x;
   const dy = point.y;
 
@@ -346,9 +352,8 @@ function projectPointToMapBoundary(point: LayoutGroup) {
   };
 }
 
-function boundaryPerimeterPosition(boundaryPoint: { x: number; y: number }) {
-  const half = MAP_SIZE / 2;
-  const side = MAP_SIZE;
+function boundaryPerimeterPosition(boundaryPoint: { x: number; y: number }, half: number) {
+  const side = half * 2;
   const perimeter = side * 4;
   const { x, y } = boundaryPoint;
 
@@ -463,23 +468,25 @@ function computeRayExitDistance(
 
 function computeAdaptiveVectorLength(
   point: LayoutGroup,
-  direction: { x: number; y: number; crowdAngle: number; concaveDepth: number; isConcave: boolean },
+  direction: { x: number; y: number },
+  outwardMeta: { crowdAngle: number; concaveDepth: number; isConcave: boolean },
   rect: LogicalRect,
+  boundaryHalf: number,
 ): number {
   const width = rect.right - rect.left;
   const height = rect.bottom - rect.top;
   const maxSize = Math.max(width, height);
   const diagonal = Math.hypot(width, height);
   const expandedMapRect = {
-    left: -MAP_SIZE / 2 - GROUP_SAFE_GAP - rect.right,
-    right: MAP_SIZE / 2 + GROUP_SAFE_GAP - rect.left,
-    top: -MAP_SIZE / 2 - GROUP_SAFE_GAP - rect.bottom,
-    bottom: MAP_SIZE / 2 + GROUP_SAFE_GAP - rect.top,
+    left: -boundaryHalf - GROUP_SAFE_GAP - rect.right,
+    right: boundaryHalf + GROUP_SAFE_GAP - rect.left,
+    top: -boundaryHalf - GROUP_SAFE_GAP - rect.bottom,
+    bottom: boundaryHalf + GROUP_SAFE_GAP - rect.top,
   };
   const exitDistance = computeRayExitDistance(point.x, point.y, direction.x, direction.y, expandedMapRect);
-  const crowdRatio = 1 - Math.min(direction.crowdAngle, Math.PI) / Math.PI;
-  const concaveCompression = direction.isConcave
-    ? Math.max(0.45, 1 - Math.min(0.42, direction.concaveDepth / Math.max(diagonal, 1)))
+  const crowdRatio = 1 - Math.min(outwardMeta.crowdAngle, Math.PI) / Math.PI;
+  const concaveCompression = outwardMeta.isConcave
+    ? Math.max(0.45, 1 - Math.min(0.42, outwardMeta.concaveDepth / Math.max(diagonal, 1)))
     : 1;
   const extraLength = (maxSize * 0.45 + diagonal * 0.18 + GROUP_SAFE_GAP * (1.4 + crowdRatio * 1.8)) * concaveCompression;
   return exitDistance + extraLength;
@@ -512,10 +519,15 @@ function findRadialBand(rects: LogicalRect[], centers: Array<{ x: number; y: num
   const medianRadius = computeMedian(radii);
   const deviations = radii.map((radius) => Math.abs(radius - medianRadius));
   const medianDeviation = computeMedian(deviations);
-  const maxRectSize = rects.reduce((max, rect) => Math.max(max, rect.right - rect.left, rect.bottom - rect.top), 0);
-  const lower = Math.max(0, medianRadius - Math.max(maxRectSize * 0.4, medianDeviation * 2.2));
-  const upper = medianRadius + Math.max(maxRectSize * 0.8, medianDeviation * 2.6, GROUP_SAFE_GAP * 6);
-  return { lower, upper };
+  const sizes = rects.map((rect) => Math.hypot(rect.right - rect.left, rect.bottom - rect.top));
+  const avgGroupSize = sizes.reduce((sum, size) => sum + size, 0) / Math.max(1, sizes.length);
+  const radiusBandWidth = medianRadius * 0.2 + avgGroupSize * rects.length * 0.05;
+  const adaptiveHalfBand = Math.max(radiusBandWidth / 2, medianDeviation * 2.4, avgGroupSize * 0.4, GROUP_SAFE_GAP * 5);
+  return {
+    lower: Math.max(0, medianRadius - adaptiveHalfBand),
+    upper: medianRadius + adaptiveHalfBand,
+    threshold: Math.max(avgGroupSize * RADIAL_SOFT_THRESHOLD_FACTOR, GROUP_SAFE_GAP * 1.5),
+  };
 }
 
 function constrainLayerRadii(
@@ -542,10 +554,12 @@ function constrainLayerRadii(
       const group = groups[index];
       const center = centers[index];
       const radius = Math.hypot(center.x, center.y);
-      if (radius <= band.upper + 1e-4 && radius >= band.lower - 1e-4) continue;
+      if (radius <= band.upper + band.threshold + 1e-4 && radius >= band.lower - band.threshold - 1e-4) continue;
 
       const angle = Math.atan2(center.y - group.point.y, center.x - group.point.x);
-      const targetRadius = Math.min(Math.max(radius, band.lower), band.upper);
+      const targetRadius = groups.length <= MEDIUM_SET_SOFT_RING_LIMIT
+        ? Math.min(Math.max(radius, band.lower - band.threshold), band.upper + band.threshold)
+        : Math.min(Math.max(radius, band.lower), band.upper);
       const blockedRects = [...occupiedRects];
       for (let otherIndex = 0; otherIndex < groups.length; otherIndex++) {
         if (otherIndex === index) continue;
@@ -559,7 +573,8 @@ function constrainLayerRadii(
         blockedRects,
       );
       const candidateRadius = Math.hypot(candidate.x - group.point.x, candidate.y - group.point.y);
-      if (candidateRadius > band.upper + 1e-4) continue;
+      if (candidateRadius > band.upper + band.threshold + 1e-4) continue;
+      if (candidateRadius < Math.max(0, band.lower - band.threshold) - 1e-4) continue;
 
       centers[index] = candidate;
       changed = true;
@@ -1141,13 +1156,14 @@ function computeDirectionalGapAverage(positions: number[], index: number, direct
 }
 
 function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
-  const perimeter = MAP_SIZE * 4;
+  const half = getLayerBoundaryHalf(layer[0]?.layerIndex ?? 0);
+  const perimeter = half * 8;
   if (layer.length <= 2) {
-    return layer.map((point) => boundaryPerimeterPosition(projectPointToMapBoundary(point)));
+    return layer.map((point) => boundaryPerimeterPosition(projectPointToBoundary(point, half), half));
   }
 
   const adjusted = unwrapPerimeterPositions(
-    layer.map((point) => boundaryPerimeterPosition(projectPointToMapBoundary(point))),
+    layer.map((point) => boundaryPerimeterPosition(projectPointToBoundary(point, half), half)),
   );
 
   for (let pass = 0; pass < MAX_GAP_SHIFT_PASSES; pass++) {
@@ -1204,8 +1220,11 @@ function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
 }
 
 function boundaryPositionToPoint(position: number) {
-  const side = MAP_SIZE;
-  const half = side / 2;
+  return boundaryPositionToPointByHalf(position, MAP_SIZE / 2);
+}
+
+function boundaryPositionToPointByHalf(position: number, half: number) {
+  const side = half * 2;
   const perimeter = side * 4;
   const normalized = ((position % perimeter) + perimeter) % perimeter;
 
@@ -1295,14 +1314,16 @@ export default function TestCssPage() {
     for (const layer of layeredPoints) {
       const directions = layer.map((_, index) => buildOutwardVector(layer, index));
       const balancedBoundaryPositions = rebalanceBoundaryPositions(layer);
+      const boundaryHalf = getLayerBoundaryHalf(layer[0]?.layerIndex ?? 0);
       const layerOccupiedRects = [...occupiedRects];
       const provisionalGroups = layer.map((point, index) => {
         const { photos, photoRect } = buildMockPhotos(point);
         const geometry = buildGroupGeometryFromPhotoRect(photoRect, `图片组 ${point.order}`);
-        const direction = directions[index];
-        const baseLength = computeAdaptiveVectorLength(point, direction, geometry.overallRect);
-        const boundaryTarget = boundaryPositionToPoint(balancedBoundaryPositions[index]);
+        const outwardMeta = directions[index];
+        const boundaryTarget = boundaryPositionToPointByHalf(balancedBoundaryPositions[index], boundaryHalf);
         const initialAngle = Math.atan2(boundaryTarget.y - point.y, boundaryTarget.x - point.x);
+        const finalDirection = angleToVector(initialAngle);
+        const baseLength = computeAdaptiveVectorLength(point, finalDirection, outwardMeta, geometry.overallRect, boundaryHalf);
         const groupRect = geometry.overallRect;
         const center = findLayerBalancedCenter(
           point,
