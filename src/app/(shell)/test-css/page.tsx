@@ -1231,6 +1231,49 @@ function buildRectByAngleAndRadius(
   return translateRect(rect, center.x, center.y);
 }
 
+function computeRayExitDistance(
+  originX: number,
+  originY: number,
+  dirX: number,
+  dirY: number,
+  expandedRect: LogicalRect,
+) {
+  const candidates: number[] = [];
+
+  if (dirX > TOL) candidates.push((expandedRect.right - originX) / dirX);
+  else if (dirX < -TOL) candidates.push((expandedRect.left - originX) / dirX);
+
+  if (dirY > TOL) candidates.push((expandedRect.bottom - originY) / dirY);
+  else if (dirY < -TOL) candidates.push((expandedRect.top - originY) / dirY);
+
+  const positive = candidates.filter((value) => Number.isFinite(value) && value >= 0);
+  if (positive.length === 0) return 0;
+  return Math.max(0, Math.min(...positive));
+}
+
+function computeMinRadiusOutsideMap(
+  point: LayoutGroup,
+  rect: LogicalRect,
+  angle: number,
+) {
+  const dirX = Math.cos(angle);
+  const dirY = Math.sin(angle);
+  const expandedMapRect = {
+    left: -MAP_SIZE / 2 - GROUP_SAFE_GAP - rect.right,
+    right: MAP_SIZE / 2 + GROUP_SAFE_GAP - rect.left,
+    top: -MAP_SIZE / 2 - GROUP_SAFE_GAP - rect.bottom,
+    bottom: MAP_SIZE / 2 + GROUP_SAFE_GAP - rect.top,
+  };
+
+  return computeRayExitDistance(
+    point.x,
+    point.y,
+    dirX,
+    dirY,
+    expandedMapRect,
+  );
+}
+
 function buildRadiusSamples(min: number, max: number, step: number) {
   const samples: number[] = [];
   for (let value = min; value <= max + TOL; value += step) {
@@ -1775,13 +1818,28 @@ function distributeLayerByIntervals(
   const adjacentResolved = resolveAdjacentLayerRadiusConflicts(constrained, sampledRadii);
   const globallyResolved = resolveGlobalLayerRadiusConflicts(constrained, adjacentResolved);
   const centers = new Array(groups.length);
+  const occupiedRects: LogicalRect[] = [];
 
   for (let index = 0; index < constrained.length; index++) {
-    centers[constrained[index].index] = buildCenterByAngleAndRadius(
-      constrained[index].point,
-      constrained[index].targetAngle,
-      globallyResolved[index],
+    const item = constrained[index];
+    const minOutsideRadius = computeMinRadiusOutsideMap(
+      item.point,
+      item.rect,
+      item.targetAngle,
     );
+    const resolvedRadius = Math.max(globallyResolved[index], minOutsideRadius);
+    const center = findCenterInRadiusRange(
+      item.point,
+      item.rect,
+      item.targetAngle,
+      Math.max(item.radiusLow, minOutsideRadius),
+      Math.max(item.radiusHigh, resolvedRadius),
+      occupiedRects,
+      resolvedRadius,
+      0,
+    );
+    centers[item.index] = center;
+    occupiedRects.push(translateRect(item.rect, center.x, center.y));
   }
 
   return centers;
