@@ -1390,6 +1390,57 @@ function distributeLayerByIntervals(
   return centers;
 }
 
+function resolveSequentialOverlaps(
+  groups: Array<{
+    point: LayoutGroup;
+    rect: LogicalRect;
+    centerX: number;
+    centerY: number;
+  }>,
+) {
+  const centers = groups.map((group) => ({ x: group.centerX, y: group.centerY }));
+  const occupiedRects: LogicalRect[] = [];
+
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const angle = Math.atan2(centers[index].y - group.point.y, centers[index].x - group.point.x);
+    let baseRadius = Math.hypot(centers[index].x - group.point.x, centers[index].y - group.point.y);
+    const minOutsideRadius = Math.max(
+      computeMinRadiusToCircleBoundary(group.point, angle, getMapBoundaryCircleRadius()) + LAYER_LENGTH_BASE_PADDING,
+      computeMinRadiusOutsideMap(group.point, group.rect, angle),
+    );
+    baseRadius = Math.max(baseRadius, minOutsideRadius);
+    let resolvedCenter = buildCenterByAngleAndRadius(group.point, angle, baseRadius);
+    let resolvedRect = translateRect(group.rect, resolvedCenter.x, resolvedCenter.y);
+
+    if (occupiedRects.some((occupiedRect) => rectsOverlap(resolvedRect, occupiedRect, GROUP_SAFE_GAP))) {
+      let found = false;
+      for (const radius of buildRadiusSamples(baseRadius, baseRadius + LAYER_LENGTH_MAX_EXTRA, LAYER_LENGTH_STEP)) {
+        const candidateCenter = buildCenterByAngleAndRadius(group.point, angle, radius);
+        const candidateRect = translateRect(group.rect, candidateCenter.x, candidateCenter.y);
+        if (occupiedRects.some((occupiedRect) => rectsOverlap(candidateRect, occupiedRect, GROUP_SAFE_GAP))) {
+          continue;
+        }
+        resolvedCenter = candidateCenter;
+        resolvedRect = candidateRect;
+        found = true;
+        break;
+      }
+
+      if (!found) {
+        const fallbackRadius = baseRadius + LAYER_LENGTH_MAX_EXTRA;
+        resolvedCenter = buildCenterByAngleAndRadius(group.point, angle, fallbackRadius);
+        resolvedRect = translateRect(group.rect, resolvedCenter.x, resolvedCenter.y);
+      }
+    }
+
+    centers[index] = resolvedCenter;
+    occupiedRects.push(resolvedRect);
+  }
+
+  return centers;
+}
+
 function unwrapPerimeterPositions(positions: number[], perimeter: number) {
   if (positions.length === 0) return [];
 
@@ -1629,10 +1680,17 @@ export default function TestCssPage() {
           centerY: group.centerY,
         })),
       );
+      const overlapResolvedCenters = resolveSequentialOverlaps(
+        provisionalGroups.map((group, index) => ({
+          ...group,
+          centerX: resolvedCenters[index].x,
+          centerY: resolvedCenters[index].y,
+        })),
+      );
       for (let index = 0; index < provisionalGroups.length; index++) {
         const group = provisionalGroups[index];
-        const centerX = resolvedCenters[index].x;
-        const centerY = resolvedCenters[index].y;
+        const centerX = overlapResolvedCenters[index].x;
+        const centerY = overlapResolvedCenters[index].y;
         const placedRect = translateRect(group.rect, centerX, centerY);
         const linkTarget = findLinkTarget(group.point, group.geometry, centerX, centerY);
         placed.push({
