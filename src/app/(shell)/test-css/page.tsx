@@ -63,6 +63,8 @@ const LAYER_RADIUS_GAP = 124;
 const MAX_ANGLE_OFFSET = Math.PI / 15;
 const MAX_RADIUS_OFFSET = 24;
 const INTERVAL_BUFFER_RATIO = 0.36;
+const EVEN_DISTRIBUTION_BLEND_MIN = 0.16;
+const EVEN_DISTRIBUTION_BLEND_MAX = 0.42;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -274,6 +276,14 @@ function shortestSignedAngleDelta(from: number, to: number) {
   if (delta > Math.PI) delta -= tau;
   if (delta < -Math.PI) delta += tau;
   return delta;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getAllowedAngleOffset(groupCount: number) {
+  return groupCount <= 9 ? Math.min(MAX_ANGLE_OFFSET, Math.PI / 18) : MAX_ANGLE_OFFSET;
 }
 
 function getLayerBoundaryHalf(layerIndex: number) {
@@ -492,7 +502,7 @@ function avoidLinkCrossings(
 
       const baseRadius = Math.hypot(center.x - group.point.x, center.y - group.point.y);
       const baseAngle = Math.atan2(center.y - group.point.y, center.x - group.point.x);
-      const allowedAngleOffset = groups.length <= 9 ? Math.min(MAX_ANGLE_OFFSET, Math.PI / 18) : MAX_ANGLE_OFFSET;
+      const allowedAngleOffset = getAllowedAngleOffset(groups.length);
       let resolvedCenter = center;
 
       for (let offsetStep = 1; offsetStep <= INTRA_LAYER_ANGLE_SCAN_STEPS; offsetStep++) {
@@ -517,6 +527,8 @@ function avoidLinkCrossings(
             Math.max(0, baseRadius - MAX_RADIUS_OFFSET),
             baseRadius + MAX_RADIUS_OFFSET,
             blockedRects,
+            baseRadius,
+            allowedAngleOffset,
           );
           const candidateTarget = findLinkTarget(group.point, group.geometry, candidateCenter.x, candidateCenter.y);
 
@@ -764,6 +776,43 @@ function countIntersections(segments: Segment[]) {
   return total;
 }
 
+function buildAngleCandidates(baseAngle: number, allowedAngleOffset: number) {
+  const maxSteps = Math.max(
+    0,
+    Math.min(INTRA_LAYER_ANGLE_SCAN_STEPS, Math.ceil(allowedAngleOffset / INTRA_LAYER_ANGLE_SCAN_STEP)),
+  );
+  const candidates = [baseAngle];
+
+  for (let step = 1; step <= maxSteps; step++) {
+    const delta = INTRA_LAYER_ANGLE_SCAN_STEP * step;
+    if (delta > allowedAngleOffset + 1e-6) break;
+    candidates.push(baseAngle - delta, baseAngle + delta);
+  }
+
+  return candidates;
+}
+
+function buildRadiusCandidates(minRadius: number, maxRadius: number, preferredRadius: number, layerStep: number) {
+  const center = clamp(preferredRadius, minRadius, maxRadius);
+  const candidates = [center];
+  const maxDistance = Math.max(center - minRadius, maxRadius - center);
+  const stepCount = Math.max(1, Math.ceil(maxDistance / layerStep));
+
+  for (let step = 1; step <= stepCount; step++) {
+    const delta = step * layerStep;
+    const lower = center - delta;
+    const upper = center + delta;
+
+    if (lower >= minRadius + 1e-6) candidates.push(lower);
+    if (upper <= maxRadius - 1e-6) candidates.push(upper);
+  }
+
+  if (!candidates.some((value) => Math.abs(value - minRadius) < 1e-6)) candidates.push(minRadius);
+  if (!candidates.some((value) => Math.abs(value - maxRadius) < 1e-6)) candidates.push(maxRadius);
+
+  return candidates;
+}
+
 function findCenterInRadiusRange(
   point: LayoutGroup,
   rect: LogicalRect,
@@ -771,38 +820,49 @@ function findCenterInRadiusRange(
   minRadius: number,
   maxRadius: number,
   occupiedRects: LogicalRect[],
+  preferredRadius = (minRadius + maxRadius) / 2,
+  allowedAngleOffset = MAX_ANGLE_OFFSET,
 ) {
   const layerStep = Math.max(8, computeLayerStep(rect) * 0.35);
-  const radiusSteps = Math.max(1, Math.ceil((maxRadius - minRadius) / layerStep));
+  const radiusCandidates = buildRadiusCandidates(minRadius, maxRadius, preferredRadius, layerStep);
+  const angleCandidates = buildAngleCandidates(baseAngle, allowedAngleOffset);
+  let bestCandidate: { x: number; y: number; cost: number } | null = null;
 
-  for (let radiusIndex = 0; radiusIndex <= radiusSteps; radiusIndex++) {
-    const radius = Math.min(maxRadius, minRadius + radiusIndex * layerStep);
+  for (const radius of radiusCandidates) {
+    for (const candidateAngle of angleCandidates) {
+      const centerCandidate = {
+        x: point.x + Math.cos(candidateAngle) * radius,
+        y: point.y + Math.sin(candidateAngle) * radius,
+      };
+      const nextRect = translateRect(rect, centerCandidate.x, centerCandidate.y);
+      if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
+        continue;
+      }
 
-    for (let offsetStep = 0; offsetStep <= INTRA_LAYER_ANGLE_SCAN_STEPS; offsetStep++) {
-      const candidateAngles = offsetStep === 0
-        ? [baseAngle]
-        : [
-          baseAngle - INTRA_LAYER_ANGLE_SCAN_STEP * offsetStep,
-          baseAngle + INTRA_LAYER_ANGLE_SCAN_STEP * offsetStep,
-        ];
+      const radiusCost = Math.abs(radius - preferredRadius) / Math.max(1, layerStep);
+      const angleCost = Math.abs(shortestSignedAngleDelta(baseAngle, candidateAngle)) / Math.max(INTRA_LAYER_ANGLE_SCAN_STEP, 1e-6);
+      const cost = radiusCost + angleCost * 1.1;
 
-      for (const candidateAngle of candidateAngles) {
-        const centerCandidate = {
-          x: point.x + Math.cos(candidateAngle) * radius,
-          y: point.y + Math.sin(candidateAngle) * radius,
+      if (!bestCandidate || cost < bestCandidate.cost) {
+        bestCandidate = {
+          x: centerCandidate.x,
+          y: centerCandidate.y,
+          cost,
         };
-        const nextRect = translateRect(rect, centerCandidate.x, centerCandidate.y);
-        if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
-          continue;
-        }
-        return centerCandidate;
       }
     }
   }
 
+  if (bestCandidate) {
+    return {
+      x: bestCandidate.x,
+      y: bestCandidate.y,
+    };
+  }
+
   return {
-    x: point.x + Math.cos(baseAngle) * minRadius,
-    y: point.y + Math.sin(baseAngle) * minRadius,
+    x: point.x + Math.cos(baseAngle) * clamp(preferredRadius, minRadius, maxRadius),
+    y: point.y + Math.sin(baseAngle) * clamp(preferredRadius, minRadius, maxRadius),
   };
 }
 
@@ -812,6 +872,31 @@ function getIndependentLayerRadiusRange(layerIndex: number) {
     min: Math.max(0, radius - MAX_RADIUS_OFFSET),
     max: radius + MAX_RADIUS_OFFSET,
   };
+}
+
+function computeBalancedTargetAngles(baseAngles: number[]) {
+  if (baseAngles.length <= 2) return baseAngles;
+
+  const tau = Math.PI * 2;
+  const unwrapped = unwrapPerimeterPositions(baseAngles, tau);
+  const evenStep = tau / baseAngles.length;
+  const anchor = unwrapped.reduce((sum, angle, index) => sum + (angle - index * evenStep), 0) / baseAngles.length;
+  const gaps = unwrapped.map((angle, index) => {
+    const next = index === unwrapped.length - 1 ? unwrapped[0] + tau : unwrapped[index + 1];
+    return next - angle;
+  });
+  const averageGap = tau / baseAngles.length;
+  const meanGapDeviation = gaps.reduce((sum, gap) => sum + Math.abs(gap - averageGap), 0) / gaps.length;
+  const blend = clamp(
+    meanGapDeviation / Math.max(averageGap, 1e-6) * 0.6,
+    EVEN_DISTRIBUTION_BLEND_MIN,
+    EVEN_DISTRIBUTION_BLEND_MAX,
+  );
+
+  return unwrapped.map((angle, index) => {
+    const evenAngle = anchor + index * evenStep;
+    return angle + (evenAngle - angle) * blend;
+  });
 }
 
 function distributeLayerByIntervals(
@@ -825,7 +910,7 @@ function distributeLayerByIntervals(
   if (groups.length <= 2) return groups.map((group) => ({ x: group.centerX, y: group.centerY }));
   const layerIndex = groups[0]?.point.layerIndex ?? 0;
   const radiusRange = getIndependentLayerRadiusRange(layerIndex);
-  const allowedAngleOffset = groups.length <= 9 ? Math.min(MAX_ANGLE_OFFSET, Math.PI / 18) : MAX_ANGLE_OFFSET;
+  const allowedAngleOffset = getAllowedAngleOffset(groups.length);
   const provisional = groups.map((group, index) => {
     const angle = normalizeAngle(Math.atan2(group.centerY - group.point.y, group.centerX - group.point.x));
     const baseRadius = (radiusRange.min + radiusRange.max) / 2;
@@ -838,24 +923,27 @@ function distributeLayerByIntervals(
       span,
     };
   }).sort((a, b) => a.baseAngle - b.baseAngle);
+  const targetAngles = computeBalancedTargetAngles(provisional.map((item) => item.baseAngle));
 
   const totalSpan = provisional.reduce((sum, item) => sum + item.span * 2, 0);
   const freeAngle = Math.max(0, Math.PI * 2 - totalSpan);
   const buffer = provisional.length > 0 ? (freeAngle / provisional.length) * INTERVAL_BUFFER_RATIO : 0;
 
-  let cursor = provisional[0].baseAngle;
+  let cursor = targetAngles[0];
   const centers = new Array(groups.length);
   const occupiedRects: LogicalRect[] = [];
 
   for (let i = 0; i < provisional.length; i++) {
     const item = provisional[i];
     const minAngle = cursor + item.span + buffer / 2;
+    const targetAngle = targetAngles[i];
     const structuralAngle = i === 0
-      ? item.baseAngle
-      : Math.max(item.baseAngle, minAngle);
-    const clampedAngle = Math.max(
+      ? targetAngle
+      : Math.max(targetAngle, minAngle);
+    const clampedAngle = clamp(
+      structuralAngle,
       item.baseAngle - allowedAngleOffset,
-      Math.min(item.baseAngle + allowedAngleOffset, structuralAngle),
+      item.baseAngle + allowedAngleOffset,
     );
     cursor = structuralAngle + item.span + buffer / 2;
     const center = findCenterInRadiusRange(
@@ -865,6 +953,8 @@ function distributeLayerByIntervals(
       radiusRange.min,
       radiusRange.max,
       occupiedRects,
+      item.radius,
+      allowedAngleOffset,
     );
     centers[item.index] = center;
     occupiedRects.push(translateRect(item.rect, center.x, center.y));
@@ -1006,6 +1096,8 @@ export default function TestCssPage() {
           radiusRange.min,
           radiusRange.max,
           layerOccupiedRects,
+          (radiusRange.min + radiusRange.max) / 2,
+          getAllowedAngleOffset(layer.length),
         );
         const placedRect = translateRect(groupRect, center.x, center.y);
         layerOccupiedRects.push(placedRect);
