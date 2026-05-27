@@ -1537,6 +1537,66 @@ function unwrapPerimeterPositions(positions: number[], perimeter: number) {
   return unwrapped;
 }
 
+function isCyclicIndexOrder(indices: number[]) {
+  if (indices.length <= 2) return true;
+
+  let start = -1;
+  for (let index = 0; index < indices.length; index++) {
+    if (indices[index] === 0) {
+      start = index;
+      break;
+    }
+  }
+  if (start === -1) return false;
+
+  for (let offset = 0; offset < indices.length; offset++) {
+    if (indices[(start + offset) % indices.length] !== offset) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function alignBoundaryPositionsToLayerOrder(positions: number[], perimeter: number) {
+  if (positions.length <= 2) return positions;
+
+  const sorted = positions
+    .map((position, index) => ({ position, index }))
+    .sort((a, b) => a.position - b.position || a.index - b.index);
+  const sortedIndices = sorted.map((item) => item.index);
+
+  if (isCyclicIndexOrder(sortedIndices)) {
+    return unwrapPerimeterPositions(positions, perimeter);
+  }
+
+  const original = unwrapPerimeterPositions(positions, perimeter);
+  const sortedPositions = unwrapPerimeterPositions(
+    sorted.map((item) => item.position),
+    perimeter,
+  );
+
+  let best: number[] | null = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (let shift = 0; shift < sortedPositions.length; shift++) {
+    const rotated = sortedPositions.map((_, index) => {
+      const sourceIndex = (index + shift) % sortedPositions.length;
+      const wrap = index + shift >= sortedPositions.length ? perimeter : 0;
+      return sortedPositions[sourceIndex] + wrap;
+    });
+    const offset = Math.round((original[0] - rotated[0]) / Math.max(perimeter, TOL)) * perimeter;
+    const candidate = rotated.map((value) => value + offset);
+    const score = candidate.reduce((sum, value, index) => sum + Math.abs(value - original[index]), 0);
+
+    if (score < bestScore) {
+      bestScore = score;
+      best = candidate;
+    }
+  }
+
+  return best ?? original;
+}
+
 function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
   const radius = getMapBoundaryCircleRadius();
   const perimeter = Math.PI * 2 * radius;
@@ -1550,7 +1610,7 @@ function rebalanceBoundaryPositions(layer: LayoutGroup[]) {
     centerY: point.y,
   }));
 
-  return unwrapPerimeterPositions(
+  return alignBoundaryPositionsToLayerOrder(
     buildSmoothedBoundaryAnchorPositions(provisional, radius),
     perimeter,
   );
