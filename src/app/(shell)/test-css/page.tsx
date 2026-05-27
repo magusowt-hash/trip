@@ -100,6 +100,7 @@ const CONSERVATION_ALPHA = 0.42;
 const BOUNDARY_CIRCLE_PADDING = 36;
 const GLOBAL_REBALANCE_ANGLE_RATIO = 0.4;
 const GLOBAL_REBALANCE_MAX_RADIUS_OFFSET = 12;
+const LOCAL_GAP_TRIGGER_RATIO = 1.45;
 
 function randomUnit() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
@@ -661,14 +662,11 @@ function rebalanceGlobalBoundaryGaps(groups: MockGroup[]) {
   if (groups.length <= 2) return groups;
 
   const radius = getMapBoundaryCircleRadius();
-  const currentPositions = buildRawBoundaryAnchorPositions(
-    groups.map((group) => ({
-      point: group.point,
-      centerX: group.centerX,
-      centerY: group.centerY,
-    })),
-    radius,
-  );
+  const currentPositions = buildRawBoundaryAnchorPositions(groups.map((group) => ({
+    point: group.point,
+    centerX: group.centerX,
+    centerY: group.centerY,
+  })), radius);
   const targetPositions = buildSmoothedBoundaryAnchorPositions(
     groups.map((group) => ({
       point: group.point,
@@ -684,11 +682,36 @@ function rebalanceGlobalBoundaryGaps(groups: MockGroup[]) {
     targetPosition: targetPositions[index],
   })).sort((a, b) => a.currentPosition - b.currentPosition || a.group.point.order - b.group.point.order);
 
+  const perimeter = Math.PI * 2 * radius;
+  const gaps = groupsWithTargets.map((item, index) => {
+    const next = index === groupsWithTargets.length - 1
+      ? { ...groupsWithTargets[0], currentPosition: groupsWithTargets[0].currentPosition + perimeter }
+      : groupsWithTargets[index + 1];
+    return next.currentPosition - item.currentPosition;
+  });
+  const meanGap = computeGapMean(gaps);
+  const adjustable = new Set<number>();
+
+  for (let index = 0; index < gaps.length; index++) {
+    if (gaps[index] <= meanGap * LOCAL_GAP_TRIGGER_RATIO) continue;
+    adjustable.add(index);
+    adjustable.add((index + 1) % groupsWithTargets.length);
+  }
+
+  if (adjustable.size === 0) return groups;
+
   const centers = new Array(groups.length);
   const occupiedRects: LogicalRect[] = [];
   const allowedAngleOffset = getAllowedAngleOffset(groups.length) * GLOBAL_REBALANCE_ANGLE_RATIO;
 
-  for (const item of groupsWithTargets) {
+  for (let orderedIndex = 0; orderedIndex < groupsWithTargets.length; orderedIndex++) {
+    const item = groupsWithTargets[orderedIndex];
+    if (!adjustable.has(orderedIndex)) {
+      centers[item.index] = { x: item.group.centerX, y: item.group.centerY };
+      occupiedRects.push(translateRect(item.group.geometry.overallRect, item.group.centerX, item.group.centerY));
+      continue;
+    }
+
     const currentBoundaryPoint = circlePositionToPoint(item.currentPosition, radius);
     const targetBoundaryPoint = circlePositionToPoint(item.targetPosition, radius);
     const currentAngle = Math.atan2(
