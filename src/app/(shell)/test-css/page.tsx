@@ -1274,6 +1274,45 @@ function computeMinRadiusOutsideMap(
   );
 }
 
+function findCenterAlongFixedAngle(
+  point: LayoutGroup,
+  rect: LogicalRect,
+  angle: number,
+  minRadius: number,
+  maxRadius: number,
+  occupiedRects: LogicalRect[],
+  preferredRadius: number,
+) {
+  let bestCenter: { x: number; y: number; cost: number } | null = null;
+
+  for (const radius of buildRadiusSamples(minRadius, maxRadius, LAYER_LENGTH_FINE_STEP)) {
+    const center = buildCenterByAngleAndRadius(point, angle, radius);
+    const nextRect = translateRect(rect, center.x, center.y);
+    if (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect, GROUP_SAFE_GAP))) {
+      continue;
+    }
+
+    const cost = Math.abs(radius - preferredRadius);
+    if (!bestCenter || cost < bestCenter.cost) {
+      bestCenter = {
+        x: center.x,
+        y: center.y,
+        cost,
+      };
+    }
+  }
+
+  if (bestCenter) {
+    return {
+      x: bestCenter.x,
+      y: bestCenter.y,
+    };
+  }
+
+  const fallbackRadius = clamp(preferredRadius, minRadius, maxRadius);
+  return buildCenterByAngleAndRadius(point, angle, fallbackRadius);
+}
+
 function buildRadiusSamples(min: number, max: number, step: number) {
   const samples: number[] = [];
   for (let value = min; value <= max + TOL; value += step) {
@@ -1828,7 +1867,7 @@ function distributeLayerByIntervals(
       item.targetAngle,
     );
     const resolvedRadius = Math.max(globallyResolved[index], minOutsideRadius);
-    const center = findCenterInRadiusRange(
+    const center = findCenterAlongFixedAngle(
       item.point,
       item.rect,
       item.targetAngle,
@@ -1836,7 +1875,6 @@ function distributeLayerByIntervals(
       Math.max(item.radiusHigh, resolvedRadius),
       occupiedRects,
       resolvedRadius,
-      0,
     );
     centers[item.index] = center;
     occupiedRects.push(translateRect(item.rect, center.x, center.y));
