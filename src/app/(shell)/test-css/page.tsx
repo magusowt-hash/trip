@@ -20,6 +20,14 @@ type Segment = {
   to: LayoutGroup;
 };
 
+type GapLabel = {
+  key: string;
+  x: number;
+  y: number;
+  value: number;
+  layerIndex: number;
+};
+
 type MockPhoto = {
   id: string;
   width: number;
@@ -1001,6 +1009,37 @@ function boundaryPositionToPointByHalf(position: number, half: number) {
   return { x: -half, y: half - (normalized - side * 3) };
 }
 
+function buildGapLabels(layers: LayoutGroup[][]) {
+  const labels: GapLabel[] = [];
+
+  for (const layer of layers) {
+    if (layer.length <= 1) continue;
+
+    const layerIndex = layer[0]?.layerIndex ?? 0;
+    const half = getLayerBoundaryHalf(layerIndex);
+    const perimeter = half * 8;
+    const positions = rebalanceBoundaryPositions(layer);
+
+    for (let index = 0; index < layer.length; index++) {
+      const current = positions[index];
+      const next = index === layer.length - 1 ? positions[0] + perimeter : positions[index + 1];
+      const gap = next - current;
+      const midpoint = current + gap / 2;
+      const anchor = boundaryPositionToPointByHalf(midpoint, half);
+
+      labels.push({
+        key: `gap-${layerIndex}-${layer[index].id}-${layer[(index + 1) % layer.length].id}`,
+        x: anchor.x,
+        y: anchor.y,
+        value: gap,
+        layerIndex,
+      });
+    }
+  }
+
+  return labels;
+}
+
 function buildAdaptiveViewport(groups: MockGroup[]) {
   const rects = groups.map((group) => group.rect);
   rects.push({
@@ -1149,6 +1188,7 @@ export default function TestCssPage() {
 
     return avoidGlobalLinkCrossings(placed);
   }, [layeredPoints]);
+  const gapLabels = useMemo(() => buildGapLabels(layeredPoints), [layeredPoints]);
   const viewport = useMemo(() => buildAdaptiveViewport(placedGroups), [placedGroups]);
 
   return (
@@ -1177,6 +1217,28 @@ export default function TestCssPage() {
                   y2={segment.to.y}
                   className={styles.link}
                 />
+              ))}
+
+              {gapLabels.map((label) => (
+                <g key={label.key}>
+                  <rect
+                    x={label.x - 16}
+                    y={label.y - 10}
+                    width="32"
+                    height="20"
+                    rx="10"
+                    className={styles.gapBadge}
+                  />
+                  <text
+                    x={label.x}
+                    y={label.y + 1}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    className={styles.gapLabel}
+                  >
+                    {Math.round(label.value)}
+                  </text>
+                </g>
               ))}
 
               {placedGroups.map((group) => (
