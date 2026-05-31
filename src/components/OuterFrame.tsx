@@ -15,6 +15,7 @@ const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
 const GROUP_VIEWPORT_PADDING = 144;
 const FIT_VIEW_PADDING = 40;
+const FIT_VIEW_MAX_ITERATIONS = 6;
 
 interface Props {
   markers: MapMarker[];
@@ -122,7 +123,7 @@ export default function OuterFrame({
     return { width: PHOTO_MAX_EDGE, height: PHOTO_MAX_EDGE };
   }, []);
 
-  const buildPhotoGroupViewport = useCallback((): Viewport | null => {
+  const buildPhotoGroupViewport = useCallback((scale: number, extraPadding = 0): Viewport | null => {
     const groups = new Map<string, PhotoItem[]>();
     for (const photo of photos) {
       if (photo.frameX == null || photo.frameY == null) continue;
@@ -138,7 +139,7 @@ export default function OuterFrame({
     let bottom = -Infinity;
 
     for (const [, groupPhotos] of groups) {
-      const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize, transform.scale);
+      const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize, scale);
       if (!geometry) continue;
       left = Math.min(left, geometry.overallRect.left);
       right = Math.max(right, geometry.overallRect.right);
@@ -150,14 +151,14 @@ export default function OuterFrame({
       return null;
     }
 
-    const padding = GROUP_VIEWPORT_PADDING / Math.max(transform.scale, 0.1);
+    const padding = (GROUP_VIEWPORT_PADDING + extraPadding) / Math.max(scale, 0.1);
     return {
       left: left - padding,
       right: right + padding,
       top: top - padding,
       bottom: bottom + padding,
     };
-  }, [photos, transform.scale, getPhotoLogicalSize]);
+  }, [photos, getPhotoLogicalSize]);
 
   const computePoiPoints = useCallback(() => {
     const map = mapInstanceRef.current;
@@ -201,23 +202,38 @@ export default function OuterFrame({
 
   useEffect(() => {
     if (!containerSize.w || !containerSize.h) return;
-    const groupViewport = buildPhotoGroupViewport();
-    onViewportChange?.(groupViewport ?? logicalViewport(containerSize.w, containerSize.h, transform));
-  }, [containerSize, transform, onViewportChange, buildPhotoGroupViewport]);
+    onViewportChange?.(logicalViewport(containerSize.w, containerSize.h, transform));
+  }, [containerSize, transform, onViewportChange]);
 
   useEffect(() => {
     if (!fitViewKey || !containerSize.w || !containerSize.h) return;
-    const viewport = buildPhotoGroupViewport();
-    if (!viewport) return;
-
-    const contentWidth = Math.max(1, viewport.right - viewport.left);
-    const contentHeight = Math.max(1, viewport.bottom - viewport.top);
     const availableWidth = Math.max(1, containerSize.w - FIT_VIEW_PADDING * 2);
     const availableHeight = Math.max(1, containerSize.h - FIT_VIEW_PADDING * 2);
-    const nextScale = Math.max(
-      CLAMP_SCALE.min,
-      Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight)),
-    );
+
+    let nextScale = transform.scale;
+    let viewport: Viewport | null = null;
+
+    for (let iteration = 0; iteration < FIT_VIEW_MAX_ITERATIONS; iteration++) {
+      viewport = buildPhotoGroupViewport(nextScale, FIT_VIEW_PADDING);
+      if (!viewport) return;
+
+      const contentWidth = Math.max(1, viewport.right - viewport.left);
+      const contentHeight = Math.max(1, viewport.bottom - viewport.top);
+      const solvedScale = Math.max(
+        CLAMP_SCALE.min,
+        Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight)),
+      );
+
+      if (Math.abs(solvedScale - nextScale) < 0.001) {
+        nextScale = solvedScale;
+        break;
+      }
+      nextScale = solvedScale;
+    }
+
+    viewport = buildPhotoGroupViewport(nextScale, FIT_VIEW_PADDING);
+    if (!viewport) return;
+
     const centerX = (viewport.left + viewport.right) / 2;
     const centerY = (viewport.top + viewport.bottom) / 2;
 
@@ -226,7 +242,7 @@ export default function OuterFrame({
       tx: -centerX * nextScale,
       ty: -centerY * nextScale,
     });
-  }, [fitViewKey, containerSize, buildPhotoGroupViewport, setTransform]);
+  }, [fitViewKey, containerSize, buildPhotoGroupViewport, setTransform, transform.scale]);
   useEffect(() => {
     if (!mapReady) return;
     let rafId: number;
