@@ -10,6 +10,8 @@ import type { LineStyle } from './LegendPanel';
 import type { MapMarker } from './PlanMap';
 import PlanMap from './PlanMap';
 
+const GROUP_VIEWPORT_PADDING = 120;
+
 interface Props {
   markers: MapMarker[];
   photos: PhotoItem[];
@@ -95,6 +97,50 @@ export default function OuterFrame({
   // --- POI coordinate conversion ---
   const [poiPoints, setPoiPoints] = useState<PoiPoint[]>([]);
 
+  const buildPhotoGroupViewport = useCallback((): Viewport | null => {
+    const placedPhotos = photos.filter((photo) => photo.frameX != null && photo.frameY != null);
+    if (placedPhotos.length === 0) return null;
+
+    let left = Infinity;
+    let right = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
+
+    for (const photo of placedPhotos) {
+      const sourceWidth = photo.pixelWidth ?? 0;
+      const sourceHeight = photo.pixelHeight ?? 0;
+      let logicalWidth = 120;
+      let logicalHeight = 120;
+
+      if (sourceWidth > 0 && sourceHeight > 0) {
+        if (sourceWidth >= sourceHeight) {
+          logicalWidth = 120;
+          logicalHeight = Math.max(48, (120 * sourceHeight) / sourceWidth);
+        } else {
+          logicalWidth = Math.max(48, (120 * sourceWidth) / sourceHeight);
+          logicalHeight = 120;
+        }
+      }
+
+      left = Math.min(left, (photo.frameX ?? 0) - logicalWidth / 2);
+      right = Math.max(right, (photo.frameX ?? 0) + logicalWidth / 2);
+      top = Math.min(top, (photo.frameY ?? 0) - logicalHeight / 2);
+      bottom = Math.max(bottom, (photo.frameY ?? 0) + logicalHeight / 2);
+    }
+
+    if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
+      return null;
+    }
+
+    const padding = GROUP_VIEWPORT_PADDING / Math.max(transform.scale, 0.1);
+    return {
+      left: left - padding,
+      right: right + padding,
+      top: top - padding,
+      bottom: bottom + padding,
+    };
+  }, [photos, transform.scale]);
+
   const computePoiPoints = useCallback(() => {
     const map = mapInstanceRef.current;
     const mapEl = mapContainerRef.current;
@@ -137,8 +183,15 @@ export default function OuterFrame({
 
   useEffect(() => {
     if (!containerSize.w || !containerSize.h) return;
-    onViewportChange?.(logicalViewport(containerSize.w, containerSize.h, transform));
-  }, [containerSize, transform, onViewportChange]);
+    const viewport = logicalViewport(containerSize.w, containerSize.h, transform);
+    const groupViewport = buildPhotoGroupViewport();
+    onViewportChange?.(groupViewport ? {
+      left: Math.min(viewport.left, groupViewport.left),
+      top: Math.min(viewport.top, groupViewport.top),
+      right: Math.max(viewport.right, groupViewport.right),
+      bottom: Math.max(viewport.bottom, groupViewport.bottom),
+    } : viewport);
+  }, [containerSize, transform, onViewportChange, buildPhotoGroupViewport]);
   useEffect(() => {
     if (!mapReady) return;
     let rafId: number;
