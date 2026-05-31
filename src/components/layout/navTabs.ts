@@ -8,7 +8,6 @@ export const PRIMARY_NAV_TABS = [
   { href: '/lists', label: '榜单' },
   { href: '/footprints', label: '足迹' },
   { href: '/messages', label: '消息' },
-  { href: '/test-css', label: '测试' },
 ] as const;
 
 /** 侧栏底栏个人区（头像 + 昵称，不展示「我的」文案） */
