@@ -1757,6 +1757,9 @@ function UserFootprintsPageInner() {
       {(panelCollapsed && legendCollapsed) || (
         <div className={styles.panelBackdrop} onClick={() => { setPanelCollapsed(true); setLegendCollapsed(true); }} />
       )}
+      <div className={styles.scaleBadge}>
+        {Math.round(outerScale * 100)}%
+      </div>
       <div className={styles.bottomRight}>
         <FootprintGroupPanel
           groups={groups}
