@@ -658,6 +658,7 @@ function UserFootprintsPageInner() {
   const [localLayout, setLocalLayout] = useState<LocalMapLayoutSettings | null>(null);
   const [knownLocalRoots, setKnownLocalRoots] = useState<string[]>([]);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [fitViewKey, setFitViewKey] = useState(0);
   const [shareAlbumPrompt, setShareAlbumPrompt] = useState<{
     item: FootprintItem;
     groupId: number;
@@ -767,6 +768,7 @@ function UserFootprintsPageInner() {
       setItems([]);
       loadItems(selectedGroupId);
       setPhotosLoaded(false);
+      setFitViewKey((value) => value + 1);
     } else {
       localOriginalPreloadRef.current.clear();
       localThumbQueueRef.current = [];
@@ -957,6 +959,7 @@ function UserFootprintsPageInner() {
     }
 
     setPhotos(allPhotos);
+    setFitViewKey((value) => value + 1);
   }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints]);
 
   function autoPlacePhotos(
@@ -1747,6 +1750,7 @@ function UserFootprintsPageInner() {
         lineStyle={lineStyle}
         onScaleChange={setOuterScale}
         onViewportChange={setOuterViewport}
+        fitViewKey={fitViewKey}
       />
 
       {/* Bottom-right panels */}

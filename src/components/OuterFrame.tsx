@@ -2,15 +2,19 @@
 
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { useOuterFrame } from '@/hooks/useOuterFrame';
-import { logicalViewport, type Viewport } from '@/lib/outerFrameCoords';
+import { CLAMP_SCALE, logicalViewport, type Viewport } from '@/lib/outerFrameCoords';
 import OuterFrameCanvas from './OuterFrameCanvas';
 import LineCanvas from './LineCanvas';
 import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
 import type { MapMarker } from './PlanMap';
 import PlanMap from './PlanMap';
+import { buildGroupGeometry } from './localMapGroupGeometry';
 
+const PHOTO_MAX_EDGE = 120;
+const PHOTO_MIN_EDGE = 48;
 const GROUP_VIEWPORT_PADDING = 120;
+const FIT_VIEW_PADDING = 64;
 
 interface Props {
   markers: MapMarker[];
@@ -34,6 +38,7 @@ interface Props {
   lineStyle: LineStyle;
   onScaleChange?: (scale: number) => void;
   onViewportChange?: (viewport: Viewport) => void;
+  fitViewKey?: string | number;
 }
 
 export default function OuterFrame({
@@ -58,9 +63,11 @@ export default function OuterFrame({
   lineStyle,
   onScaleChange,
   onViewportChange,
+  fitViewKey,
 }: Props) {
   const {
     transform,
+    setTransform,
     containerRef,
     handlePointerDown,
     handlePointerMove,
@@ -97,35 +104,46 @@ export default function OuterFrame({
   // --- POI coordinate conversion ---
   const [poiPoints, setPoiPoints] = useState<PoiPoint[]>([]);
 
+  const getPhotoLogicalSize = useCallback((photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>) => {
+    const sourceWidth = photo.pixelWidth ?? 0;
+    const sourceHeight = photo.pixelHeight ?? 0;
+    if (sourceWidth > 0 && sourceHeight > 0) {
+      if (sourceWidth >= sourceHeight) {
+        return {
+          width: PHOTO_MAX_EDGE,
+          height: Math.max(PHOTO_MIN_EDGE, (PHOTO_MAX_EDGE * sourceHeight) / sourceWidth),
+        };
+      }
+      return {
+        width: Math.max(PHOTO_MIN_EDGE, (PHOTO_MAX_EDGE * sourceWidth) / sourceHeight),
+        height: PHOTO_MAX_EDGE,
+      };
+    }
+    return { width: PHOTO_MAX_EDGE, height: PHOTO_MAX_EDGE };
+  }, []);
+
   const buildPhotoGroupViewport = useCallback((): Viewport | null => {
-    const placedPhotos = photos.filter((photo) => photo.frameX != null && photo.frameY != null);
-    if (placedPhotos.length === 0) return null;
+    const groups = new Map<string, PhotoItem[]>();
+    for (const photo of photos) {
+      if (photo.frameX == null || photo.frameY == null) continue;
+      const group = groups.get(photo.placeKey) || [];
+      group.push(photo);
+      groups.set(photo.placeKey, group);
+    }
+    if (groups.size === 0) return null;
 
     let left = Infinity;
     let right = -Infinity;
     let top = Infinity;
     let bottom = -Infinity;
 
-    for (const photo of placedPhotos) {
-      const sourceWidth = photo.pixelWidth ?? 0;
-      const sourceHeight = photo.pixelHeight ?? 0;
-      let logicalWidth = 120;
-      let logicalHeight = 120;
-
-      if (sourceWidth > 0 && sourceHeight > 0) {
-        if (sourceWidth >= sourceHeight) {
-          logicalWidth = 120;
-          logicalHeight = Math.max(48, (120 * sourceHeight) / sourceWidth);
-        } else {
-          logicalWidth = Math.max(48, (120 * sourceWidth) / sourceHeight);
-          logicalHeight = 120;
-        }
-      }
-
-      left = Math.min(left, (photo.frameX ?? 0) - logicalWidth / 2);
-      right = Math.max(right, (photo.frameX ?? 0) + logicalWidth / 2);
-      top = Math.min(top, (photo.frameY ?? 0) - logicalHeight / 2);
-      bottom = Math.max(bottom, (photo.frameY ?? 0) + logicalHeight / 2);
+    for (const [, groupPhotos] of groups) {
+      const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize, transform.scale);
+      if (!geometry) continue;
+      left = Math.min(left, geometry.overallRect.left);
+      right = Math.max(right, geometry.overallRect.right);
+      top = Math.min(top, geometry.overallRect.top);
+      bottom = Math.max(bottom, geometry.overallRect.bottom);
     }
 
     if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
@@ -139,7 +157,7 @@ export default function OuterFrame({
       top: top - padding,
       bottom: bottom + padding,
     };
-  }, [photos, transform.scale]);
+  }, [photos, transform.scale, getPhotoLogicalSize]);
 
   const computePoiPoints = useCallback(() => {
     const map = mapInstanceRef.current;
@@ -183,15 +201,32 @@ export default function OuterFrame({
 
   useEffect(() => {
     if (!containerSize.w || !containerSize.h) return;
-    const viewport = logicalViewport(containerSize.w, containerSize.h, transform);
     const groupViewport = buildPhotoGroupViewport();
-    onViewportChange?.(groupViewport ? {
-      left: Math.min(viewport.left, groupViewport.left),
-      top: Math.min(viewport.top, groupViewport.top),
-      right: Math.max(viewport.right, groupViewport.right),
-      bottom: Math.max(viewport.bottom, groupViewport.bottom),
-    } : viewport);
+    onViewportChange?.(groupViewport ?? logicalViewport(containerSize.w, containerSize.h, transform));
   }, [containerSize, transform, onViewportChange, buildPhotoGroupViewport]);
+
+  useEffect(() => {
+    if (!fitViewKey || !containerSize.w || !containerSize.h) return;
+    const viewport = buildPhotoGroupViewport();
+    if (!viewport) return;
+
+    const contentWidth = Math.max(1, viewport.right - viewport.left);
+    const contentHeight = Math.max(1, viewport.bottom - viewport.top);
+    const availableWidth = Math.max(1, containerSize.w - FIT_VIEW_PADDING * 2);
+    const availableHeight = Math.max(1, containerSize.h - FIT_VIEW_PADDING * 2);
+    const nextScale = Math.max(
+      CLAMP_SCALE.min,
+      Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight)),
+    );
+    const centerX = (viewport.left + viewport.right) / 2;
+    const centerY = (viewport.top + viewport.bottom) / 2;
+
+    setTransform({
+      scale: nextScale,
+      tx: -centerX * nextScale,
+      ty: -centerY * nextScale,
+    });
+  }, [fitViewKey, containerSize, buildPhotoGroupViewport, setTransform]);
   useEffect(() => {
     if (!mapReady) return;
     let rafId: number;
