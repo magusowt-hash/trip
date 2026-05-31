@@ -66,6 +66,7 @@ export default function OuterFrame({
   onViewportChange,
   fitViewKey,
 }: Props) {
+  const [minScale, setMinScale] = useState(CLAMP_SCALE.min);
   const {
     transform,
     setTransform,
@@ -73,7 +74,7 @@ export default function OuterFrame({
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
-  } = useOuterFrame({ initialScale: 1 });
+  } = useOuterFrame({ initialScale: 1, minScale });
 
   const [mapReady, setMapReady] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -220,6 +221,7 @@ export default function OuterFrame({
     const centerX = (viewport.left + viewport.right) / 2;
     const centerY = (viewport.top + viewport.bottom) / 2;
 
+    setMinScale(nextScale);
     setTransform({
       scale: nextScale,
       tx: -centerX * nextScale,

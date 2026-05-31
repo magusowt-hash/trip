@@ -3,17 +3,17 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   type OuterFrameTransform,
-  SCALE_DETENT,
   CLAMP_SCALE,
   zoomAt,
 } from '@/lib/outerFrameCoords';
 
 interface UseOuterFrameOptions {
   initialScale?: number;
+  minScale?: number;
 }
 
 export function useOuterFrame(options: UseOuterFrameOptions = {}) {
-  const { initialScale = 1 } = options;
+  const { initialScale = 1, minScale = CLAMP_SCALE.min } = options;
   const [transform, setTransform] = useState<OuterFrameTransform>({
     scale: initialScale,
     tx: 0,
@@ -29,50 +29,21 @@ export function useOuterFrame(options: UseOuterFrameOptions = {}) {
     setContainerEl(el);
   }, []);
 
-  // Gate: locked by default (min=50%), opens after 200ms delay at 50%
-  const gateOpenRef = useRef(false);
-  const gateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const minScaleRef = useRef(minScale);
+  minScaleRef.current = minScale;
 
-  const openGate = useCallback(() => {
-    gateOpenRef.current = true;
-    gateTimerRef.current = null;
-  }, []);
-
-  const closeGate = useCallback(() => {
-    if (gateTimerRef.current) {
-      clearTimeout(gateTimerRef.current);
-      gateTimerRef.current = null;
-    }
-    gateOpenRef.current = false;
-  }, []);
-
-  const effectiveMin = () => gateOpenRef.current ? CLAMP_SCALE.min : SCALE_DETENT;
-  const clampToRange = (s: number) => Math.max(effectiveMin(), Math.min(CLAMP_SCALE.max, s));
+  const clampToRange = useCallback(
+    (s: number) => Math.max(minScaleRef.current, Math.min(CLAMP_SCALE.max, s)),
+    [],
+  );
 
   // Wheel zoom centered on cursor
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     const t = transformRef.current;
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    const isZoomingOut = e.deltaY > 0;
     const rawScale = t.scale * factor;
-
-    let newScale = clampToRange(rawScale);
-
-    if (isZoomingOut) {
-      // Hit the gate: scale is above 50% and would cross below
-      if (!gateOpenRef.current && t.scale > SCALE_DETENT && rawScale < SCALE_DETENT) {
-        newScale = SCALE_DETENT;
-        if (!gateTimerRef.current) {
-          gateTimerRef.current = setTimeout(openGate, 500);
-        }
-      }
-    } else {
-      // Zooming in past 50% → re-lock the gate
-      if (rawScale > SCALE_DETENT && (gateOpenRef.current || gateTimerRef.current)) {
-        closeGate();
-      }
-    }
+    const newScale = clampToRange(rawScale);
 
     const { tx, ty } = zoomAt(
       e.clientX, e.clientY,
@@ -80,7 +51,7 @@ export function useOuterFrame(options: UseOuterFrameOptions = {}) {
       newScale, t,
     );
     setTransform({ scale: newScale, tx, ty });
-  }, [openGate, closeGate]);
+  }, [clampToRange]);
 
   // Touch pinch zoom (mobile)
   const lastPinchRef = useRef({ dist: 0, centerX: 0, centerY: 0 });
@@ -98,23 +69,8 @@ export function useOuterFrame(options: UseOuterFrameOptions = {}) {
     if (lastPinchRef.current.dist > 0) {
       const t = transformRef.current;
       const ratio = dist / lastPinchRef.current.dist;
-      const isZoomingOut = ratio < 1;
       const rawScale = t.scale * ratio;
-
-      let newScale = clampToRange(rawScale);
-
-      if (isZoomingOut) {
-        if (!gateOpenRef.current && t.scale > SCALE_DETENT && rawScale < SCALE_DETENT) {
-          newScale = SCALE_DETENT;
-          if (!gateTimerRef.current) {
-            gateTimerRef.current = setTimeout(openGate, 500);
-          }
-        }
-      } else {
-        if (rawScale > SCALE_DETENT && (gateOpenRef.current || gateTimerRef.current)) {
-          closeGate();
-        }
-      }
+      const newScale = clampToRange(rawScale);
 
       const { tx, ty } = zoomAt(
         cx, cy,
@@ -125,7 +81,7 @@ export function useOuterFrame(options: UseOuterFrameOptions = {}) {
     }
 
     lastPinchRef.current = { dist, centerX: cx, centerY: cy };
-  }, [openGate, closeGate]);
+  }, [clampToRange]);
 
   const handleTouchEnd = useCallback(() => {
     lastPinchRef.current = { dist: 0, centerX: 0, centerY: 0 };
