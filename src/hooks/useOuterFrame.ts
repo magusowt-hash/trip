@@ -13,7 +13,7 @@ interface UseOuterFrameOptions {
 }
 
 export function useOuterFrame(options: UseOuterFrameOptions = {}) {
-  const { initialScale = 1, minScale = CLAMP_SCALE.min } = options;
+  const { initialScale = 1, minScale = 0 } = options;
   const [transform, setTransform] = useState<OuterFrameTransform>({
     scale: initialScale,
     tx: 0,

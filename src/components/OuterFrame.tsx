@@ -66,7 +66,7 @@ export default function OuterFrame({
   onViewportChange,
   fitViewKey,
 }: Props) {
-  const [minScale, setMinScale] = useState(CLAMP_SCALE.min);
+  const [minScale, setMinScale] = useState(0);
   const {
     transform,
     setTransform,
@@ -214,10 +214,7 @@ export default function OuterFrame({
 
     const contentWidth = Math.max(1, viewport.right - viewport.left);
     const contentHeight = Math.max(1, viewport.bottom - viewport.top);
-    const nextScale = Math.max(
-      CLAMP_SCALE.min,
-      Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight)),
-    );
+    const nextScale = Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight));
     const centerX = (viewport.left + viewport.right) / 2;
     const centerY = (viewport.top + viewport.bottom) / 2;
 
