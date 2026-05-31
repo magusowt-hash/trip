@@ -14,7 +14,8 @@ import { buildGroupGeometry } from './localMapGroupGeometry';
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
 const FIT_VIEW_PADDING = 24;
-const FIT_VIEW_BINARY_SEARCH_STEPS = 24;
+const VIEWPORT_GEOMETRY_SCALE = 1;
+const VIEWPORT_PADDING_LOGICAL = 24;
 
 interface Props {
   markers: MapMarker[];
@@ -122,7 +123,7 @@ export default function OuterFrame({
     return { width: PHOTO_MAX_EDGE, height: PHOTO_MAX_EDGE };
   }, []);
 
-  const buildPhotoGroupViewport = useCallback((scale: number, extraPadding = 0): Viewport | null => {
+  const buildPhotoGroupViewport = useCallback((padding = VIEWPORT_PADDING_LOGICAL): Viewport | null => {
     const groups = new Map<string, PhotoItem[]>();
     for (const photo of photos) {
       if (photo.frameX == null || photo.frameY == null) continue;
@@ -138,7 +139,7 @@ export default function OuterFrame({
     let bottom = -Infinity;
 
     for (const [, groupPhotos] of groups) {
-      const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize, scale);
+      const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize, VIEWPORT_GEOMETRY_SCALE);
       if (!geometry) continue;
       left = Math.min(left, geometry.overallRect.left);
       right = Math.max(right, geometry.overallRect.right);
@@ -150,7 +151,6 @@ export default function OuterFrame({
       return null;
     }
 
-    const padding = extraPadding / Math.max(scale, 0.1);
     return {
       left: left - padding,
       right: right + padding,
@@ -205,33 +205,18 @@ export default function OuterFrame({
   }, [containerSize, transform, onViewportChange]);
 
   useEffect(() => {
-    if (!fitViewKey || !containerSize.w || !containerSize.h) return;
+    if (fitViewKey == null || !containerSize.w || !containerSize.h) return;
     const availableWidth = Math.max(1, containerSize.w - FIT_VIEW_PADDING * 2);
     const availableHeight = Math.max(1, containerSize.h - FIT_VIEW_PADDING * 2);
-    let low = CLAMP_SCALE.min;
-    let high = CLAMP_SCALE.max;
-    let nextScale = CLAMP_SCALE.min;
-
-    for (let step = 0; step < FIT_VIEW_BINARY_SEARCH_STEPS; step++) {
-      const mid = (low + high) / 2;
-      const viewport = buildPhotoGroupViewport(mid, FIT_VIEW_PADDING);
-      if (!viewport) return;
-
-      const contentWidth = (viewport.right - viewport.left) * mid;
-      const contentHeight = (viewport.bottom - viewport.top) * mid;
-      const fits = contentWidth <= availableWidth && contentHeight <= availableHeight;
-
-      if (fits) {
-        nextScale = mid;
-        low = mid;
-      } else {
-        high = mid;
-      }
-    }
-
-    const viewport = buildPhotoGroupViewport(nextScale, FIT_VIEW_PADDING);
+    const viewport = buildPhotoGroupViewport();
     if (!viewport) return;
 
+    const contentWidth = Math.max(1, viewport.right - viewport.left);
+    const contentHeight = Math.max(1, viewport.bottom - viewport.top);
+    const nextScale = Math.max(
+      CLAMP_SCALE.min,
+      Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight)),
+    );
     const centerX = (viewport.left + viewport.right) / 2;
     const centerY = (viewport.top + viewport.bottom) / 2;
 
