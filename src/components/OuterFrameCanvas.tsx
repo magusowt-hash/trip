@@ -69,6 +69,14 @@ const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
 const MAP_AREA_RATIO_W = 0.6;
 const MAP_AREA_RATIO_H = 0.8;
+const MAX_OVERLAY_SCALE = 2.4;
+const MIN_LABEL_FONT_SIZE = 11;
+const LABEL_FONT_SIZE = 12;
+const HOVER_STROKE_WIDTH = 1.5;
+
+function getOverlayScale(scale: number) {
+  return Math.min(scale, MAX_OVERLAY_SCALE);
+}
 
 function rectContains(r: PlaceRect, x: number, y: number): boolean {
   return x >= r.overallLeft && x <= r.overallRight && y >= r.overallTop && y <= r.overallBottom;
@@ -320,6 +328,7 @@ export default function OuterFrameCanvas({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     ctx.clearRect(0, 0, width, height);
+    const overlayScale = getOverlayScale(transform.scale);
 
     // Recompute place rects from current (possibly dragged) positions
     const currentRects = computePlaceRects();
@@ -356,7 +365,7 @@ export default function OuterFrameCanvas({
 
       if (isHovered) {
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = Math.max(1, HOVER_STROKE_WIDTH * (overlayScale / Math.max(transform.scale, 0.1)));
         ctx.strokeRect(s.x - displayWidth / 2, s.y - displayHeight / 2, displayWidth, displayHeight);
       }
     }
@@ -367,7 +376,7 @@ export default function OuterFrameCanvas({
         const anchor = logicalToScreen(rect.labelAnchorX, rect.labelAnchorY);
 
         ctx.fillStyle = 'rgba(255,255,255,0.65)';
-        ctx.font = `${Math.max(11, 12 * transform.scale)}px sans-serif`;
+        ctx.font = `${Math.max(MIN_LABEL_FONT_SIZE, LABEL_FONT_SIZE * overlayScale)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(rect.placeTitle, anchor.x, anchor.y);

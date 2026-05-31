@@ -6,6 +6,15 @@ import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
 import { buildGroupGeometry, type LogicalRect } from './localMapGroupGeometry';
 
+const MAX_OVERLAY_SCALE = 2.4;
+const MAX_LINE_WIDTH = 4;
+const MAX_ANCHOR_RADIUS = 9;
+const MAX_POI_LABEL_FONT = 18;
+
+function getOverlayScale(scale: number) {
+  return Math.min(scale, MAX_OVERLAY_SCALE);
+}
+
 interface Props {
   width: number;
   height: number;
@@ -109,6 +118,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     ctx.clearRect(0, 0, width, height);
+    const overlayScale = getOverlayScale(transform.scale);
 
     for (const poi of poiPoints) {
       const poiScreen = logicalToScreen(poi.logicalX, poi.logicalY);
@@ -125,13 +135,13 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
       ctx.moveTo(poiScreen.x, poiScreen.y);
       ctx.lineTo(photoCenter.x, photoCenter.y);
       ctx.strokeStyle = lineStyle.color + 'b3';
-      ctx.lineWidth = Math.max(1, lineStyle.width * transform.scale);
+      ctx.lineWidth = Math.max(1, Math.min(MAX_LINE_WIDTH, lineStyle.width * overlayScale));
       if (lineStyle.dashed) ctx.setLineDash([8, 4]);
       else ctx.setLineDash([]);
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.arc(photoCenter.x, photoCenter.y, Math.max(4, 4 * transform.scale), 0, Math.PI * 2);
+      ctx.arc(photoCenter.x, photoCenter.y, Math.max(4, Math.min(MAX_ANCHOR_RADIUS, 4 * overlayScale)), 0, Math.PI * 2);
       ctx.fillStyle = lineStyle.color;
       ctx.fill();
       ctx.strokeStyle = '#c7d2fe';
@@ -141,9 +151,9 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
 
       // --- POI label at map end ---
       if (showPoiLabels) {
-        const offset = 14 * transform.scale;
+        const offset = 14 * overlayScale;
         ctx.fillStyle = poiLabelColor;
-        ctx.font = `${Math.max(10, 11 * transform.scale)}px sans-serif`;
+        ctx.font = `${Math.max(10, Math.min(MAX_POI_LABEL_FONT, 11 * overlayScale))}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillText(poi.placeTitle, poiScreen.x, poiScreen.y + offset);
       }
