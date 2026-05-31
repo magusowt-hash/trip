@@ -13,9 +13,8 @@ import { buildGroupGeometry } from './localMapGroupGeometry';
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
-const GROUP_VIEWPORT_PADDING = 144;
-const FIT_VIEW_PADDING = 40;
-const FIT_VIEW_MAX_ITERATIONS = 6;
+const FIT_VIEW_PADDING = 24;
+const FIT_VIEW_BINARY_SEARCH_STEPS = 24;
 
 interface Props {
   markers: MapMarker[];
@@ -151,7 +150,7 @@ export default function OuterFrame({
       return null;
     }
 
-    const padding = (GROUP_VIEWPORT_PADDING + extraPadding) / Math.max(scale, 0.1);
+    const padding = extraPadding / Math.max(scale, 0.1);
     return {
       left: left - padding,
       right: right + padding,
@@ -209,29 +208,28 @@ export default function OuterFrame({
     if (!fitViewKey || !containerSize.w || !containerSize.h) return;
     const availableWidth = Math.max(1, containerSize.w - FIT_VIEW_PADDING * 2);
     const availableHeight = Math.max(1, containerSize.h - FIT_VIEW_PADDING * 2);
+    let low = CLAMP_SCALE.min;
+    let high = CLAMP_SCALE.max;
+    let nextScale = CLAMP_SCALE.min;
 
-    let nextScale = transform.scale;
-    let viewport: Viewport | null = null;
-
-    for (let iteration = 0; iteration < FIT_VIEW_MAX_ITERATIONS; iteration++) {
-      viewport = buildPhotoGroupViewport(nextScale, FIT_VIEW_PADDING);
+    for (let step = 0; step < FIT_VIEW_BINARY_SEARCH_STEPS; step++) {
+      const mid = (low + high) / 2;
+      const viewport = buildPhotoGroupViewport(mid, FIT_VIEW_PADDING);
       if (!viewport) return;
 
-      const contentWidth = Math.max(1, viewport.right - viewport.left);
-      const contentHeight = Math.max(1, viewport.bottom - viewport.top);
-      const solvedScale = Math.max(
-        CLAMP_SCALE.min,
-        Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight)),
-      );
+      const contentWidth = (viewport.right - viewport.left) * mid;
+      const contentHeight = (viewport.bottom - viewport.top) * mid;
+      const fits = contentWidth <= availableWidth && contentHeight <= availableHeight;
 
-      if (Math.abs(solvedScale - nextScale) < 0.001) {
-        nextScale = solvedScale;
-        break;
+      if (fits) {
+        nextScale = mid;
+        low = mid;
+      } else {
+        high = mid;
       }
-      nextScale = solvedScale;
     }
 
-    viewport = buildPhotoGroupViewport(nextScale, FIT_VIEW_PADDING);
+    const viewport = buildPhotoGroupViewport(nextScale, FIT_VIEW_PADDING);
     if (!viewport) return;
 
     const centerX = (viewport.left + viewport.right) / 2;
@@ -242,16 +240,22 @@ export default function OuterFrame({
       tx: -centerX * nextScale,
       ty: -centerY * nextScale,
     });
-  }, [fitViewKey, containerSize, buildPhotoGroupViewport, setTransform, transform.scale]);
+  }, [fitViewKey, containerSize, buildPhotoGroupViewport, setTransform]);
   useEffect(() => {
     if (!mapReady) return;
-    let rafId: number;
-    const loop = () => {
-      computePoiPoints();
-      rafId = requestAnimationFrame(loop);
+    computePoiPoints();
+
+    const map = mapInstanceRef.current as {
+      on?: (eventName: string, handler: () => void) => void;
+      off?: (eventName: string, handler: () => void) => void;
+    } | null;
+    if (!map?.on || !map?.off) return;
+
+    const events = ['moveend', 'zoomend', 'resize', 'complete'];
+    events.forEach((eventName) => map.on?.(eventName, computePoiPoints));
+    return () => {
+      events.forEach((eventName) => map.off?.(eventName, computePoiPoints));
     };
-    rafId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafId);
   }, [mapReady, computePoiPoints]);
 
   useEffect(() => {
