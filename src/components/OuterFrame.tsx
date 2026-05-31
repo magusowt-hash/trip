@@ -13,8 +13,8 @@ import { buildGroupGeometry } from './localMapGroupGeometry';
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
-const GROUP_VIEWPORT_PADDING = 120;
-const FIT_VIEW_PADDING = 64;
+const GROUP_VIEWPORT_PADDING = 144;
+const FIT_VIEW_PADDING = 40;
 
 interface Props {
   markers: MapMarker[];
