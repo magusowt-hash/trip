@@ -124,7 +124,7 @@ const GROUP_SAFE_GAP = 11;
 const LOCAL_SEARCH_ANGLE_STEPS = [0, -10, 10, -20, 20, -30, 30];
 const LOCAL_SEARCH_RADIUS_FACTORS = [0, -0.35, 0.35];
 const POST_LAYOUT_SEARCH_ANGLE_STEPS = [0, -8, 8, -16, 16, -24, 24, -36, 36];
-const POST_LAYOUT_SEARCH_RADIUS_STEPS = [0, -240, -160, -80, 80, 160, 240];
+const POST_LAYOUT_SEARCH_RADIUS_STEPS = [0, -360, -280, -200, -120, -60, 80, 160];
 const POST_LAYOUT_REFINE_PASSES = 3;
 
 function randomInt(min: number, max: number): number {
@@ -554,10 +554,22 @@ function scoreCandidateAroundCurrentCenter(
   const collisionScore = scoreGroupGeometryPlacement(candidate, neighbors, safeGap);
   const radius = Math.hypot(centerX, centerY);
   const angle = Math.atan2(centerY, centerX);
+  const middleBand = currentRadius >= 1500 && currentRadius < 2800;
+  const outerBand = currentRadius >= 2800;
   const currentRadiusPenalty = Math.abs(radius - currentRadius) * 0.22;
   const currentAnglePenalty = Math.abs(angleDelta(angle, currentAngle)) * 42;
   const anchorRadiusPenalty = Math.abs(radius - anchorRadius) * 0.08;
   const anchorAnglePenalty = Math.abs(angleDelta(angle, anchorAngle)) * 18;
+  const inwardBias = outerBand
+    ? Math.max(0, radius - (currentRadius - 260)) * 0.65
+    : middleBand
+      ? Math.max(0, radius - (currentRadius - 80)) * 0.18
+      : 0;
+  const outwardPenalty = outerBand
+    ? Math.max(0, radius - currentRadius) * 1.8
+    : middleBand
+      ? Math.max(0, radius - currentRadius) * 0.85
+      : Math.max(0, radius - currentRadius) * 0.35;
 
   return {
     geometry: candidate,
@@ -566,7 +578,9 @@ function scoreCandidateAroundCurrentCenter(
       currentRadiusPenalty +
       currentAnglePenalty +
       anchorRadiusPenalty +
-      anchorAnglePenalty,
+      anchorAnglePenalty +
+      inwardBias +
+      outwardPenalty,
   };
 }
 

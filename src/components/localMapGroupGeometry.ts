@@ -297,6 +297,8 @@ export function scoreGroupGeometryPlacement(
 ): number {
   let score = 0;
   const pairs: Array<[LogicalRect, LogicalRect, number]> = [];
+  const labelSafeGap = safeGap + 10;
+  const lineLabelSafeGap = safeGap + 6;
 
   for (const neighbor of neighbors) {
     pairs.push(
@@ -318,9 +320,11 @@ export function scoreGroupGeometryPlacement(
       score += overlapArea * HARD_OVERLAP_WEIGHT * weight;
       continue;
     }
+    const effectiveSafeGap =
+      weight >= 1.25 ? labelSafeGap : weight >= 1.2 ? lineLabelSafeGap : safeGap;
     const gapDistance = rectGapDistance(left, right);
-    if (gapDistance >= safeGap) continue;
-    const gapPenalty = safeGap - gapDistance;
+    if (gapDistance >= effectiveSafeGap) continue;
+    const gapPenalty = effectiveSafeGap - gapDistance;
     score += gapPenalty * gapPenalty * SOFT_GAP_WEIGHT * weight;
   }
 
