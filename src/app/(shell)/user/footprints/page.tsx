@@ -1549,14 +1549,26 @@ function buildAngularWindows(groups: PendingPlaceGroup[], placementById: Map<str
     .sort((left, right) => left.angle - right.angle);
 
   const windows: PendingPlaceGroup[][] = [];
-  for (let index = 0; index < ordered.length; index++) {
-    for (const windowSize of [3, 4, 5]) {
-      const start = Math.max(0, Math.min(index, ordered.length - windowSize));
+  const seen = new Set<string>();
+
+  for (const windowSize of [5, 4, 3]) {
+    for (let start = 0; start <= ordered.length - windowSize; start++) {
       const slice = ordered.slice(start, start + windowSize).map((item) => item.group);
-      if (slice.length >= 3) windows.push(slice);
+      if (slice.length < 3) continue;
+      const key = slice.map((group) => group.placeKey).join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      windows.push(slice);
     }
   }
+
   return windows;
+}
+
+function buildBasePlacementMap(groups: PendingPlaceGroup[]) {
+  return new Map<string, { centerX: number; centerY: number }>(
+    groups.map((group) => [group.placeKey, { centerX: group.logicalX, centerY: group.logicalY }]),
+  );
 }
 
 function scoreClusterCompaction(
@@ -1636,6 +1648,7 @@ function evaluateClusterWindowPlacement(
   allGroups: PendingPlaceGroup[],
   mapRect: LogicalRect,
   safeGap: number,
+  basePlacementById: Map<string, { centerX: number; centerY: number }>,
 ) {
   const occupiedOutsideCluster = allGroups
     .filter((candidate) => !cluster.some((group) => group.placeKey === candidate.placeKey))
@@ -1648,7 +1661,9 @@ function evaluateClusterWindowPlacement(
 
   for (const group of cluster) {
     const placement = trialPlacementById.get(group.placeKey);
+    const basePlacement = basePlacementById.get(group.placeKey);
     if (!placement) return Number.POSITIVE_INFINITY;
+    if (!basePlacement) return Number.POSITIVE_INFINITY;
     const geometry = translateGroupGeometry(group.collisionGeometry, placement.centerX, placement.centerY);
     const occupiedGeometries = [
       ...occupiedOutsideCluster,
@@ -1671,7 +1686,7 @@ function evaluateClusterWindowPlacement(
       occupiedGeometries,
       mapRect,
       safeGap,
-      placement,
+      basePlacement,
       placement,
       trialPlacementById,
       allGroups,
@@ -1720,6 +1735,32 @@ function generateWindowPlacementVariants(
     }
   }
 
+  for (let index = 0; index < cluster.length - 2; index++) {
+    const left = cluster[index];
+    const middle = cluster[index + 1];
+    const right = cluster[index + 2];
+    const leftPlacement = placementById.get(left.placeKey);
+    const middlePlacement = placementById.get(middle.placeKey);
+    const rightPlacement = placementById.get(right.placeKey);
+    if (!leftPlacement || !middlePlacement || !rightPlacement) continue;
+
+    const leftCandidates = buildClusterActionCandidates(left, leftPlacement, 0.7).slice(1, 3);
+    const middleCandidates = buildClusterActionCandidates(middle, middlePlacement, 0.85).slice(1, 4);
+    const rightCandidates = buildClusterActionCandidates(right, rightPlacement, 0.7).slice(1, 3);
+
+    for (const leftCandidate of leftCandidates) {
+      for (const middleCandidate of middleCandidates) {
+        for (const rightCandidate of rightCandidates) {
+          const variant = new Map<string, { centerX: number; centerY: number }>();
+          variant.set(left.placeKey, leftCandidate);
+          variant.set(middle.placeKey, middleCandidate);
+          variant.set(right.placeKey, rightCandidate);
+          variants.push(variant);
+        }
+      }
+    }
+  }
+
   return variants;
 }
 
@@ -1731,45 +1772,73 @@ function refineSectorClusters(
   labelGapBoost: number,
 ) {
   const nextPlacementById = new Map(placementById);
-  const windows = buildAngularWindows(groups, nextPlacementById);
+  const basePlacementById = buildBasePlacementMap(groups);
 
-  for (const windowGroups of windows) {
-    const baseline = scoreClusterCompaction(windowGroups, nextPlacementById, groups, mapRect, safeGap);
-    let bestScore = baseline;
-    let bestPlacementById: Map<string, { centerX: number; centerY: number }> | null = null;
+  for (let pass = 0; pass < 3; pass++) {
+    let changed = false;
+    const windows = buildAngularWindows(groups, nextPlacementById)
+      .sort((left, right) => (
+        scoreClusterCompaction(right, nextPlacementById, groups, mapRect, safeGap) -
+        scoreClusterCompaction(left, nextPlacementById, groups, mapRect, safeGap)
+      ));
 
-    for (const variant of generateWindowPlacementVariants(windowGroups, nextPlacementById)) {
-      const trialPlacementById = new Map(nextPlacementById);
-      variant.forEach((placement, key) => trialPlacementById.set(key, placement));
-      const trialScore = evaluateClusterWindowPlacement(windowGroups, trialPlacementById, groups, mapRect, safeGap);
-      if (trialScore < bestScore - 1e-6) {
-        bestScore = trialScore;
-        bestPlacementById = trialPlacementById;
-      }
-    }
+    for (const windowGroups of windows) {
+      const baseline = scoreClusterCompaction(windowGroups, nextPlacementById, groups, mapRect, safeGap);
+      let bestScore = baseline;
+      let bestPlacementById: Map<string, { centerX: number; centerY: number }> | null = null;
 
-    if (!bestPlacementById) {
-      for (const pivot of windowGroups) {
-        const pivotPlacement = nextPlacementById.get(pivot.placeKey);
-        if (!pivotPlacement) continue;
-        const neighbor = findClosestNeighborForGroup(pivot.placeKey, windowGroups, nextPlacementById);
-        if (!neighbor) continue;
-        const nudged = tryNeighborNudge(pivot, neighbor, nextPlacementById, groups, mapRect, safeGap, labelGapBoost);
-        if (!nudged) continue;
-
+      for (const variant of generateWindowPlacementVariants(windowGroups, nextPlacementById)) {
         const trialPlacementById = new Map(nextPlacementById);
-        trialPlacementById.set(pivot.placeKey, nudged.groupPlacement);
-        trialPlacementById.set(neighbor.placeKey, nudged.neighborPlacement);
-        const trialScore = evaluateClusterWindowPlacement(windowGroups, trialPlacementById, groups, mapRect, safeGap);
+        variant.forEach((placement, key) => trialPlacementById.set(key, placement));
+        const trialScore = evaluateClusterWindowPlacement(
+          windowGroups,
+          trialPlacementById,
+          groups,
+          mapRect,
+          safeGap,
+          basePlacementById,
+        );
         if (trialScore < bestScore - 1e-6) {
           bestScore = trialScore;
           bestPlacementById = trialPlacementById;
         }
       }
+
+      if (!bestPlacementById) {
+        for (const pivot of windowGroups) {
+          const pivotPlacement = nextPlacementById.get(pivot.placeKey);
+          if (!pivotPlacement) continue;
+          const neighbor = findClosestNeighborForGroup(pivot.placeKey, windowGroups, nextPlacementById);
+          if (!neighbor) continue;
+          const nudged = tryNeighborNudge(pivot, neighbor, nextPlacementById, groups, mapRect, safeGap, labelGapBoost);
+          if (!nudged) continue;
+
+          const trialPlacementById = new Map(nextPlacementById);
+          trialPlacementById.set(pivot.placeKey, nudged.groupPlacement);
+          trialPlacementById.set(neighbor.placeKey, nudged.neighborPlacement);
+          const trialScore = evaluateClusterWindowPlacement(
+            windowGroups,
+            trialPlacementById,
+            groups,
+            mapRect,
+            safeGap,
+            basePlacementById,
+          );
+          if (trialScore < bestScore - 1e-6) {
+            bestScore = trialScore;
+            bestPlacementById = trialPlacementById;
+          }
+        }
+      }
+
+      if (bestPlacementById) {
+        bestPlacementById.forEach((placement, key) => nextPlacementById.set(key, placement));
+        changed = true;
+      }
     }
 
-    if (bestPlacementById) {
-      bestPlacementById.forEach((placement, key) => nextPlacementById.set(key, placement));
+    if (!changed) {
+      break;
     }
   }
 
