@@ -35,6 +35,7 @@ import styles from './footprints.module.css';
 
 const LOCAL_THUMB_MAX_EDGE = 320;
 const LOCAL_THUMB_CONCURRENCY = 2;
+const LOCAL_MAP_LOADING_MIN_DELAY_MS = 120;
 
 interface FootprintGroup {
   id: number;
@@ -1436,8 +1437,9 @@ function UserFootprintsPageInner() {
   }) => {
     setIsApplyingLocalMap(true);
     setLocalMapApplyProgress(8);
-    requestAnimationFrame(() => {
+    setTimeout(() => {
       requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
         const itemByTitle = new Map(items.map((item) => [item.title, item]));
         const currentItemKeys = new Set(items.map((item) => buildFootprintPhotoScopeKey(item.id)));
         const mappedPhotos: PhotoItem[] = payload.matchedAssets
@@ -1526,8 +1528,9 @@ function UserFootprintsPageInner() {
             setLocalMapApplyProgress(0);
           }, 180);
         });
+        });
       });
-    });
+    }, LOCAL_MAP_LOADING_MIN_DELAY_MS);
   }, [items, photos]);
 
   const currentDebugPhotos = buildDebugPhotoSnapshot(photos);

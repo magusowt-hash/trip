@@ -247,6 +247,22 @@ function averageAngle(placements: FootprintPlacement[]) {
   return Math.atan2(vector.y, vector.x);
 }
 
+function computeAngularDriftPenalty(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+) {
+  let penalty = 0;
+  for (const group of groups) {
+    const placement = placementById.get(group.placeKey);
+    if (!placement) continue;
+    const baseAngle = Math.atan2(group.logicalY, group.logicalX);
+    const candidateAngle = Math.atan2(placement.centerY, placement.centerX);
+    const drift = Math.abs(angleDelta(candidateAngle, baseAngle));
+    penalty += drift * drift;
+  }
+  return penalty;
+}
+
 function evaluatePlacementCandidate(
   placeKey: string,
   geometry: GroupGeometry,
@@ -1040,7 +1056,7 @@ function tryAcceptCompactionPlacement(
   const trialPlacementById = new Map(nextPlacementById);
   trialPlacementById.set(group.placeKey, candidatePlacement);
   const trialEnergy = scoreGlobalLayoutEnergy(groups, trialPlacementById, mapRect, safeGap);
-  if (trialEnergy >= baselineEnergy - 1.5) return null;
+  if (trialEnergy >= baselineEnergy - 0.2) return null;
   return {
     placementById: trialPlacementById,
     energy: trialEnergy,
@@ -1397,6 +1413,7 @@ function scoreGlobalLayoutEnergy(
 
   const sectorVariance = occupancy.reduce((sum, count) => sum + count * count, 0);
   const radiusSpreadPenalty = computeRadiusSpreadPenalty(placements);
+  const angularDriftPenalty = computeAngularDriftPenalty(groups, placementById);
 
   return (
     totalRadius * 0.68 +
@@ -1406,7 +1423,8 @@ function scoreGlobalLayoutEnergy(
     labelPhotoRiskPenalty * 0.1 +
     radiusSpreadPenalty * 0.12 +
     sectorDensityPenalty * 13 +
-    sectorVariance * 14
+    sectorVariance * 14 +
+    angularDriftPenalty * 180
   );
 }
 
@@ -1818,8 +1836,8 @@ function refineSectorClusters(
         const trialTotalRadius = computeTotalRadius(groups, trialPlacementById);
         if (
           trialScore < bestScore - 1e-6 &&
-          trialGlobalEnergy < bestGlobalEnergy - 4 &&
-          trialTotalRadius < bestTotalRadius - 12
+          trialGlobalEnergy < bestGlobalEnergy - 0.5 &&
+          trialTotalRadius < bestTotalRadius - 4
         ) {
           bestScore = trialScore;
           bestGlobalEnergy = trialGlobalEnergy;
@@ -1843,8 +1861,8 @@ function refineSectorClusters(
         const trialTotalRadius = computeTotalRadius(groups, trialPlacementById);
         if (
           trialScore < bestScore - 1e-6 &&
-          trialGlobalEnergy < bestGlobalEnergy - 4 &&
-          trialTotalRadius < bestTotalRadius - 4
+          trialGlobalEnergy < bestGlobalEnergy - 0.5 &&
+          trialTotalRadius < bestTotalRadius - 2
         ) {
           bestScore = trialScore;
           bestGlobalEnergy = trialGlobalEnergy;
@@ -1868,8 +1886,8 @@ function refineSectorClusters(
         const trialTotalRadius = computeTotalRadius(groups, trialPlacementById);
         if (
           trialScore < bestScore - 1e-6 &&
-          trialGlobalEnergy < bestGlobalEnergy - 4 &&
-          trialTotalRadius < bestTotalRadius - 8
+          trialGlobalEnergy < bestGlobalEnergy - 1.5 &&
+          trialTotalRadius < bestTotalRadius - 4
         ) {
           bestScore = trialScore;
           bestGlobalEnergy = trialGlobalEnergy;
@@ -1899,8 +1917,8 @@ function refineSectorClusters(
           const trialTotalRadius = computeTotalRadius(groups, trialPlacementById);
           if (
             trialScore < bestScore - 1e-6 &&
-            trialGlobalEnergy < bestGlobalEnergy - 4 &&
-            trialTotalRadius < bestTotalRadius - 2
+            trialGlobalEnergy < bestGlobalEnergy - 0.5 &&
+            trialTotalRadius < bestTotalRadius - 1
           ) {
             bestScore = trialScore;
             bestGlobalEnergy = trialGlobalEnergy;

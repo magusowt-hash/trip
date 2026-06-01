@@ -124,12 +124,12 @@ function estimateLabelHalfWidth(title: string, scale: number) {
   const cjkCount = Array.from(compactTitle).filter((char) => /[\u3400-\u9fff\uf900-\ufaff]/.test(char)).length;
   const latinCount = Math.max(0, compactTitle.length - cjkCount);
   const estimatedScreenWidth =
-    28 +
-    cjkCount * GROUP_LABEL_FONT_SCREEN_SIZE * 0.96 +
-    latinCount * GROUP_LABEL_FONT_SCREEN_SIZE * 0.62;
+    34 +
+    cjkCount * GROUP_LABEL_FONT_SCREEN_SIZE * 1.04 +
+    latinCount * GROUP_LABEL_FONT_SCREEN_SIZE * 0.68;
   return Math.max(
-    toLogicalScreenSize(42, safeScale),
-    Math.min(toLogicalScreenSize(LABEL_MAX_SCREEN_WIDTH + 18, safeScale), toLogicalScreenSize(estimatedScreenWidth, safeScale) / 2),
+    toLogicalScreenSize(46, safeScale),
+    Math.min(toLogicalScreenSize(LABEL_MAX_SCREEN_WIDTH + 28, safeScale), toLogicalScreenSize(estimatedScreenWidth, safeScale) / 2),
   );
 }
 
