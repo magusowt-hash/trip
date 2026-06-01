@@ -120,7 +120,7 @@ const REGION_CENTER_ANGLE: Record<RegionKey, number> = {
   W: 180,
   N: 270,
 };
-const GROUP_SAFE_GAP = 14;
+const GROUP_SAFE_GAP = 11;
 const LOCAL_SEARCH_ANGLE_STEPS = [0, -10, 10, -20, 20, -30, 30];
 const LOCAL_SEARCH_RADIUS_FACTORS = [0, -0.35, 0.35];
 const POST_LAYOUT_SEARCH_ANGLE_STEPS = [0, -8, 8, -16, 16, -24, 24, -36, 36];

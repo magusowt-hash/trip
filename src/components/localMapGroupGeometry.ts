@@ -37,10 +37,10 @@ export const GROUP_ENDPOINT_RADIUS_SCREEN = 4;
 
 const PHOTO_RECT_PADDING = 40;
 const PHOTO_BOTTOM_EXTRA = 20;
-const PHOTO_TO_LINE_SCREEN_GAP_MIN = 2;
-const PHOTO_TO_LINE_SCREEN_GAP_MAX = 6;
-const LINE_TO_LABEL_SCREEN_GAP_MIN = 1;
-const LINE_TO_LABEL_SCREEN_GAP_MAX = 4;
+const PHOTO_TO_LINE_SCREEN_GAP_MIN = 1;
+const PHOTO_TO_LINE_SCREEN_GAP_MAX = 4;
+const LINE_TO_LABEL_SCREEN_GAP_MIN = 0;
+const LINE_TO_LABEL_SCREEN_GAP_MAX = 2;
 const LABEL_MAX_SCREEN_WIDTH = 98;
 const GAP_AREA_MIN = 180 * 140;
 const GAP_AREA_MAX = 420 * 260;
@@ -301,13 +301,13 @@ export function scoreGroupGeometryPlacement(
   for (const neighbor of neighbors) {
     pairs.push(
       [candidate.photoRect, neighbor.photoRect, 1],
-      [candidate.photoRect, neighbor.labelRect, 1.15],
-      [candidate.labelRect, neighbor.photoRect, 1.15],
-      [candidate.labelRect, neighbor.labelRect, 1.1],
+      [candidate.photoRect, neighbor.labelRect, 1.3],
+      [candidate.labelRect, neighbor.photoRect, 1.3],
+      [candidate.labelRect, neighbor.labelRect, 1.25],
       [candidate.lineRect, neighbor.photoRect, 0.9],
       [candidate.photoRect, neighbor.lineRect, 0.9],
-      [candidate.lineRect, neighbor.labelRect, 1.05],
-      [candidate.labelRect, neighbor.lineRect, 1.05],
+      [candidate.lineRect, neighbor.labelRect, 1.2],
+      [candidate.labelRect, neighbor.lineRect, 1.2],
       [candidate.lineRect, neighbor.lineRect, 0.8],
     );
   }
