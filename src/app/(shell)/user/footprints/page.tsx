@@ -12,7 +12,15 @@ import { buildRadialLayout } from '@/components/localMapLayoutEngine';
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import type { PhotoItem, PoiPoint } from '@/components/OuterFrameCanvas';
-import { buildPhotoRect, buildGroupGeometryFromPhotoRect, expandPhotoRect } from '@/components/localMapGroupGeometry';
+import {
+  buildPhotoRect,
+  buildGroupGeometryFromPhotoRect,
+  expandPhotoRect,
+  rectsOverlap,
+  scoreGroupGeometryPlacement,
+  translateGroupGeometry,
+} from '@/components/localMapGroupGeometry';
+import type { GroupGeometry } from '@/components/localMapGroupGeometry';
 import type { Viewport } from '@/lib/outerFrameCoords';
 import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 import styles from './footprints.module.css';
@@ -74,6 +82,7 @@ type PendingPlaceGroup = {
   placeKey: string;
   placePhotos: PhotoItem[];
   renderRect: LogicalRect;
+  collisionGeometry: GroupGeometry;
   collisionRect: LogicalRect;
   logicalX: number;
   logicalY: number;
@@ -112,6 +121,8 @@ const REGION_CENTER_ANGLE: Record<RegionKey, number> = {
   N: 270,
 };
 const GROUP_SAFE_GAP = 14;
+const LOCAL_SEARCH_ANGLE_STEPS = [0, -10, 10, -20, 20, -30, 30];
+const LOCAL_SEARCH_RADIUS_FACTORS = [0, -0.35, 0.35];
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -250,6 +261,10 @@ function buildPlaceGeometry(placePhotos: PhotoItem[]) {
   return buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, 1);
 }
 
+function getGroupArea(rect: LogicalRect) {
+  return Math.max(1, (rect.right - rect.left) * (rect.bottom - rect.top));
+}
+
 function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalOffset[]): LogicalRect | null {
   if (placePhotos.length === 0 || offsets.length !== placePhotos.length) return null;
 
@@ -280,56 +295,6 @@ function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalO
   return geometry.groupRect;
 }
 
-function shiftGroupLabelDown(
-  groupRect: LogicalRect,
-  photoRect: LogicalRect,
-  lineRect: LogicalRect,
-  labelRect: LogicalRect,
-  deltaY: number,
-): LogicalRect {
-  if (deltaY <= 0) return groupRect;
-  return {
-    left: groupRect.left,
-    right: groupRect.right,
-    top: Math.min(photoRect.top, lineRect.top),
-    bottom: Math.max(groupRect.bottom, labelRect.bottom + deltaY),
-  };
-}
-
-function resolveLabelDownwardCollision(
-  baseGroupRect: LogicalRect,
-  photoRect: LogicalRect,
-  lineRect: LogicalRect,
-  labelRect: LogicalRect,
-  occupiedRects: LogicalRect[],
-  mapRect: LogicalRect,
-  gap: number,
-) {
-  if (occupiedRects.length === 0) return baseGroupRect;
-  let resolvedRect = baseGroupRect;
-  const step = 6;
-  const maxShift = 72;
-
-  for (let shift = step; shift <= maxShift; shift += step) {
-    const candidate = shiftGroupLabelDown(baseGroupRect, photoRect, lineRect, labelRect, shift);
-    if (!fitsAroundMap(candidate, mapRect, gap)) continue;
-    if (occupiedRects.some((occupied) => rectsOverlap(candidate, occupied, gap))) continue;
-    resolvedRect = candidate;
-    break;
-  }
-
-  return resolvedRect;
-}
-
-function rectsOverlap(a: LogicalRect, b: LogicalRect, gap: number) {
-  return !(
-    a.right + gap <= b.left ||
-    b.right + gap <= a.left ||
-    a.bottom + gap <= b.top ||
-    b.bottom + gap <= a.top
-  );
-}
-
 function buildOffsetsForLayout(
   count: number,
   layout: LocalMapLayoutSettings,
@@ -342,10 +307,6 @@ function buildOffsetsForLayout(
     return buildStaggeredOffsets(count, layout.gapX, layout.gapY, cardSize, layout.staggerAxis);
   }
   return buildRandomOffsets(count, cardSize);
-}
-
-function rectArea(rect: LogicalRect) {
-  return Math.max(0, rect.right - rect.left) * Math.max(0, rect.bottom - rect.top);
 }
 
 function rectCenter(rect: LogicalRect) {
@@ -474,6 +435,90 @@ function translateRect(rect: LogicalRect, centerX: number, centerY: number): Log
     right: rect.right + centerX,
     top: rect.top + centerY,
     bottom: rect.bottom + centerY,
+  };
+}
+
+function getNearbyGeometries(
+  geometry: GroupGeometry,
+  occupiedGeometries: GroupGeometry[],
+  safeGap: number,
+) {
+  return occupiedGeometries.filter((occupied) => rectsOverlap(geometry.groupRect, occupied.groupRect, safeGap));
+}
+
+function scoreCandidateCenter(
+  baseGeometry: GroupGeometry,
+  centerX: number,
+  centerY: number,
+  occupiedGeometries: GroupGeometry[],
+  mapRect: LogicalRect,
+  safeGap: number,
+  originAngle: number,
+  originRadius: number,
+) {
+  const candidate = translateGroupGeometry(baseGeometry, centerX, centerY);
+  if (!fitsAroundMap(candidate.groupRect, mapRect, safeGap)) {
+    return { geometry: candidate, score: Number.POSITIVE_INFINITY };
+  }
+  const neighbors = getNearbyGeometries(candidate, occupiedGeometries, safeGap);
+  const collisionScore = scoreGroupGeometryPlacement(candidate, neighbors, safeGap);
+  const radius = Math.hypot(centerX, centerY);
+  const angle = Math.atan2(centerY, centerX);
+  const radiusPenalty = Math.abs(radius - originRadius) * 0.8;
+  const anglePenalty = Math.abs(angle - originAngle) * 30;
+  return {
+    geometry: candidate,
+    score: collisionScore + radiusPenalty + anglePenalty,
+  };
+}
+
+function findBestLocalGroupCenter(
+  baseGeometry: GroupGeometry,
+  occupiedGeometries: GroupGeometry[],
+  mapRect: LogicalRect,
+  safeGap: number,
+  originAngle: number,
+  originRadius: number,
+) {
+  let best = scoreCandidateCenter(
+    baseGeometry,
+    Math.cos(originAngle) * originRadius,
+    Math.sin(originAngle) * originRadius,
+    occupiedGeometries,
+    mapRect,
+    safeGap,
+    originAngle,
+    originRadius,
+  );
+  const step = Math.min(96, Math.max(24, Math.sqrt(getGroupArea(baseGeometry.photoRect)) * 0.1));
+
+  for (const angleOffset of LOCAL_SEARCH_ANGLE_STEPS) {
+    const angle = originAngle + (angleOffset * Math.PI) / 180;
+    for (const radiusFactor of LOCAL_SEARCH_RADIUS_FACTORS) {
+      const radius = Math.max(0, originRadius + step * radiusFactor);
+      const centerX = Math.cos(angle) * radius;
+      const centerY = Math.sin(angle) * radius;
+      const candidate = scoreCandidateCenter(
+        baseGeometry,
+        centerX,
+        centerY,
+        occupiedGeometries,
+        mapRect,
+        safeGap,
+        originAngle,
+        originRadius,
+      );
+      if (candidate.score < best.score) {
+        best = candidate;
+      }
+    }
+  }
+
+  return {
+    centerX: best.geometry.photoCenterX,
+    centerY: best.geometry.photoCenterY,
+    geometry: best.geometry,
+    score: best.score,
   };
 }
 
@@ -1069,6 +1114,7 @@ function UserFootprintsPageInner() {
       bottom: (viewportHeight * 0.8) / 2,
     };
     const occupiedRects: LogicalRect[] = [];
+    const occupiedGeometries: GroupGeometry[] = [];
 
     const existingGroups = new Map<string, PhotoItem[]>();
     for (const photo of referencePhotos) {
@@ -1080,15 +1126,8 @@ function UserFootprintsPageInner() {
     for (const [, group] of existingGroups) {
       const geometry = buildPlaceGeometry(group);
       if (!geometry) continue;
-      occupiedRects.push(resolveLabelDownwardCollision(
-        geometry.groupRect,
-        geometry.photoRect,
-        geometry.lineRect,
-        geometry.labelRect,
-        occupiedRects,
-        mapRect,
-        cardSize,
-      ));
+      occupiedRects.push(geometry.groupRect);
+      occupiedGeometries.push(geometry);
     }
 
     const pendingNewGroups: PendingPlaceGroup[] = [];
@@ -1103,9 +1142,22 @@ function UserFootprintsPageInner() {
       const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
       const renderRect = buildPlaceBoundsFromOffsets(placePhotos, offsets);
       if (!renderRect) continue;
+      const offsetGeometry = buildGroupGeometryFromPhotoRect(
+        expandPhotoRect({
+          left: Math.min(...offsets.map((item, index) => item.offsetX - getPhotoLogicalSize(placePhotos[index]).width / 2)),
+          right: Math.max(...offsets.map((item, index) => item.offsetX + getPhotoLogicalSize(placePhotos[index]).width / 2)),
+          top: Math.min(...offsets.map((item, index) => item.offsetY - getPhotoLogicalSize(placePhotos[index]).height / 2)),
+          bottom: Math.max(...offsets.map((item, index) => item.offsetY + getPhotoLogicalSize(placePhotos[index]).height / 2)),
+        }),
+        placePhotos[0]?.placeTitle || '',
+        placePhotos.length,
+        1,
+      );
+      if (!offsetGeometry) continue;
       if (placedPhotos.length > 0) {
         const existingRect = buildPlaceBounds(placedPhotos);
-        if (!existingRect) continue;
+        const existingGeometry = buildPlaceGeometry(placedPhotos);
+        if (!existingRect || !existingGeometry) continue;
         const existingCenter = rectCenter(existingRect);
         const directionX = existingCenter.x || 0;
         const directionY = existingCenter.y || 1;
@@ -1118,11 +1170,11 @@ function UserFootprintsPageInner() {
 
         const candidateCenterX = existingCenter.x + unitX * expansionBase;
         const candidateCenterY = existingCenter.y + unitY * expansionBase;
-        const nextRect = translateRect(collisionRect, candidateCenterX, candidateCenterY);
-        const occupiedByOthers = occupiedRects.filter((rect) => rect !== existingRect);
+        const nextGeometry = translateGroupGeometry(offsetGeometry, candidateCenterX, candidateCenterY);
+        const occupiedByOthers = occupiedGeometries.filter((geometry) => geometry !== existingGeometry);
         const canExpandOutward =
-          fitsAroundMap(nextRect, mapRect, cardSize) &&
-          !occupiedByOthers.some((occupied) => rectsOverlap(nextRect, occupied, cardSize));
+          fitsAroundMap(nextGeometry.groupRect, mapRect, cardSize) &&
+          scoreGroupGeometryPlacement(nextGeometry, occupiedByOthers, cardSize) === 0;
 
         if (!canExpandOutward) {
           const fitOffsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
@@ -1139,40 +1191,20 @@ function UserFootprintsPageInner() {
           }
         }
         const placedRect = buildPlaceBounds(placePhotos);
-        if (placedRect) {
+        const placedGeometry = buildPlaceGeometry(placePhotos);
+        if (placedRect && placedGeometry) {
           occupiedRects.push(placedRect);
+          occupiedGeometries.push(placedGeometry);
         }
         continue;
       }
-
-      const offsetGeometry = buildGroupGeometryFromPhotoRect(
-        expandPhotoRect({
-          left: Math.min(...offsets.map((item, index) => item.offsetX - getPhotoLogicalSize(placePhotos[index]).width / 2)),
-          right: Math.max(...offsets.map((item, index) => item.offsetX + getPhotoLogicalSize(placePhotos[index]).width / 2)),
-          top: Math.min(...offsets.map((item, index) => item.offsetY - getPhotoLogicalSize(placePhotos[index]).height / 2)),
-          bottom: Math.max(...offsets.map((item, index) => item.offsetY + getPhotoLogicalSize(placePhotos[index]).height / 2)),
-        }),
-        placePhotos[0]?.placeTitle || '',
-        placePhotos.length,
-        1,
-      );
-      const collisionRect = offsetGeometry
-        ? resolveLabelDownwardCollision(
-          offsetGeometry.groupRect,
-          offsetGeometry.photoRect,
-          offsetGeometry.lineRect,
-          offsetGeometry.labelRect,
-          occupiedRects,
-          mapRect,
-          cardSize,
-        )
-        : renderRect;
 
       pendingNewGroups.push({
         placeKey,
         placePhotos,
         renderRect,
-        collisionRect,
+        collisionGeometry: offsetGeometry,
+        collisionRect: offsetGeometry.groupRect,
         logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
         logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
         offsets,
@@ -1194,23 +1226,18 @@ function UserFootprintsPageInner() {
           if (!target) return;
           const angle = REGION_CENTER_ANGLE[sequence.region];
           const radians = angle * (Math.PI / 180);
-          const rayX = Math.cos(radians);
-          const rayY = Math.sin(radians);
           const baseRadius = Math.max(viewportWidth, viewportHeight) * 0.38;
-          const sortedOccupied = occupiedRects
-            .map((rect) => ({ rect, area: rectArea(rect) }))
-            .sort((a, b) => b.area - a.area);
-
           let chosenCenter = findNearestAvailableGroupCenter(target.collisionRect, occupiedRects, mapRect, cardSize);
-          for (let radiusStep = 0; radiusStep < 8; radiusStep++) {
-            const radius = baseRadius + radiusStep * Math.max(cardSize, 80);
-            const centerX = rayX * radius;
-            const centerY = rayY * radius;
-            const rect = translateRect(target.collisionRect, centerX, centerY);
-            if (!fitsAroundMap(rect, mapRect, cardSize)) continue;
-            if (sortedOccupied.some((occupied) => rectsOverlap(rect, occupied.rect, cardSize))) continue;
-            chosenCenter = { x: centerX, y: centerY };
-            break;
+          const localPlacement = findBestLocalGroupCenter(
+            target.collisionGeometry,
+            occupiedGeometries,
+            mapRect,
+            cardSize,
+            radians,
+            baseRadius,
+          );
+          if (Number.isFinite(localPlacement.score)) {
+            chosenCenter = { x: localPlacement.centerX, y: localPlacement.centerY };
           }
 
           for (let i = 0; i < target.placePhotos.length; i++) {
@@ -1219,8 +1246,10 @@ function UserFootprintsPageInner() {
           }
 
           const placedRect = buildPlaceBounds(target.placePhotos);
-          if (placedRect) {
+          const placedGeometry = buildPlaceGeometry(target.placePhotos);
+          if (placedRect && placedGeometry) {
             occupiedRects.push(placedRect);
+            occupiedGeometries.push(placedGeometry);
           }
         });
       }
@@ -1245,7 +1274,11 @@ function UserFootprintsPageInner() {
         }
 
         const placedRect = buildPlaceBounds(group.placePhotos);
-        if (placedRect) occupiedRects.push(placedRect);
+        const placedGeometry = buildPlaceGeometry(group.placePhotos);
+        if (placedRect && placedGeometry) {
+          occupiedRects.push(placedRect);
+          occupiedGeometries.push(placedGeometry);
+        }
       }
     }
   }

@@ -46,6 +46,8 @@ const GAP_AREA_MIN = 180 * 140;
 const GAP_AREA_MAX = 420 * 260;
 const SMALL_GROUP_COUNT_MAX = 4;
 const SMALL_GROUP_TIGHTEN_MAX = 0.7;
+const HARD_OVERLAP_WEIGHT = 1000;
+const SOFT_GAP_WEIGHT = 20;
 
 function toLogicalScreenSize(screenSize: number, scale: number) {
   return screenSize / Math.max(scale, 0.1);
@@ -60,7 +62,7 @@ function unionRect(a: LogicalRect, b: LogicalRect): LogicalRect {
   };
 }
 
-function rectsOverlap(a: LogicalRect, b: LogicalRect, gap: number) {
+export function rectsOverlap(a: LogicalRect, b: LogicalRect, gap: number) {
   return !(
     a.right + gap <= b.left ||
     b.right + gap <= a.left ||
@@ -69,10 +71,31 @@ function rectsOverlap(a: LogicalRect, b: LogicalRect, gap: number) {
   );
 }
 
+function rectOverlapArea(a: LogicalRect, b: LogicalRect) {
+  const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+  const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  return width * height;
+}
+
+function rectGapDistance(a: LogicalRect, b: LogicalRect) {
+  const dx = Math.max(0, Math.max(b.left - a.right, a.left - b.right));
+  const dy = Math.max(0, Math.max(b.top - a.bottom, a.top - b.bottom));
+  return Math.hypot(dx, dy);
+}
+
 function rectCenter(rect: LogicalRect) {
   return {
     x: (rect.left + rect.right) / 2,
     y: (rect.top + rect.bottom) / 2,
+  };
+}
+
+export function translateLogicalRect(rect: LogicalRect, offsetX: number, offsetY: number): LogicalRect {
+  return {
+    left: rect.left + offsetX,
+    right: rect.right + offsetX,
+    top: rect.top + offsetY,
+    bottom: rect.bottom + offsetY,
   };
 }
 
@@ -244,6 +267,64 @@ export function shiftGroupGeometryDown(
     labelAnchorY: geometry.labelAnchorY + deltaY,
     lineAnchorY: geometry.lineAnchorY + deltaY,
   };
+}
+
+export function translateGroupGeometry(
+  geometry: GroupGeometry,
+  offsetX: number,
+  offsetY: number,
+): GroupGeometry {
+  return {
+    ...geometry,
+    photoRect: translateLogicalRect(geometry.photoRect, offsetX, offsetY),
+    labelRect: translateLogicalRect(geometry.labelRect, offsetX, offsetY),
+    lineRect: translateLogicalRect(geometry.lineRect, offsetX, offsetY),
+    groupRect: translateLogicalRect(geometry.groupRect, offsetX, offsetY),
+    overallRect: translateLogicalRect(geometry.overallRect, offsetX, offsetY),
+    photoCenterX: geometry.photoCenterX + offsetX,
+    photoCenterY: geometry.photoCenterY + offsetY,
+    labelAnchorX: geometry.labelAnchorX + offsetX,
+    labelAnchorY: geometry.labelAnchorY + offsetY,
+    lineAnchorX: geometry.lineAnchorX + offsetX,
+    lineAnchorY: geometry.lineAnchorY + offsetY,
+  };
+}
+
+export function scoreGroupGeometryPlacement(
+  candidate: GroupGeometry,
+  neighbors: GroupGeometry[],
+  safeGap: number,
+): number {
+  let score = 0;
+  const pairs: Array<[LogicalRect, LogicalRect, number]> = [];
+
+  for (const neighbor of neighbors) {
+    pairs.push(
+      [candidate.photoRect, neighbor.photoRect, 1],
+      [candidate.photoRect, neighbor.labelRect, 1.15],
+      [candidate.labelRect, neighbor.photoRect, 1.15],
+      [candidate.labelRect, neighbor.labelRect, 1.1],
+      [candidate.lineRect, neighbor.photoRect, 0.9],
+      [candidate.photoRect, neighbor.lineRect, 0.9],
+      [candidate.lineRect, neighbor.labelRect, 1.05],
+      [candidate.labelRect, neighbor.lineRect, 1.05],
+      [candidate.lineRect, neighbor.lineRect, 0.8],
+    );
+  }
+
+  for (const [left, right, weight] of pairs) {
+    const overlapArea = rectOverlapArea(left, right);
+    if (overlapArea > 0) {
+      score += overlapArea * HARD_OVERLAP_WEIGHT * weight;
+      continue;
+    }
+    const gapDistance = rectGapDistance(left, right);
+    if (gapDistance >= safeGap) continue;
+    const gapPenalty = safeGap - gapDistance;
+    score += gapPenalty * gapPenalty * SOFT_GAP_WEIGHT * weight;
+  }
+
+  return score;
 }
 
 export function resolveGroupGeometryDownward<T extends string = string>(
