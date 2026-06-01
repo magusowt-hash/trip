@@ -130,6 +130,8 @@ const NEIGHBOR_NUDGE_STEPS = [-48, -32, -16, 16, 32, 48];
 const OUTER_CORNER_MIN_RADIUS = 2400;
 const OUTER_CORNER_SAFE_MARGIN = 28;
 const OUTER_CORNER_ANGLE_LIMIT = Math.PI / 6;
+const RADIAL_SHRINK_ANGLE_DEGREES = [0, -6, 6, -12, 12, -18, 18];
+const RADIAL_SHRINK_STEPS = [560, 480, 400, 320, 240, 180, 120, 80, 40];
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -472,7 +474,7 @@ function scoreCandidateCenter(
 ) {
   const candidate = translateGroupGeometry(baseGeometry, centerX, centerY);
   if (!fitsAroundMap(candidate.groupRect, mapRect, safeGap)) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY };
+    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
   }
   const neighbors = getNearbyGeometries(candidate, occupiedGeometries, safeGap);
   const collisionScore = scoreGroupGeometryPlacement(candidate, neighbors, safeGap, { labelGapBoost });
@@ -483,6 +485,7 @@ function scoreCandidateCenter(
   return {
     geometry: candidate,
     score: collisionScore + radiusPenalty + anglePenalty,
+    collisionScore,
   };
 }
 
@@ -656,18 +659,18 @@ function scoreCandidateAroundCurrentCenter(
 ) {
   const candidate = translateGroupGeometry(baseGeometry, centerX, centerY);
   if (!fitsAroundMap(candidate.groupRect, mapRect, safeGap)) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY };
+    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
   }
   if (
     anchorRadius >= OUTER_CORNER_MIN_RADIUS &&
     !isWithinOuterCornerSector(logicalX, logicalY, centerX, centerY)
   ) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY };
+    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
   }
   const trialPlacementById = new Map(placementById);
   trialPlacementById.set(placeKey, { centerX, centerY });
   if (hasIntersectingLines(trialPlacementById, groups)) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY };
+    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
   }
 
   const neighbors = getNearbyGeometries(candidate, occupiedGeometries, safeGap);
@@ -714,6 +717,7 @@ function scoreCandidateAroundCurrentCenter(
       lineLengthPenalty +
       outerCornerAxisPenalty +
       outerCornerMarginPenalty,
+    collisionScore,
   };
 }
 
@@ -803,6 +807,117 @@ function refineGroupCenterFromCurrentPlacement(
     centerY: best.geometry.photoCenterY,
     geometry: best.geometry,
     score: best.score,
+  };
+}
+
+function buildRadialRefineOrder(groups: PendingPlaceGroup[]) {
+  return [...groups].sort((left, right) => {
+    const leftRadius = Math.hypot(left.logicalX, left.logicalY);
+    const rightRadius = Math.hypot(right.logicalX, right.logicalY);
+    if (Math.abs(rightRadius - leftRadius) > 1e-6) return rightRadius - leftRadius;
+    const leftArea = getGroupArea(left.collisionGeometry.photoRect);
+    const rightArea = getGroupArea(right.collisionGeometry.photoRect);
+    if (Math.abs(rightArea - leftArea) > 1e-6) return rightArea - leftArea;
+    return left.placeKey.localeCompare(right.placeKey, 'zh-CN');
+  });
+}
+
+function findMinimalFeasibleRadius(
+  group: PendingPlaceGroup,
+  currentPlacement: { centerX: number; centerY: number },
+  occupiedGeometries: GroupGeometry[],
+  mapRect: LogicalRect,
+  safeGap: number,
+  labelGapBoost: number,
+  placementById: Map<string, { centerX: number; centerY: number }>,
+  groups: PendingPlaceGroup[],
+) {
+  const currentRadius = Math.hypot(currentPlacement.centerX, currentPlacement.centerY);
+  const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
+  const fallback = scoreCandidateAroundCurrentCenter(
+    group.placeKey,
+    group.collisionGeometry,
+    currentPlacement.centerX,
+    currentPlacement.centerY,
+    group.logicalX,
+    group.logicalY,
+    occupiedGeometries,
+    mapRect,
+    safeGap,
+    currentAngle,
+    currentRadius,
+    currentAngle,
+    currentRadius,
+    labelGapBoost,
+    placementById,
+    groups,
+  );
+
+  for (const step of RADIAL_SHRINK_STEPS) {
+    let bestAtRadius: null | {
+      centerX: number;
+      centerY: number;
+      geometry: GroupGeometry;
+      score: number;
+      angleOffsetAbs: number;
+    } = null;
+    for (const angleOffset of RADIAL_SHRINK_ANGLE_DEGREES) {
+      const angle = currentAngle + (angleOffset * Math.PI) / 180;
+      const radius = Math.max(0, currentRadius - step);
+      const centerX = Math.cos(angle) * radius;
+      const centerY = Math.sin(angle) * radius;
+      const candidate = scoreCandidateAroundCurrentCenter(
+        group.placeKey,
+        group.collisionGeometry,
+        centerX,
+        centerY,
+        group.logicalX,
+        group.logicalY,
+        occupiedGeometries,
+        mapRect,
+        safeGap,
+        currentAngle,
+        currentRadius,
+        currentAngle,
+        currentRadius,
+        labelGapBoost,
+        placementById,
+        groups,
+      );
+      if (!Number.isFinite(candidate.score) || candidate.collisionScore !== 0) continue;
+      const candidateEntry = {
+        centerX: candidate.geometry.photoCenterX,
+        centerY: candidate.geometry.photoCenterY,
+        geometry: candidate.geometry,
+        score: candidate.score,
+        angleOffsetAbs: Math.abs(angleOffset),
+      };
+      if (
+        !bestAtRadius ||
+        candidateEntry.score < bestAtRadius.score - 1e-6 ||
+        (
+          Math.abs(candidateEntry.score - bestAtRadius.score) <= 1e-6 &&
+          candidateEntry.angleOffsetAbs < bestAtRadius.angleOffsetAbs
+        )
+      ) {
+        bestAtRadius = candidateEntry;
+      }
+    }
+    if (bestAtRadius) {
+      return {
+        centerX: bestAtRadius.centerX,
+        centerY: bestAtRadius.centerY,
+        geometry: bestAtRadius.geometry,
+        score: bestAtRadius.score,
+      };
+    }
+  }
+
+  return {
+    centerX: currentPlacement.centerX,
+    centerY: currentPlacement.centerY,
+    geometry: fallback.geometry,
+    score: fallback.score,
   };
 }
 
@@ -956,11 +1071,41 @@ function refineRadialPlacements(
   if (groups.length === 0) return placementById;
 
   const nextPlacementById = new Map(placementById);
+  const orderedGroups = buildRadialRefineOrder(groups);
+
+  for (const group of orderedGroups) {
+    const currentPlacement = nextPlacementById.get(group.placeKey);
+    if (!currentPlacement) continue;
+    const occupiedGeometries = groups
+      .filter((candidate) => candidate.placeKey !== group.placeKey)
+      .map((candidate) => {
+        const placement = nextPlacementById.get(candidate.placeKey);
+        if (!placement) return null;
+        return translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY);
+      })
+      .filter((candidate): candidate is GroupGeometry => candidate !== null);
+    const shrunk = findMinimalFeasibleRadius(
+      group,
+      currentPlacement,
+      occupiedGeometries,
+      mapRect,
+      safeGap,
+      labelGapBoost,
+      nextPlacementById,
+      groups,
+    );
+    if (
+      Number.isFinite(shrunk.score) &&
+      (Math.abs(shrunk.centerX - currentPlacement.centerX) > 1 || Math.abs(shrunk.centerY - currentPlacement.centerY) > 1)
+    ) {
+      nextPlacementById.set(group.placeKey, { centerX: shrunk.centerX, centerY: shrunk.centerY });
+    }
+  }
 
   for (let pass = 0; pass < POST_LAYOUT_REFINE_PASSES; pass++) {
     let changed = false;
 
-    for (const group of groups) {
+    for (const group of orderedGroups) {
       const currentPlacement = nextPlacementById.get(group.placeKey);
       if (!currentPlacement) continue;
 
