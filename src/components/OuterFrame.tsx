@@ -146,10 +146,10 @@ export default function OuterFrame({
     for (const [, groupPhotos] of groups) {
       const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize, VIEWPORT_GEOMETRY_SCALE);
       if (!geometry) continue;
-      left = Math.min(left, geometry.overallRect.left);
-      right = Math.max(right, geometry.overallRect.right);
-      top = Math.min(top, geometry.overallRect.top);
-      bottom = Math.max(bottom, geometry.overallRect.bottom);
+      left = Math.min(left, geometry.groupRect.left);
+      right = Math.max(right, geometry.groupRect.right);
+      top = Math.min(top, geometry.groupRect.top);
+      bottom = Math.max(bottom, geometry.groupRect.bottom);
     }
 
     if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {

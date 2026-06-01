@@ -12,6 +12,8 @@ export type LogicalRect = {
 export type GroupGeometry = {
   photoRect: LogicalRect;
   labelRect: LogicalRect;
+  lineRect: LogicalRect;
+  groupRect: LogicalRect;
   overallRect: LogicalRect;
   photoCenterX: number;
   photoCenterY: number;
@@ -31,9 +33,15 @@ export const GROUP_ENDPOINT_RADIUS_SCREEN = 4;
 
 const PHOTO_RECT_PADDING = 40;
 const PHOTO_BOTTOM_EXTRA = 20;
-const PHOTO_TO_LINE_SCREEN_GAP = 6;
-const LINE_TO_LABEL_SCREEN_GAP = 4;
+const PHOTO_TO_LINE_SCREEN_GAP_MIN = 4;
+const PHOTO_TO_LINE_SCREEN_GAP_MAX = 10;
+const LINE_TO_LABEL_SCREEN_GAP_MIN = 2;
+const LINE_TO_LABEL_SCREEN_GAP_MAX = 6;
 const LABEL_MAX_SCREEN_WIDTH = 98;
+const GAP_AREA_MIN = 180 * 140;
+const GAP_AREA_MAX = 420 * 260;
+const SMALL_GROUP_COUNT_MAX = 4;
+const SMALL_GROUP_TIGHTEN_MAX = 0.5;
 
 function toLogicalScreenSize(screenSize: number, scale: number) {
   return screenSize / Math.max(scale, 0.1);
@@ -53,6 +61,25 @@ function rectCenter(rect: LogicalRect) {
     x: (rect.left + rect.right) / 2,
     y: (rect.top + rect.bottom) / 2,
   };
+}
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function lerp(min: number, max: number, t: number) {
+  return min + (max - min) * t;
+}
+
+function buildAdaptiveGapScreenSize(
+  min: number,
+  max: number,
+  areaFactor: number,
+  photoCount: number,
+) {
+  const smallGroupProgress = clamp01((SMALL_GROUP_COUNT_MAX - photoCount) / Math.max(1, SMALL_GROUP_COUNT_MAX - 1));
+  const tightenedFactor = clamp01(areaFactor - smallGroupProgress * SMALL_GROUP_TIGHTEN_MAX);
+  return lerp(min, max, tightenedFactor);
 }
 
 function estimateLabelHalfWidth(title: string, scale: number) {
@@ -101,6 +128,7 @@ export function buildPhotoRect(
 export function buildGroupGeometryFromPhotoRect(
   photoRect: LogicalRect,
   title: string,
+  photoCount = 1,
   scale = 1,
 ): GroupGeometry {
   const safeScale = Math.max(scale, 0.1);
@@ -108,8 +136,18 @@ export function buildGroupGeometryFromPhotoRect(
   const labelSide: GroupLabelSide = 'bottom';
   const labelHalfWidth = estimateLabelHalfWidth(title, safeScale);
   const lineAnchorRadius = toLogicalScreenSize(GROUP_ENDPOINT_RADIUS_SCREEN, safeScale);
-  const photoToLineGap = toLogicalScreenSize(PHOTO_TO_LINE_SCREEN_GAP, safeScale);
-  const lineToLabelGap = toLogicalScreenSize(LINE_TO_LABEL_SCREEN_GAP, safeScale);
+  const photoWidth = Math.max(1, photoRect.right - photoRect.left);
+  const photoHeight = Math.max(1, photoRect.bottom - photoRect.top);
+  const photoArea = photoWidth * photoHeight;
+  const areaFactor = clamp01((photoArea - GAP_AREA_MIN) / Math.max(1, GAP_AREA_MAX - GAP_AREA_MIN));
+  const photoToLineGap = toLogicalScreenSize(
+    buildAdaptiveGapScreenSize(PHOTO_TO_LINE_SCREEN_GAP_MIN, PHOTO_TO_LINE_SCREEN_GAP_MAX, areaFactor, photoCount),
+    safeScale,
+  );
+  const lineToLabelGap = toLogicalScreenSize(
+    buildAdaptiveGapScreenSize(LINE_TO_LABEL_SCREEN_GAP_MIN, LINE_TO_LABEL_SCREEN_GAP_MAX, areaFactor, photoCount),
+    safeScale,
+  );
   const labelHalfHeight = toLogicalScreenSize(GROUP_LABEL_HEIGHT_SCREEN, safeScale) / 2;
   const labelAnchorX = photoCenter.x;
   const lineAnchorX = labelAnchorX;
@@ -129,11 +167,14 @@ export function buildGroupGeometryFromPhotoRect(
     bottom: lineAnchorY + lineAnchorRadius,
   };
 
-  const overallRect = unionRect(unionRect(photoRect, labelRect), lineRect);
+  const groupRect = unionRect(unionRect(photoRect, labelRect), lineRect);
+  const overallRect = groupRect;
 
   return {
     photoRect,
     labelRect,
+    lineRect,
+    groupRect,
     overallRect,
     photoCenterX: photoCenter.x,
     photoCenterY: photoCenter.y,
@@ -153,5 +194,5 @@ export function buildGroupGeometry(
   const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
   const title = groupPhotos[0]?.placeTitle || '';
-  return buildGroupGeometryFromPhotoRect(photoRect, title, scale);
+  return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale);
 }

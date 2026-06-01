@@ -221,8 +221,14 @@ function buildRandomOffsets(count: number, cardSize: number) {
 function buildPlaceBounds(placePhotos: PhotoItem[]): LogicalRect | null {
   const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
-  const geometry = buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', 1);
-  return geometry.overallRect;
+  const geometry = buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, 1);
+  return geometry.groupRect;
+}
+
+function buildPlaceGeometry(placePhotos: PhotoItem[]) {
+  const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
+  if (!photoRect) return null;
+  return buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, 1);
 }
 
 function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalOffset[]): LogicalRect | null {
@@ -248,10 +254,52 @@ function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalO
   const geometry = buildGroupGeometryFromPhotoRect(
     expandPhotoRect({ left, right, top, bottom }),
     placePhotos[0]?.placeTitle || '',
+    placePhotos.length,
     1,
   );
 
-  return geometry.overallRect;
+  return geometry.groupRect;
+}
+
+function shiftGroupLabelDown(
+  groupRect: LogicalRect,
+  photoRect: LogicalRect,
+  lineRect: LogicalRect,
+  labelRect: LogicalRect,
+  deltaY: number,
+): LogicalRect {
+  if (deltaY <= 0) return groupRect;
+  return {
+    left: groupRect.left,
+    right: groupRect.right,
+    top: Math.min(photoRect.top, lineRect.top),
+    bottom: Math.max(groupRect.bottom, labelRect.bottom + deltaY),
+  };
+}
+
+function resolveLabelDownwardCollision(
+  baseGroupRect: LogicalRect,
+  photoRect: LogicalRect,
+  lineRect: LogicalRect,
+  labelRect: LogicalRect,
+  occupiedRects: LogicalRect[],
+  mapRect: LogicalRect,
+  gap: number,
+) {
+  if (occupiedRects.length === 0) return baseGroupRect;
+  let resolvedRect = baseGroupRect;
+  const step = 6;
+  const maxShift = 72;
+
+  for (let shift = step; shift <= maxShift; shift += step) {
+    const candidate = shiftGroupLabelDown(baseGroupRect, photoRect, lineRect, labelRect, shift);
+    if (!fitsAroundMap(candidate, mapRect, gap)) continue;
+    if (occupiedRects.some((occupied) => rectsOverlap(candidate, occupied, gap))) continue;
+    resolvedRect = candidate;
+    break;
+  }
+
+  return resolvedRect;
 }
 
 function rectsOverlap(a: LogicalRect, b: LogicalRect, gap: number) {
@@ -966,9 +1014,17 @@ function UserFootprintsPageInner() {
       existingGroups.set(photo.placeKey, arr);
     }
     for (const [, group] of existingGroups) {
-      const rect = buildPlaceBounds(group);
-      if (!rect) continue;
-      occupiedRects.push(rect);
+      const geometry = buildPlaceGeometry(group);
+      if (!geometry) continue;
+      occupiedRects.push(resolveLabelDownwardCollision(
+        geometry.groupRect,
+        geometry.photoRect,
+        geometry.lineRect,
+        geometry.labelRect,
+        occupiedRects,
+        mapRect,
+        cardSize,
+      ));
     }
 
     const pendingNewGroups: PendingPlaceGroup[] = [];
@@ -1025,11 +1081,34 @@ function UserFootprintsPageInner() {
         continue;
       }
 
+      const offsetGeometry = buildGroupGeometryFromPhotoRect(
+        expandPhotoRect({
+          left: Math.min(...offsets.map((item, index) => item.offsetX - getPhotoLogicalSize(placePhotos[index]).width / 2)),
+          right: Math.max(...offsets.map((item, index) => item.offsetX + getPhotoLogicalSize(placePhotos[index]).width / 2)),
+          top: Math.min(...offsets.map((item, index) => item.offsetY - getPhotoLogicalSize(placePhotos[index]).height / 2)),
+          bottom: Math.max(...offsets.map((item, index) => item.offsetY + getPhotoLogicalSize(placePhotos[index]).height / 2)),
+        }),
+        placePhotos[0]?.placeTitle || '',
+        placePhotos.length,
+        1,
+      );
+      const collisionRect = offsetGeometry
+        ? resolveLabelDownwardCollision(
+          offsetGeometry.groupRect,
+          offsetGeometry.photoRect,
+          offsetGeometry.lineRect,
+          offsetGeometry.labelRect,
+          occupiedRects,
+          mapRect,
+          cardSize,
+        )
+        : renderRect;
+
       pendingNewGroups.push({
         placeKey,
         placePhotos,
         renderRect,
-        collisionRect: renderRect,
+        collisionRect,
         logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
         logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
         offsets,
