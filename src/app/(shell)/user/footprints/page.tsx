@@ -127,6 +127,8 @@ const POST_LAYOUT_SEARCH_ANGLE_STEPS = [0, -8, 8, -16, 16, -24, 24, -36, 36];
 const POST_LAYOUT_SEARCH_RADIUS_STEPS = [0, -360, -280, -200, -120, -60, 80, 160];
 const POST_LAYOUT_REFINE_PASSES = 3;
 const NEIGHBOR_NUDGE_STEPS = [-48, -32, -16, 16, 32, 48];
+const OUTER_CORNER_MIN_RADIUS = 2800;
+const OUTER_CORNER_SAFE_MARGIN = 28;
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -598,11 +600,63 @@ function hasIntersectingLines(
   ));
 }
 
+function getCornerBoundsForPoint(mapRect: LogicalRect, x: number, y: number) {
+  const horizontal = x >= 0 ? 'right' : 'left';
+  const vertical = y >= 0 ? 'bottom' : 'top';
+  return {
+    horizontal,
+    vertical,
+    xLimit: horizontal === 'right' ? mapRect.right : mapRect.left,
+    yLimit: vertical === 'bottom' ? mapRect.bottom : mapRect.top,
+  };
+}
+
+function isWithinOuterCornerRegion(
+  mapRect: LogicalRect,
+  anchorX: number,
+  anchorY: number,
+  centerX: number,
+  centerY: number,
+  geometry: GroupGeometry,
+  safeMargin: number,
+) {
+  const corner = getCornerBoundsForPoint(mapRect, anchorX, anchorY);
+  const rect = geometry.groupRect;
+  const beyondHorizontal = corner.horizontal === 'right'
+    ? rect.left >= corner.xLimit + safeMargin
+    : rect.right <= corner.xLimit - safeMargin;
+  const beyondVertical = corner.vertical === 'bottom'
+    ? rect.top >= corner.yLimit + safeMargin
+    : rect.bottom <= corner.yLimit - safeMargin;
+  if (!beyondHorizontal || !beyondVertical) return false;
+
+  if (corner.horizontal === 'right' && centerX < anchorX - 1e-6) return false;
+  if (corner.horizontal === 'left' && centerX > anchorX + 1e-6) return false;
+  if (corner.vertical === 'bottom' && centerY < anchorY - 1e-6) return false;
+  if (corner.vertical === 'top' && centerY > anchorY + 1e-6) return false;
+  return true;
+}
+
+function computeOuterCornerAxisPenalty(
+  mapRect: LogicalRect,
+  anchorX: number,
+  anchorY: number,
+  centerX: number,
+  centerY: number,
+) {
+  const corner = getCornerBoundsForPoint(mapRect, anchorX, anchorY);
+  const dx = Math.abs(centerX - corner.xLimit);
+  const dy = Math.abs(centerY - corner.yLimit);
+  return Math.abs(dx - dy);
+}
+
 function scoreCandidateAroundCurrentCenter(
   placeKey: string,
   baseGeometry: GroupGeometry,
   centerX: number,
   centerY: number,
+  logicalX: number,
+  logicalY: number,
   occupiedGeometries: GroupGeometry[],
   mapRect: LogicalRect,
   safeGap: number,
@@ -616,6 +670,20 @@ function scoreCandidateAroundCurrentCenter(
 ) {
   const candidate = translateGroupGeometry(baseGeometry, centerX, centerY);
   if (!fitsAroundMap(candidate.groupRect, mapRect, safeGap)) {
+    return { geometry: candidate, score: Number.POSITIVE_INFINITY };
+  }
+  if (
+    currentRadius >= OUTER_CORNER_MIN_RADIUS &&
+    !isWithinOuterCornerRegion(
+      mapRect,
+      logicalX,
+      logicalY,
+      centerX,
+      centerY,
+      candidate,
+      OUTER_CORNER_SAFE_MARGIN,
+    )
+  ) {
     return { geometry: candidate, score: Number.POSITIVE_INFINITY };
   }
   const trialPlacementById = new Map(placementById);
@@ -644,6 +712,10 @@ function scoreCandidateAroundCurrentCenter(
     : middleBand
       ? Math.max(0, radius - currentRadius) * 0.85
       : Math.max(0, radius - currentRadius) * 0.35;
+  const lineLengthPenalty = outerBand ? radius * 0.18 : radius * 0.05;
+  const outerCornerAxisPenalty = outerBand
+    ? computeOuterCornerAxisPenalty(mapRect, logicalX, logicalY, centerX, centerY) * 0.16
+    : 0;
 
   return {
     geometry: candidate,
@@ -654,7 +726,9 @@ function scoreCandidateAroundCurrentCenter(
       anchorRadiusPenalty +
       anchorAnglePenalty +
       inwardBias +
-      outwardPenalty,
+      outwardPenalty +
+      lineLengthPenalty +
+      outerCornerAxisPenalty,
   };
 }
 
@@ -663,6 +737,8 @@ function refineGroupCenterFromCurrentPlacement(
   baseGeometry: GroupGeometry,
   currentCenterX: number,
   currentCenterY: number,
+  logicalX: number,
+  logicalY: number,
   occupiedGeometries: GroupGeometry[],
   mapRect: LogicalRect,
   safeGap: number,
@@ -679,6 +755,8 @@ function refineGroupCenterFromCurrentPlacement(
     baseGeometry,
     currentCenterX,
     currentCenterY,
+    logicalX,
+    logicalY,
     occupiedGeometries,
     mapRect,
     safeGap,
@@ -704,6 +782,8 @@ function refineGroupCenterFromCurrentPlacement(
         baseGeometry,
         centerX,
         centerY,
+        logicalX,
+        logicalY,
         occupiedGeometries,
         mapRect,
         safeGap,
@@ -903,6 +983,8 @@ function refineRadialPlacements(
         group.collisionGeometry,
         currentPlacement.centerX,
         currentPlacement.centerY,
+        group.logicalX,
+        group.logicalY,
         occupiedGeometries,
         mapRect,
         safeGap,
