@@ -375,7 +375,7 @@ export function selectBestGroupGeometryLabelCandidate(
   mapRect?: LogicalRect,
   safeGap = 10,
 ) {
-  const candidates = [geometry, ...buildGroupGeometryLabelCandidates(geometry)];
+  const candidates = [geometry, ...buildGroupGeometryLabelCandidates(geometry).slice(0, 5)];
   let best = geometry;
   let bestScore = Number.POSITIVE_INFINITY;
 

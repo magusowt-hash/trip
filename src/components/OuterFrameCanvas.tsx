@@ -6,6 +6,7 @@ import {
   buildGroupGeometry,
   GROUP_LABEL_FONT_SCREEN_SIZE,
   GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
+  type GroupLabelSide,
   resolveGroupGeometryLabels,
 } from './localMapGroupGeometry';
 
@@ -52,7 +53,7 @@ export interface PlaceRect {
   labelTop: number;
   labelRight: number;
   labelBottom: number;
-  labelSide: 'top' | 'bottom';
+  labelSide: GroupLabelSide;
   labelAnchorX: number;
   labelAnchorY: number;
 }
