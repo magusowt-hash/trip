@@ -127,8 +127,9 @@ const POST_LAYOUT_SEARCH_ANGLE_STEPS = [0, -8, 8, -16, 16, -24, 24, -36, 36];
 const POST_LAYOUT_SEARCH_RADIUS_STEPS = [0, -360, -280, -200, -120, -60, 80, 160];
 const POST_LAYOUT_REFINE_PASSES = 3;
 const NEIGHBOR_NUDGE_STEPS = [-48, -32, -16, 16, 32, 48];
-const OUTER_CORNER_MIN_RADIUS = 2800;
+const OUTER_CORNER_MIN_RADIUS = 2400;
 const OUTER_CORNER_SAFE_MARGIN = 28;
+const OUTER_CORNER_ANGLE_LIMIT = Math.PI / 6;
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -611,30 +612,15 @@ function getCornerBoundsForPoint(mapRect: LogicalRect, x: number, y: number) {
   };
 }
 
-function isWithinOuterCornerRegion(
-  mapRect: LogicalRect,
+function isWithinOuterCornerSector(
   anchorX: number,
   anchorY: number,
   centerX: number,
   centerY: number,
-  geometry: GroupGeometry,
-  safeMargin: number,
 ) {
-  const corner = getCornerBoundsForPoint(mapRect, anchorX, anchorY);
-  const rect = geometry.groupRect;
-  const beyondHorizontal = corner.horizontal === 'right'
-    ? rect.left >= corner.xLimit + safeMargin
-    : rect.right <= corner.xLimit - safeMargin;
-  const beyondVertical = corner.vertical === 'bottom'
-    ? rect.top >= corner.yLimit + safeMargin
-    : rect.bottom <= corner.yLimit - safeMargin;
-  if (!beyondHorizontal || !beyondVertical) return false;
-
-  if (corner.horizontal === 'right' && centerX < anchorX - 1e-6) return false;
-  if (corner.horizontal === 'left' && centerX > anchorX + 1e-6) return false;
-  if (corner.vertical === 'bottom' && centerY < anchorY - 1e-6) return false;
-  if (corner.vertical === 'top' && centerY > anchorY + 1e-6) return false;
-  return true;
+  const targetAngle = Math.atan2(anchorY, anchorX);
+  const candidateAngle = Math.atan2(centerY, centerX);
+  return Math.abs(angleDelta(candidateAngle, targetAngle)) <= OUTER_CORNER_ANGLE_LIMIT;
 }
 
 function computeOuterCornerAxisPenalty(
@@ -673,16 +659,8 @@ function scoreCandidateAroundCurrentCenter(
     return { geometry: candidate, score: Number.POSITIVE_INFINITY };
   }
   if (
-    currentRadius >= OUTER_CORNER_MIN_RADIUS &&
-    !isWithinOuterCornerRegion(
-      mapRect,
-      logicalX,
-      logicalY,
-      centerX,
-      centerY,
-      candidate,
-      OUTER_CORNER_SAFE_MARGIN,
-    )
+    anchorRadius >= OUTER_CORNER_MIN_RADIUS &&
+    !isWithinOuterCornerSector(logicalX, logicalY, centerX, centerY)
   ) {
     return { geometry: candidate, score: Number.POSITIVE_INFINITY };
   }
@@ -716,6 +694,12 @@ function scoreCandidateAroundCurrentCenter(
   const outerCornerAxisPenalty = outerBand
     ? computeOuterCornerAxisPenalty(mapRect, logicalX, logicalY, centerX, centerY) * 0.16
     : 0;
+  const outerCornerMarginPenalty = outerBand
+    ? Math.max(0, OUTER_CORNER_SAFE_MARGIN - Math.min(
+      Math.abs(centerX - getCornerBoundsForPoint(mapRect, logicalX, logicalY).xLimit),
+      Math.abs(centerY - getCornerBoundsForPoint(mapRect, logicalX, logicalY).yLimit),
+    )) * 18
+    : 0;
 
   return {
     geometry: candidate,
@@ -728,7 +712,8 @@ function scoreCandidateAroundCurrentCenter(
       inwardBias +
       outwardPenalty +
       lineLengthPenalty +
-      outerCornerAxisPenalty,
+      outerCornerAxisPenalty +
+      outerCornerMarginPenalty,
   };
 }
 
@@ -750,6 +735,7 @@ function refineGroupCenterFromCurrentPlacement(
 ) {
   const currentRadius = Math.hypot(currentCenterX, currentCenterY);
   const currentAngle = Math.atan2(currentCenterY, currentCenterX);
+  let foundFiniteCandidate = false;
   let best = scoreCandidateAroundCurrentCenter(
     placeKey,
     baseGeometry,
@@ -768,6 +754,7 @@ function refineGroupCenterFromCurrentPlacement(
     placementById,
     groups,
   );
+  foundFiniteCandidate = Number.isFinite(best.score);
 
   const radialStepScale = Math.min(1.8, Math.max(0.8, Math.sqrt(getGroupArea(baseGeometry.photoRect)) / 220));
 
@@ -795,10 +782,20 @@ function refineGroupCenterFromCurrentPlacement(
         placementById,
         groups,
       );
+      if (Number.isFinite(candidate.score)) foundFiniteCandidate = true;
       if (candidate.score < best.score) {
         best = candidate;
       }
     }
+  }
+
+  if (!foundFiniteCandidate) {
+    return {
+      centerX: currentCenterX,
+      centerY: currentCenterY,
+      geometry: translateGroupGeometry(baseGeometry, currentCenterX, currentCenterY),
+      score: Number.POSITIVE_INFINITY,
+    };
   }
 
   return {
