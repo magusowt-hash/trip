@@ -424,6 +424,13 @@ function solvePendingGroupPlacements(
   );
 }
 
+function computeLabelGapBoost(scale: number) {
+  if (scale >= 4.5) return 20;
+  if (scale >= 3) return 12;
+  if (scale >= 2) return 6;
+  return 0;
+}
+
 export default function UserFootprintsPage() {
   return (
     <Suspense fallback={<div style={{ position: 'fixed', inset: 0, background: '#0f172a' }} />}>
@@ -455,8 +462,6 @@ function UserFootprintsPageInner() {
   const [outerScale, setOuterScale] = useState(1);
   const [outerViewport, setOuterViewport] = useState<Viewport | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
-  const [groupsLoaded, setGroupsLoaded] = useState(false);
-  const [itemsLoaded, setItemsLoaded] = useState(false);
 
   const [groups, setGroups] = useState<FootprintGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
@@ -476,6 +481,8 @@ function UserFootprintsPageInner() {
   const [localLayout, setLocalLayout] = useState<LocalMapLayoutSettings | null>(null);
   const [knownLocalRoots, setKnownLocalRoots] = useState<string[]>([]);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [isApplyingLocalMap, setIsApplyingLocalMap] = useState(false);
+  const [localMapApplyProgress, setLocalMapApplyProgress] = useState(0);
   const [fitViewKey, setFitViewKey] = useState(0);
   const [fitViewEnabled, setFitViewEnabled] = useState(false);
   const [debugBasePhotos, setDebugBasePhotos] = useState<DebugPhotoSnapshot[] | null>(null);
@@ -493,23 +500,6 @@ function UserFootprintsPageInner() {
   const localThumbSeenRef = useRef<Set<string>>(new Set());
   const localOriginalPreloadRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const actionNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const isThumbQueueIdle = localThumbQueueRef.current.length === 0 && localThumbRunningRef.current === 0;
-  const localMappedPhotos = photos.filter((photo) => photo.sourceType === 'local-mapped');
-  const localMappedThumbReadyCount = localMappedPhotos.filter((photo) => !!photo.thumbnailUrl).length;
-  const thumbStageProgress = localMappedPhotos.length === 0
-    ? 1
-    : localMappedThumbReadyCount / localMappedPhotos.length;
-  const isPageLoading =
-    !settingsLoaded ||
-    !groupsLoaded ||
-    (selectedGroupId != null && (!itemsLoaded || !photosLoaded || !isThumbQueueIdle));
-  const loadingProgress = Math.round((
-    (settingsLoaded ? 0.22 : 0) +
-    (groupsLoaded ? 0.18 : 0) +
-    (selectedGroupId == null || itemsLoaded ? 0.18 : 0) +
-    (selectedGroupId == null || photosLoaded ? 0.24 : 0) +
-    ((selectedGroupId == null ? 1 : thumbStageProgress) * 0.18)
-  ) * 100);
 
   // Load settings
   useEffect(() => {
@@ -604,7 +594,6 @@ function UserFootprintsPageInner() {
         return [];
       });
       setItems([]);
-      setItemsLoaded(false);
       loadItems(selectedGroupId);
       setPhotosLoaded(false);
       setFitViewEnabled(false);
@@ -614,8 +603,6 @@ function UserFootprintsPageInner() {
       localThumbSeenRef.current.clear();
       setItems([]);
       setPhotos([]);
-      setItemsLoaded(true);
-      setPhotosLoaded(true);
       setFitViewEnabled(false);
       setDebugBasePhotos(null);
       setDebugBaseGroups(null);
@@ -626,10 +613,6 @@ function UserFootprintsPageInner() {
   useEffect(() => {
     if (items.length > 0 && !photosLoaded) {
       loadAllPhotos();
-      return;
-    }
-    if (items.length === 0) {
-      setPhotosLoaded(true);
     }
   }, [items, photosLoaded]);
 
@@ -664,7 +647,6 @@ function UserFootprintsPageInner() {
 
   async function loadGroups() {
     try {
-      setGroupsLoaded(false);
       const url = isViewMode
         ? `${viewApiBase}&type=groups`
         : '/api/footprints/groups';
@@ -678,14 +660,11 @@ function UserFootprintsPageInner() {
       }
     } catch (err) {
       console.error('Failed to load groups:', err);
-    } finally {
-      setGroupsLoaded(true);
     }
   }
 
   async function loadItems(groupId: number) {
     try {
-      setItemsLoaded(false);
       const url = isViewMode
         ? `${viewApiBase}&type=items&group_id=${groupId}`
         : `/api/footprints/groups/${groupId}/items`;
@@ -695,8 +674,6 @@ function UserFootprintsPageInner() {
       setItems(data.items || []);
     } catch (err) {
       console.error('Failed to load items:', err);
-    } finally {
-      setItemsLoaded(true);
     }
   }
 
@@ -728,7 +705,7 @@ function UserFootprintsPageInner() {
 
   const loadAllPhotos = useCallback(async () => {
     if (items.length === 0 || photosLoaded) return;
-    setPhotosLoaded(false);
+    setPhotosLoaded(true);
 
     const itemScopes = new Map(items.map((item) => [item.id, item.albumScopeKey || (item.listItemId ? buildFootprintPhotoScopeKey(item.id) : buildMapFootprintPhotoScopeKey(item.poiId ?? item.id))]));
     const itemKeys = new Set(itemScopes.values());
@@ -815,7 +792,6 @@ function UserFootprintsPageInner() {
     setPhotos(allPhotos);
     setDebugBasePhotos(buildDebugPhotoSnapshot(allPhotos));
     setDebugBaseGroups(buildDebugGroupSnapshot(allPhotos));
-    setPhotosLoaded(true);
   }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints]);
 
   function autoPlacePhotos(
@@ -1452,6 +1428,8 @@ function UserFootprintsPageInner() {
     missingAssets: Array<{ relativePath: string; name: string }>;
     layout: LocalMapLayoutSettings;
   }) => {
+    setIsApplyingLocalMap(true);
+    setLocalMapApplyProgress(8);
     const itemByTitle = new Map(items.map((item) => [item.title, item]));
     const currentItemKeys = new Set(items.map((item) => buildFootprintPhotoScopeKey(item.id)));
     const mappedPhotos: PhotoItem[] = payload.matchedAssets
@@ -1480,6 +1458,7 @@ function UserFootprintsPageInner() {
       })
       .filter((photo): photo is PhotoItem => !!photo)
       .filter((photo) => currentItemKeys.has(photo.placeKey));
+    setLocalMapApplyProgress(24);
 
     if (payload.layout.enabled) {
       for (const photo of mappedPhotos) {
@@ -1489,6 +1468,7 @@ function UserFootprintsPageInner() {
     }
 
     const unplaced = mappedPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
+    setLocalMapApplyProgress(42);
     if (unplaced.length > 0) {
       autoPlacePhotos(
         unplaced,
@@ -1498,6 +1478,7 @@ function UserFootprintsPageInner() {
       movedPhotosRef.current = true;
       setHasMovedPhotos(true);
     }
+    setLocalMapApplyProgress(66);
 
     setPhotos((current) => {
       current
@@ -1518,6 +1499,7 @@ function UserFootprintsPageInner() {
     const debugMergedPhotos = [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos];
     setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
     setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
+    setLocalMapApplyProgress(82);
     enqueueLocalThumbnails(mappedPhotos);
     setLocalRootName(payload.rootName);
     setLocalUnmatchedFolders(payload.unmatchedFolders);
@@ -1529,6 +1511,13 @@ function UserFootprintsPageInner() {
     }
     setLocalMapTargetItem(null);
     setLocalMapOpen(false);
+    setLocalMapApplyProgress(100);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        setIsApplyingLocalMap(false);
+        setLocalMapApplyProgress(0);
+      }, 180);
+    });
   }, [items, photos]);
 
   const currentDebugPhotos = buildDebugPhotoSnapshot(photos);
@@ -1598,20 +1587,20 @@ function UserFootprintsPageInner() {
 
   return (
     <div className={styles.rootFull}>
-      {isPageLoading ? (
+      {isApplyingLocalMap ? (
         <>
           <div className={styles.loadingInteractionBlocker} aria-hidden="true" />
           <div className={styles.loadingCard} role="status" aria-live="polite">
             <div className={styles.loadingSpinner} />
-            <div className={styles.loadingTitle}>正在加载足迹布局</div>
-            <div className={styles.loadingSubtitle}>图片、地点和布局数据准备完成后自动进入</div>
+            <div className={styles.loadingTitle}>正在应用预设映射</div>
+            <div className={styles.loadingSubtitle}>布局与本地图片映射处理中，请稍候</div>
             <div className={styles.loadingProgressTrack} aria-hidden="true">
               <div
                 className={styles.loadingProgressBar}
-                style={{ width: `${Math.max(8, Math.min(100, loadingProgress))}%` }}
+                style={{ width: `${Math.max(8, Math.min(100, localMapApplyProgress))}%` }}
               />
             </div>
-            <div className={styles.loadingProgressText}>{loadingProgress}%</div>
+            <div className={styles.loadingProgressText}>{localMapApplyProgress}%</div>
           </div>
         </>
       ) : null}
