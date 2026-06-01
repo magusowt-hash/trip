@@ -3,11 +3,12 @@ import { rectsOverlap } from './localMapGroupGeometry';
 import type { LogicalRect } from './footprintLayoutTypes';
 
 export function fitsPhotoRectAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
+  const photoGap = gap + 12;
   return (
-    rect.right <= mapRect.left - gap ||
-    rect.left >= mapRect.right + gap ||
-    rect.bottom <= mapRect.top - gap ||
-    rect.top >= mapRect.bottom + gap
+    rect.right <= mapRect.left - photoGap ||
+    rect.left >= mapRect.right + photoGap ||
+    rect.bottom <= mapRect.top - photoGap ||
+    rect.top >= mapRect.bottom + photoGap
   );
 }
 
@@ -41,7 +42,7 @@ export function hasLabelCollisions(
   occupiedGeometries: GroupGeometry[],
   safeGap: number,
 ) {
-  const labelSafeGap = safeGap + 10;
+  const labelSafeGap = safeGap + 16;
   return (
     rectOverlapsOccupiedPhotos(candidate.labelRect, occupiedGeometries, labelSafeGap) ||
     rectOverlapsOccupiedLabels(candidate.labelRect, occupiedGeometries, labelSafeGap)
@@ -53,7 +54,7 @@ export function hasPhotoAgainstLabelCollisions(
   occupiedGeometries: GroupGeometry[],
   safeGap: number,
 ) {
-  return rectOverlapsOccupiedLabels(candidate.photoRect, occupiedGeometries, safeGap + 10);
+  return rectOverlapsOccupiedLabels(candidate.photoRect, occupiedGeometries, safeGap + 16);
 }
 
 export function computeLateralOffsetFromRay(baseAngle: number, centerX: number, centerY: number) {

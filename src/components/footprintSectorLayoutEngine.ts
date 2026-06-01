@@ -89,10 +89,15 @@ function hasIntersectingLines(
     .map((group) => {
       const placement = placementById.get(group.placeKey);
       if (!placement) return null;
+      const geometry = translateGroupGeometry(
+        group.collisionGeometry,
+        placement.centerX,
+        placement.centerY,
+      );
       return {
         placeKey: group.placeKey,
         start: { x: group.logicalX, y: group.logicalY },
-        end: { x: placement.centerX, y: placement.centerY },
+        end: { x: geometry.lineAnchorX, y: geometry.lineAnchorY },
       };
     })
     .filter((item): item is { placeKey: string; start: { x: number; y: number }; end: { x: number; y: number } } => item !== null);

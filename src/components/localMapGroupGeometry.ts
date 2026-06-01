@@ -124,12 +124,12 @@ function estimateLabelHalfWidth(title: string, scale: number) {
   const cjkCount = Array.from(compactTitle).filter((char) => /[\u3400-\u9fff\uf900-\ufaff]/.test(char)).length;
   const latinCount = Math.max(0, compactTitle.length - cjkCount);
   const estimatedScreenWidth =
-    34 +
-    cjkCount * GROUP_LABEL_FONT_SCREEN_SIZE * 1.04 +
-    latinCount * GROUP_LABEL_FONT_SCREEN_SIZE * 0.68;
+    38 +
+    cjkCount * GROUP_LABEL_FONT_SCREEN_SIZE * 1.1 +
+    latinCount * GROUP_LABEL_FONT_SCREEN_SIZE * 0.74;
   return Math.max(
-    toLogicalScreenSize(46, safeScale),
-    Math.min(toLogicalScreenSize(LABEL_MAX_SCREEN_WIDTH + 28, safeScale), toLogicalScreenSize(estimatedScreenWidth, safeScale) / 2),
+    toLogicalScreenSize(50, safeScale),
+    Math.min(toLogicalScreenSize(LABEL_MAX_SCREEN_WIDTH + 40, safeScale), toLogicalScreenSize(estimatedScreenWidth, safeScale) / 2),
   );
 }
 
@@ -351,7 +351,7 @@ export function resolveGroupGeometryDownward<T extends string = string>(
 ) {
   const gap = options?.gap ?? 10;
   const step = options?.step ?? 6;
-  const maxOffset = options?.maxOffset ?? 72;
+  const maxOffset = options?.maxOffset ?? 108;
   const resolved = new Map<T, GroupGeometry>();
   const occupied: LogicalRect[] = [];
   const sortedEntries = [...entries].sort((left, right) => (
