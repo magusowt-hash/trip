@@ -120,10 +120,16 @@ function buildAdaptiveGapScreenSize(
 
 function estimateLabelHalfWidth(title: string, scale: number) {
   const safeScale = Math.max(scale, 0.1);
-  const perChar = 5.1 / safeScale;
+  const compactTitle = title.trim();
+  const cjkCount = Array.from(compactTitle).filter((char) => /[\u3400-\u9fff\uf900-\ufaff]/.test(char)).length;
+  const latinCount = Math.max(0, compactTitle.length - cjkCount);
+  const estimatedScreenWidth =
+    28 +
+    cjkCount * GROUP_LABEL_FONT_SCREEN_SIZE * 0.96 +
+    latinCount * GROUP_LABEL_FONT_SCREEN_SIZE * 0.62;
   return Math.max(
-    toLogicalScreenSize(36, safeScale),
-    Math.min(toLogicalScreenSize(LABEL_MAX_SCREEN_WIDTH, safeScale), title.length * perChar),
+    toLogicalScreenSize(42, safeScale),
+    Math.min(toLogicalScreenSize(LABEL_MAX_SCREEN_WIDTH + 18, safeScale), toLogicalScreenSize(estimatedScreenWidth, safeScale) / 2),
   );
 }
 

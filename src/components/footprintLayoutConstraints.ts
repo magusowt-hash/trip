@@ -47,6 +47,14 @@ export function hasLabelCollisions(
   );
 }
 
+export function hasPhotoAgainstLabelCollisions(
+  candidate: GroupGeometry,
+  occupiedGeometries: GroupGeometry[],
+  safeGap: number,
+) {
+  return rectOverlapsOccupiedLabels(candidate.photoRect, occupiedGeometries, safeGap);
+}
+
 export function computeLateralOffsetFromRay(baseAngle: number, centerX: number, centerY: number) {
   const tangentX = -Math.sin(baseAngle);
   const tangentY = Math.cos(baseAngle);

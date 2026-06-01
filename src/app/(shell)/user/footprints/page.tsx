@@ -24,6 +24,7 @@ import {
   buildGroupGeometryFromPhotoRect,
   expandPhotoRect,
   rectsOverlap,
+  resolveGroupGeometryDownward,
   scoreGroupGeometryPlacement,
   translateGroupGeometry,
 } from '@/components/localMapGroupGeometry';
@@ -206,24 +207,24 @@ function buildRandomOffsets(count: number, cardSize: number) {
   }));
 }
 
-function buildPlaceBounds(placePhotos: PhotoItem[]): LogicalRect | null {
+function buildPlaceBounds(placePhotos: PhotoItem[], scale = 1): LogicalRect | null {
   const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
-  const geometry = buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, 1);
+  const geometry = buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, scale);
   return geometry.groupRect;
 }
 
-function buildPlaceGeometry(placePhotos: PhotoItem[]) {
+function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1) {
   const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
-  return buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, 1);
+  return buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, scale);
 }
 
 function getGroupArea(rect: LogicalRect) {
   return Math.max(1, (rect.right - rect.left) * (rect.bottom - rect.top));
 }
 
-function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalOffset[]): LogicalRect | null {
+function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalOffset[], scale = 1): LogicalRect | null {
   if (placePhotos.length === 0 || offsets.length !== placePhotos.length) return null;
 
   let left = Infinity;
@@ -247,7 +248,7 @@ function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalO
     expandPhotoRect({ left, right, top, bottom }),
     placePhotos[0]?.placeTitle || '',
     placePhotos.length,
-    1,
+    scale,
   );
 
   return geometry.groupRect;
@@ -815,6 +816,7 @@ function UserFootprintsPageInner() {
     );
 
     const cardSize = 80;
+    const collisionScale = Math.max(outerScale, 0.1);
     const mapRect = {
       left: -(viewportWidth * 0.6) / 2,
       right: (viewportWidth * 0.6) / 2,
@@ -831,9 +833,14 @@ function UserFootprintsPageInner() {
       arr.push(photo);
       existingGroups.set(photo.placeKey, arr);
     }
-    for (const [, group] of existingGroups) {
-      const geometry = buildPlaceGeometry(group);
+    const existingGeometryEntries: Array<{ id: string; geometry: GroupGeometry }> = [];
+    for (const [placeKey, group] of existingGroups) {
+      const geometry = buildPlaceGeometry(group, collisionScale);
       if (!geometry) continue;
+      existingGeometryEntries.push({ id: placeKey, geometry });
+    }
+    const resolvedExistingGeometryMap = resolveGroupGeometryDownward(existingGeometryEntries, { gap: 10, step: 6, maxOffset: 72 });
+    for (const [, geometry] of resolvedExistingGeometryMap) {
       occupiedRects.push(geometry.groupRect);
       occupiedGeometries.push(geometry);
     }
@@ -848,7 +855,7 @@ function UserFootprintsPageInner() {
       });
       const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
       const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
-      const renderRect = buildPlaceBoundsFromOffsets(placePhotos, offsets);
+      const renderRect = buildPlaceBoundsFromOffsets(placePhotos, offsets, collisionScale);
       if (!renderRect) continue;
       const offsetGeometry = buildGroupGeometryFromPhotoRect(
         expandPhotoRect({
@@ -859,14 +866,13 @@ function UserFootprintsPageInner() {
         }),
         placePhotos[0]?.placeTitle || '',
         placePhotos.length,
-        1,
+        collisionScale,
       );
       if (!offsetGeometry) continue;
       if (placedPhotos.length > 0) {
-        const existingRect = buildPlaceBounds(placedPhotos);
-        const existingGeometry = buildPlaceGeometry(placedPhotos);
-        if (!existingRect || !existingGeometry) continue;
-        const existingCenter = rectCenter(existingRect);
+        const existingGeometry = resolvedExistingGeometryMap.get(placeKey) ?? buildPlaceGeometry(placedPhotos, collisionScale);
+        if (!existingGeometry) continue;
+        const existingCenter = rectCenter(existingGeometry.groupRect);
         const directionX = existingCenter.x || 0;
         const directionY = existingCenter.y || 1;
         const directionLen = Math.hypot(directionX, directionY) || 1;
@@ -898,8 +904,8 @@ function UserFootprintsPageInner() {
             placePhotos[i].frameY = existingCenter.y + unitY * forwardOffset + perpendicularY * lateralOffset;
           }
         }
-        const placedRect = buildPlaceBounds(placePhotos);
-        const placedGeometry = buildPlaceGeometry(placePhotos);
+        const placedRect = buildPlaceBounds(placePhotos, collisionScale);
+        const placedGeometry = buildPlaceGeometry(placePhotos, collisionScale);
         if (placedRect && placedGeometry) {
           occupiedRects.push(placedRect);
           occupiedGeometries.push(placedGeometry);
@@ -934,8 +940,8 @@ function UserFootprintsPageInner() {
         group.placePhotos[i].frameY = chosenCenter.centerY + group.offsets[i].offsetY;
       }
 
-      const placedRect = buildPlaceBounds(group.placePhotos);
-      const placedGeometry = buildPlaceGeometry(group.placePhotos);
+      const placedRect = buildPlaceBounds(group.placePhotos, collisionScale);
+      const placedGeometry = buildPlaceGeometry(group.placePhotos, collisionScale);
       if (placedRect && placedGeometry) {
         occupiedRects.push(placedRect);
         occupiedGeometries.push(placedGeometry);
@@ -1430,93 +1436,97 @@ function UserFootprintsPageInner() {
   }) => {
     setIsApplyingLocalMap(true);
     setLocalMapApplyProgress(8);
-    const itemByTitle = new Map(items.map((item) => [item.title, item]));
-    const currentItemKeys = new Set(items.map((item) => buildFootprintPhotoScopeKey(item.id)));
-    const mappedPhotos: PhotoItem[] = payload.matchedAssets
-      .map((asset) => {
-        const matchedItem = itemByTitle.get(asset.matchedPlaceTitle);
-        if (!matchedItem) return null;
-        return {
-          id: `local:${asset.relativePath}`,
-          url: asset.url,
-          thumbnailUrl: asset.thumbnailUrl,
-          frameX: asset.frameX ?? undefined,
-          frameY: asset.frameY ?? undefined,
-          placeKey: buildFootprintPhotoScopeKey(matchedItem.id),
-          placeTitle: matchedItem.title,
-          footprintItemId: matchedItem.id,
-          filename: asset.name,
-          size: asset.size,
-          lastModified: asset.lastModified,
-          pixelWidth: asset.pixelWidth ?? undefined,
-          pixelHeight: asset.pixelHeight ?? undefined,
-          sourceType: 'local-mapped',
-          relativePath: asset.relativePath,
-          rootName: payload.rootName,
-          missing: false,
-        } satisfies PhotoItem;
-      })
-      .filter((photo): photo is PhotoItem => !!photo)
-      .filter((photo) => currentItemKeys.has(photo.placeKey));
-    setLocalMapApplyProgress(24);
-
-    if (payload.layout.enabled) {
-      for (const photo of mappedPhotos) {
-        photo.frameX = undefined;
-        photo.frameY = undefined;
-      }
-    }
-
-    const unplaced = mappedPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
-    setLocalMapApplyProgress(42);
-    if (unplaced.length > 0) {
-      autoPlacePhotos(
-        unplaced,
-        [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
-        payload.layout,
-      );
-      movedPhotosRef.current = true;
-      setHasMovedPhotos(true);
-    }
-    setLocalMapApplyProgress(66);
-
-    setPhotos((current) => {
-      current
-        .filter((photo) => photo.sourceType === 'local-mapped')
-        .forEach((photo) => {
-          try {
-            URL.revokeObjectURL(photo.url);
-          } catch {}
-          if (photo.thumbnailUrl) {
-            try {
-              URL.revokeObjectURL(photo.thumbnailUrl);
-            } catch {}
-          }
-        });
-      const uploaded = current.filter((photo) => photo.sourceType !== 'local-mapped');
-      return [...uploaded, ...mappedPhotos];
-    });
-    const debugMergedPhotos = [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos];
-    setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
-    setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
-    setLocalMapApplyProgress(82);
-    enqueueLocalThumbnails(mappedPhotos);
-    setLocalRootName(payload.rootName);
-    setLocalUnmatchedFolders(payload.unmatchedFolders);
-    setLocalLayout(payload.layout);
-    setFitViewEnabled(true);
-    setFitViewKey((value) => value + 1);
-    if (payload.missingAssets.length > 0) {
-      alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。若本次保存，这些文件的位置记录将被删除。`);
-    }
-    setLocalMapTargetItem(null);
-    setLocalMapOpen(false);
-    setLocalMapApplyProgress(100);
     requestAnimationFrame(() => {
-      setTimeout(() => {
-        setIsApplyingLocalMap(false);
-        setLocalMapApplyProgress(0);
-      }, 180);
+      requestAnimationFrame(() => {
+        const itemByTitle = new Map(items.map((item) => [item.title, item]));
+        const currentItemKeys = new Set(items.map((item) => buildFootprintPhotoScopeKey(item.id)));
+        const mappedPhotos: PhotoItem[] = payload.matchedAssets
+          .map((asset) => {
+            const matchedItem = itemByTitle.get(asset.matchedPlaceTitle);
+            if (!matchedItem) return null;
+            return {
+              id: `local:${asset.relativePath}`,
+              url: asset.url,
+              thumbnailUrl: asset.thumbnailUrl,
+              frameX: asset.frameX ?? undefined,
+              frameY: asset.frameY ?? undefined,
+              placeKey: buildFootprintPhotoScopeKey(matchedItem.id),
+              placeTitle: matchedItem.title,
+              footprintItemId: matchedItem.id,
+              filename: asset.name,
+              size: asset.size,
+              lastModified: asset.lastModified,
+              pixelWidth: asset.pixelWidth ?? undefined,
+              pixelHeight: asset.pixelHeight ?? undefined,
+              sourceType: 'local-mapped',
+              relativePath: asset.relativePath,
+              rootName: payload.rootName,
+              missing: false,
+            } satisfies PhotoItem;
+          })
+          .filter((photo): photo is PhotoItem => !!photo)
+          .filter((photo) => currentItemKeys.has(photo.placeKey));
+        setLocalMapApplyProgress(24);
+
+        if (payload.layout.enabled) {
+          for (const photo of mappedPhotos) {
+            photo.frameX = undefined;
+            photo.frameY = undefined;
+          }
+        }
+
+        const unplaced = mappedPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
+        setLocalMapApplyProgress(42);
+        if (unplaced.length > 0) {
+          autoPlacePhotos(
+            unplaced,
+            [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
+            payload.layout,
+          );
+          movedPhotosRef.current = true;
+          setHasMovedPhotos(true);
+        }
+        setLocalMapApplyProgress(66);
+
+        setPhotos((current) => {
+          current
+            .filter((photo) => photo.sourceType === 'local-mapped')
+            .forEach((photo) => {
+              try {
+                URL.revokeObjectURL(photo.url);
+              } catch {}
+              if (photo.thumbnailUrl) {
+                try {
+                  URL.revokeObjectURL(photo.thumbnailUrl);
+                } catch {}
+              }
+            });
+          const uploaded = current.filter((photo) => photo.sourceType !== 'local-mapped');
+          return [...uploaded, ...mappedPhotos];
+        });
+        const debugMergedPhotos = [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos];
+        setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
+        setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
+        setLocalMapApplyProgress(82);
+        enqueueLocalThumbnails(mappedPhotos);
+        setLocalRootName(payload.rootName);
+        setLocalUnmatchedFolders(payload.unmatchedFolders);
+        setLocalLayout(payload.layout);
+        setFitViewEnabled(true);
+        setFitViewKey((value) => value + 1);
+        if (payload.missingAssets.length > 0) {
+          alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。若本次保存，这些文件的位置记录将被删除。`);
+        }
+        setLocalMapTargetItem(null);
+        setLocalMapOpen(false);
+        setLocalMapApplyProgress(100);
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            setIsApplyingLocalMap(false);
+            setLocalMapApplyProgress(0);
+          }, 180);
+        });
+      });
     });
   }, [items, photos]);
 

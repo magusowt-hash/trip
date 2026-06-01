@@ -28,8 +28,10 @@ export function computeLabelClearanceScore(
   const preferredGap = safeGap * 3;
   for (const occupied of occupiedGeometries) {
     const photoDistance = rectDistance(candidate.labelRect, occupied.photoRect);
+    const reversePhotoDistance = rectDistance(candidate.photoRect, occupied.labelRect);
     const labelDistance = rectDistance(candidate.labelRect, occupied.labelRect);
     if (photoDistance < preferredGap) score += (preferredGap - photoDistance) ** 2;
+    if (reversePhotoDistance < preferredGap) score += (preferredGap - reversePhotoDistance) ** 2;
     if (labelDistance < preferredGap) score += (preferredGap - labelDistance) ** 2;
   }
   const mapDistance = rectDistanceToMap(candidate.labelRect, mapRect);

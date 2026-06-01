@@ -1,5 +1,10 @@
 import type { GroupGeometry } from './localMapGroupGeometry';
-import { translateGroupGeometry } from './localMapGroupGeometry';
+import {
+  rectsOverlap,
+  resolveGroupGeometryDownward,
+  shiftGroupGeometryDown,
+  translateGroupGeometry,
+} from './localMapGroupGeometry';
 import type { FootprintPlacement, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
 import {
   computeLateralOffsetFromRay,
@@ -7,6 +12,7 @@ import {
   fitsPhotoRectAroundMap,
   hasGeometryPressureBetweenGroups,
   hasLabelCollisions,
+  hasPhotoAgainstLabelCollisions,
   rectOverlapsOccupiedPhotos,
 } from './footprintLayoutConstraints';
 import {
@@ -22,14 +28,12 @@ const LOCAL_SEARCH_RADIUS_FACTORS = [0, -0.35, 0.35];
 const POST_LAYOUT_SEARCH_ANGLE_STEPS = [0, -6, 6, -12, 12, -18, 18];
 const POST_LAYOUT_SEARCH_RADIUS_STEPS = [0, -360, -280, -200, -120, -60];
 const POST_LAYOUT_REFINE_PASSES = 2;
-const GLOBAL_COMPACTION_PASSES = 4;
-const CLUSTER_REARRANGE_PASSES = 1;
+const GLOBAL_COMPACTION_PASSES = 6;
+const CLUSTER_REARRANGE_PASSES = 2;
 const NEIGHBOR_NUDGE_STEPS = [-24, -12, 12, 24];
 const OUTER_CORNER_MIN_RADIUS = 2400;
 const OUTER_CORNER_ANGLE_LIMIT = Math.PI / 6;
 const RADIAL_SHRINK_STEPS = [560, 480, 400, 320, 240, 180, 120, 80, 40];
-const HOTSPOT_SECTOR_ANGLE = -Math.PI / 4;
-const HOTSPOT_SECTOR_WIDTH = Math.PI / 5;
 const SECTOR_SLOT_COUNT = 16;
 const SPARSE_SECTOR_CANDIDATE_OFFSETS = [-3, -2, 2, 3];
 const GLOBAL_DIRECTIONAL_RADIUS_STEPS = [320, 240, 180, 120, 80];
@@ -166,9 +170,19 @@ function buildSectorOccupancy(
   return counts;
 }
 
-function isInRightUpperHotspot(placement: FootprintPlacement) {
-  const angle = Math.atan2(placement.centerY, placement.centerX);
-  return placement.centerX > 0 && placement.centerY < 0 && Math.abs(angleDelta(angle, HOTSPOT_SECTOR_ANGLE)) <= HOTSPOT_SECTOR_WIDTH;
+function computeSectorDensityPenalty(occupancy: number[], sectorIndex: number) {
+  const local = occupancy[sectorIndex] ?? 0;
+  const left = occupancy[(sectorIndex - 1 + SECTOR_SLOT_COUNT) % SECTOR_SLOT_COUNT] ?? 0;
+  const right = occupancy[(sectorIndex + 1) % SECTOR_SLOT_COUNT] ?? 0;
+  const density = local * 1.2 + (left + right) * 0.55;
+  return density * density;
+}
+
+function computeRadiusSpreadPenalty(placements: FootprintPlacement[]) {
+  if (placements.length <= 1) return 0;
+  const radii = placements.map((placement) => Math.hypot(placement.centerX, placement.centerY));
+  const average = radii.reduce((sum, radius) => sum + radius, 0) / radii.length;
+  return radii.reduce((sum, radius) => sum + Math.abs(radius - average), 0);
 }
 
 function buildSparseSectorCandidates(
@@ -183,19 +197,20 @@ function buildSparseSectorCandidates(
 
   for (const offset of SPARSE_SECTOR_CANDIDATE_OFFSETS) {
     const targetSector = (currentSector + offset + SECTOR_SLOT_COUNT) % SECTOR_SLOT_COUNT;
-    if (occupancy[targetSector] > baseline - 2) continue;
+    if (occupancy[targetSector] > baseline - 1) continue;
     const targetAngle = ((targetSector + 0.5) / SECTOR_SLOT_COUNT) * Math.PI * 2;
-    const targetRadius = Math.max(0, radius - 160);
+    const targetRadius = Math.max(0, radius - 180);
     candidates.push({
       centerX: Math.cos(targetAngle) * targetRadius,
       centerY: Math.sin(targetAngle) * targetRadius,
     });
   }
 
-  if (group.logicalX < 0 && group.logicalY < 0) {
+  for (const inward of [260, 180, 120]) {
+    const targetRadius = Math.max(0, radius - inward);
     candidates.push({
-      centerX: Math.min(-1, placement.centerX - 180),
-      centerY: Math.min(-1, placement.centerY - 120),
+      centerX: Math.cos(Math.atan2(placement.centerY, placement.centerX)) * targetRadius,
+      centerY: Math.sin(Math.atan2(placement.centerY, placement.centerX)) * targetRadius,
     });
   }
 
@@ -233,6 +248,7 @@ function evaluatePlacementCandidate(
   placementById: Map<string, FootprintPlacement>,
   groups: PendingPlaceGroup[],
 ) {
+  const resolvedGeometry = resolveCandidateGeometryAgainstOccupied(geometry, occupiedGeometries);
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
   const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
   const radius = Math.hypot(centerX, centerY);
@@ -242,23 +258,31 @@ function evaluatePlacementCandidate(
   const lateralOffset = Math.abs(computeLateralOffsetFromRay(baseAngle, centerX, centerY));
   const policy = getMovementPolicyByRadius(Math.hypot(currentPlacement.centerX, currentPlacement.centerY));
 
-  const photoMapInvalid = !fitsPhotoRectAroundMap(geometry.photoRect, mapRect, safeGap);
-  const labelMapInvalid = !fitsLabelRectAroundMap(geometry.labelRect, mapRect, safeGap);
+  const photoMapInvalid = !fitsPhotoRectAroundMap(resolvedGeometry.photoRect, mapRect, safeGap);
+  const labelMapInvalid = !fitsLabelRectAroundMap(resolvedGeometry.labelRect, mapRect, safeGap);
   const mapOverlap = photoMapInvalid || labelMapInvalid;
   const lineTrial = new Map(placementById);
-  lineTrial.set(placeKey, { centerX, centerY });
+  lineTrial.set(placeKey, { centerX: resolvedGeometry.photoCenterX, centerY: resolvedGeometry.photoCenterY });
   const lineIntersected = hasIntersectingLines(lineTrial, groups);
-  const labelOverlap = hasLabelCollisions(geometry, occupiedGeometries, safeGap);
-  const photoOverlap = rectOverlapsOccupiedPhotos(geometry.photoRect, occupiedGeometries, safeGap);
+  const labelOverlap = hasLabelCollisions(resolvedGeometry, occupiedGeometries, safeGap);
+  const photoOverlap = rectOverlapsOccupiedPhotos(resolvedGeometry.photoRect, occupiedGeometries, safeGap);
+  const photoLabelOverlap = hasPhotoAgainstLabelCollisions(resolvedGeometry, occupiedGeometries, safeGap);
   const angleExceeded = (angleDeltaFromBase * 180) / Math.PI > policy.maxAngleDeviation + 1e-6;
   const lateralExceeded = lateralOffset > policy.maxLateralOffset + 1e-6;
-  const isValid = !mapOverlap && !lineIntersected && !labelOverlap && !photoOverlap;
-  const pressureScore = computeGroupPressureScore(geometry, occupiedGeometries, safeGap);
-  const labelClearanceScore = computeLabelClearanceScore(geometry, occupiedGeometries, mapRect, safeGap);
-  const sectorCrowdingScore = computeSectorCrowdingScore(placeKey, centerX, centerY, lineTrial, angleDelta);
+  const isValid = !mapOverlap && !lineIntersected && !labelOverlap && !photoOverlap && !photoLabelOverlap;
+  const pressureScore = computeGroupPressureScore(resolvedGeometry, occupiedGeometries, safeGap);
+  const labelClearanceScore = computeLabelClearanceScore(resolvedGeometry, occupiedGeometries, mapRect, safeGap);
+  const sectorCrowdingScore = computeSectorCrowdingScore(
+    placeKey,
+    resolvedGeometry.photoCenterX,
+    resolvedGeometry.photoCenterY,
+    lineTrial,
+    angleDelta,
+  );
 
   return {
     isValid,
+    geometry: resolvedGeometry,
     collisionScore: pressureScore,
     pressureScore,
     labelClearanceScore,
@@ -270,6 +294,7 @@ function evaluatePlacementCandidate(
     radiusDelta: radiusDeltaFromBase,
     lateralOffset,
     photoOverlap,
+    photoLabelOverlap,
     angleExceeded,
     lateralExceeded,
     currentAngleDelta: Math.abs(angleDelta(angle, currentAngle)),
@@ -306,9 +331,9 @@ function scoreCandidateCenter(
   if (!candidateMeta.isValid) {
     return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: candidateMeta.collisionScore };
   }
-  const radius = Math.hypot(centerX, centerY);
+  const radius = Math.hypot(candidateMeta.geometry.photoCenterX, candidateMeta.geometry.photoCenterY);
   return {
-    geometry: candidate,
+    geometry: candidateMeta.geometry,
     score:
       radius * 0.42 +
       candidateMeta.radiusDelta * 0.28 +
@@ -426,7 +451,7 @@ function scoreCandidateAroundCurrentCenter(
   }
   const angleWeights = getAnglePenaltyWeightsByRadius(currentRadius);
   return {
-    geometry: candidate,
+    geometry: candidateMeta.geometry,
     score:
       candidateMeta.lineLengthScore * 0.54 +
       candidateMeta.radiusDelta * 0.34 +
@@ -828,14 +853,35 @@ function buildOccupiedGeometriesForGroup(
   placementById: Map<string, FootprintPlacement>,
   excludePlaceKey: string,
 ) {
-  return groups
+  const entries = groups
     .filter((candidate) => candidate.placeKey !== excludePlaceKey)
     .map((candidate) => {
       const placement = placementById.get(candidate.placeKey);
       if (!placement) return null;
-      return translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY);
+      return {
+        id: candidate.placeKey,
+        geometry: translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY),
+      };
     })
-    .filter((candidate): candidate is GroupGeometry => candidate !== null);
+    .filter((candidate): candidate is { id: string; geometry: GroupGeometry } => candidate !== null);
+
+  const resolved = resolveGroupGeometryDownward(entries, { gap: 10, step: 6, maxOffset: 72 });
+  return entries
+    .map((entry) => resolved.get(entry.id) ?? entry.geometry);
+}
+
+function resolveCandidateGeometryAgainstOccupied(
+  geometry: GroupGeometry,
+  occupiedGeometries: GroupGeometry[],
+) {
+  for (let offset = 0; offset <= 72; offset += 6) {
+    const candidate = offset === 0 ? geometry : shiftGroupGeometryDown(geometry, offset);
+    if (occupiedGeometries.some((occupied) => rectsOverlap(candidate.groupRect, occupied.groupRect, 10))) {
+      continue;
+    }
+    return candidate;
+  }
+  return geometry;
 }
 
 function buildDirectionalCompactionCandidates(
@@ -1227,9 +1273,8 @@ function scoreClusterCompaction(
     .filter((candidate): candidate is GroupGeometry => candidate !== null);
   const clusterPlacementById = new Map(placementById);
   let pressure = 0;
-  let hotspotPenalty = 0;
-  let topEscapePenalty = 0;
   let labelPhotoRiskPenalty = 0;
+  let sectorDensityPenalty = 0;
   let maxRadius = 0;
 
   for (const group of cluster) {
@@ -1253,11 +1298,8 @@ function scoreClusterCompaction(
     const sectorIndex = getSectorIndex(Math.atan2(placement.centerY, placement.centerX));
     pressure += evaluation.pressureScore + evaluation.labelClearanceScore * 0.7 + evaluation.sectorCrowdingScore * 0.55;
     labelPhotoRiskPenalty += evaluation.labelClearanceScore;
-    hotspotPenalty += isInRightUpperHotspot(placement) ? 220 : 0;
+    sectorDensityPenalty += computeSectorDensityPenalty(occupancy, sectorIndex);
     maxRadius = Math.max(maxRadius, Math.hypot(placement.centerX, placement.centerY));
-    if (placement.centerY < 0) {
-      topEscapePenalty += Math.max(0, Math.abs(placement.centerY) - Math.max(420, Math.abs(placement.centerX) * 0.24));
-    }
     pressure += occupancy[sectorIndex] * 42;
   }
 
@@ -1268,16 +1310,19 @@ function scoreClusterCompaction(
     const sectorIndex = getSectorIndex(Math.atan2(placement.centerY, placement.centerX));
     return sum + occupancy[sectorIndex] * occupancy[sectorIndex];
   }, 0);
+  const radiusSpreadPenalty = computeRadiusSpreadPenalty(centers);
+  const clusterSpanPenalty = Math.max(spanX, spanY) * 0.45 + Math.min(spanX, spanY) * 0.2;
 
   return (
-    totalRadius * 0.62 +
-    maxRadius * 0.3 +
-    spanX * spanY * 0.0012 +
-    pressure * 0.1 +
-    labelPhotoRiskPenalty * 0.1 +
-    topEscapePenalty * 0.14 +
-    hotspotPenalty +
-    sectorVariance * 18
+    totalRadius * 0.72 +
+    maxRadius * 0.34 +
+    clusterSpanPenalty +
+    spanX * spanY * 0.001 +
+    pressure * 0.12 +
+    labelPhotoRiskPenalty * 0.12 +
+    radiusSpreadPenalty * 0.16 +
+    sectorDensityPenalty * 11 +
+    sectorVariance * 12
   );
 }
 
@@ -1303,9 +1348,8 @@ function scoreGlobalLayoutEnergy(
   const maxRadius = Math.max(...placements.map((placement) => Math.hypot(placement.centerX, placement.centerY)));
   const occupancy = buildSectorOccupancy(groups, placementById);
   let pressure = 0;
-  let hotspotPenalty = 0;
-  let topEscapePenalty = 0;
   let labelPhotoRiskPenalty = 0;
+  let sectorDensityPenalty = 0;
 
   for (const group of groups) {
     const placement = placementById.get(group.placeKey);
@@ -1327,24 +1371,23 @@ function scoreGlobalLayoutEnergy(
     );
     if (!evaluation.isValid) return Number.POSITIVE_INFINITY;
     pressure += evaluation.pressureScore + evaluation.labelClearanceScore * 0.7 + evaluation.sectorCrowdingScore * 0.55;
-    if (isInRightUpperHotspot(placement)) hotspotPenalty += 220;
-    if (placement.centerY < 0) {
-      topEscapePenalty += Math.max(0, Math.abs(placement.centerY) - Math.max(420, Math.abs(placement.centerX) * 0.24));
-    }
+    const sectorIndex = getSectorIndex(Math.atan2(placement.centerY, placement.centerX));
+    sectorDensityPenalty += computeSectorDensityPenalty(occupancy, sectorIndex);
     labelPhotoRiskPenalty += evaluation.labelClearanceScore;
   }
 
   const sectorVariance = occupancy.reduce((sum, count) => sum + count * count, 0);
+  const radiusSpreadPenalty = computeRadiusSpreadPenalty(placements);
 
   return (
-    totalRadius * 0.56 +
-    maxRadius * 0.28 +
+    totalRadius * 0.68 +
+    maxRadius * 0.3 +
     (right - left) * (bottom - top) * 0.001 +
-    pressure * 0.1 +
-    labelPhotoRiskPenalty * 0.08 +
-    topEscapePenalty * 0.12 +
-    hotspotPenalty +
-    sectorVariance * 22
+    pressure * 0.12 +
+    labelPhotoRiskPenalty * 0.1 +
+    radiusSpreadPenalty * 0.12 +
+    sectorDensityPenalty * 10 +
+    sectorVariance * 14
   );
 }
 
@@ -1370,8 +1413,8 @@ function buildClusterActionCandidates(
   const angle = Math.atan2(placement.centerY, placement.centerX);
   const occupancy = buildSectorOccupancy(allGroups, placementById);
   const currentSector = getSectorIndex(angle);
-  const inwardSteps = [80, 140, 220, 320].map((step) => Math.max(0, radius - step * stepScale));
-  const angleSteps = [0, -4, 4, -8, 8];
+  const inwardSteps = [60, 120, 200, 300, 420].map((step) => Math.max(0, radius - step * stepScale));
+  const angleSteps = [0, -4, 4, -8, 8, -12, 12];
   const candidates: PlacementCandidate[] = [
     { centerX: placement.centerX, centerY: placement.centerY },
   ];
@@ -1574,11 +1617,11 @@ function generateClusterMigrationVariants(
     }
   }
 
-  for (const shrink of [260, 180]) {
+  for (const shrink of [320, 240, 180, 120]) {
     const compactArcVariant = new Map<string, FootprintPlacement>();
     const compactBaseRadius = Math.max(0, averageRadius - shrink);
     cluster.forEach((group, index) => {
-      const spread = ((index - (cluster.length - 1) / 2) * 6 * Math.PI) / 180;
+      const spread = ((index - (cluster.length - 1) / 2) * 5 * Math.PI) / 180;
       compactArcVariant.set(group.placeKey, {
         centerX: Math.cos(clusterAngle + spread) * compactBaseRadius,
         centerY: Math.sin(clusterAngle + spread) * compactBaseRadius,
@@ -1586,6 +1629,22 @@ function generateClusterMigrationVariants(
     });
     if (compactArcVariant.size === cluster.length) {
       variants.push(compactArcVariant);
+    }
+  }
+
+  for (const shift of [-2, -1, 1, 2]) {
+    const migratedVariant = new Map<string, FootprintPlacement>();
+    const targetSectorAngle = clusterAngle + (shift * Math.PI * 2) / SECTOR_SLOT_COUNT;
+    const targetRadius = Math.max(0, averageRadius - 180);
+    cluster.forEach((group, index) => {
+      const spread = ((index - (cluster.length - 1) / 2) * 5 * Math.PI) / 180;
+      migratedVariant.set(group.placeKey, {
+        centerX: Math.cos(targetSectorAngle + spread) * targetRadius,
+        centerY: Math.sin(targetSectorAngle + spread) * targetRadius,
+      });
+    });
+    if (migratedVariant.size === cluster.length) {
+      variants.push(migratedVariant);
     }
   }
 
