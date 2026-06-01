@@ -40,6 +40,8 @@ interface Props {
   onScaleChange?: (scale: number) => void;
   onViewportChange?: (viewport: Viewport) => void;
   fitViewKey?: string | number;
+  fitViewEnabled?: boolean;
+  baseMinScale?: number;
 }
 
 export default function OuterFrame({
@@ -65,8 +67,10 @@ export default function OuterFrame({
   onScaleChange,
   onViewportChange,
   fitViewKey,
+  fitViewEnabled = false,
+  baseMinScale = 1,
 }: Props) {
-  const [minScale, setMinScale] = useState(0);
+  const [minScale, setMinScale] = useState(baseMinScale);
   const {
     transform,
     setTransform,
@@ -206,7 +210,18 @@ export default function OuterFrame({
   }, [containerSize, transform, onViewportChange]);
 
   useEffect(() => {
-    if (fitViewKey == null || !containerSize.w || !containerSize.h) return;
+    setMinScale(baseMinScale);
+    setTransform((current) => {
+      if (current.scale >= baseMinScale) return current;
+      return {
+        ...current,
+        scale: baseMinScale,
+      };
+    });
+  }, [baseMinScale, setTransform]);
+
+  useEffect(() => {
+    if (!fitViewEnabled || fitViewKey == null || !containerSize.w || !containerSize.h) return;
     const availableWidth = Math.max(1, containerSize.w - FIT_VIEW_PADDING * 2);
     const availableHeight = Math.max(1, containerSize.h - FIT_VIEW_PADDING * 2);
     const viewport = buildPhotoGroupViewport();
@@ -215,16 +230,17 @@ export default function OuterFrame({
     const contentWidth = Math.max(1, viewport.right - viewport.left);
     const contentHeight = Math.max(1, viewport.bottom - viewport.top);
     const nextScale = Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight));
+    const boundedScale = Math.max(baseMinScale, nextScale);
     const centerX = (viewport.left + viewport.right) / 2;
     const centerY = (viewport.top + viewport.bottom) / 2;
 
-    setMinScale(nextScale);
+    setMinScale(boundedScale);
     setTransform({
-      scale: nextScale,
-      tx: -centerX * nextScale,
-      ty: -centerY * nextScale,
+      scale: boundedScale,
+      tx: -centerX * boundedScale,
+      ty: -centerY * boundedScale,
     });
-  }, [fitViewKey, containerSize, buildPhotoGroupViewport, setTransform]);
+  }, [fitViewEnabled, fitViewKey, containerSize, buildPhotoGroupViewport, setTransform, baseMinScale]);
   useEffect(() => {
     if (!mapReady) return;
     computePoiPoints();

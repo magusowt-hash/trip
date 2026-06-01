@@ -625,6 +625,7 @@ function UserFootprintsPageInner() {
   const [knownLocalRoots, setKnownLocalRoots] = useState<string[]>([]);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [fitViewKey, setFitViewKey] = useState(0);
+  const [fitViewEnabled, setFitViewEnabled] = useState(false);
   const [shareAlbumPrompt, setShareAlbumPrompt] = useState<{
     item: FootprintItem;
     groupId: number;
@@ -734,13 +735,14 @@ function UserFootprintsPageInner() {
       setItems([]);
       loadItems(selectedGroupId);
       setPhotosLoaded(false);
-      setFitViewKey((value) => value + 1);
+      setFitViewEnabled(false);
     } else {
       localOriginalPreloadRef.current.clear();
       localThumbQueueRef.current = [];
       localThumbSeenRef.current.clear();
       setItems([]);
       setPhotos([]);
+      setFitViewEnabled(false);
     }
   }, [selectedGroupId]);
 
@@ -925,7 +927,6 @@ function UserFootprintsPageInner() {
     }
 
     setPhotos(allPhotos);
-    setFitViewKey((value) => value + 1);
   }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints]);
 
   function autoPlacePhotos(
@@ -1658,6 +1659,8 @@ function UserFootprintsPageInner() {
     setLocalRootName(payload.rootName);
     setLocalUnmatchedFolders(payload.unmatchedFolders);
     setLocalLayout(payload.layout);
+    setFitViewEnabled(true);
+    setFitViewKey((value) => value + 1);
     if (payload.missingAssets.length > 0) {
       alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。若本次保存，这些文件的位置记录将被删除。`);
     }
@@ -1716,6 +1719,8 @@ function UserFootprintsPageInner() {
         onScaleChange={setOuterScale}
         onViewportChange={setOuterViewport}
         fitViewKey={fitViewKey}
+        fitViewEnabled={fitViewEnabled}
+        baseMinScale={1}
       />
 
       {/* Bottom-right panels */}
