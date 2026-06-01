@@ -489,15 +489,51 @@ function buildOccupiedCandidateGeometries(occupiedGeometries: GroupGeometry[]) {
   return occupiedGeometries;
 }
 
+function buildPlacementMapForGroups(
+  groups: PendingPlaceGroup[],
+  fallbackRadius: number,
+  getPlacement: (group: PendingPlaceGroup) => { centerX: number; centerY: number } | null,
+) {
+  const placementById = new Map<string, { centerX: number; centerY: number }>();
+  for (const group of groups) {
+    const angle = Math.atan2(group.logicalY, group.logicalX || 0);
+    const radius = Math.max(fallbackRadius, Math.hypot(group.logicalX, group.logicalY));
+    placementById.set(
+      group.placeKey,
+      getPlacement(group) ?? {
+        centerX: Math.cos(angle) * radius,
+        centerY: Math.sin(angle) * radius,
+      },
+    );
+  }
+  return placementById;
+}
+
+function rectOverlapsOccupiedPhotos(
+  rect: LogicalRect,
+  occupiedGeometries: GroupGeometry[],
+  safeGap: number,
+) {
+  return occupiedGeometries.some((occupied) => rectsOverlap(rect, occupied.photoRect, safeGap));
+}
+
+function rectOverlapsOccupiedLabels(
+  rect: LogicalRect,
+  occupiedGeometries: GroupGeometry[],
+  safeGap: number,
+) {
+  return occupiedGeometries.some((occupied) => rectsOverlap(rect, occupied.labelRect, safeGap));
+}
+
 function hasLabelCollisions(
   candidate: GroupGeometry,
   occupiedGeometries: GroupGeometry[],
   safeGap: number,
 ) {
-  return occupiedGeometries.some((occupied) => (
-    rectsOverlap(candidate.labelRect, occupied.photoRect, safeGap) ||
-    rectsOverlap(candidate.labelRect, occupied.labelRect, safeGap)
-  ));
+  return (
+    rectOverlapsOccupiedPhotos(candidate.labelRect, occupiedGeometries, safeGap) ||
+    rectOverlapsOccupiedLabels(candidate.labelRect, occupiedGeometries, safeGap)
+  );
 }
 
 function getShrinkAngleStepsByRadius(radius: number) {
@@ -516,63 +552,128 @@ function getAnglePenaltyWeightsByRadius(radius: number) {
   return { current: 32, anchor: 14 };
 }
 
+function getMovementPolicyByRadius(radius: number) {
+  if (radius < 1500) {
+    return {
+      maxAngleDeviation: 8,
+      maxLateralOffset: 120,
+      shrinkAngleSteps: [0, -4, 4, -8, 8],
+      anglePenaltyWeight: 60,
+    };
+  }
+  if (radius < 2800) {
+    return {
+      maxAngleDeviation: 12,
+      maxLateralOffset: 220,
+      shrinkAngleSteps: [0, -6, 6, -12, 12],
+      anglePenaltyWeight: 44,
+    };
+  }
+  return {
+    maxAngleDeviation: 18,
+    maxLateralOffset: 360,
+    shrinkAngleSteps: [0, -6, 6, -12, 12, -18, 18],
+    anglePenaltyWeight: 32,
+  };
+}
+
+function computeLateralOffsetFromRay(baseAngle: number, centerX: number, centerY: number) {
+  const tangentX = -Math.sin(baseAngle);
+  const tangentY = Math.cos(baseAngle);
+  return centerX * tangentX + centerY * tangentY;
+}
+
+function hasGeometryPressureBetweenGroups(
+  left: GroupGeometry,
+  right: GroupGeometry,
+  safeGap: number,
+) {
+  return (
+    rectsOverlap(left.photoRect, right.photoRect, safeGap) ||
+    rectsOverlap(left.labelRect, right.photoRect, safeGap) ||
+    rectsOverlap(left.photoRect, right.labelRect, safeGap) ||
+    rectsOverlap(left.labelRect, right.labelRect, safeGap) ||
+    rectsOverlap(left.groupRect, right.groupRect, safeGap)
+  );
+}
+
 function scoreCandidateCenter(
+  placeKey: string,
   baseGeometry: GroupGeometry,
   centerX: number,
   centerY: number,
+  logicalX: number,
+  logicalY: number,
   occupiedGeometries: GroupGeometry[],
   mapRect: LogicalRect,
   safeGap: number,
   originAngle: number,
   originRadius: number,
   labelGapBoost: number,
+  placementById: Map<string, { centerX: number; centerY: number }>,
+  groups: PendingPlaceGroup[],
 ) {
   const candidate = translateGroupGeometry(baseGeometry, centerX, centerY);
   const occupied = buildOccupiedCandidateGeometries(occupiedGeometries);
-  if (!fitsPhotoRectAroundMap(candidate.photoRect, mapRect, safeGap)) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
+  const candidateMeta = evaluatePlacementCandidate(
+    placeKey,
+    candidate,
+    logicalX,
+    logicalY,
+    centerX,
+    centerY,
+    occupied,
+    mapRect,
+    safeGap,
+    { centerX: Math.cos(originAngle) * originRadius, centerY: Math.sin(originAngle) * originRadius },
+    { centerX: Math.cos(originAngle) * originRadius, centerY: Math.sin(originAngle) * originRadius },
+    placementById,
+    groups,
+  );
+  if (!candidateMeta.isValid) {
+    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: candidateMeta.collisionScore };
   }
-  if (!fitsLabelRectAroundMap(candidate.labelRect, mapRect, safeGap)) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
-  }
-  if (!fitsAroundMap(candidate.groupRect, mapRect, safeGap)) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
-  }
-  if (hasLabelCollisions(candidate, occupied, safeGap)) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
-  }
-  const neighbors = getNearbyGeometries(candidate, occupied, safeGap);
-  const collisionScore = scoreGroupGeometryPlacement(candidate, neighbors, safeGap, { labelGapBoost });
   const radius = Math.hypot(centerX, centerY);
-  const angle = Math.atan2(centerY, centerX);
-  const radiusPenalty = Math.abs(radius - originRadius) * 0.8;
-  const anglePenalty = Math.abs(angle - originAngle) * 30;
   return {
     geometry: candidate,
-    score: collisionScore + radiusPenalty + anglePenalty,
-    collisionScore,
+    score:
+      radius +
+      candidateMeta.angleDelta * 24 +
+      candidateMeta.lateralOffset * 0.08 +
+      candidateMeta.collisionScore * 0.06,
+    collisionScore: candidateMeta.collisionScore,
   };
 }
 
 function findBestLocalGroupCenter(
+  placeKey: string,
   baseGeometry: GroupGeometry,
+  logicalX: number,
+  logicalY: number,
   occupiedGeometries: GroupGeometry[],
   mapRect: LogicalRect,
   safeGap: number,
   originAngle: number,
   originRadius: number,
   labelGapBoost: number,
+  placementById: Map<string, { centerX: number; centerY: number }>,
+  groups: PendingPlaceGroup[],
 ) {
   let best = scoreCandidateCenter(
+    placeKey,
     baseGeometry,
     Math.cos(originAngle) * originRadius,
     Math.sin(originAngle) * originRadius,
+    logicalX,
+    logicalY,
     occupiedGeometries,
     mapRect,
     safeGap,
     originAngle,
     originRadius,
     labelGapBoost,
+    placementById,
+    groups,
   );
   const step = Math.min(96, Math.max(24, Math.sqrt(getGroupArea(baseGeometry.photoRect)) * 0.1));
 
@@ -583,15 +684,20 @@ function findBestLocalGroupCenter(
       const centerX = Math.cos(angle) * radius;
       const centerY = Math.sin(angle) * radius;
       const candidate = scoreCandidateCenter(
+        placeKey,
         baseGeometry,
         centerX,
         centerY,
+        logicalX,
+        logicalY,
         occupiedGeometries,
         mapRect,
         safeGap,
         originAngle,
         originRadius,
         labelGapBoost,
+        placementById,
+        groups,
       );
       if (candidate.score < best.score) {
         best = candidate;
@@ -704,6 +810,60 @@ function computeOuterCornerAxisPenalty(
   return Math.abs(dx - dy);
 }
 
+function evaluatePlacementCandidate(
+  placeKey: string,
+  geometry: GroupGeometry,
+  _logicalX: number,
+  _logicalY: number,
+  centerX: number,
+  centerY: number,
+  occupiedGeometries: GroupGeometry[],
+  mapRect: LogicalRect,
+  safeGap: number,
+  basePlacement: { centerX: number; centerY: number },
+  currentPlacement: { centerX: number; centerY: number },
+  placementById: Map<string, { centerX: number; centerY: number }>,
+  groups: PendingPlaceGroup[],
+) {
+  const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
+  const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
+  const radius = Math.hypot(centerX, centerY);
+  const angle = Math.atan2(centerY, centerX);
+  const angleDeltaFromBase = Math.abs(angleDelta(angle, baseAngle));
+  const radiusDeltaFromBase = Math.abs(radius - Math.hypot(basePlacement.centerX, basePlacement.centerY));
+  const lateralOffset = Math.abs(computeLateralOffsetFromRay(baseAngle, centerX, centerY));
+  const policy = getMovementPolicyByRadius(Math.hypot(currentPlacement.centerX, currentPlacement.centerY));
+
+  const photoMapInvalid = !fitsPhotoRectAroundMap(geometry.photoRect, mapRect, safeGap);
+  const labelMapInvalid = !fitsLabelRectAroundMap(geometry.labelRect, mapRect, safeGap);
+  const mapOverlap = !fitsAroundMap(geometry.groupRect, mapRect, safeGap) || photoMapInvalid || labelMapInvalid;
+  const lineTrial = new Map(placementById);
+  lineTrial.set(placeKey, { centerX, centerY });
+  const lineIntersected = hasIntersectingLines(lineTrial, groups);
+  const labelOverlap = hasLabelCollisions(geometry, occupiedGeometries, safeGap);
+  const photoOverlap = rectOverlapsOccupiedPhotos(geometry.photoRect, occupiedGeometries, safeGap);
+  const groupOverlap = occupiedGeometries.some((occupied) => rectsOverlap(geometry.groupRect, occupied.groupRect, safeGap));
+  const angleExceeded = (angleDeltaFromBase * 180) / Math.PI > policy.maxAngleDeviation + 1e-6;
+  const lateralExceeded = lateralOffset > policy.maxLateralOffset + 1e-6;
+  const isValid = !mapOverlap && !lineIntersected && !labelOverlap && !photoOverlap && !groupOverlap && !angleExceeded && !lateralExceeded;
+  const neighbors = getNearbyGeometries(geometry, occupiedGeometries, safeGap);
+  const collisionScore = scoreGroupGeometryPlacement(geometry, neighbors, safeGap);
+
+  return {
+    isValid,
+    collisionScore,
+    lineIntersected,
+    mapOverlap,
+    labelOverlap,
+    angleDelta: angleDeltaFromBase,
+    radiusDelta: radiusDeltaFromBase,
+    lateralOffset,
+    photoOverlap,
+    groupOverlap,
+    currentAngleDelta: Math.abs(angleDelta(angle, currentAngle)),
+  };
+}
+
 function scoreCandidateAroundCurrentCenter(
   placeKey: string,
   baseGeometry: GroupGeometry,
@@ -724,110 +884,85 @@ function scoreCandidateAroundCurrentCenter(
 ) {
   const candidate = translateGroupGeometry(baseGeometry, centerX, centerY);
   const occupied = buildOccupiedCandidateGeometries(occupiedGeometries);
-  if (!fitsPhotoRectAroundMap(candidate.photoRect, mapRect, safeGap)) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
-  }
-  if (!fitsLabelRectAroundMap(candidate.labelRect, mapRect, safeGap)) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
-  }
-  if (!fitsAroundMap(candidate.groupRect, mapRect, safeGap)) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
-  }
   if (
     anchorRadius >= OUTER_CORNER_MIN_RADIUS &&
     !isWithinOuterCornerSector(logicalX, logicalY, centerX, centerY)
   ) {
     return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
   }
-  const trialPlacementById = new Map(placementById);
-  trialPlacementById.set(placeKey, { centerX, centerY });
-  if (hasIntersectingLines(trialPlacementById, groups)) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
+  const candidateMeta = evaluatePlacementCandidate(
+    placeKey,
+    candidate,
+    logicalX,
+    logicalY,
+    centerX,
+    centerY,
+    occupied,
+    mapRect,
+    safeGap,
+    { centerX: Math.cos(anchorAngle) * anchorRadius, centerY: Math.sin(anchorAngle) * anchorRadius },
+    { centerX: Math.cos(currentAngle) * currentRadius, centerY: Math.sin(currentAngle) * currentRadius },
+    placementById,
+    groups,
+  );
+  if (!candidateMeta.isValid) {
+    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: candidateMeta.collisionScore };
   }
-  if (hasLabelCollisions(candidate, occupied, safeGap)) {
-    return { geometry: candidate, score: Number.POSITIVE_INFINITY, collisionScore: Number.POSITIVE_INFINITY };
-  }
-
-  const neighbors = getNearbyGeometries(candidate, occupied, safeGap);
-  const collisionScore = scoreGroupGeometryPlacement(candidate, neighbors, safeGap, { labelGapBoost });
   const radius = Math.hypot(centerX, centerY);
   const angle = Math.atan2(centerY, centerX);
   const middleBand = currentRadius >= 1500 && currentRadius < 2800;
   const outerBand = currentRadius >= 2800;
   const angleWeights = getAnglePenaltyWeightsByRadius(currentRadius);
-  const currentRadiusPenalty = Math.abs(radius - currentRadius) * 0.22;
-  const currentAnglePenalty = Math.abs(angleDelta(angle, currentAngle)) * angleWeights.current;
-  const anchorRadiusPenalty = Math.abs(radius - anchorRadius) * 0.08;
-  const anchorAnglePenalty = Math.abs(angleDelta(angle, anchorAngle)) * angleWeights.anchor;
-  const inwardBias = outerBand
-    ? Math.max(0, radius - (currentRadius - 260)) * 0.65
-    : middleBand
-      ? Math.max(0, radius - (currentRadius - 80)) * 0.18
-      : 0;
-  const outwardPenalty = outerBand
-    ? Math.max(0, radius - currentRadius) * 1.8
-    : middleBand
-      ? Math.max(0, radius - currentRadius) * 0.85
-      : Math.max(0, radius - currentRadius) * 0.35;
-  const lineLengthPenalty = outerBand ? radius * 0.18 : radius * 0.05;
-  const outerCornerAxisPenalty = outerBand
-    ? computeOuterCornerAxisPenalty(mapRect, logicalX, logicalY, centerX, centerY) * 0.16
-    : 0;
-  const outerCornerMarginPenalty = outerBand
-    ? Math.max(0, OUTER_CORNER_SAFE_MARGIN - Math.min(
-      Math.abs(centerX - getCornerBoundsForPoint(mapRect, logicalX, logicalY).xLimit),
-      Math.abs(centerY - getCornerBoundsForPoint(mapRect, logicalX, logicalY).yLimit),
-    )) * 18
-    : 0;
+  const lineLengthPenalty = radius;
+  const anchorAnglePenalty = candidateMeta.angleDelta * angleWeights.anchor;
+  const currentAnglePenalty = candidateMeta.currentAngleDelta * angleWeights.current;
+  const lateralPenalty = candidateMeta.lateralOffset * (outerBand ? 0.18 : middleBand ? 0.12 : 0.08);
+  const localPressurePenalty = candidateMeta.collisionScore * 0.08;
 
   return {
     geometry: candidate,
     score:
-      collisionScore +
-      currentRadiusPenalty +
-      currentAnglePenalty +
-      anchorRadiusPenalty +
-      anchorAnglePenalty +
-      inwardBias +
-      outwardPenalty +
       lineLengthPenalty +
-      outerCornerAxisPenalty +
-      outerCornerMarginPenalty,
-    collisionScore,
+      anchorAnglePenalty +
+      currentAnglePenalty +
+      lateralPenalty +
+      localPressurePenalty +
+      candidateMeta.radiusDelta * 0.04,
+    collisionScore: candidateMeta.collisionScore,
   };
 }
 
 function refineGroupCenterFromCurrentPlacement(
   placeKey: string,
   baseGeometry: GroupGeometry,
-  currentCenterX: number,
-  currentCenterY: number,
+  currentPlacement: { centerX: number; centerY: number },
+  basePlacement: { centerX: number; centerY: number },
   logicalX: number,
   logicalY: number,
   occupiedGeometries: GroupGeometry[],
   mapRect: LogicalRect,
   safeGap: number,
-  anchorAngle: number,
-  anchorRadius: number,
   labelGapBoost: number,
   placementById: Map<string, { centerX: number; centerY: number }>,
   groups: PendingPlaceGroup[],
 ) {
-  const currentRadius = Math.hypot(currentCenterX, currentCenterY);
-  const currentAngle = Math.atan2(currentCenterY, currentCenterX);
+  const currentRadius = Math.hypot(currentPlacement.centerX, currentPlacement.centerY);
+  const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
+  const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
+  const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
   let foundFiniteCandidate = false;
   let best = scoreCandidateAroundCurrentCenter(
     placeKey,
     baseGeometry,
-    currentCenterX,
-    currentCenterY,
+    currentPlacement.centerX,
+    currentPlacement.centerY,
     logicalX,
     logicalY,
     occupiedGeometries,
     mapRect,
     safeGap,
-    anchorAngle,
-    anchorRadius,
+    baseAngle,
+    baseRadius,
     currentAngle,
     currentRadius,
     labelGapBoost,
@@ -854,8 +989,8 @@ function refineGroupCenterFromCurrentPlacement(
         occupiedGeometries,
         mapRect,
         safeGap,
-        anchorAngle,
-        anchorRadius,
+        baseAngle,
+        baseRadius,
         currentAngle,
         currentRadius,
         labelGapBoost,
@@ -871,9 +1006,9 @@ function refineGroupCenterFromCurrentPlacement(
 
   if (!foundFiniteCandidate) {
     return {
-      centerX: currentCenterX,
-      centerY: currentCenterY,
-      geometry: translateGroupGeometry(baseGeometry, currentCenterX, currentCenterY),
+      centerX: currentPlacement.centerX,
+      centerY: currentPlacement.centerY,
+      geometry: translateGroupGeometry(baseGeometry, currentPlacement.centerX, currentPlacement.centerY),
       score: Number.POSITIVE_INFINITY,
     };
   }
@@ -898,7 +1033,7 @@ function buildRadialRefineOrder(groups: PendingPlaceGroup[]) {
   });
 }
 
-function findMinimalFeasibleRadius(
+function findMinimalFeasibleRadiusOnBaseRay(
   group: PendingPlaceGroup,
   currentPlacement: { centerX: number; centerY: number },
   basePlacement: { centerX: number; centerY: number },
@@ -913,30 +1048,18 @@ function findMinimalFeasibleRadius(
   const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
   const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
-  const fallback = scoreCandidateAroundCurrentCenter(
-    group.placeKey,
-    group.collisionGeometry,
-    currentPlacement.centerX,
-    currentPlacement.centerY,
-    group.logicalX,
-    group.logicalY,
-    occupiedGeometries,
-    mapRect,
-    safeGap,
-    baseAngle,
-    baseRadius,
-    currentAngle,
-    currentRadius,
-    labelGapBoost,
-    placementById,
-    groups,
-  );
-  const angleSteps = getShrinkAngleStepsByRadius(currentRadius);
-  const buildCandidateAt = (radius: number, angleOffset: number) => {
-    const angle = currentAngle + (angleOffset * Math.PI) / 180;
-    const centerX = Math.cos(angle) * radius;
-    const centerY = Math.sin(angle) * radius;
-    return scoreCandidateAroundCurrentCenter(
+  let best: null | {
+    centerX: number;
+    centerY: number;
+    geometry: GroupGeometry;
+    score: number;
+  } = null;
+
+  for (const step of [...RADIAL_SHRINK_STEPS].reverse()) {
+    const radius = Math.max(0, currentRadius - step);
+    const centerX = Math.cos(baseAngle) * radius;
+    const centerY = Math.sin(baseAngle) * radius;
+    const candidate = scoreCandidateAroundCurrentCenter(
       group.placeKey,
       group.collisionGeometry,
       centerX,
@@ -954,59 +1077,236 @@ function findMinimalFeasibleRadius(
       placementById,
       groups,
     );
-  };
-
-  for (const step of RADIAL_SHRINK_STEPS) {
-    const radius = Math.max(0, currentRadius - step);
-    const candidate = buildCandidateAt(radius, 0);
-    if (Number.isFinite(candidate.score) && candidate.collisionScore === 0) {
-      return {
-        centerX: candidate.geometry.photoCenterX,
-        centerY: candidate.geometry.photoCenterY,
-        geometry: candidate.geometry,
-        score: candidate.score,
-      };
-    }
+    if (!Number.isFinite(candidate.score) || candidate.collisionScore !== 0) continue;
+    best = {
+      centerX: candidate.geometry.photoCenterX,
+      centerY: candidate.geometry.photoCenterY,
+      geometry: candidate.geometry,
+      score: candidate.score,
+    };
   }
 
-  for (const step of RADIAL_SHRINK_STEPS) {
+  return best;
+}
+
+function findMinimalFeasibleRadiusWithMinorAngleAdjust(
+  group: PendingPlaceGroup,
+  currentPlacement: { centerX: number; centerY: number },
+  basePlacement: { centerX: number; centerY: number },
+  occupiedGeometries: GroupGeometry[],
+  mapRect: LogicalRect,
+  safeGap: number,
+  labelGapBoost: number,
+  placementById: Map<string, { centerX: number; centerY: number }>,
+  groups: PendingPlaceGroup[],
+) {
+  const currentRadius = Math.hypot(currentPlacement.centerX, currentPlacement.centerY);
+  const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
+  const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
+  const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
+  const angleSteps = getShrinkAngleStepsByRadius(currentRadius).filter((step) => step !== 0);
+  let best: null | {
+    centerX: number;
+    centerY: number;
+    geometry: GroupGeometry;
+    score: number;
+    radius: number;
+    angleOffsetAbs: number;
+  } = null;
+
+  for (const step of [...RADIAL_SHRINK_STEPS].reverse()) {
     const radius = Math.max(0, currentRadius - step);
-    let bestAtRadius: null | {
-      centerX: number;
-      centerY: number;
-      geometry: GroupGeometry;
-      score: number;
-      angleOffsetAbs: number;
-    } = null;
     for (const angleOffset of angleSteps) {
-      const candidate = buildCandidateAt(radius, angleOffset);
+      const angle = baseAngle + (angleOffset * Math.PI) / 180;
+      const centerX = Math.cos(angle) * radius;
+      const centerY = Math.sin(angle) * radius;
+      const candidate = scoreCandidateAroundCurrentCenter(
+        group.placeKey,
+        group.collisionGeometry,
+        centerX,
+        centerY,
+        group.logicalX,
+        group.logicalY,
+        occupiedGeometries,
+        mapRect,
+        safeGap,
+        baseAngle,
+        baseRadius,
+        currentAngle,
+        currentRadius,
+        labelGapBoost,
+        placementById,
+        groups,
+      );
       if (!Number.isFinite(candidate.score) || candidate.collisionScore !== 0) continue;
-      const candidateEntry = {
+      const next = {
         centerX: candidate.geometry.photoCenterX,
         centerY: candidate.geometry.photoCenterY,
         geometry: candidate.geometry,
         score: candidate.score,
+        radius,
         angleOffsetAbs: Math.abs(angleOffset),
       };
       if (
-        !bestAtRadius ||
-        candidateEntry.score < bestAtRadius.score - 1e-6 ||
+        !best ||
+        next.radius < best.radius - 1e-6 ||
         (
-          Math.abs(candidateEntry.score - bestAtRadius.score) <= 1e-6 &&
-          candidateEntry.angleOffsetAbs < bestAtRadius.angleOffsetAbs
+          Math.abs(next.radius - best.radius) <= 1e-6 &&
+          (
+            next.score < best.score - 1e-6 ||
+            (
+              Math.abs(next.score - best.score) <= 1e-6 &&
+              next.angleOffsetAbs < best.angleOffsetAbs
+            )
+          )
         )
       ) {
-        bestAtRadius = candidateEntry;
+        best = next;
       }
     }
-    if (bestAtRadius) {
-      return {
-        centerX: bestAtRadius.centerX,
-        centerY: bestAtRadius.centerY,
-        geometry: bestAtRadius.geometry,
-        score: bestAtRadius.score,
-      };
+  }
+
+  return best;
+}
+
+function refineFeasibleRadiusLocally(
+  group: PendingPlaceGroup,
+  currentPlacement: { centerX: number; centerY: number },
+  basePlacement: { centerX: number; centerY: number },
+  seedCandidate: { centerX: number; centerY: number; geometry: GroupGeometry; score: number },
+  occupiedGeometries: GroupGeometry[],
+  mapRect: LogicalRect,
+  safeGap: number,
+  labelGapBoost: number,
+  placementById: Map<string, { centerX: number; centerY: number }>,
+  groups: PendingPlaceGroup[],
+) {
+  const currentRadius = Math.hypot(currentPlacement.centerX, currentPlacement.centerY);
+  const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
+  const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
+  const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
+  let best = seedCandidate;
+  const localRadiusSteps = [0, -40, -24, -12, 12, 24];
+  const localAngleSteps = [0, -3, 3, -6, 6];
+
+  for (const radiusStep of localRadiusSteps) {
+    const radius = Math.max(0, Math.hypot(seedCandidate.centerX, seedCandidate.centerY) + radiusStep);
+    for (const angleStep of localAngleSteps) {
+      const angle = Math.atan2(seedCandidate.centerY, seedCandidate.centerX) + (angleStep * Math.PI) / 180;
+      const centerX = Math.cos(angle) * radius;
+      const centerY = Math.sin(angle) * radius;
+      const candidate = scoreCandidateAroundCurrentCenter(
+        group.placeKey,
+        group.collisionGeometry,
+        centerX,
+        centerY,
+        group.logicalX,
+        group.logicalY,
+        occupiedGeometries,
+        mapRect,
+        safeGap,
+        baseAngle,
+        baseRadius,
+        currentAngle,
+        currentRadius,
+        labelGapBoost,
+        placementById,
+        groups,
+      );
+      if (!Number.isFinite(candidate.score) || candidate.collisionScore !== 0) continue;
+      if (candidate.score < best.score - 1e-6) {
+        best = {
+          centerX: candidate.geometry.photoCenterX,
+          centerY: candidate.geometry.photoCenterY,
+          geometry: candidate.geometry,
+          score: candidate.score,
+        };
+      }
     }
+  }
+
+  return best;
+}
+
+function findMinimalFeasibleRadius(
+  group: PendingPlaceGroup,
+  currentPlacement: { centerX: number; centerY: number },
+  basePlacement: { centerX: number; centerY: number },
+  occupiedGeometries: GroupGeometry[],
+  mapRect: LogicalRect,
+  safeGap: number,
+  labelGapBoost: number,
+  placementById: Map<string, { centerX: number; centerY: number }>,
+  groups: PendingPlaceGroup[],
+) {
+  const fallback = scoreCandidateAroundCurrentCenter(
+    group.placeKey,
+    group.collisionGeometry,
+    currentPlacement.centerX,
+    currentPlacement.centerY,
+    group.logicalX,
+    group.logicalY,
+    occupiedGeometries,
+    mapRect,
+    safeGap,
+    Math.atan2(basePlacement.centerY, basePlacement.centerX),
+    Math.hypot(basePlacement.centerX, basePlacement.centerY),
+    Math.atan2(currentPlacement.centerY, currentPlacement.centerX),
+    Math.hypot(currentPlacement.centerX, currentPlacement.centerY),
+    labelGapBoost,
+    placementById,
+    groups,
+  );
+  const onBaseRay = findMinimalFeasibleRadiusOnBaseRay(
+    group,
+    currentPlacement,
+    basePlacement,
+    occupiedGeometries,
+    mapRect,
+    safeGap,
+    labelGapBoost,
+    placementById,
+    groups,
+  );
+  if (onBaseRay) {
+    return refineFeasibleRadiusLocally(
+      group,
+      currentPlacement,
+      basePlacement,
+      onBaseRay,
+      occupiedGeometries,
+      mapRect,
+      safeGap,
+      labelGapBoost,
+      placementById,
+      groups,
+    );
+  }
+
+  const withAngleAdjust = findMinimalFeasibleRadiusWithMinorAngleAdjust(
+    group,
+    currentPlacement,
+    basePlacement,
+    occupiedGeometries,
+    mapRect,
+    safeGap,
+    labelGapBoost,
+    placementById,
+    groups,
+  );
+  if (withAngleAdjust) {
+    return refineFeasibleRadiusLocally(
+      group,
+      currentPlacement,
+      basePlacement,
+      withAngleAdjust,
+      occupiedGeometries,
+      mapRect,
+      safeGap,
+      labelGapBoost,
+      placementById,
+      groups,
+    );
   }
 
   return {
@@ -1042,12 +1342,7 @@ function findClosestNeighborForGroup(
       candidatePlacement.centerX,
       candidatePlacement.centerY,
     );
-    const geometryPressure =
-      rectsOverlap(targetGeometry.labelRect, candidateGeometry.labelRect, GROUP_SAFE_GAP + 18) ||
-      rectsOverlap(targetGeometry.labelRect, candidateGeometry.photoRect, GROUP_SAFE_GAP + 18) ||
-      rectsOverlap(targetGeometry.photoRect, candidateGeometry.labelRect, GROUP_SAFE_GAP + 18) ||
-      rectsOverlap(targetGeometry.photoRect, candidateGeometry.photoRect, GROUP_SAFE_GAP + 18) ||
-      rectsOverlap(targetGeometry.groupRect, candidateGeometry.groupRect, GROUP_SAFE_GAP + 18);
+    const geometryPressure = hasGeometryPressureBetweenGroups(targetGeometry, candidateGeometry, GROUP_SAFE_GAP + 18);
     if (!geometryPressure) continue;
     const dx = candidatePlacement.centerX - targetPlacement.centerX;
     const dy = candidatePlacement.centerY - targetPlacement.centerY;
@@ -1075,8 +1370,11 @@ function buildAngularWindows(groups: PendingPlaceGroup[], placementById: Map<str
 
   const windows: PendingPlaceGroup[][] = [];
   for (let index = 0; index < ordered.length; index++) {
-    const slice = ordered.slice(Math.max(0, index - 1), Math.min(ordered.length, index + 2)).map((item) => item.group);
-    if (slice.length >= 3) windows.push(slice);
+    for (const windowSize of [3, 4, 5]) {
+      const start = Math.max(0, Math.min(index, ordered.length - windowSize));
+      const slice = ordered.slice(start, start + windowSize).map((item) => item.group);
+      if (slice.length >= 3) windows.push(slice);
+    }
   }
   return windows;
 }
@@ -1084,6 +1382,9 @@ function buildAngularWindows(groups: PendingPlaceGroup[], placementById: Map<str
 function scoreClusterCompaction(
   cluster: PendingPlaceGroup[],
   placementById: Map<string, { centerX: number; centerY: number }>,
+  allGroups: PendingPlaceGroup[],
+  mapRect: LogicalRect,
+  safeGap: number,
 ) {
   const centers = cluster
     .map((group) => placementById.get(group.placeKey))
@@ -1094,7 +1395,21 @@ function scoreClusterCompaction(
   const top = Math.min(...centers.map((item) => item.centerY));
   const bottom = Math.max(...centers.map((item) => item.centerY));
   const totalRadius = centers.reduce((sum, item) => sum + Math.hypot(item.centerX, item.centerY), 0);
-  return (right - left) * (bottom - top) + totalRadius * 0.2;
+  const occupiedGeometries = allGroups
+    .filter((candidate) => !cluster.some((group) => group.placeKey === candidate.placeKey))
+    .map((candidate) => {
+      const placement = placementById.get(candidate.placeKey);
+      if (!placement) return null;
+      return translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY);
+    })
+    .filter((candidate): candidate is GroupGeometry => candidate !== null);
+  const pressure = cluster.reduce((sum, group) => {
+    const placement = placementById.get(group.placeKey);
+    if (!placement) return sum;
+    const geometry = translateGroupGeometry(group.collisionGeometry, placement.centerX, placement.centerY);
+    return sum + scoreGroupGeometryPlacement(geometry, occupiedGeometries, safeGap);
+  }, 0);
+  return (right - left) * (bottom - top) + totalRadius * 0.2 + pressure * 0.06;
 }
 
 function refineSectorClusters(
@@ -1108,7 +1423,7 @@ function refineSectorClusters(
   const windows = buildAngularWindows(groups, nextPlacementById);
 
   for (const windowGroups of windows) {
-    const baseline = scoreClusterCompaction(windowGroups, nextPlacementById);
+    const baseline = scoreClusterCompaction(windowGroups, nextPlacementById, groups, mapRect, safeGap);
     let bestPlacementById: Map<string, { centerX: number; centerY: number }> | null = null;
     let bestScore = baseline;
 
@@ -1123,7 +1438,7 @@ function refineSectorClusters(
       const trialPlacementById = new Map(nextPlacementById);
       trialPlacementById.set(pivot.placeKey, nudged.groupPlacement);
       trialPlacementById.set(neighbor.placeKey, nudged.neighborPlacement);
-      const trialScore = scoreClusterCompaction(windowGroups, trialPlacementById);
+      const trialScore = scoreClusterCompaction(windowGroups, trialPlacementById, groups, mapRect, safeGap);
       if (trialScore < bestScore - 1e-6) {
         bestScore = trialScore;
         bestPlacementById = trialPlacementById;
@@ -1145,28 +1460,11 @@ function tryNeighborNudge(
   groups: PendingPlaceGroup[],
   mapRect: LogicalRect,
   safeGap: number,
-  labelGapBoost: number,
+  _labelGapBoost: number,
 ) {
   const groupPlacement = placementById.get(group.placeKey);
   const neighborPlacement = placementById.get(neighbor.placeKey);
   if (!groupPlacement || !neighborPlacement) return null;
-
-  const baseScore = (() => {
-    const occupied = groups
-      .filter((candidate) => candidate.placeKey !== group.placeKey)
-      .map((candidate) => {
-        const placement = placementById.get(candidate.placeKey);
-        if (!placement) return null;
-        return translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY);
-      })
-      .filter((candidate): candidate is GroupGeometry => candidate !== null);
-    return scoreGroupGeometryPlacement(
-      translateGroupGeometry(group.collisionGeometry, groupPlacement.centerX, groupPlacement.centerY),
-      occupied,
-      safeGap,
-      { labelGapBoost },
-    );
-  })();
 
   const axisX = neighborPlacement.centerX - groupPlacement.centerX;
   const axisY = neighborPlacement.centerY - groupPlacement.centerY;
@@ -1210,25 +1508,56 @@ function tryNeighborNudge(
         };
       })
       .filter((candidate): candidate is { key: string; geometry: GroupGeometry } => candidate !== null);
-
-    if (!fitsAroundMap(candidateGroupGeometry.groupRect, mapRect, safeGap)) continue;
     const neighborGeometry = translateGroupGeometry(
       neighbor.collisionGeometry,
       candidateNeighborPlacement.centerX,
       candidateNeighborPlacement.centerY,
     );
-    if (!fitsAroundMap(neighborGeometry.groupRect, mapRect, safeGap)) continue;
-    if (hasIntersectingLines(trialPlacementById, groups)) continue;
-
     const occupiedForGroup = occupied.map((item) => item.geometry);
     const occupiedForNeighbor = occupied
       .filter((item) => item.key !== neighbor.placeKey)
       .map((item) => item.geometry);
-    const score =
-      scoreGroupGeometryPlacement(candidateGroupGeometry, occupiedForGroup, safeGap, { labelGapBoost }) +
-      scoreGroupGeometryPlacement(neighborGeometry, occupiedForNeighbor, safeGap, { labelGapBoost });
+    const groupEval = evaluatePlacementCandidate(
+      group.placeKey,
+      candidateGroupGeometry,
+      group.logicalX,
+      group.logicalY,
+      candidateGroupPlacement.centerX,
+      candidateGroupPlacement.centerY,
+      occupiedForGroup,
+      mapRect,
+      safeGap,
+      groupPlacement,
+      groupPlacement,
+      trialPlacementById,
+      groups,
+    );
+    if (!groupEval.isValid) continue;
+    const neighborEval = evaluatePlacementCandidate(
+      neighbor.placeKey,
+      neighborGeometry,
+      neighbor.logicalX,
+      neighbor.logicalY,
+      candidateNeighborPlacement.centerX,
+      candidateNeighborPlacement.centerY,
+      occupiedForNeighbor,
+      mapRect,
+      safeGap,
+      neighborPlacement,
+      neighborPlacement,
+      trialPlacementById,
+      groups,
+    );
+    if (!neighborEval.isValid) continue;
 
-    if (score >= baseScore - 1e-6) continue;
+    const score =
+      Math.hypot(candidateGroupPlacement.centerX, candidateGroupPlacement.centerY) +
+      Math.hypot(candidateNeighborPlacement.centerX, candidateNeighborPlacement.centerY) +
+      groupEval.lateralOffset * 0.08 +
+      neighborEval.lateralOffset * 0.08 +
+      groupEval.collisionScore * 0.04 +
+      neighborEval.collisionScore * 0.04;
+
     if (!best || score < best.score) {
       best = {
         groupPlacement: candidateGroupPlacement,
@@ -1300,20 +1629,16 @@ function refineRadialPlacements(
         })
         .filter((candidate): candidate is GroupGeometry => candidate !== null);
 
-      const anchorAngle = Math.atan2(group.logicalY, group.logicalX || 0);
-      const anchorRadius = Math.hypot(currentPlacement.centerX, currentPlacement.centerY);
       const refined = refineGroupCenterFromCurrentPlacement(
         group.placeKey,
         group.collisionGeometry,
-        currentPlacement.centerX,
-        currentPlacement.centerY,
+        currentPlacement,
+        basePlacementById.get(group.placeKey) ?? currentPlacement,
         group.logicalX,
         group.logicalY,
         occupiedGeometries,
         mapRect,
         safeGap,
-        anchorAngle,
-        anchorRadius,
         labelGapBoost,
         nextPlacementById,
         groups,
@@ -2050,13 +2375,34 @@ function UserFootprintsPageInner() {
           const baseRadius = Math.max(viewportWidth, viewportHeight) * 0.38;
           let chosenCenter = findNearestAvailableGroupCenter(target.collisionRect, occupiedRects, mapRect, cardSize);
           const localPlacement = findBestLocalGroupCenter(
+            target.placeKey,
             target.collisionGeometry,
+            target.logicalX,
+            target.logicalY,
             occupiedGeometries,
             mapRect,
             cardSize,
             radians,
             baseRadius,
             computeLabelGapBoost(outerScale),
+            buildPlacementMapForGroups(
+              pendingNewGroups,
+              baseRadius,
+              (groupItem) => {
+                if (groupItem.placeKey === target.placeKey) {
+                  return {
+                    centerX: Math.cos(radians) * baseRadius,
+                    centerY: Math.sin(radians) * baseRadius,
+                  };
+                }
+                const angleByLogical = Math.atan2(groupItem.logicalY, groupItem.logicalX || 0);
+                return {
+                  centerX: Math.cos(angleByLogical) * baseRadius,
+                  centerY: Math.sin(angleByLogical) * baseRadius,
+                };
+              },
+            ),
+            pendingNewGroups,
           );
           if (Number.isFinite(localPlacement.score)) {
             chosenCenter = { x: localPlacement.centerX, y: localPlacement.centerY };
