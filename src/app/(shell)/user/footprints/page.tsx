@@ -1054,7 +1054,7 @@ function UserFootprintsPageInner() {
 
         const candidateCenterX = existingCenter.x + unitX * expansionBase;
         const candidateCenterY = existingCenter.y + unitY * expansionBase;
-        const nextRect = translateRect(renderRect, candidateCenterX, candidateCenterY);
+        const nextRect = translateRect(collisionRect, candidateCenterX, candidateCenterY);
         const occupiedByOthers = occupiedRects.filter((rect) => rect !== existingRect);
         const canExpandOutward =
           fitsAroundMap(nextRect, mapRect, cardSize) &&
@@ -1137,12 +1137,12 @@ function UserFootprintsPageInner() {
             .map((rect) => ({ rect, area: rectArea(rect) }))
             .sort((a, b) => b.area - a.area);
 
-          let chosenCenter = findNearestAvailableGroupCenter(target.renderRect, occupiedRects, mapRect, cardSize);
+          let chosenCenter = findNearestAvailableGroupCenter(target.collisionRect, occupiedRects, mapRect, cardSize);
           for (let radiusStep = 0; radiusStep < 8; radiusStep++) {
             const radius = baseRadius + radiusStep * Math.max(cardSize, 80);
             const centerX = rayX * radius;
             const centerY = rayY * radius;
-            const rect = translateRect(target.renderRect, centerX, centerY);
+            const rect = translateRect(target.collisionRect, centerX, centerY);
             if (!fitsAroundMap(rect, mapRect, cardSize)) continue;
             if (sortedOccupied.some((occupied) => rectsOverlap(rect, occupied.rect, cardSize))) continue;
             chosenCenter = { x: centerX, y: centerY };
