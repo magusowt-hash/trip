@@ -126,6 +126,7 @@ const LOCAL_SEARCH_RADIUS_FACTORS = [0, -0.35, 0.35];
 const POST_LAYOUT_SEARCH_ANGLE_STEPS = [0, -8, 8, -16, 16, -24, 24, -36, 36];
 const POST_LAYOUT_SEARCH_RADIUS_STEPS = [0, -360, -280, -200, -120, -60, 80, 160];
 const POST_LAYOUT_REFINE_PASSES = 3;
+const NEIGHBOR_NUDGE_STEPS = [-48, -32, -16, 16, 32, 48];
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -643,6 +644,143 @@ function refineGroupCenterFromCurrentPlacement(
   };
 }
 
+function findClosestNeighborForGroup(
+  targetKey: string,
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, { centerX: number; centerY: number }>,
+) {
+  const targetGroup = groups.find((group) => group.placeKey === targetKey);
+  const targetPlacement = placementById.get(targetKey);
+  if (!targetGroup || !targetPlacement) return null;
+
+  let best: null | { group: PendingPlaceGroup; distance: number } = null;
+  const targetGeometry = translateGroupGeometry(
+    targetGroup.collisionGeometry,
+    targetPlacement.centerX,
+    targetPlacement.centerY,
+  );
+
+  for (const candidate of groups) {
+    if (candidate.placeKey === targetKey) continue;
+    const candidatePlacement = placementById.get(candidate.placeKey);
+    if (!candidatePlacement) continue;
+    const candidateGeometry = translateGroupGeometry(
+      candidate.collisionGeometry,
+      candidatePlacement.centerX,
+      candidatePlacement.centerY,
+    );
+    if (!rectsOverlap(targetGeometry.groupRect, candidateGeometry.groupRect, GROUP_SAFE_GAP + 18)) continue;
+    const dx = candidatePlacement.centerX - targetPlacement.centerX;
+    const dy = candidatePlacement.centerY - targetPlacement.centerY;
+    const distance = Math.hypot(dx, dy);
+    if (!best || distance < best.distance) {
+      best = { group: candidate, distance };
+    }
+  }
+
+  return best?.group ?? null;
+}
+
+function tryNeighborNudge(
+  group: PendingPlaceGroup,
+  neighbor: PendingPlaceGroup,
+  placementById: Map<string, { centerX: number; centerY: number }>,
+  groups: PendingPlaceGroup[],
+  mapRect: LogicalRect,
+  safeGap: number,
+) {
+  const groupPlacement = placementById.get(group.placeKey);
+  const neighborPlacement = placementById.get(neighbor.placeKey);
+  if (!groupPlacement || !neighborPlacement) return null;
+
+  const baseScore = (() => {
+    const occupied = groups
+      .filter((candidate) => candidate.placeKey !== group.placeKey)
+      .map((candidate) => {
+        const placement = placementById.get(candidate.placeKey);
+        if (!placement) return null;
+        return translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY);
+      })
+      .filter((candidate): candidate is GroupGeometry => candidate !== null);
+    return scoreGroupGeometryPlacement(
+      translateGroupGeometry(group.collisionGeometry, groupPlacement.centerX, groupPlacement.centerY),
+      occupied,
+      safeGap,
+    );
+  })();
+
+  const axisX = neighborPlacement.centerX - groupPlacement.centerX;
+  const axisY = neighborPlacement.centerY - groupPlacement.centerY;
+  const axisLength = Math.hypot(axisX, axisY) || 1;
+  const unitX = axisX / axisLength;
+  const unitY = axisY / axisLength;
+
+  let best: null | {
+    groupPlacement: { centerX: number; centerY: number };
+    neighborPlacement: { centerX: number; centerY: number };
+    score: number;
+  } = null;
+
+  for (const step of NEIGHBOR_NUDGE_STEPS) {
+    const candidateGroupPlacement = {
+      centerX: groupPlacement.centerX - unitX * step * 0.35,
+      centerY: groupPlacement.centerY - unitY * step * 0.35,
+    };
+    const candidateNeighborPlacement = {
+      centerX: neighborPlacement.centerX + unitX * step,
+      centerY: neighborPlacement.centerY + unitY * step,
+    };
+
+    const trialPlacementById = new Map(placementById);
+    trialPlacementById.set(group.placeKey, candidateGroupPlacement);
+    trialPlacementById.set(neighbor.placeKey, candidateNeighborPlacement);
+
+    const candidateGroupGeometry = translateGroupGeometry(
+      group.collisionGeometry,
+      candidateGroupPlacement.centerX,
+      candidateGroupPlacement.centerY,
+    );
+    const occupied = groups
+      .filter((candidate) => candidate.placeKey !== group.placeKey)
+      .map((candidate) => {
+        const placement = trialPlacementById.get(candidate.placeKey);
+        if (!placement) return null;
+        return {
+          key: candidate.placeKey,
+          geometry: translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY),
+        };
+      })
+      .filter((candidate): candidate is { key: string; geometry: GroupGeometry } => candidate !== null);
+
+    if (!fitsAroundMap(candidateGroupGeometry.groupRect, mapRect, safeGap)) continue;
+    const neighborGeometry = translateGroupGeometry(
+      neighbor.collisionGeometry,
+      candidateNeighborPlacement.centerX,
+      candidateNeighborPlacement.centerY,
+    );
+    if (!fitsAroundMap(neighborGeometry.groupRect, mapRect, safeGap)) continue;
+
+    const occupiedForGroup = occupied.map((item) => item.geometry);
+    const occupiedForNeighbor = occupied
+      .filter((item) => item.key !== neighbor.placeKey)
+      .map((item) => item.geometry);
+    const score =
+      scoreGroupGeometryPlacement(candidateGroupGeometry, occupiedForGroup, safeGap) +
+      scoreGroupGeometryPlacement(neighborGeometry, occupiedForNeighbor, safeGap);
+
+    if (score >= baseScore - 1e-6) continue;
+    if (!best || score < best.score) {
+      best = {
+        groupPlacement: candidateGroupPlacement,
+        neighborPlacement: candidateNeighborPlacement,
+        score,
+      };
+    }
+  }
+
+  return best;
+}
+
 function refineRadialPlacements(
   groups: PendingPlaceGroup[],
   placementById: Map<string, { centerX: number; centerY: number }>,
@@ -688,7 +826,16 @@ function refineRadialPlacements(
       ) {
         nextPlacementById.set(group.placeKey, { centerX: refined.centerX, centerY: refined.centerY });
         changed = true;
+        continue;
       }
+
+      const neighbor = findClosestNeighborForGroup(group.placeKey, groups, nextPlacementById);
+      if (!neighbor) continue;
+      const nudged = tryNeighborNudge(group, neighbor, nextPlacementById, groups, mapRect, safeGap);
+      if (!nudged) continue;
+      nextPlacementById.set(group.placeKey, nudged.groupPlacement);
+      nextPlacementById.set(neighbor.placeKey, nudged.neighborPlacement);
+      changed = true;
     }
 
     if (!changed) break;
