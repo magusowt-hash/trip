@@ -7,7 +7,7 @@ import {
   GROUP_LABEL_FONT_SCREEN_SIZE,
   GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
   type GroupLabelSide,
-  resolveGroupGeometryLabels,
+  resolveGroupGeometryDownward,
 } from './localMapGroupGeometry';
 
 export interface PhotoItem {
@@ -256,15 +256,9 @@ export default function OuterFrameCanvas({
         geometry,
       });
     }
-    const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height);
-    const resolvedGeometry = resolveGroupGeometryLabels(
+    const resolvedGeometry = resolveGroupGeometryDownward(
       geometryEntries.map((entry) => ({ id: entry.placeKey, geometry: entry.geometry })),
-      {
-        gap: 14,
-        step: 6,
-        maxOffset: 108,
-        mapRect: { left: -mapHalfW, right: mapHalfW, top: -mapHalfH, bottom: mapHalfH },
-      },
+      { gap: 10, step: 6, maxOffset: 72 },
     );
     const rects: PlaceRect[] = [];
     for (const entry of geometryEntries) {
