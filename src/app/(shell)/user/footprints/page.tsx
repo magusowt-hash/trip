@@ -95,8 +95,10 @@ type RegionSequence = {
 
 type DebugPhotoSnapshot = {
   index: number;
-  frameX: number | null;
-  frameY: number | null;
+  left: number | null;
+  right: number | null;
+  top: number | null;
+  bottom: number | null;
   pixelWidth: number | null;
   pixelHeight: number | null;
 };
@@ -104,8 +106,6 @@ type DebugPhotoSnapshot = {
 type DebugGroupSnapshot = {
   index: number;
   photoCount: number;
-  centerX: number | null;
-  centerY: number | null;
   left: number | null;
   right: number | null;
   top: number | null;
@@ -324,13 +324,22 @@ function buildDebugPhotoSnapshot(photos: PhotoItem[]): DebugPhotoSnapshot[] {
   return photos
     .slice()
     .sort((a, b) => a.placeTitle.localeCompare(b.placeTitle, 'zh-CN') || String(a.id).localeCompare(String(b.id), 'zh-CN'))
-    .map((photo, index) => ({
-      index: index + 1,
-      frameX: photo.frameX ?? null,
-      frameY: photo.frameY ?? null,
-      pixelWidth: photo.pixelWidth ?? null,
-      pixelHeight: photo.pixelHeight ?? null,
-    }));
+    .map((photo, index) => {
+      const size = getPhotoLogicalSize(photo);
+      const left = photo.frameX == null ? null : Number((photo.frameX - size.width / 2).toFixed(2));
+      const right = photo.frameX == null ? null : Number((photo.frameX + size.width / 2).toFixed(2));
+      const top = photo.frameY == null ? null : Number((photo.frameY - size.height / 2).toFixed(2));
+      const bottom = photo.frameY == null ? null : Number((photo.frameY + size.height / 2).toFixed(2));
+      return {
+        index: index + 1,
+        left,
+        right,
+        top,
+        bottom,
+        pixelWidth: photo.pixelWidth ?? null,
+        pixelHeight: photo.pixelHeight ?? null,
+      };
+    });
 }
 
 function buildDebugGroupSnapshot(photos: PhotoItem[]): DebugGroupSnapshot[] {
@@ -345,12 +354,9 @@ function buildDebugGroupSnapshot(photos: PhotoItem[]): DebugGroupSnapshot[] {
     .sort((a, b) => (a[1][0]?.placeTitle || '').localeCompare(b[1][0]?.placeTitle || '', 'zh-CN') || a[0].localeCompare(b[0], 'zh-CN'))
     .map(([_, groupPhotos], index) => {
       const rect = buildPlaceBounds(groupPhotos);
-      const center = rect ? rectCenter(rect) : null;
       return {
         index: index + 1,
         photoCount: groupPhotos.length,
-        centerX: center ? Number(center.x.toFixed(2)) : null,
-        centerY: center ? Number(center.y.toFixed(2)) : null,
         left: rect ? Number(rect.left.toFixed(2)) : null,
         right: rect ? Number(rect.right.toFixed(2)) : null,
         top: rect ? Number(rect.top.toFixed(2)) : null,
@@ -2181,15 +2187,17 @@ function UserFootprintsPageInner() {
       .map((photo) => {
         const base = debugBasePhotos.find((item) => item.index === photo.index);
         if (!base) return { index: photo.index, kind: 'added' as const, current: photo };
-        const dx = photo.frameX != null && base.frameX != null ? Number((photo.frameX - base.frameX).toFixed(2)) : null;
-        const dy = photo.frameY != null && base.frameY != null ? Number((photo.frameY - base.frameY).toFixed(2)) : null;
-        if ((dx ?? 0) === 0 && (dy ?? 0) === 0) return null;
+        const dLeft = photo.left != null && base.left != null ? Number((photo.left - base.left).toFixed(2)) : null;
+        const dRight = photo.right != null && base.right != null ? Number((photo.right - base.right).toFixed(2)) : null;
+        const dTop = photo.top != null && base.top != null ? Number((photo.top - base.top).toFixed(2)) : null;
+        const dBottom = photo.bottom != null && base.bottom != null ? Number((photo.bottom - base.bottom).toFixed(2)) : null;
+        if ((dLeft ?? 0) === 0 && (dRight ?? 0) === 0 && (dTop ?? 0) === 0 && (dBottom ?? 0) === 0) return null;
         return {
           index: photo.index,
           kind: 'moved' as const,
-          base: { frameX: base.frameX, frameY: base.frameY },
-          current: { frameX: photo.frameX, frameY: photo.frameY },
-          delta: { dx, dy },
+          base: { left: base.left, right: base.right, top: base.top, bottom: base.bottom },
+          current: { left: photo.left, right: photo.right, top: photo.top, bottom: photo.bottom },
+          delta: { dLeft, dRight, dTop, dBottom },
         };
       })
       .filter((item) => !!item)
@@ -2199,21 +2207,17 @@ function UserFootprintsPageInner() {
       .map((group) => {
         const base = debugBaseGroups.find((item) => item.index === group.index);
         if (!base) return { index: group.index, kind: 'added' as const, current: group };
-        const dx = group.centerX != null && base.centerX != null ? Number((group.centerX - base.centerX).toFixed(2)) : null;
-        const dy = group.centerY != null && base.centerY != null ? Number((group.centerY - base.centerY).toFixed(2)) : null;
-        const widthBase = base.left != null && base.right != null ? base.right - base.left : null;
-        const widthCurrent = group.left != null && group.right != null ? group.right - group.left : null;
-        const heightBase = base.top != null && base.bottom != null ? base.bottom - base.top : null;
-        const heightCurrent = group.top != null && group.bottom != null ? group.bottom - group.top : null;
-        const dWidth = widthBase != null && widthCurrent != null ? Number((widthCurrent - widthBase).toFixed(2)) : null;
-        const dHeight = heightBase != null && heightCurrent != null ? Number((heightCurrent - heightBase).toFixed(2)) : null;
-        if ((dx ?? 0) === 0 && (dy ?? 0) === 0 && (dWidth ?? 0) === 0 && (dHeight ?? 0) === 0) return null;
+        const dLeft = group.left != null && base.left != null ? Number((group.left - base.left).toFixed(2)) : null;
+        const dRight = group.right != null && base.right != null ? Number((group.right - base.right).toFixed(2)) : null;
+        const dTop = group.top != null && base.top != null ? Number((group.top - base.top).toFixed(2)) : null;
+        const dBottom = group.bottom != null && base.bottom != null ? Number((group.bottom - base.bottom).toFixed(2)) : null;
+        if ((dLeft ?? 0) === 0 && (dRight ?? 0) === 0 && (dTop ?? 0) === 0 && (dBottom ?? 0) === 0) return null;
         return {
           index: group.index,
           kind: 'changed' as const,
-          base: { centerX: base.centerX, centerY: base.centerY, left: base.left, right: base.right, top: base.top, bottom: base.bottom },
-          current: { centerX: group.centerX, centerY: group.centerY, left: group.left, right: group.right, top: group.top, bottom: group.bottom },
-          delta: { dx, dy, dWidth, dHeight },
+          base: { left: base.left, right: base.right, top: base.top, bottom: base.bottom },
+          current: { left: group.left, right: group.right, top: group.top, bottom: group.bottom },
+          delta: { dLeft, dRight, dTop, dBottom },
         };
       })
       .filter((item) => !!item)
@@ -2245,17 +2249,9 @@ function UserFootprintsPageInner() {
     <div className={styles.rootFull}>
       <aside className={styles.debugDocPanel}>
         <div className={styles.debugDocHeader}>布局调试文档</div>
-        <div className={styles.debugDocMeta}>
-          原始 `{debugBaseGroups?.length ?? 0}` 组 / 当前 `{currentDebugGroups.length}` 组 / 变化 `{debugGroupDiff.length}`
-        </div>
         <button className={styles.debugDocDownload} onClick={handleDownloadDebugDocument}>
           下载 JSON
         </button>
-        <textarea
-          className={styles.debugDocTextarea}
-          readOnly
-          value={debugDocument}
-        />
       </aside>
       {/* Title */}
       {showTitle && selectedGroupId && (
