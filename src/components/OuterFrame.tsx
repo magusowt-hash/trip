@@ -230,15 +230,14 @@ export default function OuterFrame({
     const contentWidth = Math.max(1, viewport.right - viewport.left);
     const contentHeight = Math.max(1, viewport.bottom - viewport.top);
     const nextScale = Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight));
-    const boundedScale = Math.max(baseMinScale, nextScale);
     const centerX = (viewport.left + viewport.right) / 2;
     const centerY = (viewport.top + viewport.bottom) / 2;
 
-    setMinScale(boundedScale);
+    setMinScale(nextScale);
     setTransform({
-      scale: boundedScale,
-      tx: -centerX * boundedScale,
-      ty: -centerY * boundedScale,
+      scale: nextScale,
+      tx: -centerX * nextScale,
+      ty: -centerY * nextScale,
     });
   }, [fitViewEnabled, fitViewKey, containerSize, buildPhotoGroupViewport, setTransform, baseMinScale]);
   useEffect(() => {
