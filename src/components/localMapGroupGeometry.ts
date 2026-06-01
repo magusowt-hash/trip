@@ -26,14 +26,15 @@ type SizeReader = (photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>) => { wi
 
 const PHOTO_RECT_PADDING = 40;
 const PHOTO_BOTTOM_EXTRA = 20;
-const LABEL_TOP_GAP = 28;
-const LABEL_BOTTOM_GAP = 20;
-const LINE_ANCHOR_GAP_TOP = 16;
-const LINE_ANCHOR_GAP_BOTTOM = 24;
-const MIN_GROUP_TO_LABEL_SCREEN_GAP = 20;
-const MIN_LABEL_TO_LINE_SCREEN_GAP = 18;
+const LABEL_TOP_GAP = 20;
+const LABEL_BOTTOM_GAP = 14;
+const LINE_ANCHOR_GAP_TOP = 22;
+const LINE_ANCHOR_GAP_BOTTOM = 28;
+const MIN_GROUP_TO_LABEL_SCREEN_GAP = 14;
+const MIN_LABEL_TO_LINE_SCREEN_GAP = 20;
 const LABEL_HEIGHT = 20;
-const LINE_ANCHOR_RADIUS = 8;
+const LINE_ANCHOR_RADIUS = 6;
+const LABEL_MAX_SCREEN_WIDTH = 120;
 
 function toLogicalScreenSize(screenSize: number, scale: number) {
   return screenSize / Math.max(scale, 0.1);
@@ -60,7 +61,7 @@ function estimateLabelHalfWidth(title: string, scale: number) {
   const perChar = 6.5 / safeScale;
   return Math.max(
     toLogicalScreenSize(36, safeScale),
-    Math.min(toLogicalScreenSize(140, safeScale), title.length * perChar),
+    Math.min(toLogicalScreenSize(LABEL_MAX_SCREEN_WIDTH, safeScale), title.length * perChar),
   );
 }
 

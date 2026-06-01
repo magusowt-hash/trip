@@ -68,13 +68,13 @@ type PendingRegionGroup = {
   placeKey: string;
   logicalX: number;
   logicalY: number;
-  layoutRect: LogicalRect;
+  collisionRect: LogicalRect;
 };
 type PendingPlaceGroup = {
   placeKey: string;
   placePhotos: PhotoItem[];
   renderRect: LogicalRect;
-  layoutRect: LogicalRect;
+  collisionRect: LogicalRect;
   logicalX: number;
   logicalY: number;
   offsets: LogicalOffset[];
@@ -225,17 +225,6 @@ function buildPlaceBounds(placePhotos: PhotoItem[]): LogicalRect | null {
   return geometry.overallRect;
 }
 
-function buildPlaceLayoutRect(placePhotos: PhotoItem[]): LogicalRect | null {
-  const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
-  if (!photoRect) return null;
-  return {
-    left: photoRect.left,
-    right: photoRect.right,
-    top: photoRect.top,
-    bottom: photoRect.bottom,
-  };
-}
-
 function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalOffset[]): LogicalRect | null {
   if (placePhotos.length === 0 || offsets.length !== placePhotos.length) return null;
 
@@ -263,29 +252,6 @@ function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalO
   );
 
   return geometry.overallRect;
-}
-
-function buildPlaceLayoutRectFromOffsets(placePhotos: PhotoItem[], offsets: LogicalOffset[]): LogicalRect | null {
-  if (placePhotos.length === 0 || offsets.length !== placePhotos.length) return null;
-
-  let left = Infinity;
-  let right = -Infinity;
-  let top = Infinity;
-  let bottom = -Infinity;
-
-  for (let i = 0; i < offsets.length; i++) {
-    const size = getPhotoLogicalSize(placePhotos[i]);
-    left = Math.min(left, offsets[i].offsetX - size.width / 2);
-    right = Math.max(right, offsets[i].offsetX + size.width / 2);
-    top = Math.min(top, offsets[i].offsetY - size.height / 2);
-    bottom = Math.max(bottom, offsets[i].offsetY + size.height / 2);
-  }
-
-  if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
-    return null;
-  }
-
-  return expandPhotoRect({ left, right, top, bottom });
 }
 
 function rectsOverlap(a: LogicalRect, b: LogicalRect, gap: number) {
@@ -1015,8 +981,7 @@ function UserFootprintsPageInner() {
       const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
       const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
       const renderRect = buildPlaceBoundsFromOffsets(placePhotos, offsets);
-      const layoutRect = buildPlaceLayoutRectFromOffsets(placePhotos, offsets);
-      if (!renderRect || !layoutRect) continue;
+      if (!renderRect) continue;
       if (placedPhotos.length > 0) {
         const existingRect = buildPlaceBounds(placedPhotos);
         if (!existingRect) continue;
@@ -1063,7 +1028,7 @@ function UserFootprintsPageInner() {
         placeKey,
         placePhotos,
         renderRect,
-        layoutRect,
+        collisionRect: renderRect,
         logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
         logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
         offsets,
@@ -1076,7 +1041,7 @@ function UserFootprintsPageInner() {
         placeKey: group.placeKey,
         logicalX: group.logicalX,
         logicalY: group.logicalY,
-        layoutRect: group.layoutRect,
+        collisionRect: group.collisionRect,
       })));
 
       for (const sequence of regionSequences) {
@@ -1121,7 +1086,7 @@ function UserFootprintsPageInner() {
           id: group.placeKey,
           x: group.logicalX,
           y: group.logicalY,
-          rect: group.layoutRect,
+          rect: group.collisionRect,
         })),
         mapRect,
       );
