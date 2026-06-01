@@ -85,20 +85,15 @@ type RegionSequence = {
 };
 
 type DebugPhotoSnapshot = {
-  id: string;
-  placeKey: string;
-  placeTitle: string;
+  index: number;
   frameX: number | null;
   frameY: number | null;
   pixelWidth: number | null;
   pixelHeight: number | null;
-  sourceType: PhotoItem['sourceType'] | null;
-  filename: string;
 };
 
 type DebugGroupSnapshot = {
-  placeKey: string;
-  placeTitle: string;
+  index: number;
   photoCount: number;
   centerX: number | null;
   centerY: number | null;
@@ -362,18 +357,15 @@ function rectCenter(rect: LogicalRect) {
 
 function buildDebugPhotoSnapshot(photos: PhotoItem[]): DebugPhotoSnapshot[] {
   return photos
-    .map((photo) => ({
-      id: String(photo.id),
-      placeKey: photo.placeKey,
-      placeTitle: photo.placeTitle,
+    .slice()
+    .sort((a, b) => a.placeTitle.localeCompare(b.placeTitle, 'zh-CN') || String(a.id).localeCompare(String(b.id), 'zh-CN'))
+    .map((photo, index) => ({
+      index: index + 1,
       frameX: photo.frameX ?? null,
       frameY: photo.frameY ?? null,
       pixelWidth: photo.pixelWidth ?? null,
       pixelHeight: photo.pixelHeight ?? null,
-      sourceType: photo.sourceType ?? null,
-      filename: photo.filename,
-    }))
-    .sort((a, b) => a.placeTitle.localeCompare(b.placeTitle, 'zh-CN') || a.id.localeCompare(b.id, 'zh-CN'));
+    }));
 }
 
 function buildDebugGroupSnapshot(photos: PhotoItem[]): DebugGroupSnapshot[] {
@@ -385,12 +377,12 @@ function buildDebugGroupSnapshot(photos: PhotoItem[]): DebugGroupSnapshot[] {
   }
 
   return Array.from(groups.entries())
-    .map(([placeKey, groupPhotos]) => {
+    .sort((a, b) => (a[1][0]?.placeTitle || '').localeCompare(b[1][0]?.placeTitle || '', 'zh-CN') || a[0].localeCompare(b[0], 'zh-CN'))
+    .map(([_, groupPhotos], index) => {
       const rect = buildPlaceBounds(groupPhotos);
       const center = rect ? rectCenter(rect) : null;
       return {
-        placeKey,
-        placeTitle: groupPhotos[0]?.placeTitle || '',
+        index: index + 1,
         photoCount: groupPhotos.length,
         centerX: center ? Number(center.x.toFixed(2)) : null,
         centerY: center ? Number(center.y.toFixed(2)) : null,
@@ -399,8 +391,7 @@ function buildDebugGroupSnapshot(photos: PhotoItem[]): DebugGroupSnapshot[] {
         top: rect ? Number(rect.top.toFixed(2)) : null,
         bottom: rect ? Number(rect.bottom.toFixed(2)) : null,
       };
-    })
-    .sort((a, b) => a.placeTitle.localeCompare(b.placeTitle, 'zh-CN') || a.placeKey.localeCompare(b.placeKey, 'zh-CN'));
+    });
 }
 
 function applySizedOffsets(
@@ -1828,14 +1819,13 @@ function UserFootprintsPageInner() {
   const debugPhotoDiff = debugBasePhotos
     ? currentDebugPhotos
       .map((photo) => {
-        const base = debugBasePhotos.find((item) => item.id === photo.id);
-        if (!base) return { id: photo.id, placeTitle: photo.placeTitle, kind: 'added' as const, current: photo };
+        const base = debugBasePhotos.find((item) => item.index === photo.index);
+        if (!base) return { index: photo.index, kind: 'added' as const, current: photo };
         const dx = photo.frameX != null && base.frameX != null ? Number((photo.frameX - base.frameX).toFixed(2)) : null;
         const dy = photo.frameY != null && base.frameY != null ? Number((photo.frameY - base.frameY).toFixed(2)) : null;
         if ((dx ?? 0) === 0 && (dy ?? 0) === 0) return null;
         return {
-          id: photo.id,
-          placeTitle: photo.placeTitle,
+          index: photo.index,
           kind: 'moved' as const,
           base: { frameX: base.frameX, frameY: base.frameY },
           current: { frameX: photo.frameX, frameY: photo.frameY },
@@ -1847,8 +1837,8 @@ function UserFootprintsPageInner() {
   const debugGroupDiff = debugBaseGroups
     ? currentDebugGroups
       .map((group) => {
-        const base = debugBaseGroups.find((item) => item.placeKey === group.placeKey);
-        if (!base) return { placeKey: group.placeKey, placeTitle: group.placeTitle, kind: 'added' as const, current: group };
+        const base = debugBaseGroups.find((item) => item.index === group.index);
+        if (!base) return { index: group.index, kind: 'added' as const, current: group };
         const dx = group.centerX != null && base.centerX != null ? Number((group.centerX - base.centerX).toFixed(2)) : null;
         const dy = group.centerY != null && base.centerY != null ? Number((group.centerY - base.centerY).toFixed(2)) : null;
         const widthBase = base.left != null && base.right != null ? base.right - base.left : null;
@@ -1859,8 +1849,7 @@ function UserFootprintsPageInner() {
         const dHeight = heightBase != null && heightCurrent != null ? Number((heightCurrent - heightBase).toFixed(2)) : null;
         if ((dx ?? 0) === 0 && (dy ?? 0) === 0 && (dWidth ?? 0) === 0 && (dHeight ?? 0) === 0) return null;
         return {
-          placeKey: group.placeKey,
-          placeTitle: group.placeTitle,
+          index: group.index,
           kind: 'changed' as const,
           base: { centerX: base.centerX, centerY: base.centerY, left: base.left, right: base.right, top: base.top, bottom: base.bottom },
           current: { centerX: group.centerX, centerY: group.centerY, left: group.left, right: group.right, top: group.top, bottom: group.bottom },
@@ -1871,10 +1860,6 @@ function UserFootprintsPageInner() {
     : [];
   const debugDocument = JSON.stringify({
     generatedAt: new Date().toISOString(),
-    selectedGroupId,
-    localRootName,
-    fitViewEnabled,
-    outerScale,
     basePhotos: debugBasePhotos,
     currentPhotos: currentDebugPhotos,
     photoDiff: debugPhotoDiff,
@@ -1883,6 +1868,19 @@ function UserFootprintsPageInner() {
     groupDiff: debugGroupDiff,
   }, null, 2);
 
+  const handleDownloadDebugDocument = useCallback(() => {
+    const blob = new Blob([debugDocument], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    anchor.href = url;
+    anchor.download = `footprints-layout-debug-${stamp}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  }, [debugDocument]);
+
   return (
     <div className={styles.rootFull}>
       <aside className={styles.debugDocPanel}>
@@ -1890,6 +1888,9 @@ function UserFootprintsPageInner() {
         <div className={styles.debugDocMeta}>
           原始 `{debugBaseGroups?.length ?? 0}` 组 / 当前 `{currentDebugGroups.length}` 组 / 变化 `{debugGroupDiff.length}`
         </div>
+        <button className={styles.debugDocDownload} onClick={handleDownloadDebugDocument}>
+          下载 JSON
+        </button>
         <textarea
           className={styles.debugDocTextarea}
           readOnly
