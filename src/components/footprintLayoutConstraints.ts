@@ -41,9 +41,10 @@ export function hasLabelCollisions(
   occupiedGeometries: GroupGeometry[],
   safeGap: number,
 ) {
+  const labelSafeGap = safeGap + 10;
   return (
-    rectOverlapsOccupiedPhotos(candidate.labelRect, occupiedGeometries, safeGap) ||
-    rectOverlapsOccupiedLabels(candidate.labelRect, occupiedGeometries, safeGap)
+    rectOverlapsOccupiedPhotos(candidate.labelRect, occupiedGeometries, labelSafeGap) ||
+    rectOverlapsOccupiedLabels(candidate.labelRect, occupiedGeometries, labelSafeGap)
   );
 }
 
@@ -52,7 +53,7 @@ export function hasPhotoAgainstLabelCollisions(
   occupiedGeometries: GroupGeometry[],
   safeGap: number,
 ) {
-  return rectOverlapsOccupiedLabels(candidate.photoRect, occupiedGeometries, safeGap);
+  return rectOverlapsOccupiedLabels(candidate.photoRect, occupiedGeometries, safeGap + 10);
 }
 
 export function computeLateralOffsetFromRay(baseAngle: number, centerX: number, centerY: number) {

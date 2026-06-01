@@ -26,7 +26,7 @@ const GROUP_SAFE_GAP = 11;
 const LOCAL_SEARCH_ANGLE_STEPS = [0, -10, 10, -20, 20, -30, 30];
 const LOCAL_SEARCH_RADIUS_FACTORS = [0, -0.35, 0.35];
 const POST_LAYOUT_SEARCH_ANGLE_STEPS = [0, -6, 6, -12, 12, -18, 18];
-const POST_LAYOUT_SEARCH_RADIUS_STEPS = [0, -360, -280, -200, -120, -60];
+const POST_LAYOUT_SEARCH_RADIUS_STEPS = [0, -440, -360, -280, -200, -140, -80];
 const POST_LAYOUT_REFINE_PASSES = 2;
 const GLOBAL_COMPACTION_PASSES = 6;
 const CLUSTER_REARRANGE_PASSES = 2;
@@ -185,6 +185,18 @@ function computeRadiusSpreadPenalty(placements: FootprintPlacement[]) {
   return radii.reduce((sum, radius) => sum + Math.abs(radius - average), 0);
 }
 
+function computeInnerRingCrowdingPenalty(
+  placement: FootprintPlacement,
+  occupancy: number[],
+  sectorIndex: number,
+) {
+  const radius = Math.hypot(placement.centerX, placement.centerY);
+  if (radius >= 1700) return 0;
+  const innerPressure = Math.max(0, 1700 - radius);
+  const localDensity = occupancy[sectorIndex] ?? 0;
+  return innerPressure * Math.max(0, localDensity - 1) * 0.22;
+}
+
 function buildSparseSectorCandidates(
   group: PendingPlaceGroup,
   placement: FootprintPlacement,
@@ -206,7 +218,7 @@ function buildSparseSectorCandidates(
     });
   }
 
-  for (const inward of [260, 180, 120]) {
+  for (const inward of [360, 260, 180, 120]) {
     const targetRadius = Math.max(0, radius - inward);
     candidates.push({
       centerX: Math.cos(Math.atan2(placement.centerY, placement.centerX)) * targetRadius,
@@ -874,9 +886,14 @@ function resolveCandidateGeometryAgainstOccupied(
   geometry: GroupGeometry,
   occupiedGeometries: GroupGeometry[],
 ) {
-  for (let offset = 0; offset <= 72; offset += 6) {
+  for (let offset = 0; offset <= 108; offset += 6) {
     const candidate = offset === 0 ? geometry : shiftGroupGeometryDown(geometry, offset);
-    if (occupiedGeometries.some((occupied) => rectsOverlap(candidate.groupRect, occupied.groupRect, 10))) {
+    if (occupiedGeometries.some((occupied) => (
+      rectsOverlap(candidate.groupRect, occupied.groupRect, 10) ||
+      rectsOverlap(candidate.labelRect, occupied.photoRect, 14) ||
+      rectsOverlap(candidate.photoRect, occupied.labelRect, 14) ||
+      rectsOverlap(candidate.labelRect, occupied.labelRect, 12)
+    ))) {
       continue;
     }
     return candidate;
@@ -948,10 +965,11 @@ function buildFieldGuidedCandidates(
     }
   }
 
-  if (group.logicalX < 0) {
+  for (const bonusForward of [360, 480]) {
+    const forward = Math.min(bonusForward, currentRadius);
     candidates.push({
-      centerX: currentPlacement.centerX - 120,
-      centerY: currentPlacement.centerY - 50,
+      centerX: currentPlacement.centerX + guide.x * forward,
+      centerY: currentPlacement.centerY + guide.y * forward,
     });
   }
 
@@ -1022,7 +1040,7 @@ function tryAcceptCompactionPlacement(
   const trialPlacementById = new Map(nextPlacementById);
   trialPlacementById.set(group.placeKey, candidatePlacement);
   const trialEnergy = scoreGlobalLayoutEnergy(groups, trialPlacementById, mapRect, safeGap);
-  if (trialEnergy >= baselineEnergy - 4) return null;
+  if (trialEnergy >= baselineEnergy - 1.5) return null;
   return {
     placementById: trialPlacementById,
     energy: trialEnergy,
@@ -1373,6 +1391,7 @@ function scoreGlobalLayoutEnergy(
     pressure += evaluation.pressureScore + evaluation.labelClearanceScore * 0.7 + evaluation.sectorCrowdingScore * 0.55;
     const sectorIndex = getSectorIndex(Math.atan2(placement.centerY, placement.centerX));
     sectorDensityPenalty += computeSectorDensityPenalty(occupancy, sectorIndex);
+    sectorDensityPenalty += computeInnerRingCrowdingPenalty(placement, occupancy, sectorIndex);
     labelPhotoRiskPenalty += evaluation.labelClearanceScore;
   }
 
@@ -1386,7 +1405,7 @@ function scoreGlobalLayoutEnergy(
     pressure * 0.12 +
     labelPhotoRiskPenalty * 0.1 +
     radiusSpreadPenalty * 0.12 +
-    sectorDensityPenalty * 10 +
+    sectorDensityPenalty * 13 +
     sectorVariance * 14
   );
 }
@@ -1413,7 +1432,7 @@ function buildClusterActionCandidates(
   const angle = Math.atan2(placement.centerY, placement.centerX);
   const occupancy = buildSectorOccupancy(allGroups, placementById);
   const currentSector = getSectorIndex(angle);
-  const inwardSteps = [60, 120, 200, 300, 420].map((step) => Math.max(0, radius - step * stepScale));
+  const inwardSteps = [60, 120, 200, 300, 420, 560].map((step) => Math.max(0, radius - step * stepScale));
   const angleSteps = [0, -4, 4, -8, 8, -12, 12];
   const candidates: PlacementCandidate[] = [
     { centerX: placement.centerX, centerY: placement.centerY },
