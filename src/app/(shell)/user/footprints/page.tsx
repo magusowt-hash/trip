@@ -465,13 +465,14 @@ function scoreCandidateCenter(
   safeGap: number,
   originAngle: number,
   originRadius: number,
+  labelGapBoost: number,
 ) {
   const candidate = translateGroupGeometry(baseGeometry, centerX, centerY);
   if (!fitsAroundMap(candidate.groupRect, mapRect, safeGap)) {
     return { geometry: candidate, score: Number.POSITIVE_INFINITY };
   }
   const neighbors = getNearbyGeometries(candidate, occupiedGeometries, safeGap);
-  const collisionScore = scoreGroupGeometryPlacement(candidate, neighbors, safeGap);
+  const collisionScore = scoreGroupGeometryPlacement(candidate, neighbors, safeGap, { labelGapBoost });
   const radius = Math.hypot(centerX, centerY);
   const angle = Math.atan2(centerY, centerX);
   const radiusPenalty = Math.abs(radius - originRadius) * 0.8;
@@ -489,6 +490,7 @@ function findBestLocalGroupCenter(
   safeGap: number,
   originAngle: number,
   originRadius: number,
+  labelGapBoost: number,
 ) {
   let best = scoreCandidateCenter(
     baseGeometry,
@@ -499,6 +501,7 @@ function findBestLocalGroupCenter(
     safeGap,
     originAngle,
     originRadius,
+    labelGapBoost,
   );
   const step = Math.min(96, Math.max(24, Math.sqrt(getGroupArea(baseGeometry.photoRect)) * 0.1));
 
@@ -517,6 +520,7 @@ function findBestLocalGroupCenter(
         safeGap,
         originAngle,
         originRadius,
+        labelGapBoost,
       );
       if (candidate.score < best.score) {
         best = candidate;
@@ -540,7 +544,62 @@ function angleDelta(left: number, right: number) {
   return delta;
 }
 
+function cross(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  c: { x: number; y: number },
+) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+function segmentsIntersect(
+  a1: { x: number; y: number },
+  a2: { x: number; y: number },
+  b1: { x: number; y: number },
+  b2: { x: number; y: number },
+) {
+  const ab1 = cross(a1, a2, b1);
+  const ab2 = cross(a1, a2, b2);
+  const ba1 = cross(b1, b2, a1);
+  const ba2 = cross(b1, b2, a2);
+  return ab1 * ab2 < -1e-6 && ba1 * ba2 < -1e-6;
+}
+
+function computeLabelGapBoost(scale: number) {
+  if (scale <= 0.14) return 9;
+  if (scale <= 0.18) return 7;
+  if (scale <= 0.24) return 5;
+  if (scale <= 0.32) return 3;
+  return 1;
+}
+
+function hasIntersectingLines(
+  placementById: Map<string, { centerX: number; centerY: number }>,
+  groups: PendingPlaceGroup[],
+) {
+  const links = groups
+    .map((group) => {
+      const placement = placementById.get(group.placeKey);
+      if (!placement) return null;
+      return {
+        placeKey: group.placeKey,
+        start: { x: group.logicalX, y: group.logicalY },
+        end: { x: placement.centerX, y: placement.centerY },
+      };
+    })
+    .filter((item): item is { placeKey: string; start: { x: number; y: number }; end: { x: number; y: number } } => item !== null);
+
+  return links.some((left, leftIndex) => (
+    links.some((right, rightIndex) => {
+      if (leftIndex >= rightIndex) return false;
+      if (left.placeKey === right.placeKey) return false;
+      return segmentsIntersect(left.start, left.end, right.start, right.end);
+    })
+  ));
+}
+
 function scoreCandidateAroundCurrentCenter(
+  placeKey: string,
   baseGeometry: GroupGeometry,
   centerX: number,
   centerY: number,
@@ -551,14 +610,22 @@ function scoreCandidateAroundCurrentCenter(
   anchorRadius: number,
   currentAngle: number,
   currentRadius: number,
+  labelGapBoost: number,
+  placementById: Map<string, { centerX: number; centerY: number }>,
+  groups: PendingPlaceGroup[],
 ) {
   const candidate = translateGroupGeometry(baseGeometry, centerX, centerY);
   if (!fitsAroundMap(candidate.groupRect, mapRect, safeGap)) {
     return { geometry: candidate, score: Number.POSITIVE_INFINITY };
   }
+  const trialPlacementById = new Map(placementById);
+  trialPlacementById.set(placeKey, { centerX, centerY });
+  if (hasIntersectingLines(trialPlacementById, groups)) {
+    return { geometry: candidate, score: Number.POSITIVE_INFINITY };
+  }
 
   const neighbors = getNearbyGeometries(candidate, occupiedGeometries, safeGap);
-  const collisionScore = scoreGroupGeometryPlacement(candidate, neighbors, safeGap);
+  const collisionScore = scoreGroupGeometryPlacement(candidate, neighbors, safeGap, { labelGapBoost });
   const radius = Math.hypot(centerX, centerY);
   const angle = Math.atan2(centerY, centerX);
   const middleBand = currentRadius >= 1500 && currentRadius < 2800;
@@ -592,6 +659,7 @@ function scoreCandidateAroundCurrentCenter(
 }
 
 function refineGroupCenterFromCurrentPlacement(
+  placeKey: string,
   baseGeometry: GroupGeometry,
   currentCenterX: number,
   currentCenterY: number,
@@ -600,10 +668,14 @@ function refineGroupCenterFromCurrentPlacement(
   safeGap: number,
   anchorAngle: number,
   anchorRadius: number,
+  labelGapBoost: number,
+  placementById: Map<string, { centerX: number; centerY: number }>,
+  groups: PendingPlaceGroup[],
 ) {
   const currentRadius = Math.hypot(currentCenterX, currentCenterY);
   const currentAngle = Math.atan2(currentCenterY, currentCenterX);
   let best = scoreCandidateAroundCurrentCenter(
+    placeKey,
     baseGeometry,
     currentCenterX,
     currentCenterY,
@@ -614,6 +686,9 @@ function refineGroupCenterFromCurrentPlacement(
     anchorRadius,
     currentAngle,
     currentRadius,
+    labelGapBoost,
+    placementById,
+    groups,
   );
 
   const radialStepScale = Math.min(1.8, Math.max(0.8, Math.sqrt(getGroupArea(baseGeometry.photoRect)) / 220));
@@ -625,6 +700,7 @@ function refineGroupCenterFromCurrentPlacement(
       const centerX = Math.cos(angle) * radius;
       const centerY = Math.sin(angle) * radius;
       const candidate = scoreCandidateAroundCurrentCenter(
+        placeKey,
         baseGeometry,
         centerX,
         centerY,
@@ -635,6 +711,9 @@ function refineGroupCenterFromCurrentPlacement(
         anchorRadius,
         currentAngle,
         currentRadius,
+        labelGapBoost,
+        placementById,
+        groups,
       );
       if (candidate.score < best.score) {
         best = candidate;
@@ -694,6 +773,7 @@ function tryNeighborNudge(
   groups: PendingPlaceGroup[],
   mapRect: LogicalRect,
   safeGap: number,
+  labelGapBoost: number,
 ) {
   const groupPlacement = placementById.get(group.placeKey);
   const neighborPlacement = placementById.get(neighbor.placeKey);
@@ -712,6 +792,7 @@ function tryNeighborNudge(
       translateGroupGeometry(group.collisionGeometry, groupPlacement.centerX, groupPlacement.centerY),
       occupied,
       safeGap,
+      { labelGapBoost },
     );
   })();
 
@@ -765,14 +846,15 @@ function tryNeighborNudge(
       candidateNeighborPlacement.centerY,
     );
     if (!fitsAroundMap(neighborGeometry.groupRect, mapRect, safeGap)) continue;
+    if (hasIntersectingLines(trialPlacementById, groups)) continue;
 
     const occupiedForGroup = occupied.map((item) => item.geometry);
     const occupiedForNeighbor = occupied
       .filter((item) => item.key !== neighbor.placeKey)
       .map((item) => item.geometry);
     const score =
-      scoreGroupGeometryPlacement(candidateGroupGeometry, occupiedForGroup, safeGap) +
-      scoreGroupGeometryPlacement(neighborGeometry, occupiedForNeighbor, safeGap);
+      scoreGroupGeometryPlacement(candidateGroupGeometry, occupiedForGroup, safeGap, { labelGapBoost }) +
+      scoreGroupGeometryPlacement(neighborGeometry, occupiedForNeighbor, safeGap, { labelGapBoost });
 
     if (score >= baseScore - 1e-6) continue;
     if (!best || score < best.score) {
@@ -792,6 +874,7 @@ function refineRadialPlacements(
   placementById: Map<string, { centerX: number; centerY: number }>,
   mapRect: LogicalRect,
   safeGap: number,
+  labelGapBoost: number,
 ) {
   if (groups.length === 0) return placementById;
 
@@ -816,6 +899,7 @@ function refineRadialPlacements(
       const anchorAngle = Math.atan2(group.logicalY, group.logicalX || 0);
       const anchorRadius = Math.hypot(currentPlacement.centerX, currentPlacement.centerY);
       const refined = refineGroupCenterFromCurrentPlacement(
+        group.placeKey,
         group.collisionGeometry,
         currentPlacement.centerX,
         currentPlacement.centerY,
@@ -824,6 +908,9 @@ function refineRadialPlacements(
         safeGap,
         anchorAngle,
         anchorRadius,
+        labelGapBoost,
+        nextPlacementById,
+        groups,
       );
 
       if (
@@ -837,7 +924,7 @@ function refineRadialPlacements(
 
       const neighbor = findClosestNeighborForGroup(group.placeKey, groups, nextPlacementById);
       if (!neighbor) continue;
-      const nudged = tryNeighborNudge(group, neighbor, nextPlacementById, groups, mapRect, safeGap);
+      const nudged = tryNeighborNudge(group, neighbor, nextPlacementById, groups, mapRect, safeGap, labelGapBoost);
       if (!nudged) continue;
       nextPlacementById.set(group.placeKey, nudged.groupPlacement);
       nextPlacementById.set(neighbor.placeKey, nudged.neighborPlacement);
@@ -1563,6 +1650,7 @@ function UserFootprintsPageInner() {
             cardSize,
             radians,
             baseRadius,
+            computeLabelGapBoost(outerScale),
           );
           if (Number.isFinite(localPlacement.score)) {
             chosenCenter = { x: localPlacement.centerX, y: localPlacement.centerY };
@@ -1596,6 +1684,7 @@ function UserFootprintsPageInner() {
         new Map(placements.map((placement) => [placement.id, placement])),
         mapRect,
         cardSize,
+        computeLabelGapBoost(outerScale),
       );
 
       for (const group of pendingNewGroups) {
