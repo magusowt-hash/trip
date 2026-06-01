@@ -24,7 +24,7 @@ import {
   buildGroupGeometryFromPhotoRect,
   expandPhotoRect,
   rectsOverlap,
-  resolveGroupGeometryDownward,
+  resolveGroupGeometryLabels,
   scoreGroupGeometryPlacement,
   translateGroupGeometry,
 } from '@/components/localMapGroupGeometry';
@@ -840,7 +840,7 @@ function UserFootprintsPageInner() {
       if (!geometry) continue;
       existingGeometryEntries.push({ id: placeKey, geometry });
     }
-    const resolvedExistingGeometryMap = resolveGroupGeometryDownward(existingGeometryEntries, { gap: 10, step: 6, maxOffset: 72 });
+    const resolvedExistingGeometryMap = resolveGroupGeometryLabels(existingGeometryEntries, { gap: 14, step: 6, maxOffset: 108, mapRect });
     for (const [, geometry] of resolvedExistingGeometryMap) {
       occupiedRects.push(geometry.groupRect);
       occupiedGeometries.push(geometry);
@@ -870,6 +870,10 @@ function UserFootprintsPageInner() {
         collisionScale,
       );
       if (!offsetGeometry) continue;
+      const resolvedOffsetGeometry = resolveGroupGeometryLabels(
+        [{ id: placeKey, geometry: offsetGeometry }],
+        { gap: 14, step: 6, maxOffset: 108, mapRect },
+      ).get(placeKey) ?? offsetGeometry;
       if (placedPhotos.length > 0) {
         const existingGeometry = resolvedExistingGeometryMap.get(placeKey) ?? buildPlaceGeometry(placedPhotos, collisionScale);
         if (!existingGeometry) continue;
@@ -885,7 +889,7 @@ function UserFootprintsPageInner() {
 
         const candidateCenterX = existingCenter.x + unitX * expansionBase;
         const candidateCenterY = existingCenter.y + unitY * expansionBase;
-        const nextGeometry = translateGroupGeometry(offsetGeometry, candidateCenterX, candidateCenterY);
+        const nextGeometry = translateGroupGeometry(resolvedOffsetGeometry, candidateCenterX, candidateCenterY);
         const occupiedByOthers = occupiedGeometries.filter((geometry) => geometry !== existingGeometry);
         const canExpandOutward =
           fitsAroundMap(nextGeometry.groupRect, mapRect, cardSize) &&
@@ -918,8 +922,8 @@ function UserFootprintsPageInner() {
         placeKey,
         placePhotos,
         renderRect,
-        collisionGeometry: offsetGeometry,
-        collisionRect: offsetGeometry.groupRect,
+        collisionGeometry: resolvedOffsetGeometry,
+        collisionRect: resolvedOffsetGeometry.groupRect,
         logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
         logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
         offsets,

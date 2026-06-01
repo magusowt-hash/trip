@@ -1,7 +1,8 @@
 import type { GroupGeometry } from './localMapGroupGeometry';
 import {
+  buildGroupGeometryLabelCandidates,
   rectsOverlap,
-  resolveGroupGeometryDownward,
+  resolveGroupGeometryLabels,
   shiftGroupGeometryDown,
   translateGroupGeometry,
 } from './localMapGroupGeometry';
@@ -898,7 +899,7 @@ function buildOccupiedGeometriesForGroup(
     })
     .filter((candidate): candidate is { id: string; geometry: GroupGeometry } => candidate !== null);
 
-  const resolved = resolveGroupGeometryDownward(entries, { gap: 10, step: 6, maxOffset: 72 });
+  const resolved = resolveGroupGeometryLabels(entries, { gap: 14, step: 6, maxOffset: 108 });
   return entries
     .map((entry) => resolved.get(entry.id) ?? entry.geometry);
 }
@@ -907,17 +908,21 @@ function resolveCandidateGeometryAgainstOccupied(
   geometry: GroupGeometry,
   occupiedGeometries: GroupGeometry[],
 ) {
-  for (let offset = 0; offset <= 108; offset += 6) {
-    const candidate = offset === 0 ? geometry : shiftGroupGeometryDown(geometry, offset);
-    if (occupiedGeometries.some((occupied) => (
-      rectsOverlap(candidate.groupRect, occupied.groupRect, 10) ||
-      rectsOverlap(candidate.labelRect, occupied.photoRect, 14) ||
-      rectsOverlap(candidate.photoRect, occupied.labelRect, 14) ||
-      rectsOverlap(candidate.labelRect, occupied.labelRect, 12)
-    ))) {
-      continue;
+  const prioritized = [geometry, ...buildGroupGeometryLabelCandidates(geometry)];
+
+  for (const baseCandidate of prioritized) {
+    for (let offset = 0; offset <= 108; offset += 6) {
+      const candidate = offset === 0 ? baseCandidate : shiftGroupGeometryDown(baseCandidate, offset);
+      if (occupiedGeometries.some((occupied) => (
+        rectsOverlap(candidate.groupRect, occupied.groupRect, 10) ||
+        rectsOverlap(candidate.labelRect, occupied.photoRect, 16) ||
+        rectsOverlap(candidate.photoRect, occupied.labelRect, 16) ||
+        rectsOverlap(candidate.labelRect, occupied.labelRect, 14)
+      ))) {
+        continue;
+      }
+      return candidate;
     }
-    return candidate;
   }
   return geometry;
 }
