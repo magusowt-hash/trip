@@ -123,6 +123,9 @@ const REGION_CENTER_ANGLE: Record<RegionKey, number> = {
 const GROUP_SAFE_GAP = 14;
 const LOCAL_SEARCH_ANGLE_STEPS = [0, -10, 10, -20, 20, -30, 30];
 const LOCAL_SEARCH_RADIUS_FACTORS = [0, -0.35, 0.35];
+const POST_LAYOUT_SEARCH_ANGLE_STEPS = [0, -8, 8, -16, 16, -24, 24, -36, 36];
+const POST_LAYOUT_SEARCH_RADIUS_STEPS = [0, -240, -160, -80, 80, 160, 240];
+const POST_LAYOUT_REFINE_PASSES = 3;
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -520,6 +523,164 @@ function findBestLocalGroupCenter(
     geometry: best.geometry,
     score: best.score,
   };
+}
+
+function angleDelta(left: number, right: number) {
+  const fullTurn = Math.PI * 2;
+  let delta = normalizeAngle(left) - normalizeAngle(right);
+  if (delta > Math.PI) delta -= fullTurn;
+  if (delta < -Math.PI) delta += fullTurn;
+  return delta;
+}
+
+function scoreCandidateAroundCurrentCenter(
+  baseGeometry: GroupGeometry,
+  centerX: number,
+  centerY: number,
+  occupiedGeometries: GroupGeometry[],
+  mapRect: LogicalRect,
+  safeGap: number,
+  anchorAngle: number,
+  anchorRadius: number,
+  currentAngle: number,
+  currentRadius: number,
+) {
+  const candidate = translateGroupGeometry(baseGeometry, centerX, centerY);
+  if (!fitsAroundMap(candidate.groupRect, mapRect, safeGap)) {
+    return { geometry: candidate, score: Number.POSITIVE_INFINITY };
+  }
+
+  const neighbors = getNearbyGeometries(candidate, occupiedGeometries, safeGap);
+  const collisionScore = scoreGroupGeometryPlacement(candidate, neighbors, safeGap);
+  const radius = Math.hypot(centerX, centerY);
+  const angle = Math.atan2(centerY, centerX);
+  const currentRadiusPenalty = Math.abs(radius - currentRadius) * 0.22;
+  const currentAnglePenalty = Math.abs(angleDelta(angle, currentAngle)) * 42;
+  const anchorRadiusPenalty = Math.abs(radius - anchorRadius) * 0.08;
+  const anchorAnglePenalty = Math.abs(angleDelta(angle, anchorAngle)) * 18;
+
+  return {
+    geometry: candidate,
+    score:
+      collisionScore +
+      currentRadiusPenalty +
+      currentAnglePenalty +
+      anchorRadiusPenalty +
+      anchorAnglePenalty,
+  };
+}
+
+function refineGroupCenterFromCurrentPlacement(
+  baseGeometry: GroupGeometry,
+  currentCenterX: number,
+  currentCenterY: number,
+  occupiedGeometries: GroupGeometry[],
+  mapRect: LogicalRect,
+  safeGap: number,
+  anchorAngle: number,
+  anchorRadius: number,
+) {
+  const currentRadius = Math.hypot(currentCenterX, currentCenterY);
+  const currentAngle = Math.atan2(currentCenterY, currentCenterX);
+  let best = scoreCandidateAroundCurrentCenter(
+    baseGeometry,
+    currentCenterX,
+    currentCenterY,
+    occupiedGeometries,
+    mapRect,
+    safeGap,
+    anchorAngle,
+    anchorRadius,
+    currentAngle,
+    currentRadius,
+  );
+
+  const radialStepScale = Math.min(1.8, Math.max(0.8, Math.sqrt(getGroupArea(baseGeometry.photoRect)) / 220));
+
+  for (const angleOffset of POST_LAYOUT_SEARCH_ANGLE_STEPS) {
+    const angle = currentAngle + (angleOffset * Math.PI) / 180;
+    for (const radiusStep of POST_LAYOUT_SEARCH_RADIUS_STEPS) {
+      const radius = Math.max(0, currentRadius + radiusStep * radialStepScale);
+      const centerX = Math.cos(angle) * radius;
+      const centerY = Math.sin(angle) * radius;
+      const candidate = scoreCandidateAroundCurrentCenter(
+        baseGeometry,
+        centerX,
+        centerY,
+        occupiedGeometries,
+        mapRect,
+        safeGap,
+        anchorAngle,
+        anchorRadius,
+        currentAngle,
+        currentRadius,
+      );
+      if (candidate.score < best.score) {
+        best = candidate;
+      }
+    }
+  }
+
+  return {
+    centerX: best.geometry.photoCenterX,
+    centerY: best.geometry.photoCenterY,
+    geometry: best.geometry,
+    score: best.score,
+  };
+}
+
+function refineRadialPlacements(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, { centerX: number; centerY: number }>,
+  mapRect: LogicalRect,
+  safeGap: number,
+) {
+  if (groups.length === 0) return placementById;
+
+  const nextPlacementById = new Map(placementById);
+
+  for (let pass = 0; pass < POST_LAYOUT_REFINE_PASSES; pass++) {
+    let changed = false;
+
+    for (const group of groups) {
+      const currentPlacement = nextPlacementById.get(group.placeKey);
+      if (!currentPlacement) continue;
+
+      const occupiedGeometries = groups
+        .filter((candidate) => candidate.placeKey !== group.placeKey)
+        .map((candidate) => {
+          const placement = nextPlacementById.get(candidate.placeKey);
+          if (!placement) return null;
+          return translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY);
+        })
+        .filter((candidate): candidate is GroupGeometry => candidate !== null);
+
+      const anchorAngle = Math.atan2(group.logicalY, group.logicalX || 0);
+      const anchorRadius = Math.hypot(currentPlacement.centerX, currentPlacement.centerY);
+      const refined = refineGroupCenterFromCurrentPlacement(
+        group.collisionGeometry,
+        currentPlacement.centerX,
+        currentPlacement.centerY,
+        occupiedGeometries,
+        mapRect,
+        safeGap,
+        anchorAngle,
+        anchorRadius,
+      );
+
+      if (
+        Math.abs(refined.centerX - currentPlacement.centerX) > 1 ||
+        Math.abs(refined.centerY - currentPlacement.centerY) > 1
+      ) {
+        nextPlacementById.set(group.placeKey, { centerX: refined.centerX, centerY: refined.centerY });
+        changed = true;
+      }
+    }
+
+    if (!changed) break;
+  }
+
+  return nextPlacementById;
 }
 
 function getRegionByPoint(x: number, y: number): RegionKey {
@@ -1263,7 +1424,12 @@ function UserFootprintsPageInner() {
         })),
         mapRect,
       );
-      const placementById = new Map(placements.map((placement) => [placement.id, placement]));
+      const placementById = refineRadialPlacements(
+        pendingNewGroups,
+        new Map(placements.map((placement) => [placement.id, placement])),
+        mapRect,
+        cardSize,
+      );
 
       for (const group of pendingNewGroups) {
         const chosenCenter = placementById.get(group.placeKey);
