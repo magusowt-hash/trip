@@ -75,6 +75,10 @@ const MAP_AREA_RATIO_W = 0.6;
 const MAP_AREA_RATIO_H = 0.8;
 const MAX_OVERLAY_SCALE = 2.4;
 const HOVER_STROKE_WIDTH = 1.5;
+const DENSE_LABEL_FADE_SCALE_START = 0.9;
+const DENSE_LABEL_FADE_SCALE_END = 0.6;
+const DENSE_LABEL_FADE_NEIGHBOR_DISTANCE = 220;
+const DENSE_LABEL_FADE_MIN_ALPHA = 0.18;
 
 function getOverlayScale(scale: number) {
   return Math.min(scale, MAX_OVERLAY_SCALE);
@@ -82,6 +86,10 @@ function getOverlayScale(scale: number) {
 
 function rectContains(r: PlaceRect, x: number, y: number): boolean {
   return x >= r.overallLeft && x <= r.overallRight && y >= r.overallTop && y <= r.overallBottom;
+}
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
 }
 
 const COLORS = [
@@ -374,10 +382,48 @@ export default function OuterFrameCanvas({
 
     // --- Draw place labels (one per rectangle) ---
     if (showLabels) {
+      const denseFadeProgress = clamp01(
+        (DENSE_LABEL_FADE_SCALE_START - transform.scale) /
+        Math.max(0.001, DENSE_LABEL_FADE_SCALE_START - DENSE_LABEL_FADE_SCALE_END),
+      );
+      const rectMetrics = currentRects.map((rect) => {
+        const centerX = (rect.photoLeft + rect.photoRight) / 2;
+        const centerY = (rect.photoTop + rect.photoBottom) / 2;
+        const radius = Math.hypot(centerX, centerY);
+        let neighborCount = 0;
+        for (const other of currentRects) {
+          if (other.placeKey === rect.placeKey) continue;
+          const otherCenterX = (other.photoLeft + other.photoRight) / 2;
+          const otherCenterY = (other.photoTop + other.photoBottom) / 2;
+          if (Math.hypot(centerX - otherCenterX, centerY - otherCenterY) <= DENSE_LABEL_FADE_NEIGHBOR_DISTANCE) {
+            neighborCount += 1;
+          }
+        }
+        return {
+          rect,
+          centerX,
+          centerY,
+          radius,
+          neighborCount,
+        };
+      });
+
       for (const rect of currentRects) {
+        const metric = rectMetrics.find((item) => item.rect.placeKey === rect.placeKey);
+        let labelAlpha = 0.65;
+        if (metric && metric.neighborCount >= 2 && denseFadeProgress > 0) {
+          const maxNeighborRadius = rectMetrics
+            .filter((item) => item.placeKey !== rect.placeKey)
+            .filter((item) => Math.hypot(metric.centerX - item.centerX, metric.centerY - item.centerY) <= DENSE_LABEL_FADE_NEIGHBOR_DISTANCE)
+            .reduce((max, item) => Math.max(max, item.radius), 0);
+          const isInnerDenseLabel = maxNeighborRadius > 0 && metric.radius < maxNeighborRadius - 12;
+          if (isInnerDenseLabel) {
+            labelAlpha = 0.65 - (0.65 - DENSE_LABEL_FADE_MIN_ALPHA) * denseFadeProgress;
+          }
+        }
         const anchor = logicalToScreen(rect.labelAnchorX, rect.labelAnchorY);
 
-        ctx.fillStyle = 'rgba(255,255,255,0.65)';
+        ctx.fillStyle = `rgba(255,255,255,${labelAlpha})`;
         ctx.font = `${Math.max(GROUP_LABEL_MIN_FONT_SCREEN_SIZE, GROUP_LABEL_FONT_SCREEN_SIZE * overlayScale)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
