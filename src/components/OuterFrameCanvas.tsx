@@ -2,7 +2,11 @@
 
 import { useRef, useEffect, useCallback } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
-import { buildGroupGeometry } from './localMapGroupGeometry';
+import {
+  buildGroupGeometry,
+  GROUP_LABEL_FONT_SCREEN_SIZE,
+  GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
+} from './localMapGroupGeometry';
 
 export interface PhotoItem {
   id: number | string;
@@ -70,8 +74,6 @@ const PHOTO_MIN_EDGE = 48;
 const MAP_AREA_RATIO_W = 0.6;
 const MAP_AREA_RATIO_H = 0.8;
 const MAX_OVERLAY_SCALE = 2.4;
-const MIN_LABEL_FONT_SIZE = 11;
-const LABEL_FONT_SIZE = 12;
 const HOVER_STROKE_WIDTH = 1.5;
 
 function getOverlayScale(scale: number) {
@@ -376,7 +378,7 @@ export default function OuterFrameCanvas({
         const anchor = logicalToScreen(rect.labelAnchorX, rect.labelAnchorY);
 
         ctx.fillStyle = 'rgba(255,255,255,0.65)';
-        ctx.font = `${Math.max(MIN_LABEL_FONT_SIZE, LABEL_FONT_SIZE * overlayScale)}px sans-serif`;
+        ctx.font = `${Math.max(GROUP_LABEL_MIN_FONT_SCREEN_SIZE, GROUP_LABEL_FONT_SCREEN_SIZE * overlayScale)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(rect.placeTitle, anchor.x, anchor.y);

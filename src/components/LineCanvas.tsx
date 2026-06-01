@@ -4,11 +4,11 @@ import { useRef, useEffect, useCallback } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
-import { buildGroupGeometry } from './localMapGroupGeometry';
+import { buildGroupGeometry, GROUP_ENDPOINT_RADIUS_SCREEN } from './localMapGroupGeometry';
 
 const MAX_OVERLAY_SCALE = 2.4;
 const MAX_LINE_WIDTH = 4;
-const MAX_ANCHOR_RADIUS = 7;
+const MAX_ANCHOR_RADIUS = 6;
 const MAX_POI_LABEL_FONT = 18;
 
 function getOverlayScale(scale: number) {
@@ -97,7 +97,13 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.arc(photoCenter.x, photoCenter.y, Math.max(3.5, Math.min(MAX_ANCHOR_RADIUS, 3.25 * overlayScale)), 0, Math.PI * 2);
+      ctx.arc(
+        photoCenter.x,
+        photoCenter.y,
+        Math.max(3, Math.min(MAX_ANCHOR_RADIUS, GROUP_ENDPOINT_RADIUS_SCREEN * overlayScale)),
+        0,
+        Math.PI * 2,
+      );
       ctx.fillStyle = lineStyle.color;
       ctx.fill();
       ctx.strokeStyle = '#c7d2fe';

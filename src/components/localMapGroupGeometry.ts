@@ -24,17 +24,16 @@ export type GroupGeometry = {
 
 type SizeReader = (photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>) => { width: number; height: number };
 
+export const GROUP_LABEL_FONT_SCREEN_SIZE = 10;
+export const GROUP_LABEL_MIN_FONT_SCREEN_SIZE = 9;
+export const GROUP_LABEL_HEIGHT_SCREEN = 16;
+export const GROUP_ENDPOINT_RADIUS_SCREEN = 5;
+
 const PHOTO_RECT_PADDING = 40;
 const PHOTO_BOTTOM_EXTRA = 20;
-const LABEL_TOP_GAP = 20;
-const LABEL_BOTTOM_GAP = 14;
-const LINE_ANCHOR_GAP_TOP = 22;
-const LINE_ANCHOR_GAP_BOTTOM = 28;
-const MIN_GROUP_TO_LABEL_SCREEN_GAP = 14;
-const MIN_LABEL_TO_LINE_SCREEN_GAP = 20;
-const LABEL_HEIGHT = 20;
-const LINE_ANCHOR_RADIUS = 6;
-const LABEL_MAX_SCREEN_WIDTH = 120;
+const PHOTO_TO_LINE_SCREEN_GAP = 18;
+const LINE_TO_LABEL_SCREEN_GAP = 10;
+const LABEL_MAX_SCREEN_WIDTH = 112;
 
 function toLogicalScreenSize(screenSize: number, scale: number) {
   return screenSize / Math.max(scale, 0.1);
@@ -58,18 +57,11 @@ function rectCenter(rect: LogicalRect) {
 
 function estimateLabelHalfWidth(title: string, scale: number) {
   const safeScale = Math.max(scale, 0.1);
-  const perChar = 6.5 / safeScale;
+  const perChar = 5.8 / safeScale;
   return Math.max(
     toLogicalScreenSize(36, safeScale),
     Math.min(toLogicalScreenSize(LABEL_MAX_SCREEN_WIDTH, safeScale), title.length * perChar),
   );
-}
-
-function getRegionByPoint(x: number, y: number): 'N' | 'W' | 'S' | 'E' {
-  if (Math.abs(x) > Math.abs(y)) {
-    return x < 0 ? 'W' : 'E';
-  }
-  return y < 0 ? 'N' : 'S';
 }
 
 export function expandPhotoRect(photoRect: LogicalRect): LogicalRect {
@@ -113,34 +105,28 @@ export function buildGroupGeometryFromPhotoRect(
 ): GroupGeometry {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
-  const labelSide = getRegionByPoint(photoCenter.x, photoCenter.y) === 'S' ? 'top' : 'bottom';
-  const groupToLabelGap = labelSide === 'top'
-    ? Math.max(toLogicalScreenSize(LABEL_TOP_GAP, safeScale), toLogicalScreenSize(MIN_GROUP_TO_LABEL_SCREEN_GAP, safeScale))
-    : Math.max(toLogicalScreenSize(LABEL_BOTTOM_GAP, safeScale), toLogicalScreenSize(MIN_GROUP_TO_LABEL_SCREEN_GAP, safeScale));
+  const labelSide: GroupLabelSide = 'bottom';
   const labelHalfWidth = estimateLabelHalfWidth(title, safeScale);
+  const lineAnchorRadius = toLogicalScreenSize(GROUP_ENDPOINT_RADIUS_SCREEN, safeScale);
+  const photoToLineGap = toLogicalScreenSize(PHOTO_TO_LINE_SCREEN_GAP, safeScale);
+  const lineToLabelGap = toLogicalScreenSize(LINE_TO_LABEL_SCREEN_GAP, safeScale);
+  const labelHalfHeight = toLogicalScreenSize(GROUP_LABEL_HEIGHT_SCREEN, safeScale) / 2;
   const labelAnchorX = photoCenter.x;
-  const labelAnchorY = labelSide === 'top'
-    ? photoRect.top - groupToLabelGap
-    : photoRect.bottom + groupToLabelGap;
+  const lineAnchorX = labelAnchorX;
+  const lineAnchorY = photoRect.bottom + photoToLineGap;
+  const labelAnchorY = lineAnchorY + lineAnchorRadius + lineToLabelGap + labelHalfHeight;
   const labelRect: LogicalRect = {
     left: labelAnchorX - labelHalfWidth,
     right: labelAnchorX + labelHalfWidth,
-    top: labelAnchorY - toLogicalScreenSize(LABEL_HEIGHT, safeScale) / 2,
-    bottom: labelAnchorY + toLogicalScreenSize(LABEL_HEIGHT, safeScale) / 2,
+    top: labelAnchorY - labelHalfHeight,
+    bottom: labelAnchorY + labelHalfHeight,
   };
 
-  const lineGap = labelSide === 'top'
-    ? Math.max(toLogicalScreenSize(LINE_ANCHOR_GAP_BOTTOM, safeScale), toLogicalScreenSize(MIN_LABEL_TO_LINE_SCREEN_GAP, safeScale))
-    : Math.max(toLogicalScreenSize(LINE_ANCHOR_GAP_TOP, safeScale), toLogicalScreenSize(MIN_LABEL_TO_LINE_SCREEN_GAP, safeScale));
-  const lineAnchorX = labelAnchorX;
-  const lineAnchorY = labelSide === 'top'
-    ? labelRect.bottom + lineGap
-    : labelRect.top - lineGap;
   const lineRect: LogicalRect = {
-    left: lineAnchorX - toLogicalScreenSize(LINE_ANCHOR_RADIUS, safeScale),
-    right: lineAnchorX + toLogicalScreenSize(LINE_ANCHOR_RADIUS, safeScale),
-    top: lineAnchorY - toLogicalScreenSize(LINE_ANCHOR_RADIUS, safeScale),
-    bottom: lineAnchorY + toLogicalScreenSize(LINE_ANCHOR_RADIUS, safeScale),
+    left: lineAnchorX - lineAnchorRadius,
+    right: lineAnchorX + lineAnchorRadius,
+    top: lineAnchorY - lineAnchorRadius,
+    bottom: lineAnchorY + lineAnchorRadius,
   };
 
   const overallRect = unionRect(unionRect(photoRect, labelRect), lineRect);
