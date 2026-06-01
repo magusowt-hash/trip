@@ -24,7 +24,7 @@ import {
   buildGroupGeometryFromPhotoRect,
   expandPhotoRect,
   rectsOverlap,
-  resolveGroupGeometryLabels,
+  resolveGroupGeometryDownward,
   scoreGroupGeometryPlacement,
   translateGroupGeometry,
 } from '@/components/localMapGroupGeometry';
@@ -840,7 +840,7 @@ function UserFootprintsPageInner() {
       if (!geometry) continue;
       existingGeometryEntries.push({ id: placeKey, geometry });
     }
-    const resolvedExistingGeometryMap = resolveGroupGeometryLabels(existingGeometryEntries, { gap: 14, step: 6, maxOffset: 108, mapRect });
+    const resolvedExistingGeometryMap = resolveGroupGeometryDownward(existingGeometryEntries, { gap: 10, step: 6, maxOffset: 72 });
     for (const [, geometry] of resolvedExistingGeometryMap) {
       occupiedRects.push(geometry.groupRect);
       occupiedGeometries.push(geometry);
@@ -870,9 +870,9 @@ function UserFootprintsPageInner() {
         collisionScale,
       );
       if (!offsetGeometry) continue;
-      const resolvedOffsetGeometry = resolveGroupGeometryLabels(
+      const resolvedOffsetGeometry = resolveGroupGeometryDownward(
         [{ id: placeKey, geometry: offsetGeometry }],
-        { gap: 14, step: 6, maxOffset: 108, mapRect },
+        { gap: 10, step: 6, maxOffset: 72 },
       ).get(placeKey) ?? offsetGeometry;
       if (placedPhotos.length > 0) {
         const existingGeometry = resolvedExistingGeometryMap.get(placeKey) ?? buildPlaceGeometry(placedPhotos, collisionScale);
