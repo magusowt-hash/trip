@@ -6,6 +6,7 @@ import {
   buildGroupGeometry,
   GROUP_LABEL_FONT_SCREEN_SIZE,
   GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
+  resolveGroupGeometryDownward,
 } from './localMapGroupGeometry';
 
 export interface PhotoItem {
@@ -240,13 +241,30 @@ export default function OuterFrameCanvas({
       arr.push(p);
       groups.set(p.placeKey, arr);
     }
-    const rects: PlaceRect[] = [];
+    const geometryEntries: Array<{
+      placeKey: string;
+      placeTitle: string;
+      geometry: NonNullable<ReturnType<typeof buildGroupGeometry>>;
+    }> = [];
     for (const [placeKey, items] of groups) {
       const geometry = buildGroupGeometry(items, getPhotoLogicalSize, transform.scale);
       if (!geometry) continue;
-      rects.push({
+      geometryEntries.push({
         placeKey,
         placeTitle: items[0]?.placeTitle || '',
+        geometry,
+      });
+    }
+    const resolvedGeometry = resolveGroupGeometryDownward(
+      geometryEntries.map((entry) => ({ id: entry.placeKey, geometry: entry.geometry })),
+      { gap: 10, step: 6, maxOffset: 72 },
+    );
+    const rects: PlaceRect[] = [];
+    for (const entry of geometryEntries) {
+      const geometry = resolvedGeometry.get(entry.placeKey) ?? entry.geometry;
+      rects.push({
+        placeKey: entry.placeKey,
+        placeTitle: entry.placeTitle,
         photoLeft: geometry.photoRect.left,
         photoTop: geometry.photoRect.top,
         photoRight: geometry.photoRect.right,

@@ -4,7 +4,11 @@ import { useRef, useEffect, useCallback } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
-import { buildGroupGeometry, GROUP_ENDPOINT_RADIUS_SCREEN } from './localMapGroupGeometry';
+import {
+  buildGroupGeometry,
+  GROUP_ENDPOINT_RADIUS_SCREEN,
+  resolveGroupGeometryDownward,
+} from './localMapGroupGeometry';
 
 const MAX_OVERLAY_SCALE = 2.4;
 const MAX_LINE_WIDTH = 4;
@@ -52,8 +56,25 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
     y: ly * transform.scale + height / 2 + transform.ty,
   }), [transform, width, height]);
 
-  const getGroupAnchorPoint = useCallback((groupPhotos: PhotoItem[], poi: PoiPoint) => {
-    const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize, transform.scale);
+  const getResolvedGroupGeometryMap = useCallback(() => {
+    const groups = new Map<string, PhotoItem[]>();
+    for (const photo of photos) {
+      if (photo.frameX == null || photo.frameY == null) continue;
+      const arr = groups.get(photo.placeKey) || [];
+      arr.push(photo);
+      groups.set(photo.placeKey, arr);
+    }
+    const entries: Array<{ id: string; geometry: NonNullable<ReturnType<typeof buildGroupGeometry>> }> = [];
+    for (const [placeKey, groupPhotos] of groups) {
+      const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize, transform.scale);
+      if (!geometry) continue;
+      entries.push({ id: placeKey, geometry });
+    }
+    return resolveGroupGeometryDownward(entries, { gap: 10, step: 6, maxOffset: 72 });
+  }, [photos, getPhotoLogicalSize, transform.scale]);
+
+  const getGroupAnchorPoint = useCallback((resolvedGeometryMap: Map<string, NonNullable<ReturnType<typeof buildGroupGeometry>>>, groupPhotos: PhotoItem[], poi: PoiPoint) => {
+    const geometry = resolvedGeometryMap.get(groupPhotos[0]?.placeKey || '') ?? buildGroupGeometry(groupPhotos, getPhotoLogicalSize, transform.scale);
     if (!geometry) {
       return { x: poi.logicalX, y: poi.logicalY };
     }
@@ -75,6 +96,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
 
     ctx.clearRect(0, 0, width, height);
     const overlayScale = getOverlayScale(transform.scale);
+    const resolvedGeometryMap = getResolvedGroupGeometryMap();
 
     for (const poi of poiPoints) {
       const poiScreen = logicalToScreen(poi.logicalX, poi.logicalY);
@@ -84,7 +106,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
       );
       if (poiPhotos.length === 0) continue;
 
-      const groupAnchor = getGroupAnchorPoint(poiPhotos, poi);
+      const groupAnchor = getGroupAnchorPoint(resolvedGeometryMap, poiPhotos, poi);
       const photoCenter = logicalToScreen(groupAnchor.x, groupAnchor.y);
 
       ctx.beginPath();
@@ -120,7 +142,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
         ctx.fillText(poi.placeTitle, poiScreen.x, poiScreen.y + offset);
       }
     }
-  }, [width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor, logicalToScreen, getGroupAnchorPoint]);
+  }, [width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor, logicalToScreen, getGroupAnchorPoint, getResolvedGroupGeometryMap]);
 
   useEffect(() => {
     let rafId: number;

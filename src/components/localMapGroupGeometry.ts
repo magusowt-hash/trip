@@ -25,6 +25,10 @@ export type GroupGeometry = {
 };
 
 type SizeReader = (photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>) => { width: number; height: number };
+type GroupGeometryEntry<T extends string = string> = {
+  id: T;
+  geometry: GroupGeometry;
+};
 
 export const GROUP_LABEL_FONT_SCREEN_SIZE = 10;
 export const GROUP_LABEL_MIN_FONT_SCREEN_SIZE = 9;
@@ -33,15 +37,15 @@ export const GROUP_ENDPOINT_RADIUS_SCREEN = 4;
 
 const PHOTO_RECT_PADDING = 40;
 const PHOTO_BOTTOM_EXTRA = 20;
-const PHOTO_TO_LINE_SCREEN_GAP_MIN = 4;
-const PHOTO_TO_LINE_SCREEN_GAP_MAX = 10;
-const LINE_TO_LABEL_SCREEN_GAP_MIN = 2;
-const LINE_TO_LABEL_SCREEN_GAP_MAX = 6;
+const PHOTO_TO_LINE_SCREEN_GAP_MIN = 2;
+const PHOTO_TO_LINE_SCREEN_GAP_MAX = 6;
+const LINE_TO_LABEL_SCREEN_GAP_MIN = 1;
+const LINE_TO_LABEL_SCREEN_GAP_MAX = 4;
 const LABEL_MAX_SCREEN_WIDTH = 98;
 const GAP_AREA_MIN = 180 * 140;
 const GAP_AREA_MAX = 420 * 260;
 const SMALL_GROUP_COUNT_MAX = 4;
-const SMALL_GROUP_TIGHTEN_MAX = 0.5;
+const SMALL_GROUP_TIGHTEN_MAX = 0.7;
 
 function toLogicalScreenSize(screenSize: number, scale: number) {
   return screenSize / Math.max(scale, 0.1);
@@ -54,6 +58,15 @@ function unionRect(a: LogicalRect, b: LogicalRect): LogicalRect {
     top: Math.min(a.top, b.top),
     bottom: Math.max(a.bottom, b.bottom),
   };
+}
+
+function rectsOverlap(a: LogicalRect, b: LogicalRect, gap: number) {
+  return !(
+    a.right + gap <= b.left ||
+    b.right + gap <= a.left ||
+    a.bottom + gap <= b.top ||
+    b.bottom + gap <= a.top
+  );
 }
 
 function rectCenter(rect: LogicalRect) {
@@ -195,4 +208,73 @@ export function buildGroupGeometry(
   if (!photoRect) return null;
   const title = groupPhotos[0]?.placeTitle || '';
   return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale);
+}
+
+export function shiftGroupGeometryDown(
+  geometry: GroupGeometry,
+  deltaY: number,
+): GroupGeometry {
+  if (deltaY <= 0) return geometry;
+  return {
+    ...geometry,
+    labelRect: {
+      left: geometry.labelRect.left,
+      right: geometry.labelRect.right,
+      top: geometry.labelRect.top + deltaY,
+      bottom: geometry.labelRect.bottom + deltaY,
+    },
+    lineRect: {
+      left: geometry.lineRect.left,
+      right: geometry.lineRect.right,
+      top: geometry.lineRect.top + deltaY,
+      bottom: geometry.lineRect.bottom + deltaY,
+    },
+    groupRect: {
+      left: geometry.groupRect.left,
+      right: geometry.groupRect.right,
+      top: geometry.groupRect.top,
+      bottom: geometry.groupRect.bottom + deltaY,
+    },
+    overallRect: {
+      left: geometry.overallRect.left,
+      right: geometry.overallRect.right,
+      top: geometry.overallRect.top,
+      bottom: geometry.overallRect.bottom + deltaY,
+    },
+    labelAnchorY: geometry.labelAnchorY + deltaY,
+    lineAnchorY: geometry.lineAnchorY + deltaY,
+  };
+}
+
+export function resolveGroupGeometryDownward<T extends string = string>(
+  entries: GroupGeometryEntry<T>[],
+  options?: {
+    gap?: number;
+    step?: number;
+    maxOffset?: number;
+  },
+) {
+  const gap = options?.gap ?? 10;
+  const step = options?.step ?? 6;
+  const maxOffset = options?.maxOffset ?? 72;
+  const resolved = new Map<T, GroupGeometry>();
+  const occupied: LogicalRect[] = [];
+  const sortedEntries = [...entries].sort((left, right) => (
+    left.geometry.photoRect.top - right.geometry.photoRect.top ||
+    left.geometry.photoCenterX - right.geometry.photoCenterX
+  ));
+
+  for (const entry of sortedEntries) {
+    let chosen = entry.geometry;
+    for (let offset = 0; offset <= maxOffset; offset += step) {
+      const candidate = offset === 0 ? entry.geometry : shiftGroupGeometryDown(entry.geometry, offset);
+      if (occupied.some((rect) => rectsOverlap(candidate.groupRect, rect, gap))) continue;
+      chosen = candidate;
+      break;
+    }
+    resolved.set(entry.id, chosen);
+    occupied.push(chosen.groupRect);
+  }
+
+  return resolved;
 }
