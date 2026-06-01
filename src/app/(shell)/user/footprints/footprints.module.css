@@ -7,6 +7,87 @@
   background: #0f172a;
 }
 
+.loadingInteractionBlocker {
+  position: absolute;
+  inset: 0;
+  z-index: 180;
+  background: transparent;
+}
+
+.loadingCard {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 181;
+  display: flex;
+  min-width: 320px;
+  max-width: min(420px, calc(100vw - 48px));
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  background: rgba(15, 23, 42, 0.94);
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.42);
+  padding: 24px 28px;
+  backdrop-filter: blur(16px);
+}
+
+.loadingSpinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(148, 163, 184, 0.24);
+  border-top-color: #f8fafc;
+  border-radius: 999px;
+  animation: loadingSpin 0.9s linear infinite;
+}
+
+.loadingTitle {
+  color: #f8fafc;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.loadingSubtitle {
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.loadingProgressTrack {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.loadingProgressBar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #60a5fa 0%, #f8fafc 100%);
+  transition: width 0.2s ease;
+}
+
+.loadingProgressText {
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+@keyframes loadingSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Floating toolbar */
 .toolbar {
   position: absolute;

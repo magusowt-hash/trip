@@ -25,6 +25,9 @@ npm-debug.log*
 # 工作树目录
 .worktrees/
 
+# 本机测试工作区
+test/
+
 # 用户上传文件
 uploads/
 

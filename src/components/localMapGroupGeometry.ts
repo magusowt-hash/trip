@@ -294,11 +294,15 @@ export function scoreGroupGeometryPlacement(
   candidate: GroupGeometry,
   neighbors: GroupGeometry[],
   safeGap: number,
+  options?: {
+    labelGapBoost?: number;
+  },
 ): number {
   let score = 0;
   const pairs: Array<[LogicalRect, LogicalRect, number]> = [];
-  const labelSafeGap = safeGap + 10;
-  const lineLabelSafeGap = safeGap + 6;
+  const labelGapBoost = options?.labelGapBoost ?? 0;
+  const labelSafeGap = safeGap + 10 + labelGapBoost;
+  const lineLabelSafeGap = safeGap + 6 + labelGapBoost * 0.7;
 
   for (const neighbor of neighbors) {
     pairs.push(
