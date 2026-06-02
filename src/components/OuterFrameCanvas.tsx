@@ -10,6 +10,7 @@ import {
   measureGroupLabelLayout,
   type GroupLayoutSnapshot,
 } from './localMapGroupGeometry';
+import { getFootprintMapProtectionRect } from './footprintMapGeometry';
 
 export interface PhotoItem {
   id: number | string;
@@ -75,9 +76,6 @@ interface Props {
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
-const MAP_AREA_RATIO_W = 0.6;
-const MAP_AREA_RATIO_H = 0.8;
-const MAP_SAFE_GAP = 96;
 const MAX_OVERLAY_SCALE = 2.4;
 const HOVER_STROKE_WIDTH = 1.5;
 
@@ -103,21 +101,8 @@ function placeColor(placeTitle: string): string {
   return COLORS[Math.abs(hash) % COLORS.length];
 }
 
-function getMapLogicalBounds(width: number, height: number) {
-  return {
-    halfW: (width * MAP_AREA_RATIO_W) / 2,
-    halfH: (height * MAP_AREA_RATIO_H) / 2,
-  };
-}
-
 function mapProtectionBounds(width: number, height: number) {
-  const { halfW, halfH } = getMapLogicalBounds(width, height);
-  return {
-    left: -halfW - MAP_SAFE_GAP,
-    right: halfW + MAP_SAFE_GAP,
-    top: -halfH - MAP_SAFE_GAP,
-    bottom: halfH + MAP_SAFE_GAP,
-  };
+  return getFootprintMapProtectionRect(width, height);
 }
 
 export default function OuterFrameCanvas({

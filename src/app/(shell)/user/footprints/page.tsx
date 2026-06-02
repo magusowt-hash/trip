@@ -20,6 +20,7 @@ import {
   type GroupLayoutSnapshot,
 } from '@/components/localMapGroupGeometry';
 import type { GroupGeometry } from '@/components/localMapGroupGeometry';
+import { FOOTPRINT_MAP_SAFE_GAP, getFootprintMapRect } from '@/components/footprintMapGeometry';
 import type { Viewport } from '@/lib/outerFrameCoords';
 import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 import styles from './footprints.module.css';
@@ -257,7 +258,7 @@ function solveFrozenGroupLayouts(
   return resolveGroupLabelLayouts(entries, {
     gap: 10,
     mapRect,
-    mapGap: 80,
+    mapGap: FOOTPRINT_MAP_SAFE_GAP,
     labelGapBoost: computeLabelGapBoost(scale),
     step: 8,
     maxOffset: 120,
@@ -284,7 +285,7 @@ function estimateReservedLabelOffset(
   ], {
     gap: 10,
     mapRect,
-    mapGap: 80,
+    mapGap: FOOTPRINT_MAP_SAFE_GAP,
     labelGapBoost: computeLabelGapBoost(scale),
     step: 8,
     maxOffset: 120,
@@ -836,12 +837,7 @@ function UserFootprintsPageInner() {
 
     const cardSize = 80;
     const collisionScale = Math.max(outerScale, 0.1);
-    const mapRect = {
-      left: -(viewportWidth * 0.6) / 2,
-      right: (viewportWidth * 0.6) / 2,
-      top: -(viewportHeight * 0.8) / 2,
-      bottom: (viewportHeight * 0.8) / 2,
-    };
+    const mapRect = getFootprintMapRect(viewportWidth, viewportHeight);
     const allGroups = new Map<string, PhotoItem[]>();
     for (const photo of referencePhotos) {
       const arr = allGroups.get(photo.placeKey) || [];

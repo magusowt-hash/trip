@@ -7,6 +7,7 @@ import {
 } from './localMapGroupGeometry';
 import { buildRadialLayout } from './localMapLayoutEngine';
 import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
+import { FOOTPRINT_MAP_SAFE_GAP } from './footprintMapGeometry';
 import {
   fitsLabelRectAroundMap,
   fitsPhotoRectAroundMap,
@@ -19,7 +20,7 @@ import { refineRadialPlacements } from './footprintSectorLayoutEngine';
 
 const GROUP_GAP = 28;
 const LABEL_GAP = 24;
-const MAP_GAP = 112;
+const MAP_GAP = FOOTPRINT_MAP_SAFE_GAP;
 const LINE_BUNDLE_DISTANCE = 34;
 const LOCAL_DENSITY_DISTANCE = 380;
 const GLOBAL_SECTOR_COUNT = 16;
@@ -29,9 +30,10 @@ const MAX_CANDIDATES_PER_GROUP = 48;
 
 const ANGLE_OFFSETS_DEGREES = [-36, -24, -16, -10, -6, 0, 6, 10, 16, 24, 36];
 const RIGHT_SIDE_BOOST_DEGREES = [-20, -12, -6, 0, 6, 12, 20];
-const RADIUS_FACTORS = [0.68, 0.76, 0.84, 0.92, 1, 1.12, 1.26, 1.42, 1.62];
+const RADIUS_FACTORS = [0.54, 0.6, 0.66, 0.74, 0.82, 0.9, 0.98, 1.08, 1.22, 1.38];
 const GLOBAL_SECTOR_ANGLE_OFFSETS = [-8, 0, 8];
-const GLOBAL_RADIUS_FACTORS = [0.62, 0.72, 0.84, 0.96, 1.08, 1.22, 1.38];
+const GLOBAL_RADIUS_FACTORS = [0.52, 0.6, 0.7, 0.82, 0.94, 1.08, 1.24];
+const MAP_ESCAPE_RADIUS_STEPS = [64, 128, 192, 256, 384, 512, 768, 1024, 1280];
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -172,6 +174,7 @@ function chooseBestGeometryForPlacement(
     1,
     undefined,
     group.reservedLabelOffset,
+    mapRect,
   );
 
   return candidates.reduce((best, candidate) => {
@@ -659,6 +662,66 @@ function countHardConflicts(
   return count;
 }
 
+function enforceMapSafety(
+  orderedGroups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  geometryById: Map<string, GroupGeometry>,
+  mapRect: LogicalRect,
+  labelGapBoost: number,
+  lockedGroups: LockedPlaceGroup[] = [],
+) {
+  let nextPlacementById = new Map(placementById);
+  let nextGeometryById = geometryById;
+
+  for (const group of orderedGroups) {
+    const currentGeometry = nextGeometryById.get(group.placeKey);
+    const currentPlacement = nextPlacementById.get(group.placeKey);
+    if (!currentGeometry || !currentPlacement || geometryFitsMap(currentGeometry, mapRect)) continue;
+
+    const angle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
+    const radius = Math.hypot(currentPlacement.centerX, currentPlacement.centerY);
+    let bestPlacementById = nextPlacementById;
+    let bestGeometryById = nextGeometryById;
+    let bestScore = countHardConflicts(orderedGroups, nextGeometryById, mapRect, lockedGroups);
+
+    for (const step of MAP_ESCAPE_RADIUS_STEPS) {
+      const trialPlacementById = new Map(nextPlacementById);
+      const nextRadius = radius + step;
+      trialPlacementById.set(group.placeKey, {
+        centerX: Math.cos(angle) * nextRadius,
+        centerY: Math.sin(angle) * nextRadius,
+      });
+      const trialGeometryById = buildGeometryMapForPlacements(
+        orderedGroups,
+        trialPlacementById,
+        mapRect,
+        labelGapBoost,
+        lockedGroups,
+      );
+      const trialGeometry = trialGeometryById.get(group.placeKey);
+      if (!trialGeometry || !geometryFitsMap(trialGeometry, mapRect)) continue;
+
+      const trialScore =
+        countHardConflicts(orderedGroups, trialGeometryById, mapRect, lockedGroups) +
+        step * 0.02;
+      if (trialScore < bestScore || !geometryFitsMap(currentGeometry, mapRect)) {
+        bestScore = trialScore;
+        bestPlacementById = trialPlacementById;
+        bestGeometryById = trialGeometryById;
+      }
+      break;
+    }
+
+    nextPlacementById = bestPlacementById;
+    nextGeometryById = bestGeometryById;
+  }
+
+  return {
+    placements: nextPlacementById,
+    geometries: nextGeometryById,
+  };
+}
+
 function buildFallbackState(
   orderedGroups: PendingPlaceGroup[],
   basePlacementById: Map<string, FootprintPlacement>,
@@ -684,7 +747,7 @@ function buildFallbackState(
 export function solvePendingGroupPlacements(
   groups: PendingPlaceGroup[],
   mapRect: LogicalRect,
-  safeGap: number,
+  _safeGap: number,
   labelGapBoost: number,
   lockedGroups: LockedPlaceGroup[] = [],
 ) {
@@ -696,6 +759,7 @@ export function solvePendingGroupPlacements(
       rect: group.collisionRect,
     })),
     mapRect,
+    { mapGap: MAP_GAP },
   );
 
   const basePlacementById = new Map<string, FootprintPlacement>();
@@ -721,7 +785,7 @@ export function solvePendingGroupPlacements(
     orderedGroups,
     new Map(workingState.placementById),
     mapRect,
-    safeGap,
+    MAP_GAP,
     labelGapBoost,
   );
   const refinedGeometryById = buildGeometryMapForPlacements(
@@ -741,15 +805,23 @@ export function solvePendingGroupPlacements(
 
   const refinedConflictCount = countHardConflicts(orderedGroups, refinedGeometryById, mapRect, lockedGroups);
   const optimizedConflictCount = countHardConflicts(orderedGroups, optimizedGeometryById, mapRect, lockedGroups);
-  const finalPlacements = refinedConflictCount <= optimizedConflictCount
+  const selectedPlacements = refinedConflictCount <= optimizedConflictCount
     ? refinedPlacementById
     : workingState.placementById;
-  const finalGeometries = finalPlacements === refinedPlacementById
+  const selectedGeometries = selectedPlacements === refinedPlacementById
     ? refinedGeometryById
     : optimizedGeometryById;
+  const finalLayout = enforceMapSafety(
+    orderedGroups,
+    selectedPlacements,
+    selectedGeometries,
+    mapRect,
+    labelGapBoost,
+    lockedGroups,
+  );
 
   return {
-    placements: finalPlacements,
-    geometries: finalGeometries,
+    placements: finalLayout.placements,
+    geometries: finalLayout.geometries,
   };
 }

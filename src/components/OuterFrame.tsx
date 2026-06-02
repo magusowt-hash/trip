@@ -10,14 +10,17 @@ import type { LineStyle } from './LegendPanel';
 import type { MapMarker } from './PlanMap';
 import PlanMap from './PlanMap';
 import { buildGroupGeometryFromLayout, type GroupLayoutSnapshot } from './localMapGroupGeometry';
+import {
+  FOOTPRINT_MAP_AREA_RATIO_H,
+  FOOTPRINT_MAP_AREA_RATIO_W,
+  getFootprintMapLogicalBounds,
+} from './footprintMapGeometry';
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
 const FIT_VIEW_PADDING = 24;
 const VIEWPORT_GEOMETRY_SCALE = 1;
 const VIEWPORT_PADDING_LOGICAL = 24;
-const MAP_AREA_RATIO_W = 0.6;
-const MAP_AREA_RATIO_H = 0.8;
 
 interface Props {
   markers: MapMarker[];
@@ -137,10 +140,9 @@ export default function OuterFrame({
     return { width: PHOTO_MAX_EDGE, height: PHOTO_MAX_EDGE };
   }, []);
 
-  const getMapLogicalBounds = useCallback(() => ({
-    halfW: (containerSize.w * MAP_AREA_RATIO_W) / 2,
-    halfH: (containerSize.h * MAP_AREA_RATIO_H) / 2,
-  }), [containerSize]);
+  const getMapLogicalBounds = useCallback(() => (
+    getFootprintMapLogicalBounds(containerSize.w, containerSize.h)
+  ), [containerSize]);
 
   const buildPhotoGroupViewport = useCallback((padding = VIEWPORT_PADDING_LOGICAL): Viewport | null => {
     const groups = new Map<string, PhotoItem[]>();
@@ -303,8 +305,8 @@ export default function OuterFrame({
           position: 'absolute',
           top: '50%',
           left: '50%',
-          width: `${60}%`,
-          height: `${80}%`,
+          width: `${FOOTPRINT_MAP_AREA_RATIO_W * 100}%`,
+          height: `${FOOTPRINT_MAP_AREA_RATIO_H * 100}%`,
           transform: `translate(-50%, -50%) scale(${transform.scale}) translate(${transform.tx / transform.scale}px, ${transform.ty / transform.scale}px)`,
           transformOrigin: 'center center',
           borderRadius: 12,

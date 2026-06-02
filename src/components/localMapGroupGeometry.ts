@@ -63,7 +63,7 @@ const SMALL_GROUP_TIGHTEN_MAX = 0.7;
 const HARD_OVERLAP_WEIGHT = 1000;
 const SOFT_GAP_WEIGHT = 20;
 const BOTTOM_SECTOR_HALF_ANGLE = Math.PI / 4;
-const BOTTOM_CORNER_PARTITION_MARGIN = 160;
+const BOTTOM_CORNER_PARTITION_MARGIN = 320;
 
 function toLogicalScreenSize(screenSize: number, scale: number) {
   return screenSize / Math.max(scale, 0.1);
@@ -125,16 +125,26 @@ export function resolvePreferredLabelSide(
   centerY: number,
   mapRect?: LogicalRect,
 ): GroupLabelSide {
+  const bottomSectorSide = resolveBottomCornerLabelSide(centerX, centerY, mapRect);
+  if (bottomSectorSide) return bottomSectorSide;
+
+  const angle = Math.atan2(centerY, centerX);
+  const downwardAngle = Math.PI / 2;
+  return angleDistance(angle, downwardAngle) <= BOTTOM_SECTOR_HALF_ANGLE ? 'top' : 'bottom';
+}
+
+export function resolveBottomCornerLabelSide(
+  centerX: number,
+  centerY: number,
+  mapRect?: LogicalRect,
+): GroupLabelSide | null {
   if (mapRect && centerY >= mapRect.bottom - BOTTOM_CORNER_PARTITION_MARGIN) {
     const cornerX = centerX < 0 ? mapRect.left : mapRect.right;
     const cornerY = mapRect.bottom;
     const angleFromCorner = Math.atan2(centerY - cornerY, centerX - cornerX);
     return angleDistance(angleFromCorner, Math.PI / 2) <= BOTTOM_SECTOR_HALF_ANGLE ? 'top' : 'bottom';
   }
-
-  const angle = Math.atan2(centerY, centerX);
-  const downwardAngle = Math.PI / 2;
-  return angleDistance(angle, downwardAngle) <= BOTTOM_SECTOR_HALF_ANGLE ? 'top' : 'bottom';
+  return null;
 }
 
 export function translateLogicalRect(rect: LogicalRect, offsetX: number, offsetY: number): LogicalRect {
@@ -359,6 +369,7 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   scale = 1,
   fixedLabelSide?: GroupLabelSide,
   fixedLabelOffset = 0,
+  mapRect?: LogicalRect,
 ) {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
@@ -422,12 +433,18 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   };
 
   if (fixedLabelSide) return [buildForSide(fixedLabelSide)];
-  const preferredSide = resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  const bottomSectorSide = resolveBottomCornerLabelSide(photoCenter.x, photoCenter.y, mapRect);
+  if (bottomSectorSide) return [buildForSide(bottomSectorSide)];
+  const preferredSide = resolvePreferredLabelSide(photoCenter.x, photoCenter.y, mapRect);
   const fallbackSide: GroupLabelSide = preferredSide === 'top' ? 'bottom' : 'top';
   return [buildForSide(preferredSide), buildForSide(fallbackSide)];
 }
 
-export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry, fixedLabelSide?: GroupLabelSide) {
+export function buildGroupGeometryCandidatesFromGeometry(
+  geometry: GroupGeometry,
+  fixedLabelSide?: GroupLabelSide,
+  mapRect?: LogicalRect,
+) {
   const photoRect = geometry.photoRect;
   const photoCenter = rectCenter(photoRect);
   const labelHalfWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left) / 2;
@@ -489,7 +506,9 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
   };
 
   if (fixedLabelSide) return [buildForSide(fixedLabelSide)];
-  const preferredSide = geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  const bottomSectorSide = resolveBottomCornerLabelSide(photoCenter.x, photoCenter.y, mapRect);
+  if (bottomSectorSide) return [buildForSide(bottomSectorSide)];
+  const preferredSide = geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y, mapRect);
   const fallbackSide: GroupLabelSide = preferredSide === 'top' ? 'bottom' : 'top';
   return [buildForSide(preferredSide), buildForSide(fallbackSide)];
 }
@@ -751,7 +770,9 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
   ));
 
   for (const entry of sortedEntries) {
-    const candidates = entry.candidates?.length ? entry.candidates : buildGroupGeometryCandidatesFromGeometry(entry.geometry);
+    const candidates = entry.candidates?.length
+      ? entry.candidates
+      : buildGroupGeometryCandidatesFromGeometry(entry.geometry, undefined, options?.mapRect);
     let chosen = candidates[0];
     let bestScore = Number.POSITIVE_INFINITY;
 
