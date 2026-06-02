@@ -732,10 +732,7 @@ function UserFootprintsPageInner() {
 
     const itemScopes = new Map(items.map((item) => [item.id, item.albumScopeKey || (item.listItemId ? buildFootprintPhotoScopeKey(item.id) : buildMapFootprintPhotoScopeKey(item.poiId ?? item.id))]));
     const itemKeys = new Set(itemScopes.values());
-    const allPhotos: PhotoItem[] = photos
-      .filter((photo) => photo.sourceType === 'local-mapped')
-      .filter((photo) => itemKeys.has(photo.placeKey))
-      .map((photo) => ({ ...photo }));
+    const allPhotos: PhotoItem[] = [];
 
     if (isViewMode) {
       try {
@@ -1545,6 +1542,14 @@ function UserFootprintsPageInner() {
         }
         setLocalMapApplyProgress(66);
 
+        const nextGroupLayouts = payload.layout.enabled
+          ? autoPlacePhotos(
+              unplaced,
+              [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
+              payload.layout,
+            )
+          : groupLayouts;
+
         setPhotos((current) => {
           current
             .filter((photo) => photo.sourceType === 'local-mapped')
@@ -1562,7 +1567,7 @@ function UserFootprintsPageInner() {
           return [...uploaded, ...mappedPhotos];
         });
         const debugMergedPhotos = [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos];
-        setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(debugMergedPhotos, 1, undefined, current).values()));
+        setGroupLayouts(nextGroupLayouts);
         setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
         setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
         setLocalMapApplyProgress(82);
