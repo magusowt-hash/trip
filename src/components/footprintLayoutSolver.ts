@@ -1,13 +1,14 @@
 import {
   buildGroupGeometryFromPhotoRect,
   resolveGroupGeometryAsWhole,
-  resolvePreferredLabelSide,
+  resolvePreferredLabelSideForMap,
   type GroupGeometry,
 } from './localMapGroupGeometry';
 import { buildRadialLayout } from './localMapLayoutEngine';
 import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
 import {
   fitsLabelRectAroundMap,
+  fitsGroupRectAroundMap,
   fitsPhotoRectAroundMap,
   hasLabelCollisions,
   hasPhotoAgainstLabelCollisions,
@@ -18,7 +19,7 @@ import { refineRadialPlacements } from './footprintSectorLayoutEngine';
 
 const GROUP_GAP = 10;
 const LABEL_GAP = 14;
-const MAP_GAP = 32;
+const MAP_GAP = 128;
 const LINE_BUNDLE_DISTANCE = 34;
 const LOCAL_DENSITY_DISTANCE = 380;
 const GLOBAL_SECTOR_COUNT = 16;
@@ -140,20 +141,31 @@ function buildGeometryForPlacement(
     bottom: group.collisionGeometry.photoRect.bottom + placement.centerY,
   };
 
+  const labelPartitionRect = group.mapRect
+    ? {
+        left: group.mapRect.left - MAP_GAP,
+        right: group.mapRect.right + MAP_GAP,
+        top: group.mapRect.top - MAP_GAP,
+        bottom: group.mapRect.bottom + MAP_GAP,
+      }
+    : undefined;
+
   return buildGroupGeometryFromPhotoRect(
     translatedPhotoRect,
     group.placePhotos[0]?.placeTitle || '',
     group.placePhotos.length,
     1,
-    resolvePreferredLabelSide(placement.centerX, placement.centerY),
+    resolvePreferredLabelSideForMap(placement.centerX, placement.centerY, labelPartitionRect),
     group.reservedLabelOffset,
+    labelPartitionRect,
   );
 }
 
 function geometryFitsMap(geometry: GroupGeometry, mapRect: LogicalRect) {
   return (
     fitsPhotoRectAroundMap(geometry.photoRect, mapRect, MAP_GAP) &&
-    fitsLabelRectAroundMap(geometry.labelRect, mapRect, MAP_GAP)
+    fitsLabelRectAroundMap(geometry.labelRect, mapRect, MAP_GAP) &&
+    fitsGroupRectAroundMap(geometry.groupRect, mapRect, MAP_GAP)
   );
 }
 
@@ -665,6 +677,7 @@ export function solvePendingGroupPlacements(
       rect: group.collisionRect,
     })),
     mapRect,
+    { mapGap: MAP_GAP },
   );
 
   const basePlacementById = new Map<string, FootprintPlacement>();

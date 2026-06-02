@@ -46,8 +46,8 @@ export const GROUP_LABEL_MIN_FONT_SCREEN_SIZE = 9;
 export const GROUP_LABEL_LINE_HEIGHT_SCREEN = 13;
 export const GROUP_ENDPOINT_RADIUS_SCREEN = 4;
 
-const PHOTO_RECT_PADDING = 40;
-const PHOTO_BOTTOM_EXTRA = 20;
+const PHOTO_RECT_PADDING = 52;
+const PHOTO_BOTTOM_EXTRA = 28;
 const PHOTO_TO_LINE_SCREEN_GAP_MIN = 1;
 const PHOTO_TO_LINE_SCREEN_GAP_MAX = 4;
 const LINE_TO_LABEL_SCREEN_GAP_MIN = 0;
@@ -123,6 +123,19 @@ export function resolvePreferredLabelSide(centerX: number, centerY: number): Gro
   const angle = Math.atan2(centerY, centerX);
   const downwardAngle = Math.PI / 2;
   return angleDistance(angle, downwardAngle) <= BOTTOM_SECTOR_HALF_ANGLE ? 'top' : 'bottom';
+}
+
+export function resolvePreferredLabelSideForMap(centerX: number, centerY: number, mapRect?: LogicalRect): GroupLabelSide {
+  if (!mapRect) return resolvePreferredLabelSide(centerX, centerY);
+  if (centerY <= mapRect.bottom) return 'bottom';
+  if (centerX >= mapRect.left && centerX <= mapRect.right) return 'top';
+
+  const verticalDistance = centerY - mapRect.bottom;
+  const leftCornerDistance = mapRect.left - centerX;
+  const rightCornerDistance = centerX - mapRect.right;
+  const withinLeftBottomPartition = centerX < mapRect.left && verticalDistance >= leftCornerDistance;
+  const withinRightBottomPartition = centerX > mapRect.right && verticalDistance >= rightCornerDistance;
+  return withinLeftBottomPartition || withinRightBottomPartition ? 'top' : 'bottom';
 }
 
 export function translateLogicalRect(rect: LogicalRect, offsetX: number, offsetY: number): LogicalRect {
@@ -277,10 +290,11 @@ export function buildGroupGeometryFromPhotoRect(
   scale = 1,
   fixedLabelSide?: GroupLabelSide,
   fixedLabelOffset = 0,
+  mapRect?: LogicalRect,
 ): GroupGeometry {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
-  const labelSide = fixedLabelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  const labelSide = fixedLabelSide ?? resolvePreferredLabelSideForMap(photoCenter.x, photoCenter.y, mapRect);
   const lineAnchorRadius = toLogicalScreenSize(GROUP_ENDPOINT_RADIUS_SCREEN, safeScale);
   const photoWidth = Math.max(1, photoRect.right - photoRect.left);
   const photoHeight = Math.max(1, photoRect.bottom - photoRect.top);
@@ -347,6 +361,7 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   scale = 1,
   fixedLabelSide?: GroupLabelSide,
   fixedLabelOffset = 0,
+  mapRect?: LogicalRect,
 ) {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
@@ -409,7 +424,7 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
     };
   };
 
-  const preferredSide = fixedLabelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  const preferredSide = fixedLabelSide ?? resolvePreferredLabelSideForMap(photoCenter.x, photoCenter.y, mapRect);
   return [buildForSide(preferredSide)];
 }
 
@@ -484,11 +499,12 @@ export function buildGroupGeometry(
   scale = 1,
   fixedLabelSide?: GroupLabelSide,
   fixedLabelOffset = 0,
+  mapRect?: LogicalRect,
 ): GroupGeometry | null {
   const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
   const title = groupPhotos[0]?.placeTitle || '';
-  return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale, fixedLabelSide, fixedLabelOffset);
+  return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale, fixedLabelSide, fixedLabelOffset, mapRect);
 }
 
 export function createGroupLayoutSnapshot(placeKey: string, geometry: GroupGeometry): GroupLayoutSnapshot {
