@@ -27,6 +27,7 @@ import {
   createGroupLayoutSnapshot,
   expandPhotoRect,
   rectsOverlap,
+  resolveGroupLabelLayouts,
   resolveGroupGeometryAsWhole,
   scoreGroupGeometryPlacement,
   translateGroupGeometry,
@@ -213,23 +214,33 @@ function buildRandomOffsets(count: number, cardSize: number) {
 }
 
 function buildPlaceBounds(placePhotos: PhotoItem[], scale = 1): LogicalRect | null {
-  const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
-  if (!photoRect) return null;
-  const geometry = buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, scale);
+  const geometry = buildGroupGeometryFromLayout(
+    placePhotos[0]?.placeKey || '',
+    placePhotos,
+    getPhotoLogicalSize,
+    scale,
+    [],
+  );
+  if (!geometry) return null;
   return geometry.overallRect;
 }
 
 function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1) {
-  const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
-  if (!photoRect) return null;
-  return buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, scale);
+  return buildGroupGeometryFromLayout(
+    placePhotos[0]?.placeKey || '',
+    placePhotos,
+    getPhotoLogicalSize,
+    scale,
+    [],
+  );
 }
 
-function buildGroupLayoutsFromPhotos(
+function solveFrozenGroupLayouts(
   photos: PhotoItem[],
-  scale = 1,
+  scale: number,
+  mapRect?: LogicalRect,
   existingLayouts: GroupLayoutSnapshot[] = [],
-): GroupLayoutSnapshot[] {
+) {
   const groups = new Map<string, PhotoItem[]>();
   for (const photo of photos) {
     if (photo.frameX == null || photo.frameY == null) continue;
@@ -238,14 +249,27 @@ function buildGroupLayoutsFromPhotos(
     groups.set(photo.placeKey, arr);
   }
 
-  const layouts: GroupLayoutSnapshot[] = [];
+  const entries: Array<{ placeKey: string; geometry: GroupGeometry; title: string; photoCount: number; scale: number }> = [];
   for (const [placeKey, groupPhotos] of groups) {
     const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts);
     if (!geometry) continue;
-    layouts.push(createGroupLayoutSnapshot(placeKey, geometry));
+    entries.push({
+      placeKey,
+      geometry,
+      title: groupPhotos[0]?.placeTitle || '',
+      photoCount: groupPhotos.length,
+      scale,
+    });
   }
 
-  return layouts;
+  return resolveGroupLabelLayouts(entries, {
+    gap: 10,
+    mapRect,
+    mapGap: 80,
+    labelGapBoost: computeLabelGapBoost(scale),
+    step: 8,
+    maxOffset: 120,
+  });
 }
 
 function getGroupArea(rect: LogicalRect) {
@@ -822,7 +846,7 @@ function UserFootprintsPageInner() {
     }
 
     setPhotos(allPhotos);
-    setGroupLayouts((current) => buildGroupLayoutsFromPhotos(allPhotos, 1, current));
+    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(allPhotos, 1, undefined, current).values()));
     setDebugBasePhotos(buildDebugPhotoSnapshot(allPhotos));
     setDebugBaseGroups(buildDebugGroupSnapshot(allPhotos));
   }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints]);
@@ -879,15 +903,6 @@ function UserFootprintsPageInner() {
       })),
       { gap: 10, mapRect, mapGap: cardSize, labelGapBoost: 8 },
     );
-    if (resolvedExistingGeometryMap.size > 0) {
-      setGroupLayouts((current) => {
-        const next = new Map(current.map((layout) => [layout.placeKey, layout]));
-        for (const [placeKey, geometry] of resolvedExistingGeometryMap) {
-          next.set(placeKey, createGroupLayoutSnapshot(placeKey, geometry));
-        }
-        return Array.from(next.values());
-      });
-    }
     for (const [, geometry] of resolvedExistingGeometryMap) {
       occupiedRects.push(geometry.overallRect);
       occupiedGeometries.push(geometry);
@@ -986,7 +1001,6 @@ function UserFootprintsPageInner() {
       computeLabelGapBoost(outerScale),
     );
     const placementById = solvedPendingGroups.placements;
-    const pendingGeometryById = solvedPendingGroups.geometries;
 
     for (const group of pendingNewGroups) {
       const chosenCenter = placementById.get(group.placeKey);
@@ -1004,15 +1018,9 @@ function UserFootprintsPageInner() {
       }
     }
 
-    if (pendingGeometryById.size > 0) {
-      setGroupLayouts((current) => {
-        const next = new Map(current.map((layout) => [layout.placeKey, layout]));
-        for (const [placeKey, geometry] of pendingGeometryById) {
-          next.set(placeKey, createGroupLayoutSnapshot(placeKey, geometry));
-        }
-        return Array.from(next.values());
-      });
-    }
+    const finalPlacedPhotos = referencePhotos.filter((photo) => photo.frameX != null && photo.frameY != null);
+    const nextLayouts = Array.from(solveFrozenGroupLayouts(finalPlacedPhotos, collisionScale, mapRect, groupLayouts).values());
+    setGroupLayouts(nextLayouts);
   }
 
   // --- Map handlers ---
@@ -1026,20 +1034,20 @@ function UserFootprintsPageInner() {
   const handlePhotoDragEnd = useCallback(async (photoId: number | string, x: number, y: number) => {
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-    setGroupLayouts((current) => buildGroupLayoutsFromPhotos(photos, 1, current));
+    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, undefined, current).values()));
   }, [photos]);
 
   const handlePhotoMoved = useCallback(() => {
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-    setGroupLayouts((current) => buildGroupLayoutsFromPhotos(photos, 1, current));
+    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, undefined, current).values()));
   }, [photos]);
 
   const handleGroupLabelDragEnd = useCallback((_placeKey: string, dx: number, dy: number) => {
     if (dx === 0 && dy === 0) return;
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-    setGroupLayouts((current) => buildGroupLayoutsFromPhotos(photos, 1, current));
+    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, undefined, current).values()));
   }, [photos]);
 
   const handleSavePositions = useCallback(async () => {
@@ -1575,7 +1583,7 @@ function UserFootprintsPageInner() {
           return [...uploaded, ...mappedPhotos];
         });
         const debugMergedPhotos = [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos];
-        setGroupLayouts((current) => buildGroupLayoutsFromPhotos(debugMergedPhotos, 1, current));
+        setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(debugMergedPhotos, 1, undefined, current).values()));
         setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
         setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
         setLocalMapApplyProgress(82);

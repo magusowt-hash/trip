@@ -29,10 +29,12 @@
   - `buildGroupGeometry(...)`
   - `createGroupLayoutSnapshot(...)`
   - `buildGroupGeometryFromLayout(...)`
+  - `resolveGroupLabelLayouts(...)`
 - Responsibility:
   - define label side rule
   - define label offset meaning
   - convert frozen layout snapshot into final label/line/photo geometry
+  - run one-time label-offset solve after group placement is already fixed
 
 4. Runtime rendering
 - Files:
@@ -93,11 +95,23 @@ This data is stored in page state as `groupLayouts` and is now the only label-la
 - `GroupLayoutSnapshot` moved into `src/components/localMapGroupGeometry.ts`
 - `createGroupLayoutSnapshot(...)` moved into the same module
 - `buildGroupGeometryFromLayout(...)` added as the single runtime entry
+- `resolveGroupLabelLayouts(...)` added as the single one-time label-offset solver
 
 ### Preserved initial label spacing
 - `labelOffset` is now frozen from solved geometry
 - pending-group solved geometry is written back into `groupLayouts`
 - existing-group resolved geometry is also written back into `groupLayouts`
+- frozen layouts are now rebuilt through the dedicated label-offset solver instead of simple geometry replay
+
+### Label solve is now a dedicated stage
+- Stage 1:
+  - solve photo-group outer placement
+- Stage 2:
+  - keep `labelSide` fixed
+  - solve only `labelOffset`
+  - minimize label-photo and label-label conflicts
+- Runtime:
+  - consume frozen snapshot only
 
 ### Unified runtime consumers
 - `OuterFrameCanvas.tsx` now renders labels through `buildGroupGeometryFromLayout(...)`

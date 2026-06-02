@@ -449,6 +449,74 @@ export function buildGroupGeometryFromLayout(
   );
 }
 
+export function resolveGroupLabelLayouts(
+  entries: Array<{
+    placeKey: string;
+    geometry: GroupGeometry;
+    title: string;
+    photoCount: number;
+    scale: number;
+  }>,
+  options?: {
+    gap?: number;
+    mapRect?: LogicalRect;
+    mapGap?: number;
+    labelGapBoost?: number;
+    step?: number;
+    maxOffset?: number;
+  },
+) {
+  const gap = options?.gap ?? 10;
+  const step = options?.step ?? 8;
+  const maxOffset = options?.maxOffset ?? 120;
+  const labelGapBoost = options?.labelGapBoost ?? 0;
+  const resolved = new Map<string, GroupLayoutSnapshot>();
+  const occupied: GroupGeometry[] = [];
+  const sortedEntries = [...entries].sort((left, right) => (
+    rectDistanceToCenter(right.geometry.photoRect) - rectDistanceToCenter(left.geometry.photoRect) ||
+    left.geometry.photoRect.top - right.geometry.photoRect.top ||
+    left.geometry.photoCenterX - right.geometry.photoCenterX
+  ));
+
+  for (const entry of sortedEntries) {
+    let chosen = entry.geometry;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (let offset = 0; offset <= maxOffset; offset += step) {
+      const candidate = buildGroupGeometryFromPhotoRect(
+        entry.geometry.photoRect,
+        entry.title,
+        entry.photoCount,
+        entry.scale,
+        entry.geometry.labelSide,
+        offset,
+      );
+
+      let score = scoreGroupGeometryPlacement(candidate, occupied, gap, { labelGapBoost });
+
+      if (options?.mapRect) {
+        if (rectOverlapsMap(candidate.overallRect, options.mapRect, options.mapGap ?? gap)) {
+          score += 500000;
+        }
+      }
+
+      score += offset * 0.6;
+
+      if (score < bestScore) {
+        bestScore = score;
+        chosen = candidate;
+      }
+
+      if (score === 0) break;
+    }
+
+    occupied.push(chosen);
+    resolved.set(entry.placeKey, createGroupLayoutSnapshot(entry.placeKey, chosen));
+  }
+
+  return resolved;
+}
+
 export function shiftGroupGeometryDown(
   geometry: GroupGeometry,
   deltaY: number,
