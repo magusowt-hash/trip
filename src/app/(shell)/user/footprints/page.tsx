@@ -787,8 +787,17 @@ function UserFootprintsPageInner() {
       }
     }
 
-    setPhotos(allPhotos);
-    setGroupLayouts(nextGroupLayouts);
+    setPhotos((current) => [
+      ...allPhotos,
+      ...current.filter((photo) => photo.sourceType === 'local-mapped'),
+    ]);
+    setGroupLayouts((current) => {
+      const merged = new Map(current.map((item) => [item.placeKey, item]));
+      for (const layout of nextGroupLayouts) {
+        merged.set(layout.placeKey, layout);
+      }
+      return Array.from(merged.values());
+    });
   }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints, outerMapRect]);
 
   // Auto-load photos only after map POI coordinates are available.
@@ -1433,6 +1442,12 @@ function UserFootprintsPageInner() {
           })
           .filter((photo): photo is PhotoItem => !!photo)
           .filter((photo) => currentItemKeys.has(photo.placeKey));
+        if (mappedPhotos.length === 0) {
+          setLocalMapApplyStage('映射失败：没有匹配当前足迹组的图片');
+          alert('本次扫描没有生成属于当前足迹组的图片，请确认选择的是当前足迹组对应的主文件夹。');
+          finishApplying();
+          return;
+        }
         setLocalMapApplyProgress(24);
 
         if (payload.layout.enabled) {
@@ -1457,6 +1472,13 @@ function UserFootprintsPageInner() {
             movedPhotosRef.current = true;
             setHasMovedPhotos(true);
           }
+        }
+        const visibleMappedCount = mappedPhotos.filter((photo) => photo.frameX != null && photo.frameY != null).length;
+        if (mappedPhotos.length > 0 && visibleMappedCount === 0) {
+          setLocalMapApplyStage('排布失败：未生成可显示坐标');
+          alert('本地映射已匹配文件，但未生成可显示坐标。请等待地图点位加载完成后重试。');
+          finishApplying();
+          return;
         }
         setLocalMapApplyProgress(66);
 
@@ -1495,7 +1517,7 @@ function UserFootprintsPageInner() {
         if (payload.missingAssets.length > 0) {
           alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。当前只在前端移除；点击“保存修改”时会再次确认是否删除这些位置记录。`);
         }
-        setLocalMapApplyStage('完成映射');
+        setLocalMapApplyStage(`完成映射，已写入 ${mappedPhotosWithThumbnails.length} 张本地图片`);
         setLocalMapApplyProgress(100);
         requestAnimationFrame(() => {
           setTimeout(() => {
