@@ -478,7 +478,6 @@ function UserFootprintsPageInner() {
   const [isApplyingLocalMap, setIsApplyingLocalMap] = useState(false);
   const [localMapApplyProgress, setLocalMapApplyProgress] = useState(0);
   const [localMapApplyStage, setLocalMapApplyStage] = useState('等待开始');
-  const [pendingLocalMapApply, setPendingLocalMapApply] = useState<LocalMapApplyPayload | null>(null);
   const [fitViewKey, setFitViewKey] = useState(0);
   const [fitViewEnabled, setFitViewEnabled] = useState(false);
   const [shareAlbumPrompt, setShareAlbumPrompt] = useState<{
@@ -1363,21 +1362,15 @@ function UserFootprintsPageInner() {
   const handleApplyLocalMap = useCallback((payload: LocalMapApplyPayload) => {
     setLocalMapOpen(false);
     setLocalMapTargetItem(null);
-    setPendingLocalMapApply(payload);
     setIsApplyingLocalMap(true);
     setLocalMapApplyProgress(8);
     setLocalMapApplyStage('准备启动排布任务');
-  }, []);
 
-  useEffect(() => {
-    if (!isApplyingLocalMap || !pendingLocalMapApply) return;
     const runId = localMapApplyRunIdRef.current + 1;
     localMapApplyRunIdRef.current = runId;
-    const payload = pendingLocalMapApply;
     const isCurrentRun = () => localMapApplyRunIdRef.current === runId;
     const finishApplying = () => {
       if (!isCurrentRun()) return;
-      setPendingLocalMapApply(null);
       setIsApplyingLocalMap(false);
       setLocalMapApplyProgress(0);
       setLocalMapApplyStage('等待开始');
@@ -1515,19 +1508,21 @@ function UserFootprintsPageInner() {
       }
     };
 
-    const timer = window.setTimeout(() => {
-      setLocalMapApplyStage('启动排布任务');
+    window.setTimeout(() => {
+      if (!isCurrentRun()) return;
+      setLocalMapApplyStage('等待界面绘制');
       window.requestAnimationFrame(() => {
-        void runApply();
+        if (!isCurrentRun()) return;
+        setLocalMapApplyStage('启动排布任务');
+        window.setTimeout(() => {
+          if (!isCurrentRun()) return;
+          setLocalMapApplyStage('进入排布任务');
+          setLocalMapApplyProgress(10);
+          void runApply();
+        }, 0);
       });
     }, LOCAL_MAP_LOADING_MIN_DELAY_MS);
-    return () => {
-      if (localMapApplyRunIdRef.current === runId) {
-        localMapApplyRunIdRef.current += 1;
-      }
-      window.clearTimeout(timer);
-    };
-  }, [isApplyingLocalMap, pendingLocalMapApply]);
+  }, []);
 
   return (
     <div className={styles.rootFull}>
