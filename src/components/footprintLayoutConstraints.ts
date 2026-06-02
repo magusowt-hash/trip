@@ -99,7 +99,6 @@ export function hasGeometryPressureBetweenGroups(
     rectsOverlap(left.photoRect, right.photoRect, safeGap) ||
     rectsOverlap(left.labelRect, right.photoRect, safeGap) ||
     rectsOverlap(left.photoRect, right.labelRect, safeGap) ||
-    rectsOverlap(left.labelRect, right.labelRect, safeGap) ||
-    rectsOverlap(left.groupRect, right.groupRect, safeGap)
+    rectsOverlap(left.labelRect, right.labelRect, safeGap)
   );
 }

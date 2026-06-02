@@ -177,7 +177,7 @@ export default function OuterFrame({
       top: top - padding,
       bottom: bottom + padding,
     };
-  }, [photos, getPhotoLogicalSize]);
+  }, [photos, getPhotoLogicalSize, groupLayouts]);
 
   const computePoiPoints = useCallback(() => {
     const map = mapInstanceRef.current;

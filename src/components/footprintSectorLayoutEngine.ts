@@ -1,7 +1,7 @@
 import type { GroupGeometry } from './localMapGroupGeometry';
 import {
   rectsOverlap,
-  resolveGroupGeometryDownward,
+  resolveGroupGeometryAsWhole,
   shiftGroupGeometryDown,
   translateGroupGeometry,
 } from './localMapGroupGeometry';
@@ -898,7 +898,7 @@ function buildOccupiedGeometriesForGroup(
     })
     .filter((candidate): candidate is { id: string; geometry: GroupGeometry } => candidate !== null);
 
-  const resolved = resolveGroupGeometryDownward(entries, { gap: 10, step: 6, maxOffset: 72 });
+  const resolved = resolveGroupGeometryAsWhole(entries, { gap: 10 });
   return entries
     .map((entry) => resolved.get(entry.id) ?? entry.geometry);
 }
@@ -910,7 +910,7 @@ function resolveCandidateGeometryAgainstOccupied(
   for (let offset = 0; offset <= 108; offset += 6) {
     const candidate = offset === 0 ? geometry : shiftGroupGeometryDown(geometry, offset);
     if (occupiedGeometries.some((occupied) => (
-      rectsOverlap(candidate.groupRect, occupied.groupRect, 10) ||
+      rectsOverlap(candidate.photoRect, occupied.photoRect, 10) ||
       rectsOverlap(candidate.labelRect, occupied.photoRect, 14) ||
       rectsOverlap(candidate.photoRect, occupied.labelRect, 14) ||
       rectsOverlap(candidate.labelRect, occupied.labelRect, 12)
