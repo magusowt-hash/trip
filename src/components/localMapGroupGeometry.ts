@@ -1,6 +1,6 @@
 import type { PhotoItem } from './OuterFrameCanvas';
 
-export type GroupLabelSide = 'top' | 'bottom' | 'left' | 'right';
+export type GroupLabelSide = 'top' | 'bottom';
 
 export type LogicalRect = {
   left: number;
@@ -54,6 +54,7 @@ const SMALL_GROUP_COUNT_MAX = 4;
 const SMALL_GROUP_TIGHTEN_MAX = 0.7;
 const HARD_OVERLAP_WEIGHT = 1000;
 const SOFT_GAP_WEIGHT = 20;
+const BOTTOM_SECTOR_HALF_ANGLE = Math.PI / 3;
 
 function toLogicalScreenSize(screenSize: number, scale: number) {
   return screenSize / Math.max(scale, 0.1);
@@ -94,6 +95,26 @@ function rectCenter(rect: LogicalRect) {
     x: (rect.left + rect.right) / 2,
     y: (rect.top + rect.bottom) / 2,
   };
+}
+
+function normalizeAngle(angle: number) {
+  const fullTurn = Math.PI * 2;
+  const normalized = angle % fullTurn;
+  return normalized >= 0 ? normalized : normalized + fullTurn;
+}
+
+function angleDistance(left: number, right: number) {
+  const fullTurn = Math.PI * 2;
+  let delta = normalizeAngle(left) - normalizeAngle(right);
+  if (delta > Math.PI) delta -= fullTurn;
+  if (delta < -Math.PI) delta += fullTurn;
+  return Math.abs(delta);
+}
+
+export function resolvePreferredLabelSide(centerX: number, centerY: number): GroupLabelSide {
+  const angle = Math.atan2(centerY, centerX);
+  const downwardAngle = Math.PI / 2;
+  return angleDistance(angle, downwardAngle) <= BOTTOM_SECTOR_HALF_ANGLE ? 'top' : 'bottom';
 }
 
 export function translateLogicalRect(rect: LogicalRect, offsetX: number, offsetY: number): LogicalRect {
@@ -178,10 +199,11 @@ export function buildGroupGeometryFromPhotoRect(
   title: string,
   photoCount = 1,
   scale = 1,
+  fixedLabelSide?: GroupLabelSide,
 ): GroupGeometry {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
-  const labelSide: GroupLabelSide = 'bottom';
+  const labelSide = fixedLabelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
   const labelHalfWidth = estimateLabelHalfWidth(title, safeScale);
   const lineAnchorRadius = toLogicalScreenSize(GROUP_ENDPOINT_RADIUS_SCREEN, safeScale);
   const photoWidth = Math.max(1, photoRect.right - photoRect.left);
@@ -199,8 +221,11 @@ export function buildGroupGeometryFromPhotoRect(
   const labelHalfHeight = toLogicalScreenSize(GROUP_LABEL_HEIGHT_SCREEN, safeScale) / 2;
   const labelAnchorX = photoCenter.x;
   const lineAnchorX = labelAnchorX;
-  const lineAnchorY = photoRect.bottom + photoToLineGap;
-  const labelAnchorY = lineAnchorY + lineAnchorRadius + lineToLabelGap + labelHalfHeight;
+  const lineAnchorY = labelSide === 'top' ? photoRect.top - photoToLineGap : photoRect.bottom + photoToLineGap;
+  const labelAnchorY =
+    labelSide === 'top'
+      ? lineAnchorY - lineAnchorRadius - lineToLabelGap - labelHalfHeight
+      : lineAnchorY + lineAnchorRadius + lineToLabelGap + labelHalfHeight;
   const labelRect: LogicalRect = {
     left: labelAnchorX - labelHalfWidth,
     right: labelAnchorX + labelHalfWidth,
@@ -239,6 +264,7 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   title: string,
   photoCount = 1,
   scale = 1,
+  fixedLabelSide?: GroupLabelSide,
 ) {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
@@ -259,26 +285,13 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   const labelHalfHeight = toLogicalScreenSize(GROUP_LABEL_HEIGHT_SCREEN, safeScale) / 2;
 
   const buildForSide = (labelSide: GroupLabelSide): GroupGeometry => {
-    const lineAnchorX =
-      labelSide === 'left' ? photoRect.left - photoToLineGap :
-      labelSide === 'right' ? photoRect.right + photoToLineGap :
-      photoCenter.x;
-    const lineAnchorY =
-      labelSide === 'top' ? photoRect.top - photoToLineGap :
-      labelSide === 'bottom' ? photoRect.bottom + photoToLineGap :
-      photoCenter.y;
-    const labelAnchorX =
-      labelSide === 'left'
-        ? lineAnchorX - lineAnchorRadius - lineToLabelGap - labelHalfWidth
-        : labelSide === 'right'
-          ? lineAnchorX + lineAnchorRadius + lineToLabelGap + labelHalfWidth
-          : photoCenter.x;
+    const lineAnchorX = photoCenter.x;
+    const lineAnchorY = labelSide === 'top' ? photoRect.top - photoToLineGap : photoRect.bottom + photoToLineGap;
+    const labelAnchorX = photoCenter.x;
     const labelAnchorY =
       labelSide === 'top'
         ? lineAnchorY - lineAnchorRadius - lineToLabelGap - labelHalfHeight
-        : labelSide === 'bottom'
-          ? lineAnchorY + lineAnchorRadius + lineToLabelGap + labelHalfHeight
-          : photoCenter.y;
+        : lineAnchorY + lineAnchorRadius + lineToLabelGap + labelHalfHeight;
 
     const labelRect: LogicalRect = {
       left: labelAnchorX - labelHalfWidth,
@@ -310,15 +323,11 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
     };
   };
 
-  return [
-    buildForSide('bottom'),
-    buildForSide('top'),
-    buildForSide('left'),
-    buildForSide('right'),
-  ];
+  const preferredSide = fixedLabelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  return [buildForSide(preferredSide)];
 }
 
-export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry) {
+export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry, fixedLabelSide?: GroupLabelSide) {
   const photoRect = geometry.photoRect;
   const photoCenter = rectCenter(photoRect);
   const labelHalfWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left) / 2;
@@ -327,41 +336,20 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
   const photoToLineGap =
     geometry.labelSide === 'top'
       ? Math.max(0, photoRect.top - geometry.lineAnchorY)
-      : geometry.labelSide === 'bottom'
-        ? Math.max(0, geometry.lineAnchorY - photoRect.bottom)
-        : geometry.labelSide === 'left'
-          ? Math.max(0, photoRect.left - geometry.lineAnchorX)
-          : Math.max(0, geometry.lineAnchorX - photoRect.right);
+      : Math.max(0, geometry.lineAnchorY - photoRect.bottom);
   const lineToLabelGap =
     geometry.labelSide === 'top'
       ? Math.max(0, geometry.lineRect.top - geometry.labelRect.bottom)
-      : geometry.labelSide === 'bottom'
-        ? Math.max(0, geometry.labelRect.top - geometry.lineRect.bottom)
-        : geometry.labelSide === 'left'
-          ? Math.max(0, geometry.lineRect.left - geometry.labelRect.right)
-          : Math.max(0, geometry.labelRect.left - geometry.lineRect.right);
+      : Math.max(0, geometry.labelRect.top - geometry.lineRect.bottom);
 
   const buildForSide = (labelSide: GroupLabelSide): GroupGeometry => {
-    const lineAnchorX =
-      labelSide === 'left' ? photoRect.left - photoToLineGap :
-      labelSide === 'right' ? photoRect.right + photoToLineGap :
-      photoCenter.x;
-    const lineAnchorY =
-      labelSide === 'top' ? photoRect.top - photoToLineGap :
-      labelSide === 'bottom' ? photoRect.bottom + photoToLineGap :
-      photoCenter.y;
-    const labelAnchorX =
-      labelSide === 'left'
-        ? lineAnchorX - lineAnchorRadius - lineToLabelGap - labelHalfWidth
-        : labelSide === 'right'
-          ? lineAnchorX + lineAnchorRadius + lineToLabelGap + labelHalfWidth
-          : photoCenter.x;
+    const lineAnchorX = photoCenter.x;
+    const lineAnchorY = labelSide === 'top' ? photoRect.top - photoToLineGap : photoRect.bottom + photoToLineGap;
+    const labelAnchorX = photoCenter.x;
     const labelAnchorY =
       labelSide === 'top'
         ? lineAnchorY - lineAnchorRadius - lineToLabelGap - labelHalfHeight
-        : labelSide === 'bottom'
-          ? lineAnchorY + lineAnchorRadius + lineToLabelGap + labelHalfHeight
-          : photoCenter.y;
+        : lineAnchorY + lineAnchorRadius + lineToLabelGap + labelHalfHeight;
 
     const labelRect: LogicalRect = {
       left: labelAnchorX - labelHalfWidth,
@@ -393,23 +381,20 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
     };
   };
 
-  return [
-    buildForSide('bottom'),
-    buildForSide('top'),
-    buildForSide('left'),
-    buildForSide('right'),
-  ];
+  const preferredSide = fixedLabelSide ?? geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  return [buildForSide(preferredSide)];
 }
 
 export function buildGroupGeometry(
   groupPhotos: Array<Pick<PhotoItem, 'frameX' | 'frameY' | 'pixelWidth' | 'pixelHeight' | 'placeTitle'>>,
   getPhotoLogicalSize: SizeReader,
   scale = 1,
+  fixedLabelSide?: GroupLabelSide,
 ): GroupGeometry | null {
   const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
   const title = groupPhotos[0]?.placeTitle || '';
-  return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale);
+  return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale, fixedLabelSide);
 }
 
 export function shiftGroupGeometryDown(

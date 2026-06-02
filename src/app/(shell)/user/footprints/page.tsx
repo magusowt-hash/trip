@@ -18,7 +18,7 @@ import {
 import type { LogicalOffset, LogicalRect, PendingPlaceGroup } from '@/components/footprintLayoutTypes';
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
-import type { PhotoItem, PoiPoint } from '@/components/OuterFrameCanvas';
+import type { GroupLayoutSnapshot, PhotoItem, PoiPoint } from '@/components/OuterFrameCanvas';
 import {
   buildPhotoRect,
   buildGroupGeometryCandidatesFromGeometry,
@@ -221,6 +221,40 @@ function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1) {
   const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
   return buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, scale);
+}
+
+function buildGroupLayoutsFromPhotos(
+  photos: PhotoItem[],
+  scale = 1,
+  existingLayouts: GroupLayoutSnapshot[] = [],
+): GroupLayoutSnapshot[] {
+  const existingLabelSideByPlaceKey = new Map(existingLayouts.map((layout) => [layout.placeKey, layout.labelSide]));
+  const groups = new Map<string, PhotoItem[]>();
+  for (const photo of photos) {
+    if (photo.frameX == null || photo.frameY == null) continue;
+    const arr = groups.get(photo.placeKey) || [];
+    arr.push(photo);
+    groups.set(photo.placeKey, arr);
+  }
+
+  const layouts: GroupLayoutSnapshot[] = [];
+  for (const [placeKey, groupPhotos] of groups) {
+    const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
+    if (!photoRect) continue;
+    const geometry = buildGroupGeometryFromPhotoRect(
+      photoRect,
+      groupPhotos[0]?.placeTitle || '',
+      groupPhotos.length,
+      scale,
+      existingLabelSideByPlaceKey.get(placeKey),
+    );
+    layouts.push({
+      placeKey,
+      labelSide: geometry.labelSide,
+    });
+  }
+
+  return layouts;
 }
 
 function getGroupArea(rect: LogicalRect) {
@@ -472,6 +506,7 @@ function UserFootprintsPageInner() {
   const [items, setItems] = useState<FootprintItem[]>([]);
   const [markers, setMarkers] = useState<MapMarker[]>([]);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [groupLayouts, setGroupLayouts] = useState<GroupLayoutSnapshot[]>([]);
   const [poiPoints, setPoiPoints] = useState<PoiPoint[]>([]);
   const [photosLoaded, setPhotosLoaded] = useState(false);
   const [focusPosition, setFocusPosition] = useState<[number, number] | null>(null);
@@ -597,6 +632,7 @@ function UserFootprintsPageInner() {
           });
         return [];
       });
+      setGroupLayouts([]);
       setItems([]);
       loadItems(selectedGroupId);
       setPhotosLoaded(false);
@@ -607,6 +643,7 @@ function UserFootprintsPageInner() {
       localThumbSeenRef.current.clear();
       setItems([]);
       setPhotos([]);
+      setGroupLayouts([]);
       setFitViewEnabled(false);
       setDebugBasePhotos(null);
       setDebugBaseGroups(null);
@@ -794,6 +831,7 @@ function UserFootprintsPageInner() {
     }
 
     setPhotos(allPhotos);
+    setGroupLayouts((current) => buildGroupLayoutsFromPhotos(allPhotos, 1, current));
     setDebugBasePhotos(buildDebugPhotoSnapshot(allPhotos));
     setDebugBaseGroups(buildDebugGroupSnapshot(allPhotos));
   }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints]);
@@ -976,18 +1014,21 @@ function UserFootprintsPageInner() {
   const handlePhotoDragEnd = useCallback(async (photoId: number | string, x: number, y: number) => {
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-  }, []);
+    setGroupLayouts((current) => buildGroupLayoutsFromPhotos(photos, 1, current));
+  }, [photos]);
 
   const handlePhotoMoved = useCallback(() => {
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-  }, []);
+    setGroupLayouts((current) => buildGroupLayoutsFromPhotos(photos, 1, current));
+  }, [photos]);
 
   const handleGroupLabelDragEnd = useCallback((_placeKey: string, dx: number, dy: number) => {
     if (dx === 0 && dy === 0) return;
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-  }, []);
+    setGroupLayouts((current) => buildGroupLayoutsFromPhotos(photos, 1, current));
+  }, [photos]);
 
   const handleSavePositions = useCallback(async () => {
     if (!movedPhotosRef.current) return;
@@ -1522,6 +1563,7 @@ function UserFootprintsPageInner() {
           return [...uploaded, ...mappedPhotos];
         });
         const debugMergedPhotos = [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos];
+        setGroupLayouts((current) => buildGroupLayoutsFromPhotos(debugMergedPhotos, 1, current));
         setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
         setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
         setLocalMapApplyProgress(82);
@@ -1667,6 +1709,7 @@ function UserFootprintsPageInner() {
       <OuterFrame
         markers={markers}
         photos={photos}
+        groupLayouts={groupLayouts}
         onPoiPointsChange={setPoiPoints}
         focusPosition={focusPosition}
         onMarkerClick={handleMapMarkerClick}

@@ -5,7 +5,7 @@ import { useOuterFrame } from '@/hooks/useOuterFrame';
 import { CLAMP_SCALE, logicalViewport, type Viewport } from '@/lib/outerFrameCoords';
 import OuterFrameCanvas from './OuterFrameCanvas';
 import LineCanvas from './LineCanvas';
-import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
+import type { GroupLayoutSnapshot, PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
 import type { MapMarker } from './PlanMap';
 import PlanMap from './PlanMap';
@@ -20,6 +20,7 @@ const VIEWPORT_PADDING_LOGICAL = 24;
 interface Props {
   markers: MapMarker[];
   photos: PhotoItem[];
+  groupLayouts?: GroupLayoutSnapshot[];
   onPoiPointsChange?: (points: PoiPoint[]) => void;
   focusPosition?: [number, number] | null;
   onMarkerClick?: (marker: MapMarker) => void;
@@ -47,6 +48,7 @@ interface Props {
 export default function OuterFrame({
   markers,
   photos,
+  groupLayouts,
   onPoiPointsChange,
   focusPosition,
   onMarkerClick,
@@ -312,6 +314,7 @@ export default function OuterFrame({
           height={containerSize.h || 800}
           transform={transform}
           photos={photos}
+          groupLayouts={groupLayouts}
           poiPoints={poiPoints}
           lineStyle={lineStyle}
           showPoiLabels={showPoiLabels}
@@ -326,6 +329,7 @@ export default function OuterFrame({
           height={containerSize.h || 800}
           transform={transform}
           photos={photos}
+          groupLayouts={groupLayouts}
           scale={transform.scale}
           showLabels={showLabels}
           onPhotoDragEnd={onPhotoDragEnd}

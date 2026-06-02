@@ -6,8 +6,7 @@ import {
   buildGroupGeometry,
   GROUP_LABEL_FONT_SCREEN_SIZE,
   GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
-  buildGroupGeometryCandidatesFromGeometry,
-  resolveGroupGeometryAsWhole,
+  type GroupLabelSide,
 } from './localMapGroupGeometry';
 
 export interface PhotoItem {
@@ -53,9 +52,14 @@ export interface PlaceRect {
   labelTop: number;
   labelRight: number;
   labelBottom: number;
-  labelSide: 'top' | 'bottom' | 'left' | 'right';
+  labelSide: 'top' | 'bottom';
   labelAnchorX: number;
   labelAnchorY: number;
+}
+
+export interface GroupLayoutSnapshot {
+  placeKey: string;
+  labelSide: GroupLabelSide;
 }
 
 interface Props {
@@ -63,6 +67,7 @@ interface Props {
   height: number;
   transform: OuterFrameTransform;
   photos: PhotoItem[];
+  groupLayouts?: GroupLayoutSnapshot[];
   scale: number;
   showLabels: boolean;
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
@@ -112,6 +117,7 @@ export default function OuterFrameCanvas({
   height,
   transform,
   photos,
+  groupLayouts,
   scale,
   showLabels,
   onPhotoDragEnd,
@@ -235,6 +241,7 @@ export default function OuterFrameCanvas({
 
   // --- Compute place rects from current photo positions ---
   const computePlaceRects = useCallback((): PlaceRect[] => {
+    const labelSideByPlaceKey = new Map((groupLayouts ?? []).map((layout) => [layout.placeKey, layout.labelSide]));
     const groups = new Map<string, PhotoItem[]>();
     for (const p of photos) {
       if (p.frameX == null || p.frameY == null) continue;
@@ -242,34 +249,18 @@ export default function OuterFrameCanvas({
       arr.push(p);
       groups.set(p.placeKey, arr);
     }
-    const geometryEntries: Array<{
-      placeKey: string;
-      placeTitle: string;
-      geometry: NonNullable<ReturnType<typeof buildGroupGeometry>>;
-    }> = [];
+    const rects: PlaceRect[] = [];
     for (const [placeKey, items] of groups) {
-      const geometry = buildGroupGeometry(items, getPhotoLogicalSize, transform.scale);
+      const geometry = buildGroupGeometry(
+        items,
+        getPhotoLogicalSize,
+        transform.scale,
+        labelSideByPlaceKey.get(placeKey),
+      );
       if (!geometry) continue;
-      geometryEntries.push({
+      rects.push({
         placeKey,
         placeTitle: items[0]?.placeTitle || '',
-        geometry,
-      });
-    }
-    const resolvedGeometry = resolveGroupGeometryAsWhole(
-      geometryEntries.map((entry) => ({
-        id: entry.placeKey,
-        geometry: entry.geometry,
-        candidates: buildGroupGeometryCandidatesFromGeometry(entry.geometry),
-      })),
-      { gap: 10, labelGapBoost: 8 },
-    );
-    const rects: PlaceRect[] = [];
-    for (const entry of geometryEntries) {
-      const geometry = resolvedGeometry.get(entry.placeKey) ?? entry.geometry;
-      rects.push({
-        placeKey: entry.placeKey,
-        placeTitle: entry.placeTitle,
         photoLeft: geometry.photoRect.left,
         photoTop: geometry.photoRect.top,
         photoRight: geometry.photoRect.right,
@@ -288,7 +279,7 @@ export default function OuterFrameCanvas({
       });
     }
     return rects;
-  }, [photos, getPhotoLogicalSize]);
+  }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale]);
 
   // --- Coordinate helpers ---
   const logicalToScreen = useCallback((lx: number, ly: number): Point => ({

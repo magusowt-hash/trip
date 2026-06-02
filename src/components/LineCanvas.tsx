@@ -2,13 +2,11 @@
 
 import { useRef, useEffect, useCallback } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
-import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
+import type { GroupLayoutSnapshot, PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
 import {
   buildGroupGeometry,
   GROUP_ENDPOINT_RADIUS_SCREEN,
-  buildGroupGeometryCandidatesFromGeometry,
-  resolveGroupGeometryAsWhole,
 } from './localMapGroupGeometry';
 
 const MAX_OVERLAY_SCALE = 2.4;
@@ -25,13 +23,14 @@ interface Props {
   height: number;
   transform: OuterFrameTransform;
   photos: PhotoItem[];
+  groupLayouts?: GroupLayoutSnapshot[];
   poiPoints: PoiPoint[];
   lineStyle: LineStyle;
   showPoiLabels: boolean;
   poiLabelColor: string;
 }
 
-export default function LineCanvas({ width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor }: Props) {
+export default function LineCanvas({ width, height, transform, photos, groupLayouts, poiPoints, lineStyle, showPoiLabels, poiLabelColor }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
@@ -58,6 +57,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
   }), [transform, width, height]);
 
   const getResolvedGroupGeometryMap = useCallback(() => {
+    const labelSideByPlaceKey = new Map((groupLayouts ?? []).map((layout) => [layout.placeKey, layout.labelSide]));
     const groups = new Map<string, PhotoItem[]>();
     for (const photo of photos) {
       if (photo.frameX == null || photo.frameY == null) continue;
@@ -67,19 +67,17 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
     }
     const entries: Array<{ id: string; geometry: NonNullable<ReturnType<typeof buildGroupGeometry>> }> = [];
     for (const [placeKey, groupPhotos] of groups) {
-      const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize, transform.scale);
+      const geometry = buildGroupGeometry(
+        groupPhotos,
+        getPhotoLogicalSize,
+        transform.scale,
+        labelSideByPlaceKey.get(placeKey),
+      );
       if (!geometry) continue;
       entries.push({ id: placeKey, geometry });
     }
-    return resolveGroupGeometryAsWhole(
-      entries.map((entry) => ({
-        id: entry.id,
-        geometry: entry.geometry,
-        candidates: buildGroupGeometryCandidatesFromGeometry(entry.geometry),
-      })),
-      { gap: 10, labelGapBoost: 8 },
-    );
-  }, [photos, getPhotoLogicalSize, transform.scale]);
+    return new Map(entries.map((entry) => [entry.id, entry.geometry]));
+  }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale]);
 
   const getGroupAnchorPoint = useCallback((resolvedGeometryMap: Map<string, NonNullable<ReturnType<typeof buildGroupGeometry>>>, groupPhotos: PhotoItem[], poi: PoiPoint) => {
     const geometry = resolvedGeometryMap.get(groupPhotos[0]?.placeKey || '') ?? buildGroupGeometry(groupPhotos, getPhotoLogicalSize, transform.scale);
