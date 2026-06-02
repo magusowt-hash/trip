@@ -4,19 +4,38 @@ import {
   resolvePreferredLabelSide,
   translateGroupGeometry,
   type GroupGeometry,
+  type GroupLabelSide,
 } from './localMapGroupGeometry';
 import { buildRadialLayout } from './localMapLayoutEngine';
 import type { FootprintPlacement, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
+import {
+  fitsLabelRectAroundMap,
+  fitsPhotoRectAroundMap,
+  hasLabelCollisions,
+  hasPhotoAgainstLabelCollisions,
+  rectOverlapsOccupiedPhotos,
+} from './footprintLayoutConstraints';
 
 const GROUP_GAP = 10;
+const LABEL_GAP = 14;
 const MAP_GAP = 18;
-const ANGLE_STEPS = [0, -4, 4, -8, 8, -12, 12, -18, 18];
-const RADIUS_STEPS = [-220, -160, -120, -80, -48, -24, 0, 36, 72, 120];
+const ANGLE_STEPS = [0, -4, 4, -8, 8, -12, 12, -18, 18, -26, 26, -36, 36];
+const RADIUS_STEPS = [-420, -320, -240, -180, -120, -72, -36, 0, 48, 96, 160, 240];
+const REFINE_ANGLE_STEPS = [0, -3, 3, -6, 6, -10, 10];
+const REFINE_RADIUS_STEPS = [0, -120, -72, -36, 36, 72];
+const LABEL_SIDE_PRIORITY: GroupLabelSide[] = ['top', 'bottom'];
+const REFINE_PASSES = 2;
 
 type PlacedEntry = {
   group: PendingPlaceGroup;
   placement: FootprintPlacement;
   geometry: GroupGeometry;
+};
+
+type CandidateScore = {
+  total: number;
+  valid: boolean;
+  uniformity: number;
 };
 
 function normalizeAngle(angle: number) {
@@ -54,35 +73,95 @@ function segmentsIntersect(
   return ab1 * ab2 < -1e-6 && ba1 * ba2 < -1e-6;
 }
 
-function fitsAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
+function buildGeometryForPlacement(
+  group: PendingPlaceGroup,
+  placement: FootprintPlacement,
+  labelSide?: GroupLabelSide,
+) {
+  const translatedPhotoRect = {
+    left: group.collisionGeometry.photoRect.left + placement.centerX,
+    right: group.collisionGeometry.photoRect.right + placement.centerX,
+    top: group.collisionGeometry.photoRect.top + placement.centerY,
+    bottom: group.collisionGeometry.photoRect.bottom + placement.centerY,
+  };
+
+  return buildGroupGeometryFromPhotoRect(
+    translatedPhotoRect,
+    group.placePhotos[0]?.placeTitle || '',
+    group.placePhotos.length,
+    1,
+    labelSide ?? resolvePreferredLabelSide(placement.centerX, placement.centerY),
+    group.reservedLabelOffset,
+  );
+}
+
+function fitsAroundMap(geometry: GroupGeometry, mapRect: LogicalRect) {
   return (
-    rect.right <= mapRect.left - gap ||
-    rect.left >= mapRect.right + gap ||
-    rect.bottom <= mapRect.top - gap ||
-    rect.top >= mapRect.bottom + gap
+    fitsPhotoRectAroundMap(geometry.photoRect, mapRect, MAP_GAP) &&
+    fitsLabelRectAroundMap(geometry.labelRect, mapRect, MAP_GAP)
   );
 }
 
 function hasCrossingWithPlaced(
   group: PendingPlaceGroup,
-  placement: FootprintPlacement,
+  geometry: GroupGeometry,
   placed: PlacedEntry[],
 ) {
   return placed.some((entry) => (
     segmentsIntersect(
       { x: group.logicalX, y: group.logicalY },
-      { x: placement.centerX, y: placement.centerY },
+      { x: geometry.lineAnchorX, y: geometry.lineAnchorY },
       { x: entry.group.logicalX, y: entry.group.logicalY },
-      { x: entry.placement.centerX, y: entry.placement.centerY },
+      { x: entry.geometry.lineAnchorX, y: entry.geometry.lineAnchorY },
     )
   ));
 }
 
-function collidesWithPlaced(
-  geometry: GroupGeometry,
+function computeCollisionPenalty(geometry: GroupGeometry, placed: PlacedEntry[]) {
+  const occupied = placed.map((entry) => entry.geometry);
+  const photoOverlap = rectOverlapsOccupiedPhotos(geometry.photoRect, occupied, GROUP_GAP);
+  const labelOverlap = hasLabelCollisions(geometry, occupied, LABEL_GAP);
+  const photoLabelOverlap = hasPhotoAgainstLabelCollisions(geometry, occupied, LABEL_GAP);
+  const groupOverlap = occupied.some((entry) => rectsOverlap(geometry.groupRect, entry.groupRect, GROUP_GAP));
+
+  return {
+    photoOverlap,
+    labelOverlap,
+    photoLabelOverlap,
+    groupOverlap,
+  };
+}
+
+function computeUniformityPenalty(
+  placement: FootprintPlacement,
   placed: PlacedEntry[],
 ) {
-  return placed.some((entry) => rectsOverlap(geometry.overallRect, entry.geometry.overallRect, GROUP_GAP));
+  if (placed.length === 0) return 0;
+
+  const radius = Math.hypot(placement.centerX, placement.centerY);
+  const angle = Math.atan2(placement.centerY, placement.centerX);
+  let nearestPenalty = 0;
+  let sectorPenalty = 0;
+
+  for (const entry of placed) {
+    const otherRadius = Math.hypot(entry.placement.centerX, entry.placement.centerY);
+    const otherAngle = Math.atan2(entry.placement.centerY, entry.placement.centerX);
+    const radiusGap = Math.abs(radius - otherRadius);
+    const angleGap = Math.abs(angleDelta(angle, otherAngle));
+    if (angleGap < Math.PI / 9) {
+      sectorPenalty += (Math.PI / 9 - angleGap) * 220;
+      if (radiusGap < 260) sectorPenalty += (260 - radiusGap) * 0.8;
+    }
+    const centerDistance = Math.hypot(
+      placement.centerX - entry.placement.centerX,
+      placement.centerY - entry.placement.centerY,
+    );
+    if (centerDistance < 320) {
+      nearestPenalty += (320 - centerDistance) * 0.9;
+    }
+  }
+
+  return nearestPenalty + sectorPenalty;
 }
 
 function scoreCandidate(
@@ -91,36 +170,29 @@ function scoreCandidate(
   placed: PlacedEntry[],
   basePlacement: FootprintPlacement,
   group: PendingPlaceGroup,
-) {
+) : CandidateScore {
   const radius = Math.hypot(placement.centerX, placement.centerY);
   const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
   const angle = Math.atan2(placement.centerY, placement.centerX);
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
-  const overlapPenalty = collidesWithPlaced(geometry, placed) ? 250000 : 0;
-  const crossingPenalty = hasCrossingWithPlaced(group, placement, placed) ? 220000 : 0;
-  const outwardPenalty = Math.max(0, radius - baseRadius) * 3.5;
-  const anglePenalty = Math.abs(angleDelta(angle, baseAngle)) * 180;
-  return radius * 1.15 + outwardPenalty + anglePenalty + overlapPenalty + crossingPenalty;
-}
+  const crossing = hasCrossingWithPlaced(group, geometry, placed);
+  const collisions = computeCollisionPenalty(geometry, placed);
+  const uniformity = computeUniformityPenalty(placement, placed);
 
-function buildGeometryForPlacement(
-  group: PendingPlaceGroup,
-  placement: FootprintPlacement,
-): GroupGeometry {
-  const translatedPhotoRect = {
-    left: group.collisionGeometry.photoRect.left + placement.centerX,
-    right: group.collisionGeometry.photoRect.right + placement.centerX,
-    top: group.collisionGeometry.photoRect.top + placement.centerY,
-    bottom: group.collisionGeometry.photoRect.bottom + placement.centerY,
-  };
-  const labelSide = resolvePreferredLabelSide(placement.centerX, placement.centerY);
-  return buildGroupGeometryFromPhotoRect(
-    translatedPhotoRect,
-    group.placePhotos[0]?.placeTitle || '',
-    group.placePhotos.length,
-    1,
-    labelSide,
-  );
+  const valid = !crossing && !collisions.photoOverlap && !collisions.labelOverlap && !collisions.photoLabelOverlap;
+
+  let total = valid ? 0 : 1000000;
+  total += collisions.groupOverlap ? 120000 : 0;
+  total += collisions.photoOverlap ? 220000 : 0;
+  total += collisions.labelOverlap ? 320000 : 0;
+  total += collisions.photoLabelOverlap ? 380000 : 0;
+  total += crossing ? 260000 : 0;
+  total += uniformity * 2.4;
+  total += Math.max(0, radius - baseRadius) * 1.6;
+  total += Math.abs(angleDelta(angle, baseAngle)) * 42;
+  total += radius * 0.18;
+
+  return { total, valid, uniformity };
 }
 
 function compareGroupOrder(
@@ -133,6 +205,7 @@ function compareGroupOrder(
   const leftRadius = leftPlacement ? Math.hypot(leftPlacement.centerX, leftPlacement.centerY) : 0;
   const rightRadius = rightPlacement ? Math.hypot(rightPlacement.centerX, rightPlacement.centerY) : 0;
   if (Math.abs(rightRadius - leftRadius) > 1e-6) return rightRadius - leftRadius;
+
   const leftArea =
     Math.max(1, left.collisionRect.right - left.collisionRect.left) *
     Math.max(1, left.collisionRect.bottom - left.collisionRect.top);
@@ -140,7 +213,171 @@ function compareGroupOrder(
     Math.max(1, right.collisionRect.right - right.collisionRect.left) *
     Math.max(1, right.collisionRect.bottom - right.collisionRect.top);
   if (Math.abs(rightArea - leftArea) > 1e-6) return rightArea - leftArea;
+
   return left.placeKey.localeCompare(right.placeKey, 'zh-CN');
+}
+
+function chooseBestGeometryForPlacement(
+  group: PendingPlaceGroup,
+  placement: FootprintPlacement,
+  placed: PlacedEntry[],
+  basePlacement: FootprintPlacement,
+  mapRect: LogicalRect,
+) {
+  const preferredSide = resolvePreferredLabelSide(placement.centerX, placement.centerY);
+  const labelSides: GroupLabelSide[] = [preferredSide, ...LABEL_SIDE_PRIORITY.filter((side) => side !== preferredSide)];
+
+  let bestGeometry: GroupGeometry | null = null;
+  let bestScore: CandidateScore | null = null;
+
+  for (const labelSide of labelSides) {
+    const geometry = buildGeometryForPlacement(group, placement, labelSide);
+    if (!fitsAroundMap(geometry, mapRect)) continue;
+
+    const score = scoreCandidate(placement, geometry, placed, basePlacement, group);
+    if (!bestScore || score.total < bestScore.total - 1e-6) {
+      bestGeometry = geometry;
+      bestScore = score;
+      if (score.valid && labelSide === preferredSide) break;
+    }
+  }
+
+  if (bestGeometry && bestScore) {
+    return { geometry: bestGeometry, score: bestScore };
+  }
+
+  const fallbackGeometry = buildGeometryForPlacement(group, placement, preferredSide);
+  return {
+    geometry: fallbackGeometry,
+    score: scoreCandidate(placement, fallbackGeometry, placed, basePlacement, group),
+  };
+}
+
+function solveSinglePlacement(
+  group: PendingPlaceGroup,
+  basePlacement: FootprintPlacement,
+  placed: PlacedEntry[],
+  mapRect: LogicalRect,
+) {
+  const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
+  const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
+  let bestPlacement = basePlacement;
+  let bestResolved = chooseBestGeometryForPlacement(group, basePlacement, placed, basePlacement, mapRect);
+
+  for (const radiusStep of RADIUS_STEPS) {
+    const radius = Math.max(0, baseRadius + radiusStep);
+    for (const angleStep of ANGLE_STEPS) {
+      const angle = baseAngle + (angleStep * Math.PI) / 180;
+      const placement = {
+        centerX: Math.cos(angle) * radius,
+        centerY: Math.sin(angle) * radius,
+      };
+      const resolved = chooseBestGeometryForPlacement(group, placement, placed, basePlacement, mapRect);
+      if (resolved.score.total < bestResolved.score.total - 1e-6) {
+        bestPlacement = placement;
+        bestResolved = resolved;
+      }
+    }
+  }
+
+  return {
+    placement: bestPlacement,
+    geometry: bestResolved.geometry,
+  };
+}
+
+function rebuildPlacedEntries(
+  ordered: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  mapRect: LogicalRect,
+) {
+  const placed: PlacedEntry[] = [];
+  const geometryById = new Map<string, GroupGeometry>();
+
+  for (const group of ordered) {
+    const placement = placementById.get(group.placeKey);
+    if (!placement) continue;
+    const resolved = chooseBestGeometryForPlacement(group, placement, placed, placement, mapRect);
+    placed.push({
+      group,
+      placement,
+      geometry: resolved.geometry,
+    });
+    geometryById.set(group.placeKey, resolved.geometry);
+  }
+
+  return { placed, geometryById };
+}
+
+function refinePlacements(
+  ordered: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  mapRect: LogicalRect,
+) {
+  const nextPlacementById = new Map(placementById);
+
+  for (let pass = 0; pass < REFINE_PASSES; pass++) {
+    let changed = false;
+    const placed: PlacedEntry[] = [];
+
+    for (const group of ordered) {
+      const currentPlacement = nextPlacementById.get(group.placeKey);
+      if (!currentPlacement) continue;
+
+      const currentResolved = chooseBestGeometryForPlacement(
+        group,
+        currentPlacement,
+        placed,
+        currentPlacement,
+        mapRect,
+      );
+
+      let bestPlacement = currentPlacement;
+      let bestResolved = currentResolved;
+      const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
+      const currentRadius = Math.hypot(currentPlacement.centerX, currentPlacement.centerY);
+
+      for (const radiusStep of REFINE_RADIUS_STEPS) {
+        const radius = Math.max(0, currentRadius + radiusStep);
+        for (const angleStep of REFINE_ANGLE_STEPS) {
+          const angle = currentAngle + (angleStep * Math.PI) / 180;
+          const candidatePlacement = {
+            centerX: Math.cos(angle) * radius,
+            centerY: Math.sin(angle) * radius,
+          };
+          const resolved = chooseBestGeometryForPlacement(
+            group,
+            candidatePlacement,
+            placed,
+            currentPlacement,
+            mapRect,
+          );
+          if (resolved.score.total < bestResolved.score.total - 1e-6) {
+            bestPlacement = candidatePlacement;
+            bestResolved = resolved;
+          }
+        }
+      }
+
+      if (
+        Math.abs(bestPlacement.centerX - currentPlacement.centerX) > 1 ||
+        Math.abs(bestPlacement.centerY - currentPlacement.centerY) > 1
+      ) {
+        nextPlacementById.set(group.placeKey, bestPlacement);
+        changed = true;
+      }
+
+      placed.push({
+        group,
+        placement: bestPlacement,
+        geometry: bestResolved.geometry,
+      });
+    }
+
+    if (!changed) break;
+  }
+
+  return nextPlacementById;
 }
 
 export function solvePendingGroupPlacements(
@@ -160,50 +397,27 @@ export function solvePendingGroupPlacements(
   );
 
   const basePlacementById = new Map(basePlacements.map((placement) => [placement.id, placement]));
-  const result = new Map<string, FootprintPlacement>();
-  const geometryById = new Map<string, GroupGeometry>();
-  const placed: PlacedEntry[] = [];
+  const initialPlacementById = new Map<string, FootprintPlacement>();
   const ordered = [...groups].sort((left, right) => compareGroupOrder(left, right, basePlacementById));
+  const placed: PlacedEntry[] = [];
 
   for (const group of ordered) {
     const basePlacement = basePlacementById.get(group.placeKey);
     if (!basePlacement) continue;
-    const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
-    const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
-    let bestPlacement = basePlacement;
-    let bestGeometry = buildGeometryForPlacement(group, basePlacement);
-    let bestScore = scoreCandidate(bestPlacement, bestGeometry, placed, basePlacement, group);
-
-    for (const radiusStep of RADIUS_STEPS) {
-      const radius = Math.max(0, baseRadius + radiusStep);
-      for (const angleStep of ANGLE_STEPS) {
-        const angle = baseAngle + (angleStep * Math.PI) / 180;
-        const placement = {
-          centerX: Math.cos(angle) * radius,
-          centerY: Math.sin(angle) * radius,
-        };
-        const geometry = buildGeometryForPlacement(group, placement);
-        if (!fitsAroundMap(geometry.overallRect, mapRect, MAP_GAP)) continue;
-        const score = scoreCandidate(placement, geometry, placed, basePlacement, group);
-        if (score < bestScore - 1e-6) {
-          bestPlacement = placement;
-          bestGeometry = geometry;
-          bestScore = score;
-        }
-      }
-    }
-
-    result.set(group.placeKey, bestPlacement);
-    geometryById.set(group.placeKey, bestGeometry);
+    const solved = solveSinglePlacement(group, basePlacement, placed, mapRect);
+    initialPlacementById.set(group.placeKey, solved.placement);
     placed.push({
       group,
-      placement: bestPlacement,
-      geometry: bestGeometry,
+      placement: solved.placement,
+      geometry: solved.geometry,
     });
   }
 
+  const refinedPlacementById = refinePlacements(ordered, initialPlacementById, mapRect);
+  const rebuilt = rebuildPlacedEntries(ordered, refinedPlacementById, mapRect);
+
   return {
-    placements: result,
-    geometries: geometryById,
+    placements: refinedPlacementById,
+    geometries: rebuilt.geometryById,
   };
 }

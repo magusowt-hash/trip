@@ -5,7 +5,9 @@ import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 import {
   buildGroupGeometryFromLayout,
   GROUP_LABEL_FONT_SCREEN_SIZE,
+  GROUP_LABEL_LINE_HEIGHT_SCREEN,
   GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
+  measureGroupLabelLayout,
   type GroupLayoutSnapshot,
 } from './localMapGroupGeometry';
 
@@ -379,12 +381,23 @@ export default function OuterFrameCanvas({
     if (showLabels) {
       for (const rect of currentRects) {
         const anchor = logicalToScreen(rect.labelAnchorX, rect.labelAnchorY);
-
+        const labelWidthLogical = Math.max(1, rect.labelRight - rect.labelLeft);
+        const labelLayout = measureGroupLabelLayout(
+          rect.placeTitle,
+          Math.max(1, rect.photoRight - rect.photoLeft),
+          transform.scale,
+        );
+        const fontSize = Math.max(GROUP_LABEL_MIN_FONT_SCREEN_SIZE, GROUP_LABEL_FONT_SCREEN_SIZE * overlayScale);
+        const lineHeight = GROUP_LABEL_LINE_HEIGHT_SCREEN * overlayScale;
         ctx.fillStyle = 'rgba(255,255,255,0.65)';
-        ctx.font = `${Math.max(GROUP_LABEL_MIN_FONT_SCREEN_SIZE, GROUP_LABEL_FONT_SCREEN_SIZE * overlayScale)}px sans-serif`;
+        ctx.font = `${fontSize}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(rect.placeTitle, anchor.x, anchor.y);
+        const startY = anchor.y - ((labelLayout.lines.length - 1) * lineHeight) / 2;
+        for (let index = 0; index < labelLayout.lines.length; index++) {
+          const line = labelLayout.lines[index];
+          ctx.fillText(line, anchor.x, startY + index * lineHeight, labelWidthLogical * transform.scale);
+        }
       }
     }
   }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, computePlaceRects, getPhotoLogicalSize]);

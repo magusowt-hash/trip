@@ -267,6 +267,34 @@ function solveFrozenGroupLayouts(
   });
 }
 
+function estimateReservedLabelOffset(
+  placeKey: string,
+  groupPhotos: PhotoItem[],
+  scale: number,
+  mapRect: LogicalRect | undefined,
+  existingLayouts: GroupLayoutSnapshot[] = [],
+) {
+  const baseGeometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts);
+  if (!baseGeometry) return 0;
+  const resolved = resolveGroupLabelLayouts([
+    {
+      placeKey,
+      geometry: baseGeometry,
+      title: groupPhotos[0]?.placeTitle || '',
+      photoCount: groupPhotos.length,
+      scale,
+    },
+  ], {
+    gap: 10,
+    mapRect,
+    mapGap: 80,
+    labelGapBoost: computeLabelGapBoost(scale),
+    step: 8,
+    maxOffset: 120,
+  });
+  return resolved.get(placeKey)?.labelOffset ?? 0;
+}
+
 function buildOffsetsForLayout(
   count: number,
   layout: LocalMapLayoutSettings,
@@ -829,7 +857,18 @@ function UserFootprintsPageInner() {
     }
     const existingGeometryEntries: Array<{ id: string; geometry: GroupGeometry }> = [];
     for (const [placeKey, group] of existingGroups) {
-      const geometry = buildPlaceGeometry(group, collisionScale);
+      const reservedLabelOffset = estimateReservedLabelOffset(placeKey, group, collisionScale, mapRect, groupLayouts);
+      const baseGeometry = buildPlaceGeometry(group, collisionScale);
+      const geometry = baseGeometry
+        ? buildGroupGeometryFromPhotoRect(
+            baseGeometry.photoRect,
+            group[0]?.placeTitle || '',
+            group.length,
+            collisionScale,
+            baseGeometry.labelSide,
+            reservedLabelOffset,
+          )
+        : null;
       if (!geometry) continue;
       existingGeometryEntries.push({ id: placeKey, geometry });
     }
@@ -854,7 +893,18 @@ function UserFootprintsPageInner() {
       });
       const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
       const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
-      const offsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale);
+      const reservedLabelOffset = estimateReservedLabelOffset(placeKey, placePhotos, collisionScale, mapRect, groupLayouts);
+      const baseOffsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale);
+      const offsetGeometry = baseOffsetGeometry
+        ? buildGroupGeometryFromPhotoRect(
+            baseOffsetGeometry.photoRect,
+            placePhotos[0]?.placeTitle || '',
+            placePhotos.length,
+            collisionScale,
+            baseOffsetGeometry.labelSide,
+            reservedLabelOffset,
+          )
+        : null;
       if (!offsetGeometry) continue;
       if (placedPhotos.length > 0) {
         const existingGeometry = resolvedExistingGeometryMap.get(placeKey) ?? buildPlaceGeometry(placedPhotos, collisionScale);
@@ -902,7 +952,8 @@ function UserFootprintsPageInner() {
         placeKey,
         placePhotos,
         collisionGeometry: offsetGeometry,
-        collisionRect: offsetGeometry.overallRect,
+        collisionRect: offsetGeometry.photoRect,
+        reservedLabelOffset,
         logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
         logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
         offsets,
