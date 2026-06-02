@@ -46,8 +46,8 @@ export const GROUP_LABEL_MIN_FONT_SCREEN_SIZE = 9;
 export const GROUP_LABEL_LINE_HEIGHT_SCREEN = 13;
 export const GROUP_ENDPOINT_RADIUS_SCREEN = 4;
 
-const PHOTO_RECT_PADDING = 52;
-const PHOTO_BOTTOM_EXTRA = 28;
+const PHOTO_RECT_PADDING = 40;
+const PHOTO_BOTTOM_EXTRA = 20;
 const PHOTO_TO_LINE_SCREEN_GAP_MIN = 1;
 const PHOTO_TO_LINE_SCREEN_GAP_MAX = 4;
 const LINE_TO_LABEL_SCREEN_GAP_MIN = 0;
@@ -62,8 +62,7 @@ const SMALL_GROUP_COUNT_MAX = 4;
 const SMALL_GROUP_TIGHTEN_MAX = 0.7;
 const HARD_OVERLAP_WEIGHT = 1000;
 const SOFT_GAP_WEIGHT = 20;
-const BOTTOM_SECTOR_HALF_ANGLE = Math.PI / 4;
-const BOTTOM_CORNER_PARTITION_MARGIN = 320;
+const BOTTOM_SECTOR_HALF_ANGLE = Math.PI / 3;
 
 function toLogicalScreenSize(screenSize: number, scale: number) {
   return screenSize / Math.max(scale, 0.1);
@@ -120,31 +119,10 @@ function angleDistance(left: number, right: number) {
   return Math.abs(delta);
 }
 
-export function resolvePreferredLabelSide(
-  centerX: number,
-  centerY: number,
-  mapRect?: LogicalRect,
-): GroupLabelSide {
-  const bottomSectorSide = resolveBottomCornerLabelSide(centerX, centerY, mapRect);
-  if (bottomSectorSide) return bottomSectorSide;
-
+export function resolvePreferredLabelSide(centerX: number, centerY: number): GroupLabelSide {
   const angle = Math.atan2(centerY, centerX);
   const downwardAngle = Math.PI / 2;
   return angleDistance(angle, downwardAngle) <= BOTTOM_SECTOR_HALF_ANGLE ? 'top' : 'bottom';
-}
-
-export function resolveBottomCornerLabelSide(
-  centerX: number,
-  centerY: number,
-  mapRect?: LogicalRect,
-): GroupLabelSide | null {
-  if (mapRect && centerY >= mapRect.bottom - BOTTOM_CORNER_PARTITION_MARGIN) {
-    const cornerX = centerX < 0 ? mapRect.left : mapRect.right;
-    const cornerY = mapRect.bottom;
-    const angleFromCorner = Math.atan2(centerY - cornerY, centerX - cornerX);
-    return angleDistance(angleFromCorner, Math.PI / 2) <= BOTTOM_SECTOR_HALF_ANGLE ? 'top' : 'bottom';
-  }
-  return null;
 }
 
 export function translateLogicalRect(rect: LogicalRect, offsetX: number, offsetY: number): LogicalRect {
@@ -299,11 +277,10 @@ export function buildGroupGeometryFromPhotoRect(
   scale = 1,
   fixedLabelSide?: GroupLabelSide,
   fixedLabelOffset = 0,
-  mapRect?: LogicalRect,
 ): GroupGeometry {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
-  const labelSide = fixedLabelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y, mapRect);
+  const labelSide = fixedLabelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
   const lineAnchorRadius = toLogicalScreenSize(GROUP_ENDPOINT_RADIUS_SCREEN, safeScale);
   const photoWidth = Math.max(1, photoRect.right - photoRect.left);
   const photoHeight = Math.max(1, photoRect.bottom - photoRect.top);
@@ -370,7 +347,6 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   scale = 1,
   fixedLabelSide?: GroupLabelSide,
   fixedLabelOffset = 0,
-  mapRect?: LogicalRect,
 ) {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
@@ -433,19 +409,11 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
     };
   };
 
-  if (fixedLabelSide) return [buildForSide(fixedLabelSide)];
-  const bottomSectorSide = resolveBottomCornerLabelSide(photoCenter.x, photoCenter.y, mapRect);
-  if (bottomSectorSide) return [buildForSide(bottomSectorSide)];
-  const preferredSide = resolvePreferredLabelSide(photoCenter.x, photoCenter.y, mapRect);
-  const fallbackSide: GroupLabelSide = preferredSide === 'top' ? 'bottom' : 'top';
-  return [buildForSide(preferredSide), buildForSide(fallbackSide)];
+  const preferredSide = fixedLabelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  return [buildForSide(preferredSide)];
 }
 
-export function buildGroupGeometryCandidatesFromGeometry(
-  geometry: GroupGeometry,
-  fixedLabelSide?: GroupLabelSide,
-  mapRect?: LogicalRect,
-) {
+export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry, fixedLabelSide?: GroupLabelSide) {
   const photoRect = geometry.photoRect;
   const photoCenter = rectCenter(photoRect);
   const labelHalfWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left) / 2;
@@ -506,12 +474,8 @@ export function buildGroupGeometryCandidatesFromGeometry(
     };
   };
 
-  if (fixedLabelSide) return [buildForSide(fixedLabelSide)];
-  const bottomSectorSide = resolveBottomCornerLabelSide(photoCenter.x, photoCenter.y, mapRect);
-  if (bottomSectorSide) return [buildForSide(bottomSectorSide)];
-  const preferredSide = geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y, mapRect);
-  const fallbackSide: GroupLabelSide = preferredSide === 'top' ? 'bottom' : 'top';
-  return [buildForSide(preferredSide), buildForSide(fallbackSide)];
+  const preferredSide = fixedLabelSide ?? geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  return [buildForSide(preferredSide)];
 }
 
 export function buildGroupGeometry(
@@ -520,12 +484,11 @@ export function buildGroupGeometry(
   scale = 1,
   fixedLabelSide?: GroupLabelSide,
   fixedLabelOffset = 0,
-  mapRect?: LogicalRect,
 ): GroupGeometry | null {
   const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
   const title = groupPhotos[0]?.placeTitle || '';
-  return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale, fixedLabelSide, fixedLabelOffset, mapRect);
+  return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale, fixedLabelSide, fixedLabelOffset);
 }
 
 export function createGroupLayoutSnapshot(placeKey: string, geometry: GroupGeometry): GroupLayoutSnapshot {
@@ -547,7 +510,6 @@ export function buildGroupGeometryFromLayout(
   getPhotoLogicalSize: SizeReader,
   scale = 1,
   layouts: GroupLayoutSnapshot[] = [],
-  mapRect?: LogicalRect,
 ) {
   const layoutByPlaceKey = new Map(layouts.map((layout) => [layout.placeKey, layout]));
   const layout = layoutByPlaceKey.get(placeKey);
@@ -557,7 +519,6 @@ export function buildGroupGeometryFromLayout(
     scale,
     layout?.labelSide,
     layout?.labelOffset ?? 0,
-    mapRect,
   );
 }
 
@@ -607,7 +568,7 @@ export function resolveGroupLabelLayouts(
       let score = scoreGroupGeometryPlacement(candidate, occupied, gap, { labelGapBoost });
 
       if (options?.mapRect) {
-        if (geometryOverlapsMap(candidate, options.mapRect, options.mapGap ?? gap)) {
+        if (rectOverlapsMap(candidate.overallRect, options.mapRect, options.mapGap ?? gap)) {
           score += 500000;
         }
       }
@@ -737,20 +698,7 @@ function rectDistanceToCenter(rect: LogicalRect) {
 }
 
 function rectOverlapsMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
-  return rectsOverlap(rect, {
-    left: mapRect.left - gap,
-    right: mapRect.right + gap,
-    top: mapRect.top - gap,
-    bottom: mapRect.bottom + gap,
-  }, 0);
-}
-
-function geometryOverlapsMap(geometry: GroupGeometry, mapRect: LogicalRect, gap: number) {
-  return (
-    rectOverlapsMap(geometry.photoRect, mapRect, gap + 12) ||
-    rectOverlapsMap(geometry.labelRect, mapRect, gap + 16) ||
-    rectOverlapsMap(geometry.lineRect, mapRect, gap + 12)
-  );
+  return rectsOverlap(rect, mapRect, gap);
 }
 
 export function resolveGroupGeometryAsWhole<T extends string = string>(
@@ -774,9 +722,7 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
   ));
 
   for (const entry of sortedEntries) {
-    const candidates = entry.candidates?.length
-      ? entry.candidates
-      : buildGroupGeometryCandidatesFromGeometry(entry.geometry, undefined, options?.mapRect);
+    const candidates = entry.candidates?.length ? entry.candidates : buildGroupGeometryCandidatesFromGeometry(entry.geometry);
     let chosen = candidates[0];
     let bestScore = Number.POSITIVE_INFINITY;
 
@@ -784,7 +730,7 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
       let score = scoreGroupGeometryPlacement(candidate, occupied, gap, { labelGapBoost });
 
       if (options?.mapRect) {
-        if (geometryOverlapsMap(candidate, options.mapRect, mapGap)) {
+        if (rectOverlapsMap(candidate.overallRect, options.mapRect, mapGap)) {
           score += 500000;
         }
       }

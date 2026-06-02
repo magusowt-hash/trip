@@ -37,7 +37,7 @@ type NeighborPair = {
   gap: number;
 };
 
-const DISPLAY_RADIUS_RATIO = 1.08;
+const DISPLAY_RADIUS_RATIO = 1.36;
 const BASE_LAYOUT_LAYER_STEP = 18;
 const RECT_EXTENSION_STEP = 18;
 const RECT_EXTENSION_LIMIT = 40;

@@ -10,17 +10,14 @@ import type { LineStyle } from './LegendPanel';
 import type { MapMarker } from './PlanMap';
 import PlanMap from './PlanMap';
 import { buildGroupGeometryFromLayout, type GroupLayoutSnapshot } from './localMapGroupGeometry';
-import {
-  FOOTPRINT_MAP_AREA_RATIO_H,
-  FOOTPRINT_MAP_AREA_RATIO_W,
-  getFootprintMapLogicalBounds,
-} from './footprintMapGeometry';
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
 const FIT_VIEW_PADDING = 24;
 const VIEWPORT_GEOMETRY_SCALE = 1;
 const VIEWPORT_PADDING_LOGICAL = 24;
+const MAP_AREA_RATIO_W = 0.6;
+const MAP_AREA_RATIO_H = 0.8;
 
 interface Props {
   markers: MapMarker[];
@@ -45,7 +42,6 @@ interface Props {
   lineStyle: LineStyle;
   onScaleChange?: (scale: number) => void;
   onViewportChange?: (viewport: Viewport) => void;
-  onMapRectChange?: (rect: { left: number; right: number; top: number; bottom: number }) => void;
   fitViewKey?: string | number;
   fitViewEnabled?: boolean;
   baseMinScale?: number;
@@ -74,7 +70,6 @@ export default function OuterFrame({
   lineStyle,
   onScaleChange,
   onViewportChange,
-  onMapRectChange,
   fitViewKey,
   fitViewEnabled = false,
   baseMinScale = 1,
@@ -118,11 +113,6 @@ export default function OuterFrame({
 
   // --- POI coordinate conversion ---
   const [poiPoints, setPoiPoints] = useState<PoiPoint[]>([]);
-  const markerKey = markers.map((marker) => String(marker.id ?? marker.title ?? '')).join('|');
-
-  useEffect(() => {
-    setPoiPoints([]);
-  }, [markerKey]);
 
   const getPhotoLogicalSize = useCallback((photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>) => {
     const sourceWidth = photo.pixelWidth ?? 0;
@@ -142,19 +132,10 @@ export default function OuterFrame({
     return { width: PHOTO_MAX_EDGE, height: PHOTO_MAX_EDGE };
   }, []);
 
-  const getMapLogicalBounds = useCallback(() => (
-    getFootprintMapLogicalBounds(containerSize.w, containerSize.h)
-  ), [containerSize]);
-
-  const getMapLogicalRect = useCallback(() => {
-    const { halfW, halfH } = getMapLogicalBounds();
-    return {
-      left: -halfW,
-      right: halfW,
-      top: -halfH,
-      bottom: halfH,
-    };
-  }, [getMapLogicalBounds]);
+  const getMapLogicalBounds = useCallback(() => ({
+    halfW: (containerSize.w * MAP_AREA_RATIO_W) / 2,
+    halfH: (containerSize.h * MAP_AREA_RATIO_H) / 2,
+  }), [containerSize]);
 
   const buildPhotoGroupViewport = useCallback((padding = VIEWPORT_PADDING_LOGICAL): Viewport | null => {
     const groups = new Map<string, PhotoItem[]>();
@@ -178,7 +159,6 @@ export default function OuterFrame({
         getPhotoLogicalSize,
         VIEWPORT_GEOMETRY_SCALE,
         groupLayouts ?? [],
-        getMapLogicalRect(),
       );
       if (!geometry) continue;
       left = Math.min(left, geometry.groupRect.left);
@@ -197,7 +177,7 @@ export default function OuterFrame({
       top: top - padding,
       bottom: bottom + padding,
     };
-  }, [photos, getPhotoLogicalSize, groupLayouts, getMapLogicalRect]);
+  }, [photos, getPhotoLogicalSize, groupLayouts]);
 
   const computePoiPoints = useCallback(() => {
     const map = mapInstanceRef.current;
@@ -242,11 +222,6 @@ export default function OuterFrame({
     if (!containerSize.w || !containerSize.h) return;
     onViewportChange?.(logicalViewport(containerSize.w, containerSize.h, transform));
   }, [containerSize, transform, onViewportChange]);
-
-  useEffect(() => {
-    if (!containerSize.w || !containerSize.h) return;
-    onMapRectChange?.(getMapLogicalRect());
-  }, [containerSize, getMapLogicalRect, onMapRectChange]);
 
   useEffect(() => {
     setMinScale(baseMinScale);
@@ -323,8 +298,8 @@ export default function OuterFrame({
           position: 'absolute',
           top: '50%',
           left: '50%',
-          width: `${FOOTPRINT_MAP_AREA_RATIO_W * 100}%`,
-          height: `${FOOTPRINT_MAP_AREA_RATIO_H * 100}%`,
+          width: `${60}%`,
+          height: `${80}%`,
           transform: `translate(-50%, -50%) scale(${transform.scale}) translate(${transform.tx / transform.scale}px, ${transform.ty / transform.scale}px)`,
           transformOrigin: 'center center',
           borderRadius: 12,
@@ -352,7 +327,6 @@ export default function OuterFrame({
           transform={transform}
           photos={photos}
           groupLayouts={groupLayouts}
-          mapRect={getMapLogicalRect()}
           poiPoints={poiPoints}
           lineStyle={lineStyle}
           showPoiLabels={showPoiLabels}
@@ -368,7 +342,6 @@ export default function OuterFrame({
           transform={transform}
           photos={photos}
           groupLayouts={groupLayouts}
-          mapRect={getMapLogicalRect()}
           scale={transform.scale}
           showLabels={showLabels}
           onPhotoDragEnd={onPhotoDragEnd}

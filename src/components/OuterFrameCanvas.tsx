@@ -9,9 +9,7 @@ import {
   GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
   measureGroupLabelLayout,
   type GroupLayoutSnapshot,
-  type LogicalRect,
 } from './localMapGroupGeometry';
-import { FOOTPRINT_MAP_SAFE_GAP, getFootprintMapProtectionRect } from './footprintMapGeometry';
 
 export interface PhotoItem {
   id: number | string;
@@ -67,7 +65,6 @@ interface Props {
   transform: OuterFrameTransform;
   photos: PhotoItem[];
   groupLayouts?: GroupLayoutSnapshot[];
-  mapRect?: LogicalRect;
   scale: number;
   showLabels: boolean;
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
@@ -78,6 +75,8 @@ interface Props {
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
+const MAP_AREA_RATIO_W = 0.6;
+const MAP_AREA_RATIO_H = 0.8;
 const MAX_OVERLAY_SCALE = 2.4;
 const HOVER_STROKE_WIDTH = 1.5;
 
@@ -103,8 +102,11 @@ function placeColor(placeTitle: string): string {
   return COLORS[Math.abs(hash) % COLORS.length];
 }
 
-function mapProtectionBounds(width: number, height: number) {
-  return getFootprintMapProtectionRect(width, height);
+function getMapLogicalBounds(width: number, height: number) {
+  return {
+    halfW: (width * MAP_AREA_RATIO_W) / 2,
+    halfH: (height * MAP_AREA_RATIO_H) / 2,
+  };
 }
 
 export default function OuterFrameCanvas({
@@ -113,7 +115,6 @@ export default function OuterFrameCanvas({
   transform,
   photos,
   groupLayouts,
-  mapRect,
   scale,
   showLabels,
   onPhotoDragEnd,
@@ -199,16 +200,9 @@ export default function OuterFrameCanvas({
     );
     if (group.length === 0) return;
 
-    const mapBounds = mapRect
-      ? {
-          left: mapRect.left - FOOTPRINT_MAP_SAFE_GAP,
-          right: mapRect.right + FOOTPRINT_MAP_SAFE_GAP,
-          top: mapRect.top - FOOTPRINT_MAP_SAFE_GAP,
-          bottom: mapRect.bottom + FOOTPRINT_MAP_SAFE_GAP,
-        }
-      : mapProtectionBounds(width, height);
+    const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height);
 
-    const geometry = buildGroupGeometryFromLayout(placeKey, group, getPhotoLogicalSize, transform.scale, groupLayouts ?? [], mapRect);
+    const geometry = buildGroupGeometryFromLayout(placeKey, group, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
     if (!geometry) return;
     const left = geometry.groupRect.left;
     const right = geometry.groupRect.right;
@@ -216,17 +210,17 @@ export default function OuterFrameCanvas({
     const bottom = geometry.groupRect.bottom;
 
     const overlapsMap =
-      right > mapBounds.left &&
-      left < mapBounds.right &&
-      bottom > mapBounds.top &&
-      top < mapBounds.bottom;
+      right > -mapHalfW &&
+      left < mapHalfW &&
+      bottom > -mapHalfH &&
+      top < mapHalfH;
 
     if (!overlapsMap) return;
 
-    const dl = right - mapBounds.left;
-    const dr = mapBounds.right - left;
-    const dt = bottom - mapBounds.top;
-    const db = mapBounds.bottom - top;
+    const dl = right - (-mapHalfW);
+    const dr = mapHalfW - left;
+    const dt = bottom - (-mapHalfH);
+    const db = mapHalfH - top;
     const minD = Math.min(dl, dr, dt, db);
 
     let shiftX = 0;
@@ -240,7 +234,7 @@ export default function OuterFrameCanvas({
       photo.frameX = (photo.frameX ?? 0) + shiftX;
       photo.frameY = (photo.frameY ?? 0) + shiftY;
     }
-  }, [photos, groupLayouts, width, height, getPhotoLogicalSize, transform.scale, mapRect]);
+  }, [photos, groupLayouts, width, height, getPhotoLogicalSize, transform.scale]);
 
   // --- Compute place rects from current photo positions ---
   const computePlaceRects = useCallback((): PlaceRect[] => {
@@ -253,7 +247,7 @@ export default function OuterFrameCanvas({
     }
     const rects: PlaceRect[] = [];
     for (const [placeKey, items] of groups) {
-      const geometry = buildGroupGeometryFromLayout(placeKey, items, getPhotoLogicalSize, transform.scale, groupLayouts ?? [], mapRect);
+      const geometry = buildGroupGeometryFromLayout(placeKey, items, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
       if (!geometry) continue;
       rects.push({
         placeKey,
@@ -276,7 +270,7 @@ export default function OuterFrameCanvas({
       });
     }
     return rects;
-  }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale, mapRect]);
+  }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale]);
 
   // --- Coordinate helpers ---
   const logicalToScreen = useCallback((lx: number, ly: number): Point => ({
@@ -525,24 +519,24 @@ export default function OuterFrameCanvas({
           photo.frameX = newX;
           photo.frameY = newY;
 
-          const mapBounds = mapProtectionBounds(width, height);
+          const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height);
           const bounds = getPhotoBounds(photo);
           if (!bounds) return;
           const photoLeft = bounds.left;
           const photoRight = bounds.right;
           const photoTop = bounds.top;
           const photoBottom = bounds.bottom;
-          if (photoRight > mapBounds.left && photoLeft < mapBounds.right &&
-              photoBottom > mapBounds.top && photoTop < mapBounds.bottom) {
-            const dl = photoRight - mapBounds.left;
-            const dr = mapBounds.right - photoLeft;
-            const dt = photoBottom - mapBounds.top;
-            const db = mapBounds.bottom - photoTop;
+          if (photoRight > -mapHalfW && photoLeft < mapHalfW &&
+              photoBottom > -mapHalfH && photoTop < mapHalfH) {
+            const dl = photoRight - (-mapHalfW);
+            const dr = mapHalfW - photoLeft;
+            const dt = photoBottom - (-mapHalfH);
+            const db = mapHalfH - photoTop;
             const minD = Math.min(dl, dr, dt, db);
-            if (minD === dl) photo.frameX = mapBounds.left - bounds.width / 2;
-            else if (minD === dr) photo.frameX = mapBounds.right + bounds.width / 2;
-            else if (minD === dt) photo.frameY = mapBounds.top - bounds.height / 2;
-            else photo.frameY = mapBounds.bottom + bounds.height / 2;
+            if (minD === dl) photo.frameX = -mapHalfW - bounds.width / 2;
+            else if (minD === dr) photo.frameX = mapHalfW + bounds.width / 2;
+            else if (minD === dt) photo.frameY = -mapHalfH - bounds.height / 2;
+            else photo.frameY = mapHalfH + bounds.height / 2;
           }
         }
       }

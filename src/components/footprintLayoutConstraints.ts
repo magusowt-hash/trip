@@ -2,29 +2,32 @@ import type { GroupGeometry } from './localMapGroupGeometry';
 import { rectsOverlap } from './localMapGroupGeometry';
 import type { LogicalRect } from './footprintLayoutTypes';
 
-export function expandLogicalRect(rect: LogicalRect, gap: number): LogicalRect {
-  return {
-    left: rect.left - gap,
-    right: rect.right + gap,
-    top: rect.top - gap,
-    bottom: rect.bottom + gap,
-  };
-}
-
-export function rectOutsideMapProtection(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
-  return !rectsOverlap(rect, expandLogicalRect(mapRect, gap), 0);
-}
-
 export function fitsPhotoRectAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
-  return rectOutsideMapProtection(rect, mapRect, gap + 12);
+  const photoGap = gap + 12;
+  return (
+    rect.right <= mapRect.left - photoGap ||
+    rect.left >= mapRect.right + photoGap ||
+    rect.bottom <= mapRect.top - photoGap ||
+    rect.top >= mapRect.bottom + photoGap
+  );
 }
 
 export function fitsLabelRectAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
-  return rectOutsideMapProtection(rect, mapRect, gap);
+  return (
+    rect.right <= mapRect.left - gap ||
+    rect.left >= mapRect.right + gap ||
+    rect.bottom <= mapRect.top - gap ||
+    rect.top >= mapRect.bottom + gap
+  );
 }
 
 export function fitsGroupRectAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
-  return rectOutsideMapProtection(rect, mapRect, gap);
+  return (
+    rect.right <= mapRect.left - gap ||
+    rect.left >= mapRect.right + gap ||
+    rect.bottom <= mapRect.top - gap ||
+    rect.top >= mapRect.bottom + gap
+  );
 }
 
 export function rectOverlapsOccupiedPhotos(

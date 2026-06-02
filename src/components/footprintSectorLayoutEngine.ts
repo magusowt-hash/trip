@@ -1,8 +1,6 @@
 import type { GroupGeometry } from './localMapGroupGeometry';
 import {
-  buildGroupGeometryFromPhotoRect,
   rectsOverlap,
-  resolvePreferredLabelSide,
   resolveGroupGeometryAsWhole,
   shiftGroupGeometryDown,
   translateGroupGeometry,
@@ -48,28 +46,6 @@ type PlacementCandidate = {
   centerY: number;
 };
 
-function buildPlacementGeometry(group: PendingPlaceGroup, placement: FootprintPlacement) {
-  const translatedPhotoRect = {
-    left: group.collisionGeometry.photoRect.left + placement.centerX,
-    right: group.collisionGeometry.photoRect.right + placement.centerX,
-    top: group.collisionGeometry.photoRect.top + placement.centerY,
-    bottom: group.collisionGeometry.photoRect.bottom + placement.centerY,
-  };
-  const reservedLabelOffset =
-    group.collisionGeometry.labelSide === 'top'
-      ? Math.max(0, group.collisionGeometry.photoRect.top - group.collisionGeometry.lineAnchorY)
-      : Math.max(0, group.collisionGeometry.lineAnchorY - group.collisionGeometry.photoRect.bottom);
-
-  return buildGroupGeometryFromPhotoRect(
-    translatedPhotoRect,
-    group.placePhotos[0]?.placeTitle || '',
-    group.placePhotos.length,
-    1,
-    resolvePreferredLabelSide(placement.centerX, placement.centerY, group.mapRect),
-    reservedLabelOffset,
-  );
-}
-
 function normalizeAngle(angle: number) {
   const tau = Math.PI * 2;
   const normalized = angle % tau;
@@ -113,7 +89,11 @@ function hasIntersectingLines(
     .map((group) => {
       const placement = placementById.get(group.placeKey);
       if (!placement) return null;
-      const geometry = buildPlacementGeometry(group, placement);
+      const geometry = translateGroupGeometry(
+        group.collisionGeometry,
+        placement.centerX,
+        placement.centerY,
+      );
       return {
         placeKey: group.placeKey,
         start: { x: group.logicalX, y: group.logicalY },
@@ -913,7 +893,7 @@ function buildOccupiedGeometriesForGroup(
       if (!placement) return null;
       return {
         id: candidate.placeKey,
-        geometry: buildPlacementGeometry(candidate, placement),
+        geometry: translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY),
       };
     })
     .filter((candidate): candidate is { id: string; geometry: GroupGeometry } => candidate !== null);
@@ -1327,7 +1307,7 @@ function scoreClusterCompaction(
     .map((candidate) => {
       const placement = placementById.get(candidate.placeKey);
       if (!placement) return null;
-      return buildPlacementGeometry(candidate, placement);
+      return translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY);
     })
     .filter((candidate): candidate is GroupGeometry => candidate !== null);
   const clusterPlacementById = new Map(placementById);
@@ -1339,7 +1319,7 @@ function scoreClusterCompaction(
   for (const group of cluster) {
     const placement = placementById.get(group.placeKey);
     if (!placement) continue;
-    const geometry = buildPlacementGeometry(group, placement);
+    const geometry = translateGroupGeometry(group.collisionGeometry, placement.centerX, placement.centerY);
     const evaluation = evaluatePlacementCandidate(
       group.placeKey,
       geometry,
@@ -1373,13 +1353,13 @@ function scoreClusterCompaction(
   const clusterSpanPenalty = Math.max(spanX, spanY) * 0.45 + Math.min(spanX, spanY) * 0.2;
 
   return (
-    totalRadius * 0.92 +
-    maxRadius * 0.48 +
-    clusterSpanPenalty * 1.18 +
+    totalRadius * 0.72 +
+    maxRadius * 0.34 +
+    clusterSpanPenalty +
     spanX * spanY * 0.001 +
     pressure * 0.12 +
     labelPhotoRiskPenalty * 0.12 +
-    radiusSpreadPenalty * 0.24 +
+    radiusSpreadPenalty * 0.16 +
     sectorDensityPenalty * 11 +
     sectorVariance * 12
   );
@@ -1414,7 +1394,7 @@ function scoreGlobalLayoutEnergy(
     const placement = placementById.get(group.placeKey);
     if (!placement) continue;
     const occupiedGeometries = buildOccupiedGeometriesForGroup(groups, placementById, group.placeKey);
-    const geometry = buildPlacementGeometry(group, placement);
+    const geometry = translateGroupGeometry(group.collisionGeometry, placement.centerX, placement.centerY);
     const evaluation = evaluatePlacementCandidate(
       group.placeKey,
       geometry,
@@ -1441,12 +1421,12 @@ function scoreGlobalLayoutEnergy(
   const angularDriftPenalty = computeAngularDriftPenalty(groups, placementById);
 
   return (
-    totalRadius * 0.86 +
-    maxRadius * 0.44 +
-    (right - left) * (bottom - top) * 0.00125 +
+    totalRadius * 0.68 +
+    maxRadius * 0.3 +
+    (right - left) * (bottom - top) * 0.001 +
     pressure * 0.12 +
     labelPhotoRiskPenalty * 0.1 +
-    radiusSpreadPenalty * 0.22 +
+    radiusSpreadPenalty * 0.12 +
     sectorDensityPenalty * 13 +
     sectorVariance * 14 +
     angularDriftPenalty * 180
@@ -1475,8 +1455,8 @@ function buildClusterActionCandidates(
   const angle = Math.atan2(placement.centerY, placement.centerX);
   const occupancy = buildSectorOccupancy(allGroups, placementById);
   const currentSector = getSectorIndex(angle);
-  const inwardSteps = [80, 160, 260, 380, 520, 680].map((step) => Math.max(0, radius - step * stepScale));
-  const angleSteps = [0, -3, 3, -6, 6, -10, 10];
+  const inwardSteps = [60, 120, 200, 300, 420, 560].map((step) => Math.max(0, radius - step * stepScale));
+  const angleSteps = [0, -4, 4, -8, 8, -12, 12];
   const candidates: PlacementCandidate[] = [
     { centerX: placement.centerX, centerY: placement.centerY },
   ];
@@ -1511,7 +1491,7 @@ function evaluateClusterWindowPlacement(
     .map((candidate) => {
       const placement = trialPlacementById.get(candidate.placeKey);
       if (!placement) return null;
-      return buildPlacementGeometry(candidate, placement);
+      return translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY);
     })
     .filter((candidate): candidate is GroupGeometry => candidate !== null);
 
@@ -1519,7 +1499,7 @@ function evaluateClusterWindowPlacement(
     const placement = trialPlacementById.get(group.placeKey);
     const basePlacement = basePlacementById.get(group.placeKey);
     if (!placement || !basePlacement) return Number.POSITIVE_INFINITY;
-    const geometry = buildPlacementGeometry(group, placement);
+    const geometry = translateGroupGeometry(group.collisionGeometry, placement.centerX, placement.centerY);
     const occupiedGeometries = [
       ...occupiedOutsideCluster,
       ...cluster
@@ -1527,7 +1507,7 @@ function evaluateClusterWindowPlacement(
         .map((candidate) => {
           const candidatePlacement = trialPlacementById.get(candidate.placeKey);
           if (!candidatePlacement) return null;
-          return buildPlacementGeometry(candidate, candidatePlacement);
+          return translateGroupGeometry(candidate.collisionGeometry, candidatePlacement.centerX, candidatePlacement.centerY);
         })
         .filter((candidate): candidate is GroupGeometry => candidate !== null),
     ];
@@ -1662,7 +1642,7 @@ function generateClusterMigrationVariants(
   ), 0) / Math.max(1, placements.length);
   const clusterAngle = averageAngle(placements);
 
-  for (const shrink of [620, 500, 380, 280, 180, 120]) {
+  for (const shrink of [420, 320, 240, 180, 120]) {
     const inwardVariant = new Map<string, FootprintPlacement>();
     for (const group of cluster) {
       const placement = placementById.get(group.placeKey);
@@ -1679,7 +1659,7 @@ function generateClusterMigrationVariants(
     }
   }
 
-  for (const shrink of [460, 360, 260, 180, 120]) {
+  for (const shrink of [320, 240, 180, 120]) {
     const compactArcVariant = new Map<string, FootprintPlacement>();
     const compactBaseRadius = Math.max(0, averageRadius - shrink);
     cluster.forEach((group, index) => {
@@ -1761,11 +1741,15 @@ function tryNeighborNudge(
         if (!placement) return null;
         return {
           key: candidate.placeKey,
-          geometry: buildPlacementGeometry(candidate, placement),
+          geometry: translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY),
         };
       })
       .filter((candidate): candidate is { key: string; geometry: GroupGeometry } => candidate !== null);
-    const neighborGeometry = buildPlacementGeometry(neighbor, candidateNeighborPlacement);
+    const neighborGeometry = translateGroupGeometry(
+      neighbor.collisionGeometry,
+      candidateNeighborPlacement.centerX,
+      candidateNeighborPlacement.centerY,
+    );
     const occupiedForGroup = occupied.map((item) => item.geometry);
     const occupiedForNeighbor = occupied.filter((item) => item.key !== neighbor.placeKey).map((item) => item.geometry);
     const groupEval = evaluatePlacementCandidate(
@@ -2080,7 +2064,7 @@ export function refineRadialPlacements(
           .map((candidate) => {
             const placement = currentPlacementById.get(candidate.placeKey);
             if (!placement) return null;
-            return buildPlacementGeometry(candidate, placement);
+            return translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY);
           })
           .filter((candidate): candidate is GroupGeometry => candidate !== null)
       ),

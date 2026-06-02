@@ -31,7 +31,6 @@ export type PendingPlaceGroup = {
   reservedLabelOffset: number;
   logicalX: number;
   logicalY: number;
-  mapRect?: LogicalRect;
   offsets: LogicalOffset[];
 };
 

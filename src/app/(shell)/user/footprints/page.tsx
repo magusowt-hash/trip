@@ -220,18 +220,17 @@ function buildRandomOffsets(count: number, cardSize: number) {
   }));
 }
 
-function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1, mapRect?: LogicalRect) {
+function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1) {
   return buildGroupGeometryFromLayout(
     placePhotos[0]?.placeKey || '',
     placePhotos,
     getPhotoLogicalSize,
     scale,
     [],
-    mapRect,
   );
 }
 
-function buildOffsetGroupGeometry(placePhotos: PhotoItem[], offsets: LogicalOffset[], scale = 1, mapRect?: LogicalRect) {
+function buildOffsetGroupGeometry(placePhotos: PhotoItem[], offsets: LogicalOffset[], scale = 1) {
   if (placePhotos.length === 0 || offsets.length !== placePhotos.length) return null;
 
   const photoRect = expandPhotoRect({
@@ -248,7 +247,6 @@ function buildOffsetGroupGeometry(placePhotos: PhotoItem[], offsets: LogicalOffs
     scale,
     undefined,
     0,
-    mapRect,
   );
 }
 
@@ -268,7 +266,7 @@ function solveFrozenGroupLayouts(
 
   const entries: Array<{ placeKey: string; geometry: GroupGeometry; title: string; photoCount: number; scale: number }> = [];
   for (const [placeKey, groupPhotos] of groups) {
-    const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts, mapRect);
+    const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts);
     if (!geometry) continue;
     entries.push({
       placeKey,
@@ -296,7 +294,7 @@ function estimateReservedLabelOffset(
   mapRect: LogicalRect | undefined,
   existingLayouts: GroupLayoutSnapshot[] = [],
 ) {
-  const baseGeometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts, mapRect);
+  const baseGeometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts);
   if (!baseGeometry) return 0;
   const resolved = resolveGroupLabelLayouts([
     {
@@ -452,7 +450,6 @@ function UserFootprintsPageInner() {
   const [backgroundColor, setBackgroundColor] = useState('#0f172a');
   const [lineStyle, setLineStyle] = useState<LineStyle>({ color: '#a5b4fc', width: 2, dashed: true });
   const [outerScale, setOuterScale] = useState(1);
-  const [outerMapRect, setOuterMapRect] = useState<LogicalRect | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   const [groups, setGroups] = useState<FootprintGroup[]>([]);
@@ -493,7 +490,6 @@ function UserFootprintsPageInner() {
   const groupLayoutsRef = useRef<GroupLayoutSnapshot[]>([]);
   const poiPointsRef = useRef<PoiPoint[]>([]);
   const outerScaleRef = useRef(1);
-  const outerMapRectRef = useRef<LogicalRect | null>(null);
   const localMapApplyRunIdRef = useRef(0);
   const actionNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -502,7 +498,6 @@ function UserFootprintsPageInner() {
   useEffect(() => { groupLayoutsRef.current = groupLayouts; }, [groupLayouts]);
   useEffect(() => { poiPointsRef.current = poiPoints; }, [poiPoints]);
   useEffect(() => { outerScaleRef.current = outerScale; }, [outerScale]);
-  useEffect(() => { outerMapRectRef.current = outerMapRect; }, [outerMapRect]);
 
   // Load settings
   useEffect(() => {
@@ -802,7 +797,7 @@ function UserFootprintsPageInner() {
       }
       return Array.from(merged.values());
     });
-  }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints, outerMapRect]);
+  }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints]);
 
   // Auto-load photos only after map POI coordinates are available.
   useEffect(() => {
@@ -822,7 +817,6 @@ function UserFootprintsPageInner() {
       poiPoints?: PoiPoint[];
       groupLayouts?: GroupLayoutSnapshot[];
       outerScale?: number;
-      outerMapRect?: LogicalRect | null;
     } = {},
   ): GroupLayoutSnapshot[] {
     const activeGroupLayouts = options.groupLayouts ?? groupLayouts;
@@ -845,7 +839,7 @@ function UserFootprintsPageInner() {
     const collisionScale = Math.max(options.outerScale ?? outerScale, 0.1);
     const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
     const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
-    const mapRect = options.outerMapRect ?? outerMapRect ?? getFootprintMapRect(viewportWidth, viewportHeight);
+    const mapRect = getFootprintMapRect(viewportWidth, viewportHeight);
     const allGroups = new Map<string, PhotoItem[]>();
     for (const photo of referencePhotos) {
       const arr = allGroups.get(photo.placeKey) || [];
@@ -868,7 +862,6 @@ function UserFootprintsPageInner() {
           getPhotoLogicalSize,
           collisionScale,
           activeGroupLayouts,
-          mapRect,
         );
         if (lockedGeometry) {
           const logicalPoint = logicalPointByPlaceKey.get(placeKey);
@@ -887,7 +880,7 @@ function UserFootprintsPageInner() {
       const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
 
       const reservedLabelOffset = estimateReservedLabelOffset(placeKey, placePhotos, collisionScale, mapRect, activeGroupLayouts);
-      const baseOffsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale, mapRect);
+      const baseOffsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale);
       const offsetGeometry = baseOffsetGeometry
         ? buildGroupGeometryFromPhotoRect(
             baseOffsetGeometry.photoRect,
@@ -896,7 +889,6 @@ function UserFootprintsPageInner() {
             collisionScale,
             baseOffsetGeometry.labelSide,
             reservedLabelOffset,
-            mapRect,
           )
         : null;
       if (!offsetGeometry) continue;
@@ -962,21 +954,21 @@ function UserFootprintsPageInner() {
   const handlePhotoDragEnd = useCallback(async (photoId: number | string, x: number, y: number) => {
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, outerMapRect ?? undefined, current).values()));
-  }, [outerMapRect, photos]);
+    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, undefined, current).values()));
+  }, [photos]);
 
   const handlePhotoMoved = useCallback(() => {
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, outerMapRect ?? undefined, current).values()));
-  }, [outerMapRect, photos]);
+    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, undefined, current).values()));
+  }, [photos]);
 
   const handleGroupLabelDragEnd = useCallback((_placeKey: string, dx: number, dy: number) => {
     if (dx === 0 && dy === 0) return;
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, outerMapRect ?? undefined, current).values()));
-  }, [outerMapRect, photos]);
+    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, undefined, current).values()));
+  }, [photos]);
 
   const buildLocalMapAssetsForSave = useCallback((sourcePhotos: PhotoItem[]) => (
     sourcePhotos
@@ -1406,7 +1398,6 @@ function UserFootprintsPageInner() {
         const currentGroupLayouts = groupLayoutsRef.current;
         const currentPoiPoints = poiPointsRef.current;
         const currentOuterScale = outerScaleRef.current;
-        const currentOuterMapRect = outerMapRectRef.current;
         const itemByTitle = new Map(currentItems.map((item) => [item.title, item]));
         const poiPlaceKeys = new Set(currentPoiPoints.map((point) => point.placeKey));
         const targetPoiKeys = new Set(
@@ -1484,7 +1475,6 @@ function UserFootprintsPageInner() {
               poiPoints: currentPoiPoints,
               groupLayouts: currentGroupLayouts,
               outerScale: currentOuterScale,
-              outerMapRect: currentOuterMapRect,
             },
           );
           if (unplaced.every((photo) => photo.frameX != null && photo.frameY != null)) {
@@ -1625,7 +1615,6 @@ function UserFootprintsPageInner() {
         backgroundColor={backgroundColor}
         lineStyle={lineStyle}
         onScaleChange={setOuterScale}
-        onMapRectChange={setOuterMapRect}
         fitViewKey={fitViewKey}
         fitViewEnabled={fitViewEnabled}
         baseMinScale={1}
