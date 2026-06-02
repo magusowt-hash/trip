@@ -113,6 +113,11 @@ export default function OuterFrame({
 
   // --- POI coordinate conversion ---
   const [poiPoints, setPoiPoints] = useState<PoiPoint[]>([]);
+  const markerKey = markers.map((marker) => String(marker.id ?? marker.title ?? '')).join('|');
+
+  useEffect(() => {
+    setPoiPoints([]);
+  }, [markerKey]);
 
   const getPhotoLogicalSize = useCallback((photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>) => {
     const sourceWidth = photo.pixelWidth ?? 0;

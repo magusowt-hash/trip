@@ -439,6 +439,10 @@ function computeLabelGapBoost(scale: number) {
   return 0;
 }
 
+function getFootprintItemPlaceKey(item: Pick<FootprintItem, 'id' | 'listItemId' | 'poiId' | 'albumScopeKey'>) {
+  return item.albumScopeKey || (item.listItemId ? buildFootprintPhotoScopeKey(item.id) : buildMapFootprintPhotoScopeKey(item.poiId ?? item.id));
+}
+
 export default function UserFootprintsPage() {
   return (
     <Suspense fallback={<div style={{ position: 'fixed', inset: 0, background: '#0f172a' }} />}>
@@ -624,7 +628,7 @@ function UserFootprintsPageInner() {
     const ms: MapMarker[] = items
       .filter(it => it.lng && it.lat)
       .map(it => ({
-        id: buildFootprintPhotoScopeKey(it.id),
+        id: getFootprintItemPlaceKey(it),
         position: [parseFloat(it.lng!), parseFloat(it.lat!)] as [number, number],
         title: it.title,
         address: it.address || undefined,
@@ -701,7 +705,7 @@ function UserFootprintsPageInner() {
     if (selectedGroupId !== groupId || targetItems.length === 0) return;
     const targetKeys = new Set(targetItems.map((item) => `${item.listItemId ? `list:${item.listItemId}` : `map:${item.poiId}`}`));
     const removedScopeKeys = new Set(
-      targetItems.map((item) => item.albumScopeKey || (item.listItemId ? buildFootprintPhotoScopeKey(item.id) : buildMapFootprintPhotoScopeKey(item.poiId ?? item.id))),
+      targetItems.map(getFootprintItemPlaceKey),
     );
     setItems((current) => current.filter((item) => !targetKeys.has(`${item.listItemId ? `list:${item.listItemId}` : `map:${item.poiId}`}`)));
     setPhotos((current) => current.filter((photo) => photo.sourceType === 'local-mapped' || !removedScopeKeys.has(photo.placeKey)));
@@ -711,7 +715,7 @@ function UserFootprintsPageInner() {
     if (items.length === 0 || photosLoaded) return;
     setPhotosLoaded(true);
 
-    const itemScopes = new Map(items.map((item) => [item.id, item.albumScopeKey || (item.listItemId ? buildFootprintPhotoScopeKey(item.id) : buildMapFootprintPhotoScopeKey(item.poiId ?? item.id))]));
+    const itemScopes = new Map(items.map((item) => [item.id, getFootprintItemPlaceKey(item)]));
     const itemKeys = new Set(itemScopes.values());
     const allPhotos: PhotoItem[] = [];
 
@@ -743,7 +747,7 @@ function UserFootprintsPageInner() {
       } catch { /* skip */ }
     } else {
       for (const item of items) {
-        const scopeKey = item.albumScopeKey || (item.listItemId ? buildFootprintPhotoScopeKey(item.id) : buildMapFootprintPhotoScopeKey(item.poiId ?? item.id));
+        const scopeKey = getFootprintItemPlaceKey(item);
         try {
           const res = await fetch(
             `/api/storage/photos?scope_key=${encodeURIComponent(scopeKey)}&footprint_item_id=${encodeURIComponent(String(item.listItemId ? item.id : ''))}&place_title=${encodeURIComponent(item.title)}`,
@@ -799,11 +803,13 @@ function UserFootprintsPageInner() {
 
   // Auto-load photos only after map POI coordinates are available.
   useEffect(() => {
-    const poiReady = markers.length === 0 || poiPoints.length >= markers.length;
+    const expectedPoiKeys = new Set(items.filter((item) => item.lng && item.lat).map(getFootprintItemPlaceKey));
+    const poiKeys = new Set(poiPoints.map((point) => point.placeKey));
+    const poiReady = [...expectedPoiKeys].every((placeKey) => poiKeys.has(placeKey));
     if (items.length > 0 && poiReady && !photosLoaded) {
       loadAllPhotos();
     }
-  }, [items.length, markers.length, poiPoints.length, photosLoaded, loadAllPhotos]);
+  }, [items, poiPoints, photosLoaded, loadAllPhotos]);
 
   function autoPlacePhotos(
     unplaced: PhotoItem[],
@@ -1177,7 +1183,7 @@ function UserFootprintsPageInner() {
   }, []);
 
   const handleUploadPhotoForItem = useCallback(async (item: FootprintItem) => {
-    const scopeKey = item.albumScopeKey || (item.listItemId ? buildFootprintPhotoScopeKey(item.id) : buildMapFootprintPhotoScopeKey(item.poiId ?? item.id));
+    const scopeKey = getFootprintItemPlaceKey(item);
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
@@ -1430,105 +1436,110 @@ function UserFootprintsPageInner() {
     setLocalMapApplyProgress(8);
 
     const runApply = () => {
-        const itemByTitle = new Map(items.map((item) => [item.title, item]));
-        const currentItemKeys = new Set(items.map((item) => buildFootprintPhotoScopeKey(item.id)));
-        const mappedPhotos: PhotoItem[] = payload.matchedAssets
-          .map((asset) => {
-            const matchedItem = itemByTitle.get(asset.matchedPlaceTitle);
-            if (!matchedItem) return null;
-            return {
-              id: `local:${asset.relativePath}`,
-              url: asset.url,
-              thumbnailUrl: asset.thumbnailUrl,
-              frameX: asset.frameX ?? undefined,
-              frameY: asset.frameY ?? undefined,
-              placeKey: buildFootprintPhotoScopeKey(matchedItem.id),
-              placeTitle: matchedItem.title,
-              footprintItemId: matchedItem.id,
-              filename: asset.name,
-              size: asset.size,
-              lastModified: asset.lastModified,
-              pixelWidth: asset.pixelWidth ?? undefined,
-              pixelHeight: asset.pixelHeight ?? undefined,
-              sourceType: 'local-mapped',
-              relativePath: asset.relativePath,
-              rootName: payload.rootName,
-              missing: false,
-            } satisfies PhotoItem;
-          })
-          .filter((photo): photo is PhotoItem => !!photo)
-          .filter((photo) => currentItemKeys.has(photo.placeKey));
-        setLocalMapApplyProgress(24);
+      const itemByTitle = new Map(items.map((item) => [item.title, item]));
+      const poiPlaceKeys = new Set(poiPoints.map((point) => point.placeKey));
+      const targetPoiKeys = new Set(
+        payload.matchedAssets
+          .map((asset) => itemByTitle.get(asset.matchedPlaceTitle))
+          .filter((item): item is FootprintItem => Boolean(item?.lng && item?.lat))
+          .map(getFootprintItemPlaceKey),
+      );
+      if ([...targetPoiKeys].some((placeKey) => !poiPlaceKeys.has(placeKey))) {
+        setTimeout(runApply, 80);
+        return;
+      }
 
-        if (payload.layout.enabled) {
-          for (const photo of mappedPhotos) {
-            photo.frameX = undefined;
-            photo.frameY = undefined;
-          }
+      const currentItemKeys = new Set(items.map(getFootprintItemPlaceKey));
+      const mappedPhotos: PhotoItem[] = payload.matchedAssets
+        .map((asset) => {
+          const matchedItem = itemByTitle.get(asset.matchedPlaceTitle);
+          if (!matchedItem) return null;
+          return {
+            id: `local:${asset.relativePath}`,
+            url: asset.url,
+            thumbnailUrl: asset.thumbnailUrl,
+            frameX: asset.frameX ?? undefined,
+            frameY: asset.frameY ?? undefined,
+            placeKey: getFootprintItemPlaceKey(matchedItem),
+            placeTitle: matchedItem.title,
+            footprintItemId: matchedItem.id,
+            filename: asset.name,
+            size: asset.size,
+            lastModified: asset.lastModified,
+            pixelWidth: asset.pixelWidth ?? undefined,
+            pixelHeight: asset.pixelHeight ?? undefined,
+            sourceType: 'local-mapped',
+            relativePath: asset.relativePath,
+            rootName: payload.rootName,
+            missing: false,
+          } satisfies PhotoItem;
+        })
+        .filter((photo): photo is PhotoItem => !!photo)
+        .filter((photo) => currentItemKeys.has(photo.placeKey));
+      setLocalMapApplyProgress(24);
+
+      if (payload.layout.enabled) {
+        for (const photo of mappedPhotos) {
+          photo.frameX = undefined;
+          photo.frameY = undefined;
         }
+      }
 
-        const unplaced = mappedPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
-        const poiPlaceKeys = new Set(poiPoints.map((point) => point.placeKey));
-        const markerPlaceKeys = new Set(markers.map((marker) => String(marker.id ?? '')));
-        if (unplaced.some((photo) => markerPlaceKeys.has(photo.placeKey) && !poiPlaceKeys.has(photo.placeKey))) {
-          setTimeout(runApply, 80);
-          return;
+      const unplaced = mappedPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
+      setLocalMapApplyProgress(42);
+      let nextGroupLayouts = groupLayouts;
+      if (unplaced.length > 0) {
+        nextGroupLayouts = autoPlacePhotos(
+          unplaced,
+          [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
+          payload.layout,
+        );
+        if (unplaced.every((photo) => photo.frameX != null && photo.frameY != null)) {
+          movedPhotosRef.current = true;
+          setHasMovedPhotos(true);
         }
+      }
+      setLocalMapApplyProgress(66);
 
-        setLocalMapApplyProgress(42);
-        let nextGroupLayouts = groupLayouts;
-        if (unplaced.length > 0) {
-          nextGroupLayouts = autoPlacePhotos(
-            unplaced,
-            [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
-            payload.layout,
-          );
-          if (unplaced.every((photo) => photo.frameX != null && photo.frameY != null)) {
-            movedPhotosRef.current = true;
-            setHasMovedPhotos(true);
-          }
-        }
-        setLocalMapApplyProgress(66);
-
-        setPhotos((current) => {
-          current
-            .filter((photo) => photo.sourceType === 'local-mapped')
-            .forEach((photo) => {
+      setPhotos((current) => {
+        current
+          .filter((photo) => photo.sourceType === 'local-mapped')
+          .forEach((photo) => {
+            try {
+              URL.revokeObjectURL(photo.url);
+            } catch {}
+            if (photo.thumbnailUrl) {
               try {
-                URL.revokeObjectURL(photo.url);
+                URL.revokeObjectURL(photo.thumbnailUrl);
               } catch {}
-              if (photo.thumbnailUrl) {
-                try {
-                  URL.revokeObjectURL(photo.thumbnailUrl);
-                } catch {}
-              }
-            });
-          const uploaded = current.filter((photo) => photo.sourceType !== 'local-mapped');
-          return [...uploaded, ...mappedPhotos];
-        });
-        const debugMergedPhotos = [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos];
-        setGroupLayouts(nextGroupLayouts);
-        setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
-        setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
-        setLocalMapApplyProgress(82);
-        enqueueLocalThumbnails(mappedPhotos);
-        setLocalRootName(payload.rootName);
-        setLocalUnmatchedFolders(payload.unmatchedFolders);
-        setLocalLayout(payload.layout);
-        setFitViewEnabled(true);
-        setFitViewKey((value) => value + 1);
-        if (payload.missingAssets.length > 0) {
-          alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。若本次保存，这些文件的位置记录将被删除。`);
-        }
-        setLocalMapTargetItem(null);
-        setLocalMapOpen(false);
-        setLocalMapApplyProgress(100);
-        requestAnimationFrame(() => {
-          setTimeout(() => {
-            setIsApplyingLocalMap(false);
-            setLocalMapApplyProgress(0);
-          }, 180);
-        });
+            }
+          });
+        const uploaded = current.filter((photo) => photo.sourceType !== 'local-mapped');
+        return [...uploaded, ...mappedPhotos];
+      });
+      const debugMergedPhotos = [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos];
+      setGroupLayouts(nextGroupLayouts);
+      setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
+      setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
+      setLocalMapApplyProgress(82);
+      enqueueLocalThumbnails(mappedPhotos);
+      setLocalRootName(payload.rootName);
+      setLocalUnmatchedFolders(payload.unmatchedFolders);
+      setLocalLayout(payload.layout);
+      setFitViewEnabled(true);
+      setFitViewKey((value) => value + 1);
+      if (payload.missingAssets.length > 0) {
+        alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。若本次保存，这些文件的位置记录将被删除。`);
+      }
+      setLocalMapTargetItem(null);
+      setLocalMapOpen(false);
+      setLocalMapApplyProgress(100);
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          setIsApplyingLocalMap(false);
+          setLocalMapApplyProgress(0);
+        }, 180);
+      });
     };
 
     setTimeout(() => {
@@ -1538,7 +1549,7 @@ function UserFootprintsPageInner() {
         });
       });
     }, LOCAL_MAP_LOADING_MIN_DELAY_MS);
-  }, [groupLayouts, items, markers, photos, poiPoints]);
+  }, [groupLayouts, items, photos, poiPoints]);
 
   const currentDebugPhotos = buildDebugPhotoSnapshot(photos);
   const currentDebugGroups = buildDebugGroupSnapshot(photos);
