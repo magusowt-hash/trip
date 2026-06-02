@@ -27,6 +27,8 @@ import styles from './footprints.module.css';
 
 const LOCAL_THUMB_MAX_EDGE = 320;
 const LOCAL_THUMB_CONCURRENCY = 4;
+const LOCAL_THUMB_TIMEOUT_MS = 2500;
+const LOCAL_THUMB_TOTAL_TIMEOUT_MS = 3500;
 const LOCAL_MAP_LOADING_MIN_DELAY_MS = 120;
 
 interface FootprintGroup {
@@ -61,9 +63,19 @@ function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function createThumbnailFromUrl(url: string, maxEdge = LOCAL_THUMB_MAX_EDGE) {
+function createThumbnailFromUrl(url: string, maxEdge = LOCAL_THUMB_MAX_EDGE, timeoutMs = LOCAL_THUMB_TIMEOUT_MS) {
   return new Promise<{ url: string; width: number; height: number } | null>((resolve) => {
     const img = new Image();
+    let settled = false;
+    const finish = (value: { url: string; width: number; height: number } | null) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      img.onload = null;
+      img.onerror = null;
+      resolve(value);
+    };
+    const timeoutId = window.setTimeout(() => finish(null), timeoutMs);
     img.onload = () => {
       const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
       const width = Math.max(1, Math.round(img.naturalWidth * scale));
@@ -73,33 +85,36 @@ function createThumbnailFromUrl(url: string, maxEdge = LOCAL_THUMB_MAX_EDGE) {
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       if (!ctx) {
-        resolve(null);
+        finish(null);
         return;
       }
       ctx.drawImage(img, 0, 0, width, height);
       canvas.toBlob((blob) => {
         if (!blob) {
-          resolve(null);
+          finish(null);
           return;
         }
-        resolve({ url: URL.createObjectURL(blob), width, height });
+        finish({ url: URL.createObjectURL(blob), width, height });
       }, 'image/jpeg', 0.82);
     };
-    img.onerror = () => resolve(null);
+    img.onerror = () => finish(null);
     img.src = url;
   });
 }
 
 async function attachLocalThumbnails(photos: PhotoItem[]): Promise<PhotoItem[]> {
   const nextPhotos = photos.map((photo) => ({ ...photo }));
+  const deadline = Date.now() + LOCAL_THUMB_TOTAL_TIMEOUT_MS;
   let cursor = 0;
   async function worker() {
     while (cursor < nextPhotos.length) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) return;
       const index = cursor;
       cursor += 1;
       const photo = nextPhotos[index];
       if (!photo || photo.sourceType !== 'local-mapped' || photo.thumbnailUrl) continue;
-      const thumb = await createThumbnailFromUrl(photo.url);
+      const thumb = await createThumbnailFromUrl(photo.url, LOCAL_THUMB_MAX_EDGE, Math.min(LOCAL_THUMB_TIMEOUT_MS, remainingMs));
       if (!thumb) continue;
       nextPhotos[index] = {
         ...photo,
