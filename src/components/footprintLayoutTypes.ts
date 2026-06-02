@@ -33,3 +33,10 @@ export type PendingPlaceGroup = {
   logicalY: number;
   offsets: LogicalOffset[];
 };
+
+export type LockedPlaceGroup = {
+  placeKey: string;
+  logicalX: number;
+  logicalY: number;
+  geometry: GroupGeometry;
+};

@@ -6,7 +6,7 @@ import {
   type GroupLabelSide,
 } from './localMapGroupGeometry';
 import { buildRadialLayout } from './localMapLayoutEngine';
-import type { FootprintPlacement, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
+import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
 import {
   fitsGroupRectAroundMap,
   fitsLabelRectAroundMap,
@@ -357,6 +357,7 @@ function evaluateCandidate(
   candidate: PlacementCandidate,
   groups: PendingPlaceGroup[],
   state: PlacementState,
+  lockedGroups: LockedPlaceGroup[],
 ) : CandidateEvaluation {
   const line = buildLine(group, candidate.geometry);
   let bundlePenalty = 0;
@@ -413,6 +414,26 @@ function evaluateCandidate(
     }
   }
 
+  for (const locked of lockedGroups) {
+    const photoOverlap = rectOverlapsOccupiedPhotos(candidate.geometry.photoRect, [locked.geometry], GROUP_GAP);
+    const labelOverlap = hasLabelCollisions(candidate.geometry, [locked.geometry], LABEL_GAP);
+    const photoLabelOverlap = hasPhotoAgainstLabelCollisions(candidate.geometry, [locked.geometry], LABEL_GAP);
+    const groupOverlap = rectsOverlap(candidate.geometry.groupRect, locked.geometry.groupRect, GROUP_GAP);
+    if (photoOverlap || labelOverlap || photoLabelOverlap || groupOverlap) {
+      return { valid: false, score: Number.POSITIVE_INFINITY };
+    }
+
+    const lockedLine = buildLine(locked, locked.geometry);
+    if (segmentsIntersect(line.start, line.end, lockedLine.start, lockedLine.end)) {
+      return { valid: false, score: Number.POSITIVE_INFINITY };
+    }
+
+    const lineDistance = segmentDistance(line.start, line.end, lockedLine.start, lockedLine.end);
+    if (lineDistance < LINE_BUNDLE_DISTANCE) {
+      bundlePenalty += (LINE_BUNDLE_DISTANCE - lineDistance) * (LINE_BUNDLE_DISTANCE - lineDistance) * 8;
+    }
+  }
+
   const sectorCounts = buildSectorCounts(groups, state, group.placeKey, candidate);
   const sectorPenalty = computeSectorPenalty(sectorCounts, groups.length);
   const envelopePenalty = computeEnvelopePenalty(groups, state, group.placeKey, candidate);
@@ -435,6 +456,7 @@ function evaluateCandidate(
 function assignInitialPlacements(
   orderedGroups: PendingPlaceGroup[],
   candidatePoolById: Map<string, PlacementCandidate[]>,
+  lockedGroups: LockedPlaceGroup[],
 ) {
   let bestState: PlacementState | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
@@ -463,7 +485,7 @@ function assignInitialPlacements(
       for (let step = 0; step < candidates.length; step++) {
         const index = (step + offset) % candidates.length;
         const candidate = candidates[index];
-        const evaluation = evaluateCandidate(group, candidate, orderedGroups, state);
+        const evaluation = evaluateCandidate(group, candidate, orderedGroups, state, lockedGroups);
         if (!evaluation.valid) continue;
         if (evaluation.score < bestCandidateScore) {
           bestCandidateScore = evaluation.score;
@@ -497,6 +519,7 @@ function reassignGroup(
   groups: PendingPlaceGroup[],
   candidatePoolById: Map<string, PlacementCandidate[]>,
   state: PlacementState,
+  lockedGroups: LockedPlaceGroup[],
 ) {
   const currentIndex = state.candidateIndexById.get(group.placeKey) ?? 0;
   const candidates = candidatePoolById.get(group.placeKey) ?? [];
@@ -504,7 +527,7 @@ function reassignGroup(
 
   const currentCandidate = candidates[currentIndex];
   const currentScore = currentCandidate
-    ? evaluateCandidate(group, currentCandidate, groups, state)
+    ? evaluateCandidate(group, currentCandidate, groups, state, lockedGroups)
     : { valid: false, score: Number.POSITIVE_INFINITY };
 
   let bestIndex = currentIndex;
@@ -515,7 +538,7 @@ function reassignGroup(
 
   for (let index = 0; index < candidates.length; index++) {
     const candidate = candidates[index];
-    const evaluation = evaluateCandidate(group, candidate, groups, state);
+    const evaluation = evaluateCandidate(group, candidate, groups, state, lockedGroups);
     if (!evaluation.valid) continue;
     if (evaluation.score < bestScore - 1e-6) {
       bestScore = evaluation.score;
@@ -537,11 +560,12 @@ function optimizeAssignments(
   orderedGroups: PendingPlaceGroup[],
   candidatePoolById: Map<string, PlacementCandidate[]>,
   state: PlacementState,
+  lockedGroups: LockedPlaceGroup[],
 ) {
   for (let iteration = 0; iteration < REBALANCE_ITERATION_COUNT; iteration++) {
     let changed = false;
     for (const group of orderedGroups) {
-      if (reassignGroup(group, orderedGroups, candidatePoolById, state)) {
+      if (reassignGroup(group, orderedGroups, candidatePoolById, state, lockedGroups)) {
         changed = true;
       }
     }
@@ -626,6 +650,7 @@ export function solvePendingGroupPlacements(
   mapRect: LogicalRect,
   safeGap: number,
   labelGapBoost: number,
+  lockedGroups: LockedPlaceGroup[] = [],
 ) {
   const basePlacements = buildRadialLayout(
     groups.map((group) => ({
@@ -652,9 +677,9 @@ export function solvePendingGroupPlacements(
     candidatePoolById.set(group.placeKey, buildCandidatePool(group, basePlacement, mapRect));
   }
 
-  const assignedState = assignInitialPlacements(orderedGroups, candidatePoolById);
+  const assignedState = assignInitialPlacements(orderedGroups, candidatePoolById, lockedGroups);
   const workingState = assignedState ?? buildFallbackState(orderedGroups, basePlacementById, mapRect);
-  optimizeAssignments(orderedGroups, candidatePoolById, workingState);
+  optimizeAssignments(orderedGroups, candidatePoolById, workingState, lockedGroups);
 
   const refinedPlacementById = refineRadialPlacements(
     orderedGroups,

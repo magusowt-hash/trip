@@ -9,7 +9,7 @@ import PhotoAlbumModal from '@/components/PhotoAlbumModal';
 import LegendPanel from '@/components/LegendPanel';
 import LocalMapModal, { type LocalMappedAssetDraft, type LocalMapLayoutSettings } from '@/components/LocalMapModal';
 import { solvePendingGroupPlacements } from '@/components/footprintLayoutSolver';
-import type { LogicalOffset, LogicalRect, LogicalSize, PendingPlaceGroup } from '@/components/footprintLayoutTypes';
+import type { LockedPlaceGroup, LogicalOffset, LogicalRect, LogicalSize, PendingPlaceGroup } from '@/components/footprintLayoutTypes';
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import {
@@ -225,16 +225,6 @@ function buildOffsetGroupGeometry(placePhotos: PhotoItem[], offsets: LogicalOffs
     placePhotos.length,
     scale,
   );
-}
-
-function extractOffsetsFromPlacedGroup(placePhotos: PhotoItem[], scale = 1) {
-  const geometry = buildPlaceGeometry(placePhotos, scale);
-  if (!geometry) return null;
-  const center = rectCenter(geometry.photoRect);
-  return placePhotos.map((photo) => ({
-    offsetX: (photo.frameX ?? center.x) - center.x,
-    offsetY: (photo.frameY ?? center.y) - center.y,
-  }));
 }
 
 function solveFrozenGroupLayouts(
@@ -850,20 +840,34 @@ function UserFootprintsPageInner() {
     }
 
     const targetKeys = new Set(byPlace.keys());
+    const lockedGroups: LockedPlaceGroup[] = [];
     const pendingGroups: PendingPlaceGroup[] = [];
 
     for (const [placeKey, placePhotos] of allGroups) {
-      let offsets: LogicalOffset[] | null = null;
       if (
         !targetKeys.has(placeKey) &&
         placePhotos.every((photo) => photo.frameX != null && photo.frameY != null)
       ) {
-        offsets = extractOffsetsFromPlacedGroup(placePhotos, collisionScale);
+        const lockedGeometry = buildGroupGeometryFromLayout(
+          placeKey,
+          placePhotos,
+          getPhotoLogicalSize,
+          collisionScale,
+          groupLayouts,
+        );
+        if (lockedGeometry) {
+          lockedGroups.push({
+            placeKey,
+            logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
+            logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
+            geometry: lockedGeometry,
+          });
+          continue;
+        }
       }
-      if (!offsets) {
-        const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
-        offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
-      }
+
+      const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
+      const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
 
       const reservedLabelOffset = estimateReservedLabelOffset(placeKey, placePhotos, collisionScale, mapRect, groupLayouts);
       const baseOffsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale);
@@ -896,6 +900,7 @@ function UserFootprintsPageInner() {
       mapRect,
       cardSize,
       computeLabelGapBoost(outerScale),
+      lockedGroups,
     );
     const placementById = solvedPendingGroups.placements;
 
