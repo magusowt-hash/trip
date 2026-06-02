@@ -1,5 +1,6 @@
 import {
   buildGroupGeometryFromPhotoRect,
+  resolveGroupGeometryAsWhole,
   rectsOverlap,
   resolvePreferredLabelSide,
   type GroupGeometry,
@@ -577,12 +578,27 @@ function buildGeometryMapForPlacements(
   groups: PendingPlaceGroup[],
   placementById: Map<string, FootprintPlacement>,
   mapRect: LogicalRect,
+  labelGapBoost = 0,
+  lockedGroups: LockedPlaceGroup[] = [],
 ) {
+  const entries = groups.flatMap((group) => {
+    const placement = placementById.get(group.placeKey);
+    if (!placement) return [];
+    const geometry = chooseBestGeometryForPlacement(group, placement, mapRect);
+    return [{ id: group.placeKey, geometry }];
+  });
+  const resolved = resolveGroupGeometryAsWhole(
+    [
+      ...lockedGroups.map((group) => ({ id: group.placeKey, geometry: group.geometry })),
+      ...entries,
+    ],
+    { gap: GROUP_GAP, mapRect, mapGap: MAP_GAP, labelGapBoost },
+  );
   const geometryById = new Map<string, GroupGeometry>();
   for (const group of groups) {
-    const placement = placementById.get(group.placeKey);
-    if (!placement) continue;
-    geometryById.set(group.placeKey, chooseBestGeometryForPlacement(group, placement, mapRect));
+    const geometry = resolved.get(group.placeKey);
+    if (!geometry) continue;
+    geometryById.set(group.placeKey, geometry);
   }
   return geometryById;
 }
@@ -688,8 +704,20 @@ export function solvePendingGroupPlacements(
     safeGap,
     labelGapBoost,
   );
-  const refinedGeometryById = buildGeometryMapForPlacements(orderedGroups, refinedPlacementById, mapRect);
-  const optimizedGeometryById = buildGeometryMapForPlacements(orderedGroups, workingState.placementById, mapRect);
+  const refinedGeometryById = buildGeometryMapForPlacements(
+    orderedGroups,
+    refinedPlacementById,
+    mapRect,
+    labelGapBoost,
+    lockedGroups,
+  );
+  const optimizedGeometryById = buildGeometryMapForPlacements(
+    orderedGroups,
+    workingState.placementById,
+    mapRect,
+    labelGapBoost,
+    lockedGroups,
+  );
 
   const finalPlacements = hasHardConflicts(orderedGroups, refinedPlacementById, refinedGeometryById, mapRect)
     ? workingState.placementById
