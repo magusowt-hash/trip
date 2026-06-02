@@ -6,7 +6,8 @@ import {
   buildGroupGeometry,
   GROUP_LABEL_FONT_SCREEN_SIZE,
   GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
-  resolveGroupGeometryTextAware,
+  buildGroupGeometryCandidatesFromGeometry,
+  resolveGroupGeometryAsWhole,
 } from './localMapGroupGeometry';
 
 export interface PhotoItem {
@@ -52,7 +53,7 @@ export interface PlaceRect {
   labelTop: number;
   labelRight: number;
   labelBottom: number;
-  labelSide: 'top' | 'bottom';
+  labelSide: 'top' | 'bottom' | 'left' | 'right';
   labelAnchorX: number;
   labelAnchorY: number;
 }
@@ -255,9 +256,13 @@ export default function OuterFrameCanvas({
         geometry,
       });
     }
-    const resolvedGeometry = resolveGroupGeometryTextAware(
-      geometryEntries.map((entry) => ({ id: entry.placeKey, geometry: entry.geometry })),
-      { gap: 10, step: 6, maxOffset: 72 },
+    const resolvedGeometry = resolveGroupGeometryAsWhole(
+      geometryEntries.map((entry) => ({
+        id: entry.placeKey,
+        geometry: entry.geometry,
+        candidates: buildGroupGeometryCandidatesFromGeometry(entry.geometry),
+      })),
+      { gap: 10, labelGapBoost: 8 },
     );
     const rects: PlaceRect[] = [];
     for (const entry of geometryEntries) {
@@ -269,10 +274,10 @@ export default function OuterFrameCanvas({
         photoTop: geometry.photoRect.top,
         photoRight: geometry.photoRect.right,
         photoBottom: geometry.photoRect.bottom,
-        overallLeft: geometry.groupRect.left,
-        overallTop: geometry.groupRect.top,
-        overallRight: geometry.groupRect.right,
-        overallBottom: geometry.groupRect.bottom,
+        overallLeft: geometry.overallRect.left,
+        overallTop: geometry.overallRect.top,
+        overallRight: geometry.overallRect.right,
+        overallBottom: geometry.overallRect.bottom,
         labelLeft: geometry.labelRect.left,
         labelTop: geometry.labelRect.top,
         labelRight: geometry.labelRect.right,

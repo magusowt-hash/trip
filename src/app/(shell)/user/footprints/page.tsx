@@ -21,11 +21,12 @@ import type { MapMarker } from '@/components/PlanMap';
 import type { PhotoItem, PoiPoint } from '@/components/OuterFrameCanvas';
 import {
   buildPhotoRect,
+  buildGroupGeometryCandidatesFromGeometry,
   buildGroupGeometryCandidatesFromPhotoRect,
   buildGroupGeometryFromPhotoRect,
   expandPhotoRect,
   rectsOverlap,
-  resolveGroupGeometryDownward,
+  resolveGroupGeometryAsWhole,
   scoreGroupGeometryPlacement,
   translateGroupGeometry,
 } from '@/components/localMapGroupGeometry';
@@ -213,7 +214,7 @@ function buildPlaceBounds(placePhotos: PhotoItem[], scale = 1): LogicalRect | nu
   const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
   const geometry = buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, scale);
-  return geometry.groupRect;
+  return geometry.overallRect;
 }
 
 function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1) {
@@ -253,7 +254,7 @@ function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalO
     scale,
   );
 
-  return geometry.groupRect;
+  return geometry.overallRect;
 }
 
 function buildOffsetsForLayout(
@@ -841,9 +842,16 @@ function UserFootprintsPageInner() {
       if (!geometry) continue;
       existingGeometryEntries.push({ id: placeKey, geometry });
     }
-    const resolvedExistingGeometryMap = resolveGroupGeometryDownward(existingGeometryEntries, { gap: 10, step: 6, maxOffset: 72 });
+    const resolvedExistingGeometryMap = resolveGroupGeometryAsWhole(
+      existingGeometryEntries.map((entry) => ({
+        id: entry.id,
+        geometry: entry.geometry,
+        candidates: buildGroupGeometryCandidatesFromGeometry(entry.geometry),
+      })),
+      { gap: 10, mapRect, mapGap: cardSize, labelGapBoost: 8 },
+    );
     for (const [, geometry] of resolvedExistingGeometryMap) {
-      occupiedRects.push(geometry.groupRect);
+      occupiedRects.push(geometry.overallRect);
       occupiedGeometries.push(geometry);
     }
 
@@ -874,7 +882,7 @@ function UserFootprintsPageInner() {
       if (placedPhotos.length > 0) {
         const existingGeometry = resolvedExistingGeometryMap.get(placeKey) ?? buildPlaceGeometry(placedPhotos, collisionScale);
         if (!existingGeometry) continue;
-        const existingCenter = rectCenter(existingGeometry.groupRect);
+        const existingCenter = rectCenter(existingGeometry.photoRect);
         const directionX = existingCenter.x || 0;
         const directionY = existingCenter.y || 1;
         const directionLen = Math.hypot(directionX, directionY) || 1;
@@ -889,7 +897,7 @@ function UserFootprintsPageInner() {
         const nextGeometry = translateGroupGeometry(offsetGeometry, candidateCenterX, candidateCenterY);
         const occupiedByOthers = occupiedGeometries.filter((geometry) => geometry !== existingGeometry);
         const canExpandOutward =
-          fitsAroundMap(nextGeometry.groupRect, mapRect, cardSize) &&
+          fitsAroundMap(nextGeometry.overallRect, mapRect, cardSize) &&
           scoreGroupGeometryPlacement(nextGeometry, occupiedByOthers, cardSize) === 0;
 
         if (!canExpandOutward) {
@@ -920,7 +928,7 @@ function UserFootprintsPageInner() {
         placePhotos,
         renderRect,
         collisionGeometry: offsetGeometry,
-        collisionRect: offsetGeometry.groupRect,
+        collisionRect: offsetGeometry.overallRect,
         collisionCandidates: buildGroupGeometryCandidatesFromPhotoRect(
           offsetGeometry.photoRect,
           placePhotos[0]?.placeTitle || '',

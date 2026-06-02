@@ -30,6 +30,12 @@ type GroupGeometryEntry<T extends string = string> = {
   geometry: GroupGeometry;
 };
 
+type WholeGeometryEntry<T extends string = string> = {
+  id: T;
+  geometry: GroupGeometry;
+  candidates?: GroupGeometry[];
+};
+
 export const GROUP_LABEL_FONT_SCREEN_SIZE = 10;
 export const GROUP_LABEL_MIN_FONT_SCREEN_SIZE = 9;
 export const GROUP_LABEL_HEIGHT_SCREEN = 13;
@@ -312,6 +318,89 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   ];
 }
 
+export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry) {
+  const photoRect = geometry.photoRect;
+  const photoCenter = rectCenter(photoRect);
+  const labelHalfWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left) / 2;
+  const labelHalfHeight = Math.max(1, geometry.labelRect.bottom - geometry.labelRect.top) / 2;
+  const lineAnchorRadius = Math.max(1, geometry.lineRect.right - geometry.lineRect.left) / 2;
+  const photoToLineGap =
+    geometry.labelSide === 'top'
+      ? Math.max(0, photoRect.top - geometry.lineAnchorY)
+      : geometry.labelSide === 'bottom'
+        ? Math.max(0, geometry.lineAnchorY - photoRect.bottom)
+        : geometry.labelSide === 'left'
+          ? Math.max(0, photoRect.left - geometry.lineAnchorX)
+          : Math.max(0, geometry.lineAnchorX - photoRect.right);
+  const lineToLabelGap =
+    geometry.labelSide === 'top'
+      ? Math.max(0, geometry.lineRect.top - geometry.labelRect.bottom)
+      : geometry.labelSide === 'bottom'
+        ? Math.max(0, geometry.labelRect.top - geometry.lineRect.bottom)
+        : geometry.labelSide === 'left'
+          ? Math.max(0, geometry.lineRect.left - geometry.labelRect.right)
+          : Math.max(0, geometry.labelRect.left - geometry.lineRect.right);
+
+  const buildForSide = (labelSide: GroupLabelSide): GroupGeometry => {
+    const lineAnchorX =
+      labelSide === 'left' ? photoRect.left - photoToLineGap :
+      labelSide === 'right' ? photoRect.right + photoToLineGap :
+      photoCenter.x;
+    const lineAnchorY =
+      labelSide === 'top' ? photoRect.top - photoToLineGap :
+      labelSide === 'bottom' ? photoRect.bottom + photoToLineGap :
+      photoCenter.y;
+    const labelAnchorX =
+      labelSide === 'left'
+        ? lineAnchorX - lineAnchorRadius - lineToLabelGap - labelHalfWidth
+        : labelSide === 'right'
+          ? lineAnchorX + lineAnchorRadius + lineToLabelGap + labelHalfWidth
+          : photoCenter.x;
+    const labelAnchorY =
+      labelSide === 'top'
+        ? lineAnchorY - lineAnchorRadius - lineToLabelGap - labelHalfHeight
+        : labelSide === 'bottom'
+          ? lineAnchorY + lineAnchorRadius + lineToLabelGap + labelHalfHeight
+          : photoCenter.y;
+
+    const labelRect: LogicalRect = {
+      left: labelAnchorX - labelHalfWidth,
+      right: labelAnchorX + labelHalfWidth,
+      top: labelAnchorY - labelHalfHeight,
+      bottom: labelAnchorY + labelHalfHeight,
+    };
+    const lineRect: LogicalRect = {
+      left: lineAnchorX - lineAnchorRadius,
+      right: lineAnchorX + lineAnchorRadius,
+      top: lineAnchorY - lineAnchorRadius,
+      bottom: lineAnchorY + lineAnchorRadius,
+    };
+    const groupRect = unionRect(unionRect(photoRect, labelRect), lineRect);
+
+    return {
+      ...geometry,
+      labelRect,
+      lineRect,
+      groupRect,
+      overallRect: groupRect,
+      photoCenterX: photoCenter.x,
+      photoCenterY: photoCenter.y,
+      labelSide,
+      labelAnchorX,
+      labelAnchorY,
+      lineAnchorX,
+      lineAnchorY,
+    };
+  };
+
+  return [
+    buildForSide('bottom'),
+    buildForSide('top'),
+    buildForSide('left'),
+    buildForSide('right'),
+  ];
+}
+
 export function buildGroupGeometry(
   groupPhotos: Array<Pick<PhotoItem, 'frameX' | 'frameY' | 'pixelWidth' | 'pixelHeight' | 'placeTitle'>>,
   getPhotoLogicalSize: SizeReader,
@@ -423,6 +512,68 @@ export function scoreGroupGeometryPlacement(
   }
 
   return score;
+}
+
+function rectDistanceToCenter(rect: LogicalRect) {
+  const center = rectCenter(rect);
+  return Math.hypot(center.x, center.y);
+}
+
+function rectOverlapsMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
+  return rectsOverlap(rect, mapRect, gap);
+}
+
+export function resolveGroupGeometryAsWhole<T extends string = string>(
+  entries: WholeGeometryEntry<T>[],
+  options?: {
+    gap?: number;
+    mapRect?: LogicalRect;
+    mapGap?: number;
+    labelGapBoost?: number;
+  },
+) {
+  const gap = options?.gap ?? 10;
+  const mapGap = options?.mapGap ?? gap;
+  const labelGapBoost = options?.labelGapBoost ?? 0;
+  const resolved = new Map<T, GroupGeometry>();
+  const occupied: GroupGeometry[] = [];
+  const sortedEntries = [...entries].sort((left, right) => (
+    rectDistanceToCenter(right.geometry.photoRect) - rectDistanceToCenter(left.geometry.photoRect) ||
+    left.geometry.photoRect.top - right.geometry.photoRect.top ||
+    left.geometry.photoCenterX - right.geometry.photoCenterX
+  ));
+
+  for (const entry of sortedEntries) {
+    const candidates = entry.candidates?.length ? entry.candidates : buildGroupGeometryCandidatesFromGeometry(entry.geometry);
+    let chosen = candidates[0];
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (const candidate of candidates) {
+      let score = scoreGroupGeometryPlacement(candidate, occupied, gap, { labelGapBoost });
+
+      if (options?.mapRect) {
+        if (rectOverlapsMap(candidate.overallRect, options.mapRect, mapGap)) {
+          score += 500000;
+        }
+      }
+
+      score += rectDistanceToCenter(candidate.overallRect) * 0.08;
+
+      if (candidate.labelSide !== entry.geometry.labelSide) {
+        score += 24;
+      }
+
+      if (score < bestScore) {
+        bestScore = score;
+        chosen = candidate;
+      }
+    }
+
+    resolved.set(entry.id, chosen);
+    occupied.push(chosen);
+  }
+
+  return resolved;
 }
 
 export function resolveGroupGeometryDownward<T extends string = string>(
