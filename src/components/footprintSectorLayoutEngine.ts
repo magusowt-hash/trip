@@ -35,6 +35,8 @@ const CLUSTER_REARRANGE_PASSES = 2;
 const NEIGHBOR_NUDGE_STEPS = [-24, -12, 12, 24];
 const CLUSTER_TANGENTIAL_STEPS = [-220, -160, -120, 120, 160, 220];
 const CLUSTER_INWARD_STEPS = [420, 320, 240, 180, 120, 80];
+const MAX_HEAVY_GLOBAL_REFINE_GROUPS = 14;
+const MAX_CLUSTER_WINDOWS = 8;
 const OUTER_CORNER_MIN_RADIUS = 2400;
 const OUTER_CORNER_ANGLE_LIMIT = Math.PI / 6;
 const RADIAL_SHRINK_STEPS = [720, 640, 560, 480, 400, 320, 260, 200, 160, 120, 80, 56, 32, 16];
@@ -270,6 +272,10 @@ function computeAngularDriftPenalty(
     penalty += drift * drift;
   }
   return penalty;
+}
+
+function shouldUseHeavyGlobalRefine(groups: PendingPlaceGroup[]) {
+  return groups.length <= MAX_HEAVY_GLOBAL_REFINE_GROUPS;
 }
 
 function evaluatePlacementCandidate(
@@ -1951,6 +1957,7 @@ function refineSectorClusters(
   mapRect: LogicalRect,
   safeGap: number,
 ) {
+  if (!shouldUseHeavyGlobalRefine(groups)) return placementById;
   const nextPlacementById = new Map(placementById);
 
   for (let pass = 0; pass < CLUSTER_REARRANGE_PASSES; pass++) {
@@ -1959,7 +1966,8 @@ function refineSectorClusters(
       .sort((left, right) => (
         scoreClusterCompaction(right, nextPlacementById, groups, mapRect, safeGap) -
         scoreClusterCompaction(left, nextPlacementById, groups, mapRect, safeGap)
-      ));
+      ))
+      .slice(0, MAX_CLUSTER_WINDOWS);
 
     for (const windowGroups of windows) {
       const baseline = scoreClusterCompaction(windowGroups, nextPlacementById, groups, mapRect, safeGap);
@@ -2247,6 +2255,10 @@ export function refineRadialPlacements(
       refinePasses: POST_LAYOUT_REFINE_PASSES,
     },
   );
+
+  if (!shouldUseHeavyGlobalRefine(groups)) {
+    return refinedPlacementById;
+  }
 
   const basePlacementById = new Map(placementById);
   for (let pass = 0; pass < GLOBAL_COMPACTION_PASSES; pass++) {
