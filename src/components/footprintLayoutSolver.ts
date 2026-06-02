@@ -2,7 +2,6 @@ import {
   buildGroupGeometryFromPhotoRect,
   rectsOverlap,
   resolvePreferredLabelSide,
-  translateGroupGeometry,
   type GroupGeometry,
   type GroupLabelSide,
 } from './localMapGroupGeometry';
@@ -14,38 +13,41 @@ import {
   fitsPhotoRectAroundMap,
   hasLabelCollisions,
   hasPhotoAgainstLabelCollisions,
+  rectDistanceToMap,
   rectOverlapsOccupiedPhotos,
 } from './footprintLayoutConstraints';
 
 const GROUP_GAP = 10;
 const LABEL_GAP = 14;
-const MAP_GAP = 28;
-const ANGLE_STEPS = [0, -3, 3, -6, 6, -10, 10, -14, 14, -20, 20, -28, 28];
-const RADIUS_STEPS = [-520, -420, -320, -240, -180, -120, -72, -36, 0, 36, 72, 120];
-const REFINE_ANGLE_STEPS = [0, -2, 2, -4, 4, -7, 7];
-const REFINE_RADIUS_STEPS = [0, -180, -120, -72, -36, 24];
-const LABEL_SIDE_PRIORITY: GroupLabelSide[] = ['top', 'bottom'];
-const REFINE_PASSES = 3;
-const LINE_BUNDLE_DISTANCE = 28;
-const LINKED_PAIR_DISTANCE = 36;
-const LINKED_PAIR_ANGLE_STEPS = [-8, -5, -3, 3, 5, 8];
-const LINKED_PAIR_RADIUS_STEPS = [-120, -80, -48, -24];
+const MAP_GAP = 32;
+const LINE_BUNDLE_DISTANCE = 34;
+const LOCAL_DENSITY_DISTANCE = 380;
+const GLOBAL_SECTOR_COUNT = 16;
+const INITIAL_ASSIGNMENT_PASSES = 3;
+const REBALANCE_ITERATION_COUNT = 8;
+const MAX_CANDIDATES_PER_GROUP = 48;
 
-type PlacedEntry = {
-  group: PendingPlaceGroup;
+const ANGLE_OFFSETS_DEGREES = [-36, -24, -16, -10, -6, 0, 6, 10, 16, 24, 36];
+const RIGHT_SIDE_BOOST_DEGREES = [-20, -12, -6, 0, 6, 12, 20];
+const RADIUS_FACTORS = [0.8, 0.9, 1, 1.12, 1.26, 1.42, 1.62];
+const GLOBAL_SECTOR_ANGLE_OFFSETS = [-8, 0, 8];
+const GLOBAL_RADIUS_FACTORS = [0.92, 1.04, 1.18, 1.34];
+
+type PlacementCandidate = {
   placement: FootprintPlacement;
   geometry: GroupGeometry;
+  basePenalty: number;
 };
 
-type CandidateScore = {
-  total: number;
+type PlacementState = {
+  placementById: Map<string, FootprintPlacement>;
+  geometryById: Map<string, GroupGeometry>;
+  candidateIndexById: Map<string, number>;
+};
+
+type CandidateEvaluation = {
   valid: boolean;
-  uniformity: number;
-};
-
-type LinkedPair = {
-  left: PendingPlaceGroup;
-  right: PendingPlaceGroup;
+  score: number;
 };
 
 function normalizeAngle(angle: number) {
@@ -83,51 +85,6 @@ function segmentsIntersect(
   return ab1 * ab2 < -1e-6 && ba1 * ba2 < -1e-6;
 }
 
-function buildGeometryForPlacement(
-  group: PendingPlaceGroup,
-  placement: FootprintPlacement,
-  labelSide?: GroupLabelSide,
-) {
-  const translatedPhotoRect = {
-    left: group.collisionGeometry.photoRect.left + placement.centerX,
-    right: group.collisionGeometry.photoRect.right + placement.centerX,
-    top: group.collisionGeometry.photoRect.top + placement.centerY,
-    bottom: group.collisionGeometry.photoRect.bottom + placement.centerY,
-  };
-
-  return buildGroupGeometryFromPhotoRect(
-    translatedPhotoRect,
-    group.placePhotos[0]?.placeTitle || '',
-    group.placePhotos.length,
-    1,
-    labelSide ?? resolvePreferredLabelSide(placement.centerX, placement.centerY),
-    group.reservedLabelOffset,
-  );
-}
-
-function fitsAroundMap(geometry: GroupGeometry, mapRect: LogicalRect) {
-  return (
-    fitsGroupRectAroundMap(geometry.groupRect, mapRect, MAP_GAP) &&
-    fitsPhotoRectAroundMap(geometry.photoRect, mapRect, MAP_GAP) &&
-    fitsLabelRectAroundMap(geometry.labelRect, mapRect, MAP_GAP)
-  );
-}
-
-function hasCrossingWithPlaced(
-  group: PendingPlaceGroup,
-  geometry: GroupGeometry,
-  placed: PlacedEntry[],
-) {
-  return placed.some((entry) => (
-    segmentsIntersect(
-      { x: group.logicalX, y: group.logicalY },
-      { x: geometry.lineAnchorX, y: geometry.lineAnchorY },
-      { x: entry.group.logicalX, y: entry.group.logicalY },
-      { x: entry.geometry.lineAnchorX, y: entry.geometry.lineAnchorY },
-    )
-  ));
-}
-
 function pointToSegmentDistance(
   point: { x: number; y: number },
   start: { x: number; y: number },
@@ -158,127 +115,84 @@ function segmentDistance(
   );
 }
 
-function buildLineSegment(group: PendingPlaceGroup, geometry: GroupGeometry) {
+function buildLine(group: PendingPlaceGroup, geometry: GroupGeometry) {
   return {
     start: { x: group.logicalX, y: group.logicalY },
     end: { x: geometry.lineAnchorX, y: geometry.lineAnchorY },
   };
 }
 
-function computeCollisionPenalty(geometry: GroupGeometry, placed: PlacedEntry[]) {
-  const occupied = placed.map((entry) => entry.geometry);
-  const photoOverlap = rectOverlapsOccupiedPhotos(geometry.photoRect, occupied, GROUP_GAP);
-  const labelOverlap = hasLabelCollisions(geometry, occupied, LABEL_GAP);
-  const photoLabelOverlap = hasPhotoAgainstLabelCollisions(geometry, occupied, LABEL_GAP);
-  const groupOverlap = occupied.some((entry) => rectsOverlap(geometry.groupRect, entry.groupRect, GROUP_GAP));
+function computeSectorIndex(angle: number) {
+  const normalized = normalizeAngle(angle);
+  return Math.min(
+    GLOBAL_SECTOR_COUNT - 1,
+    Math.floor((normalized / (Math.PI * 2)) * GLOBAL_SECTOR_COUNT),
+  );
+}
 
-  return {
-    photoOverlap,
-    labelOverlap,
-    photoLabelOverlap,
-    groupOverlap,
+function buildGeometryForPlacement(
+  group: PendingPlaceGroup,
+  placement: FootprintPlacement,
+  labelSide: GroupLabelSide,
+) {
+  const translatedPhotoRect = {
+    left: group.collisionGeometry.photoRect.left + placement.centerX,
+    right: group.collisionGeometry.photoRect.right + placement.centerX,
+    top: group.collisionGeometry.photoRect.top + placement.centerY,
+    bottom: group.collisionGeometry.photoRect.bottom + placement.centerY,
   };
+
+  return buildGroupGeometryFromPhotoRect(
+    translatedPhotoRect,
+    group.placePhotos[0]?.placeTitle || '',
+    group.placePhotos.length,
+    1,
+    labelSide,
+    group.reservedLabelOffset,
+  );
 }
 
-function computeLineBundlePenalty(
+function createGeometryVariants(
   group: PendingPlaceGroup,
-  geometry: GroupGeometry,
-  placed: PlacedEntry[],
+  placement: FootprintPlacement,
 ) {
-  let penalty = 0;
-  const start = { x: group.logicalX, y: group.logicalY };
-  const end = { x: geometry.lineAnchorX, y: geometry.lineAnchorY };
-
-  for (const entry of placed) {
-    const otherStart = { x: entry.group.logicalX, y: entry.group.logicalY };
-    const otherEnd = { x: entry.geometry.lineAnchorX, y: entry.geometry.lineAnchorY };
-    const distance = segmentDistance(start, end, otherStart, otherEnd);
-    if (distance < LINE_BUNDLE_DISTANCE) {
-      penalty += (LINE_BUNDLE_DISTANCE - distance) * (LINE_BUNDLE_DISTANCE - distance) * 4.5;
-    }
-  }
-
-  return penalty;
+  const preferredSide = resolvePreferredLabelSide(placement.centerX, placement.centerY);
+  const sides: GroupLabelSide[] = [preferredSide, preferredSide === 'top' ? 'bottom' : 'top'];
+  return sides.map((side) => buildGeometryForPlacement(group, placement, side));
 }
 
-function computeUniformityPenalty(
-  placement: FootprintPlacement,
-  placed: PlacedEntry[],
-) {
-  if (placed.length === 0) return 0;
-
-  const radius = Math.hypot(placement.centerX, placement.centerY);
-  const angle = Math.atan2(placement.centerY, placement.centerX);
-  let nearestPenalty = 0;
-  let sectorPenalty = 0;
-
-  for (const entry of placed) {
-    const otherRadius = Math.hypot(entry.placement.centerX, entry.placement.centerY);
-    const otherAngle = Math.atan2(entry.placement.centerY, entry.placement.centerX);
-    const radiusGap = Math.abs(radius - otherRadius);
-    const angleGap = Math.abs(angleDelta(angle, otherAngle));
-    if (angleGap < Math.PI / 9) {
-      sectorPenalty += (Math.PI / 9 - angleGap) * 220;
-      if (radiusGap < 260) sectorPenalty += (260 - radiusGap) * 0.8;
-    }
-    const centerDistance = Math.hypot(
-      placement.centerX - entry.placement.centerX,
-      placement.centerY - entry.placement.centerY,
-    );
-    if (centerDistance < 320) {
-      nearestPenalty += (320 - centerDistance) * 0.9;
-    }
-  }
-
-  return nearestPenalty + sectorPenalty;
+function geometryFitsMap(geometry: GroupGeometry, mapRect: LogicalRect) {
+  return (
+    fitsGroupRectAroundMap(geometry.groupRect, mapRect, MAP_GAP) &&
+    fitsPhotoRectAroundMap(geometry.photoRect, mapRect, MAP_GAP) &&
+    fitsLabelRectAroundMap(geometry.labelRect, mapRect, MAP_GAP)
+  );
 }
 
-function scoreCandidate(
-  placement: FootprintPlacement,
-  geometry: GroupGeometry,
-  placed: PlacedEntry[],
-  basePlacement: FootprintPlacement,
+function chooseBestGeometryForPlacement(
   group: PendingPlaceGroup,
-) : CandidateScore {
-  const radius = Math.hypot(placement.centerX, placement.centerY);
-  const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
-  const angle = Math.atan2(placement.centerY, placement.centerX);
-  const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
-  const crossing = hasCrossingWithPlaced(group, geometry, placed);
-  const collisions = computeCollisionPenalty(geometry, placed);
-  const uniformity = computeUniformityPenalty(placement, placed);
-  const lineBundlePenalty = computeLineBundlePenalty(group, geometry, placed);
-
-  const valid =
-    !crossing &&
-    !collisions.groupOverlap &&
-    !collisions.photoOverlap &&
-    !collisions.labelOverlap &&
-    !collisions.photoLabelOverlap;
-
-  let total = valid ? 0 : 1000000;
-  total += collisions.groupOverlap ? 420000 : 0;
-  total += collisions.photoOverlap ? 220000 : 0;
-  total += collisions.labelOverlap ? 320000 : 0;
-  total += collisions.photoLabelOverlap ? 380000 : 0;
-  total += crossing ? 260000 : 0;
-  total += lineBundlePenalty;
-  total += uniformity * 3.2;
-  total += Math.max(0, radius - baseRadius) * 2.4;
-  total += Math.abs(angleDelta(angle, baseAngle)) * 34;
-  total += radius * 0.08;
-  total += Math.max(0, baseRadius - radius) * -0.22;
-
-  return { total, valid, uniformity };
+  placement: FootprintPlacement,
+  mapRect: LogicalRect,
+) {
+  const geometries = createGeometryVariants(group, placement);
+  const valid = geometries.filter((geometry) => geometryFitsMap(geometry, mapRect));
+  if (valid.length > 0) {
+    return valid.sort((left, right) => {
+      const leftTop = left.labelSide === 'top' ? 0 : 1;
+      const rightTop = right.labelSide === 'top' ? 0 : 1;
+      return leftTop - rightTop;
+    })[0];
+  }
+  return geometries[0];
 }
 
 function compareGroupOrder(
   left: PendingPlaceGroup,
   right: PendingPlaceGroup,
-  placements: Map<string, FootprintPlacement>,
+  basePlacementById: Map<string, FootprintPlacement>,
 ) {
-  const leftPlacement = placements.get(left.placeKey);
-  const rightPlacement = placements.get(right.placeKey);
+  const leftPlacement = basePlacementById.get(left.placeKey);
+  const rightPlacement = basePlacementById.get(right.placeKey);
   const leftRadius = leftPlacement ? Math.hypot(leftPlacement.centerX, leftPlacement.centerY) : 0;
   const rightRadius = rightPlacement ? Math.hypot(rightPlacement.centerX, rightPlacement.centerY) : 0;
   if (Math.abs(rightRadius - leftRadius) > 1e-6) return rightRadius - leftRadius;
@@ -294,266 +208,366 @@ function compareGroupOrder(
   return left.placeKey.localeCompare(right.placeKey, 'zh-CN');
 }
 
-function chooseBestGeometryForPlacement(
-  group: PendingPlaceGroup,
-  placement: FootprintPlacement,
-  placed: PlacedEntry[],
-  basePlacement: FootprintPlacement,
+function scoreBaseCandidate(
+  angle: number,
+  radius: number,
+  baseAngle: number,
+  baseRadius: number,
+  geometry: GroupGeometry,
   mapRect: LogicalRect,
 ) {
-  const preferredSide = resolvePreferredLabelSide(placement.centerX, placement.centerY);
-  const labelSides: GroupLabelSide[] = [preferredSide, ...LABEL_SIDE_PRIORITY.filter((side) => side !== preferredSide)];
-
-  let bestGeometry: GroupGeometry | null = null;
-  let bestScore: CandidateScore | null = null;
-
-  for (const labelSide of labelSides) {
-    const geometry = buildGeometryForPlacement(group, placement, labelSide);
-    if (!fitsAroundMap(geometry, mapRect)) continue;
-
-    const score = scoreCandidate(placement, geometry, placed, basePlacement, group);
-    if (!bestScore || score.total < bestScore.total - 1e-6) {
-      bestGeometry = geometry;
-      bestScore = score;
-      if (score.valid && labelSide === preferredSide) break;
-    }
-  }
-
-  if (bestGeometry && bestScore) {
-    return { geometry: bestGeometry, score: bestScore };
-  }
-
-  const fallbackGeometry = buildGeometryForPlacement(group, placement, preferredSide);
-  return {
-    geometry: fallbackGeometry,
-    score: scoreCandidate(placement, fallbackGeometry, placed, basePlacement, group),
-  };
+  const driftPenalty = Math.abs(angleDelta(angle, baseAngle)) * 46;
+  const radiusPenalty = Math.abs(radius - baseRadius) * 0.85;
+  const outwardPenalty = Math.max(0, radius - baseRadius) * 1.15;
+  const mapDistance = rectDistanceToMap(geometry.groupRect, mapRect);
+  const mapDistancePenalty = Math.max(0, mapDistance - 180) * 0.55;
+  const rightReward = geometry.groupRect.left >= 0 ? -90 : 0;
+  return driftPenalty + radiusPenalty + outwardPenalty + mapDistancePenalty + rightReward;
 }
 
-function solveSinglePlacement(
+function dedupeCandidates(candidates: PlacementCandidate[]) {
+  const byKey = new Map<string, PlacementCandidate>();
+  for (const candidate of candidates) {
+    const key = `${Math.round(candidate.placement.centerX)}:${Math.round(candidate.placement.centerY)}:${candidate.geometry.labelSide}`;
+    const existing = byKey.get(key);
+    if (!existing || candidate.basePenalty < existing.basePenalty) {
+      byKey.set(key, candidate);
+    }
+  }
+  return Array.from(byKey.values())
+    .sort((left, right) => left.basePenalty - right.basePenalty)
+    .slice(0, MAX_CANDIDATES_PER_GROUP);
+}
+
+function buildCandidatePool(
   group: PendingPlaceGroup,
   basePlacement: FootprintPlacement,
-  placed: PlacedEntry[],
   mapRect: LogicalRect,
 ) {
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
   const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
-  let bestPlacement = basePlacement;
-  let bestResolved = chooseBestGeometryForPlacement(group, basePlacement, placed, basePlacement, mapRect);
+  const safeBaseRadius = Math.max(baseRadius, 180);
+  const seeds: PlacementCandidate[] = [];
+  const rightAnchorAngle = 0;
 
-  for (const radiusStep of RADIUS_STEPS) {
-    const radius = Math.max(0, baseRadius + radiusStep);
-    for (const angleStep of ANGLE_STEPS) {
-      const angle = baseAngle + (angleStep * Math.PI) / 180;
-      const placement = {
-        centerX: Math.cos(angle) * radius,
-        centerY: Math.sin(angle) * radius,
-      };
-      const resolved = chooseBestGeometryForPlacement(group, placement, placed, basePlacement, mapRect);
-      if (resolved.score.total < bestResolved.score.total - 1e-6) {
-        bestPlacement = placement;
-        bestResolved = resolved;
-      }
-    }
-  }
-
-  return {
-    placement: bestPlacement,
-    geometry: bestResolved.geometry,
-  };
-}
-
-function rebuildPlacedEntries(
-  ordered: PendingPlaceGroup[],
-  placementById: Map<string, FootprintPlacement>,
-  mapRect: LogicalRect,
-) {
-  const placed: PlacedEntry[] = [];
-  const geometryById = new Map<string, GroupGeometry>();
-
-  for (const group of ordered) {
-    const placement = placementById.get(group.placeKey);
-    if (!placement) continue;
-    const resolved = chooseBestGeometryForPlacement(group, placement, placed, placement, mapRect);
-    placed.push({
-      group,
+  const addCandidate = (angle: number, radius: number) => {
+    const placement = {
+      centerX: Math.cos(angle) * radius,
+      centerY: Math.sin(angle) * radius,
+    };
+    const geometry = chooseBestGeometryForPlacement(group, placement, mapRect);
+    if (!geometryFitsMap(geometry, mapRect)) return;
+    seeds.push({
       placement,
-      geometry: resolved.geometry,
+      geometry,
+      basePenalty: scoreBaseCandidate(normalizeAngle(angle), radius, baseAngle, safeBaseRadius, geometry, mapRect),
     });
-    geometryById.set(group.placeKey, resolved.geometry);
-  }
+  };
 
-  return { placed, geometryById };
-}
-
-function findLinkedPairs(
-  ordered: PendingPlaceGroup[],
-  geometryById: Map<string, GroupGeometry>,
-) {
-  const pairs: LinkedPair[] = [];
-
-  for (let leftIndex = 0; leftIndex < ordered.length; leftIndex++) {
-    const left = ordered[leftIndex];
-    const leftGeometry = geometryById.get(left.placeKey);
-    if (!leftGeometry) continue;
-    const leftLine = buildLineSegment(left, leftGeometry);
-
-    for (let rightIndex = leftIndex + 1; rightIndex < ordered.length; rightIndex++) {
-      const right = ordered[rightIndex];
-      const rightGeometry = geometryById.get(right.placeKey);
-      if (!rightGeometry) continue;
-      const rightLine = buildLineSegment(right, rightGeometry);
-      const distance = segmentDistance(leftLine.start, leftLine.end, rightLine.start, rightLine.end);
-      if (distance > LINKED_PAIR_DISTANCE) continue;
-      pairs.push({ left, right });
+  for (const radiusFactor of RADIUS_FACTORS) {
+    const radius = safeBaseRadius * radiusFactor;
+    for (const angleOffset of ANGLE_OFFSETS_DEGREES) {
+      addCandidate(baseAngle + (angleOffset * Math.PI) / 180, radius);
     }
   }
 
-  return pairs;
-}
+  for (const radiusFactor of [1, 1.12, 1.24, 1.38, 1.54]) {
+    const radius = safeBaseRadius * radiusFactor;
+    for (const angleOffset of RIGHT_SIDE_BOOST_DEGREES) {
+      addCandidate(rightAnchorAngle + (angleOffset * Math.PI) / 180, radius);
+      addCandidate(-rightAnchorAngle + (angleOffset * Math.PI) / 180, radius);
+    }
+  }
 
-function resolveLinkedPairs(
-  ordered: PendingPlaceGroup[],
-  placementById: Map<string, FootprintPlacement>,
-  mapRect: LogicalRect,
-) {
-  let nextPlacementById = new Map(placementById);
-  let rebuilt = rebuildPlacedEntries(ordered, nextPlacementById, mapRect);
-
-  for (const pair of findLinkedPairs(ordered, rebuilt.geometryById)) {
-    const leftPlacement = nextPlacementById.get(pair.left.placeKey);
-    const rightPlacement = nextPlacementById.get(pair.right.placeKey);
-    if (!leftPlacement || !rightPlacement) continue;
-
-    let bestPlacementById = nextPlacementById;
-    let bestRebuilt = rebuilt;
-    let bestDistance = (() => {
-      const leftGeometry = rebuilt.geometryById.get(pair.left.placeKey);
-      const rightGeometry = rebuilt.geometryById.get(pair.right.placeKey);
-      if (!leftGeometry || !rightGeometry) return 0;
-      const leftLine = buildLineSegment(pair.left, leftGeometry);
-      const rightLine = buildLineSegment(pair.right, rightGeometry);
-      return segmentDistance(leftLine.start, leftLine.end, rightLine.start, rightLine.end);
-    })();
-
-    const leftAngle = Math.atan2(leftPlacement.centerY, leftPlacement.centerX);
-    const rightAngle = Math.atan2(rightPlacement.centerY, rightPlacement.centerX);
-    const leftRadius = Math.hypot(leftPlacement.centerX, leftPlacement.centerY);
-    const rightRadius = Math.hypot(rightPlacement.centerX, rightPlacement.centerY);
-
-    for (const radiusStep of LINKED_PAIR_RADIUS_STEPS) {
-      for (const angleStep of LINKED_PAIR_ANGLE_STEPS) {
-        const trialPlacementById = new Map(nextPlacementById);
-        trialPlacementById.set(pair.left.placeKey, {
-          centerX: Math.cos(leftAngle + (angleStep * Math.PI) / 180) * Math.max(0, leftRadius + radiusStep),
-          centerY: Math.sin(leftAngle + (angleStep * Math.PI) / 180) * Math.max(0, leftRadius + radiusStep),
-        });
-        trialPlacementById.set(pair.right.placeKey, {
-          centerX: Math.cos(rightAngle - (angleStep * Math.PI) / 180) * Math.max(0, rightRadius + radiusStep),
-          centerY: Math.sin(rightAngle - (angleStep * Math.PI) / 180) * Math.max(0, rightRadius + radiusStep),
-        });
-
-        const trialRebuilt = rebuildPlacedEntries(ordered, trialPlacementById, mapRect);
-        const nextLeftGeometry = trialRebuilt.geometryById.get(pair.left.placeKey);
-        const nextRightGeometry = trialRebuilt.geometryById.get(pair.right.placeKey);
-        if (!nextLeftGeometry || !nextRightGeometry) continue;
-        const leftLine = buildLineSegment(pair.left, nextLeftGeometry);
-        const rightLine = buildLineSegment(pair.right, nextRightGeometry);
-        const nextDistance = segmentDistance(leftLine.start, leftLine.end, rightLine.start, rightLine.end);
-        if (nextDistance <= bestDistance + 1e-6) continue;
-
-        const leftEntry = trialRebuilt.placed.find((entry) => entry.group.placeKey === pair.left.placeKey);
-        const rightEntry = trialRebuilt.placed.find((entry) => entry.group.placeKey === pair.right.placeKey);
-        if (!leftEntry || !rightEntry) continue;
-        const leftScore = scoreCandidate(leftEntry.placement, leftEntry.geometry, trialRebuilt.placed.filter((entry) => entry.group.placeKey !== pair.left.placeKey), leftPlacement, pair.left);
-        const rightScore = scoreCandidate(rightEntry.placement, rightEntry.geometry, trialRebuilt.placed.filter((entry) => entry.group.placeKey !== pair.right.placeKey), rightPlacement, pair.right);
-        if (!leftScore.valid || !rightScore.valid) continue;
-
-        bestPlacementById = trialPlacementById;
-        bestRebuilt = trialRebuilt;
-        bestDistance = nextDistance;
+  for (let sectorIndex = 0; sectorIndex < GLOBAL_SECTOR_COUNT; sectorIndex++) {
+    const sectorCenterDegrees = (sectorIndex / GLOBAL_SECTOR_COUNT) * 360;
+    for (const sectorOffset of GLOBAL_SECTOR_ANGLE_OFFSETS) {
+      const angle = ((sectorCenterDegrees + sectorOffset) * Math.PI) / 180;
+      for (const radiusFactor of GLOBAL_RADIUS_FACTORS) {
+        addCandidate(angle, safeBaseRadius * radiusFactor);
       }
     }
-
-    nextPlacementById = bestPlacementById;
-    rebuilt = bestRebuilt;
   }
 
+  addCandidate(baseAngle, safeBaseRadius);
+  return dedupeCandidates(seeds);
+}
+
+function buildSectorCounts(
+  groups: PendingPlaceGroup[],
+  state: PlacementState,
+  overrideKey?: string,
+  overrideCandidate?: PlacementCandidate,
+) {
+  const counts = Array.from({ length: GLOBAL_SECTOR_COUNT }, () => 0);
+  for (const group of groups) {
+    const geometry =
+      group.placeKey === overrideKey
+        ? overrideCandidate?.geometry
+        : state.geometryById.get(group.placeKey);
+    if (!geometry) continue;
+    const centerX = (geometry.groupRect.left + geometry.groupRect.right) / 2;
+    const centerY = (geometry.groupRect.top + geometry.groupRect.bottom) / 2;
+    counts[computeSectorIndex(Math.atan2(centerY, centerX))] += 1;
+  }
+  return counts;
+}
+
+function computeSectorPenalty(counts: number[], total: number) {
+  const average = total / GLOBAL_SECTOR_COUNT;
+  return counts.reduce((sum, count) => {
+    const delta = count - average;
+    return sum + delta * delta;
+  }, 0);
+}
+
+function computeEnvelopePenalty(
+  groups: PendingPlaceGroup[],
+  state: PlacementState,
+  overrideKey?: string,
+  overrideCandidate?: PlacementCandidate,
+) {
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+
+  for (const group of groups) {
+    const geometry =
+      group.placeKey === overrideKey
+        ? overrideCandidate?.geometry
+        : state.geometryById.get(group.placeKey);
+    if (!geometry) continue;
+    left = Math.min(left, geometry.groupRect.left);
+    right = Math.max(right, geometry.groupRect.right);
+    top = Math.min(top, geometry.groupRect.top);
+    bottom = Math.max(bottom, geometry.groupRect.bottom);
+  }
+
+  if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
+    return 0;
+  }
+
+  return (right - left) * 0.05 + (bottom - top) * 0.04;
+}
+
+function evaluateCandidate(
+  group: PendingPlaceGroup,
+  candidate: PlacementCandidate,
+  groups: PendingPlaceGroup[],
+  state: PlacementState,
+) : CandidateEvaluation {
+  const line = buildLine(group, candidate.geometry);
+  let bundlePenalty = 0;
+  let densityPenalty = 0;
+
+  for (const neighbor of groups) {
+    if (neighbor.placeKey === group.placeKey) continue;
+    const neighborPlacement = state.placementById.get(neighbor.placeKey);
+    const neighborGeometry = state.geometryById.get(neighbor.placeKey);
+    if (!neighborPlacement || !neighborGeometry) continue;
+
+    const photoOverlap = rectOverlapsOccupiedPhotos(candidate.geometry.photoRect, [neighborGeometry], GROUP_GAP);
+    const labelOverlap = hasLabelCollisions(candidate.geometry, [neighborGeometry], LABEL_GAP);
+    const photoLabelOverlap = hasPhotoAgainstLabelCollisions(candidate.geometry, [neighborGeometry], LABEL_GAP);
+    const groupOverlap = rectsOverlap(candidate.geometry.groupRect, neighborGeometry.groupRect, GROUP_GAP);
+    if (photoOverlap || labelOverlap || photoLabelOverlap || groupOverlap) {
+      return { valid: false, score: Number.POSITIVE_INFINITY };
+    }
+
+    const neighborLine = buildLine(neighbor, neighborGeometry);
+    if (segmentsIntersect(line.start, line.end, neighborLine.start, neighborLine.end)) {
+      return { valid: false, score: Number.POSITIVE_INFINITY };
+    }
+
+    const lineDistance = segmentDistance(line.start, line.end, neighborLine.start, neighborLine.end);
+    if (lineDistance < LINE_BUNDLE_DISTANCE) {
+      bundlePenalty += (LINE_BUNDLE_DISTANCE - lineDistance) * (LINE_BUNDLE_DISTANCE - lineDistance) * 8;
+    }
+
+    const centerDistance = Math.hypot(
+      candidate.placement.centerX - neighborPlacement.centerX,
+      candidate.placement.centerY - neighborPlacement.centerY,
+    );
+    if (centerDistance < LOCAL_DENSITY_DISTANCE) {
+      densityPenalty += (LOCAL_DENSITY_DISTANCE - centerDistance) * 3.2;
+    }
+
+    const horizontalGap = Math.max(
+      0,
+      Math.max(
+        neighborGeometry.groupRect.left - candidate.geometry.groupRect.right,
+        candidate.geometry.groupRect.left - neighborGeometry.groupRect.right,
+      ),
+    );
+    const verticalGap = Math.max(
+      0,
+      Math.max(
+        neighborGeometry.groupRect.top - candidate.geometry.groupRect.bottom,
+        candidate.geometry.groupRect.top - neighborGeometry.groupRect.bottom,
+      ),
+    );
+    if (horizontalGap < 180 && verticalGap < 160) {
+      densityPenalty += (180 - horizontalGap) * 0.8 + (160 - verticalGap) * 0.8;
+    }
+  }
+
+  const sectorCounts = buildSectorCounts(groups, state, group.placeKey, candidate);
+  const sectorPenalty = computeSectorPenalty(sectorCounts, groups.length);
+  const envelopePenalty = computeEnvelopePenalty(groups, state, group.placeKey, candidate);
+  const rightUsageReward = candidate.geometry.groupRect.left > 180 ? -120 : 0;
+  const mapDistanceReward = candidate.geometry.groupRect.left > 0 ? -30 : 0;
+
   return {
-    placementById: nextPlacementById,
-    rebuilt,
+    valid: true,
+    score:
+      candidate.basePenalty +
+      bundlePenalty +
+      densityPenalty +
+      sectorPenalty * 56 +
+      envelopePenalty +
+      rightUsageReward +
+      mapDistanceReward,
   };
 }
 
-function refinePlacements(
-  ordered: PendingPlaceGroup[],
-  placementById: Map<string, FootprintPlacement>,
-  mapRect: LogicalRect,
+function assignInitialPlacements(
+  orderedGroups: PendingPlaceGroup[],
+  candidatePoolById: Map<string, PlacementCandidate[]>,
 ) {
-  const nextPlacementById = new Map(placementById);
+  let bestState: PlacementState | null = null;
+  let bestScore = Number.POSITIVE_INFINITY;
 
-  for (let pass = 0; pass < REFINE_PASSES; pass++) {
-    let changed = false;
-    const placed: PlacedEntry[] = [];
+  for (let pass = 0; pass < INITIAL_ASSIGNMENT_PASSES; pass++) {
+    const state: PlacementState = {
+      placementById: new Map<string, FootprintPlacement>(),
+      geometryById: new Map<string, GroupGeometry>(),
+      candidateIndexById: new Map<string, number>(),
+    };
 
-    for (const group of ordered) {
-      const currentPlacement = nextPlacementById.get(group.placeKey);
-      if (!currentPlacement) continue;
+    let valid = true;
+    let totalScore = 0;
 
-      const currentResolved = chooseBestGeometryForPlacement(
-        group,
-        currentPlacement,
-        placed,
-        currentPlacement,
-        mapRect,
-      );
+    for (const group of orderedGroups) {
+      const candidates = candidatePoolById.get(group.placeKey) ?? [];
+      if (candidates.length === 0) {
+        valid = false;
+        break;
+      }
 
-      let bestPlacement = currentPlacement;
-      let bestResolved = currentResolved;
-      const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
-      const currentRadius = Math.hypot(currentPlacement.centerX, currentPlacement.centerY);
+      let bestIndex = -1;
+      let bestCandidateScore = Number.POSITIVE_INFINITY;
 
-      for (const radiusStep of REFINE_RADIUS_STEPS) {
-        const radius = Math.max(0, currentRadius + radiusStep);
-        for (const angleStep of REFINE_ANGLE_STEPS) {
-          const angle = currentAngle + (angleStep * Math.PI) / 180;
-          const candidatePlacement = {
-            centerX: Math.cos(angle) * radius,
-            centerY: Math.sin(angle) * radius,
-          };
-          const resolved = chooseBestGeometryForPlacement(
-            group,
-            candidatePlacement,
-            placed,
-            currentPlacement,
-            mapRect,
-          );
-          if (resolved.score.total < bestResolved.score.total - 1e-6) {
-            bestPlacement = candidatePlacement;
-            bestResolved = resolved;
-          }
+      const offset = pass % Math.max(1, Math.min(8, candidates.length));
+      for (let step = 0; step < candidates.length; step++) {
+        const index = (step + offset) % candidates.length;
+        const candidate = candidates[index];
+        const evaluation = evaluateCandidate(group, candidate, orderedGroups, state);
+        if (!evaluation.valid) continue;
+        if (evaluation.score < bestCandidateScore) {
+          bestCandidateScore = evaluation.score;
+          bestIndex = index;
         }
       }
 
-      if (
-        Math.abs(bestPlacement.centerX - currentPlacement.centerX) > 1 ||
-        Math.abs(bestPlacement.centerY - currentPlacement.centerY) > 1
-      ) {
-        nextPlacementById.set(group.placeKey, bestPlacement);
-        changed = true;
+      if (bestIndex < 0) {
+        valid = false;
+        break;
       }
 
-      placed.push({
-        group,
-        placement: bestPlacement,
-        geometry: bestResolved.geometry,
-      });
+      const chosen = candidates[bestIndex];
+      state.placementById.set(group.placeKey, chosen.placement);
+      state.geometryById.set(group.placeKey, chosen.geometry);
+      state.candidateIndexById.set(group.placeKey, bestIndex);
+      totalScore += bestCandidateScore;
     }
 
-    if (!changed) break;
+    if (valid && totalScore < bestScore) {
+      bestState = state;
+      bestScore = totalScore;
+    }
   }
 
-  return nextPlacementById;
+  return bestState;
+}
+
+function reassignGroup(
+  group: PendingPlaceGroup,
+  groups: PendingPlaceGroup[],
+  candidatePoolById: Map<string, PlacementCandidate[]>,
+  state: PlacementState,
+) {
+  const currentIndex = state.candidateIndexById.get(group.placeKey) ?? 0;
+  const candidates = candidatePoolById.get(group.placeKey) ?? [];
+  if (candidates.length === 0) return false;
+
+  const currentCandidate = candidates[currentIndex];
+  const currentScore = currentCandidate
+    ? evaluateCandidate(group, currentCandidate, groups, state)
+    : { valid: false, score: Number.POSITIVE_INFINITY };
+
+  let bestIndex = currentIndex;
+  let bestScore = currentScore.score;
+
+  state.placementById.delete(group.placeKey);
+  state.geometryById.delete(group.placeKey);
+
+  for (let index = 0; index < candidates.length; index++) {
+    const candidate = candidates[index];
+    const evaluation = evaluateCandidate(group, candidate, groups, state);
+    if (!evaluation.valid) continue;
+    if (evaluation.score < bestScore - 1e-6) {
+      bestScore = evaluation.score;
+      bestIndex = index;
+    }
+  }
+
+  const chosen = candidates[bestIndex] ?? currentCandidate;
+  if (chosen) {
+    state.placementById.set(group.placeKey, chosen.placement);
+    state.geometryById.set(group.placeKey, chosen.geometry);
+    state.candidateIndexById.set(group.placeKey, bestIndex);
+  }
+
+  return bestIndex !== currentIndex;
+}
+
+function optimizeAssignments(
+  orderedGroups: PendingPlaceGroup[],
+  candidatePoolById: Map<string, PlacementCandidate[]>,
+  state: PlacementState,
+) {
+  for (let iteration = 0; iteration < REBALANCE_ITERATION_COUNT; iteration++) {
+    let changed = false;
+    for (const group of orderedGroups) {
+      if (reassignGroup(group, orderedGroups, candidatePoolById, state)) {
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+}
+
+function buildFallbackState(
+  orderedGroups: PendingPlaceGroup[],
+  basePlacementById: Map<string, FootprintPlacement>,
+  mapRect: LogicalRect,
+) {
+  const state: PlacementState = {
+    placementById: new Map<string, FootprintPlacement>(),
+    geometryById: new Map<string, GroupGeometry>(),
+    candidateIndexById: new Map<string, number>(),
+  };
+
+  for (const group of orderedGroups) {
+    const placement = basePlacementById.get(group.placeKey) ?? { centerX: 0, centerY: 0 };
+    const geometry = chooseBestGeometryForPlacement(group, placement, mapRect);
+    state.placementById.set(group.placeKey, placement);
+    state.geometryById.set(group.placeKey, geometry);
+    state.candidateIndexById.set(group.placeKey, 0);
+  }
+
+  return state;
 }
 
 export function solvePendingGroupPlacements(
@@ -572,28 +586,27 @@ export function solvePendingGroupPlacements(
     mapRect,
   );
 
-  const basePlacementById = new Map(basePlacements.map((placement) => [placement.id, placement]));
-  const initialPlacementById = new Map<string, FootprintPlacement>();
-  const ordered = [...groups].sort((left, right) => compareGroupOrder(left, right, basePlacementById));
-  const placed: PlacedEntry[] = [];
-
-  for (const group of ordered) {
-    const basePlacement = basePlacementById.get(group.placeKey);
-    if (!basePlacement) continue;
-    const solved = solveSinglePlacement(group, basePlacement, placed, mapRect);
-    initialPlacementById.set(group.placeKey, solved.placement);
-    placed.push({
-      group,
-      placement: solved.placement,
-      geometry: solved.geometry,
+  const basePlacementById = new Map<string, FootprintPlacement>();
+  basePlacements.forEach((placement) => {
+    basePlacementById.set(placement.id, {
+      centerX: placement.centerX,
+      centerY: placement.centerY,
     });
+  });
+
+  const orderedGroups = [...groups].sort((left, right) => compareGroupOrder(left, right, basePlacementById));
+  const candidatePoolById = new Map<string, PlacementCandidate[]>();
+  for (const group of orderedGroups) {
+    const basePlacement = basePlacementById.get(group.placeKey) ?? { centerX: 0, centerY: 0 };
+    candidatePoolById.set(group.placeKey, buildCandidatePool(group, basePlacement, mapRect));
   }
 
-  const refinedPlacementById = refinePlacements(ordered, initialPlacementById, mapRect);
-  const linkedResolved = resolveLinkedPairs(ordered, refinedPlacementById, mapRect);
+  const assignedState = assignInitialPlacements(orderedGroups, candidatePoolById);
+  const workingState = assignedState ?? buildFallbackState(orderedGroups, basePlacementById, mapRect);
+  optimizeAssignments(orderedGroups, candidatePoolById, workingState);
 
   return {
-    placements: linkedResolved.placementById,
-    geometries: linkedResolved.rebuilt.geometryById,
+    placements: workingState.placementById,
+    geometries: workingState.geometryById,
   };
 }
