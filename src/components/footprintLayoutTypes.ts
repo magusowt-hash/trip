@@ -29,6 +29,7 @@ export type PendingPlaceGroup = {
   renderRect: LogicalRect;
   collisionGeometry: GroupGeometry;
   collisionRect: LogicalRect;
+  collisionCandidates?: GroupGeometry[];
   logicalX: number;
   logicalY: number;
   offsets: LogicalOffset[];

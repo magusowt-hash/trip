@@ -21,6 +21,7 @@ import type { MapMarker } from '@/components/PlanMap';
 import type { PhotoItem, PoiPoint } from '@/components/OuterFrameCanvas';
 import {
   buildPhotoRect,
+  buildGroupGeometryCandidatesFromPhotoRect,
   buildGroupGeometryFromPhotoRect,
   expandPhotoRect,
   rectsOverlap,
@@ -920,6 +921,12 @@ function UserFootprintsPageInner() {
         renderRect,
         collisionGeometry: offsetGeometry,
         collisionRect: offsetGeometry.groupRect,
+        collisionCandidates: buildGroupGeometryCandidatesFromPhotoRect(
+          offsetGeometry.photoRect,
+          placePhotos[0]?.placeTitle || '',
+          placePhotos.length,
+          collisionScale,
+        ),
         logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
         logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
         offsets,
