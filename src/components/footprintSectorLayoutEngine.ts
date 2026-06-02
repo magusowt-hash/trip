@@ -1,9 +1,7 @@
 import type { GroupGeometry } from './localMapGroupGeometry';
 import {
-  buildGroupGeometryLabelCandidates,
   rectsOverlap,
   resolveGroupGeometryDownward,
-  selectBestGroupGeometryLabelCandidate,
   shiftGroupGeometryDown,
   translateGroupGeometry,
 } from './localMapGroupGeometry';
@@ -33,13 +31,9 @@ const POST_LAYOUT_REFINE_PASSES = 2;
 const GLOBAL_COMPACTION_PASSES = 6;
 const CLUSTER_REARRANGE_PASSES = 2;
 const NEIGHBOR_NUDGE_STEPS = [-24, -12, 12, 24];
-const CLUSTER_TANGENTIAL_STEPS = [-220, -160, -120, 120, 160, 220];
-const CLUSTER_INWARD_STEPS = [420, 320, 240, 180, 120, 80];
-const MAX_HEAVY_GLOBAL_REFINE_GROUPS = 14;
-const MAX_CLUSTER_WINDOWS = 8;
 const OUTER_CORNER_MIN_RADIUS = 2400;
 const OUTER_CORNER_ANGLE_LIMIT = Math.PI / 6;
-const RADIAL_SHRINK_STEPS = [720, 640, 560, 480, 400, 320, 260, 200, 160, 120, 80, 56, 32, 16];
+const RADIAL_SHRINK_STEPS = [560, 480, 400, 320, 240, 180, 120, 80, 40];
 const SECTOR_SLOT_COUNT = 16;
 const SPARSE_SECTOR_CANDIDATE_OFFSETS = [-3, -2, 2, 3];
 const GLOBAL_DIRECTIONAL_RADIUS_STEPS = [320, 240, 180, 120, 80];
@@ -122,9 +116,9 @@ function getGroupArea(rect: LogicalRect) {
 }
 
 function getShrinkAngleStepsByRadius(radius: number) {
-  if (radius < 1500) return [0, -3, 3, -6, 6, -10, 10, -14, 14];
-  if (radius < 2800) return [0, -4, 4, -8, 8, -12, 12, -16, 16];
-  return [0, -6, 6, -10, 10, -14, 14, -18, 18];
+  if (radius < 1500) return [0, -3, 3, -6, 6];
+  if (radius < 2800) return [0, -4, 4, -8, 8];
+  return [0, -6, 6, -10, 10];
 }
 
 function getAnglePenaltyWeightsByRadius(radius: number) {
@@ -274,10 +268,6 @@ function computeAngularDriftPenalty(
   return penalty;
 }
 
-function shouldUseHeavyGlobalRefine(groups: PendingPlaceGroup[]) {
-  return groups.length <= MAX_HEAVY_GLOBAL_REFINE_GROUPS;
-}
-
 function evaluatePlacementCandidate(
   placeKey: string,
   geometry: GroupGeometry,
@@ -290,14 +280,8 @@ function evaluatePlacementCandidate(
   currentPlacement: FootprintPlacement,
   placementById: Map<string, FootprintPlacement>,
   groups: PendingPlaceGroup[],
-  options?: {
-    lightweight?: boolean;
-  },
 ) {
-  const lightweight = options?.lightweight ?? false;
-  const resolvedGeometry = lightweight
-    ? geometry
-    : resolveCandidateGeometryAgainstOccupied(geometry, occupiedGeometries, mapRect, safeGap);
+  const resolvedGeometry = resolveCandidateGeometryAgainstOccupied(geometry, occupiedGeometries);
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
   const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
   const radius = Math.hypot(centerX, centerY);
@@ -310,11 +294,9 @@ function evaluatePlacementCandidate(
   const photoMapInvalid = !fitsPhotoRectAroundMap(resolvedGeometry.photoRect, mapRect, safeGap);
   const labelMapInvalid = !fitsLabelRectAroundMap(resolvedGeometry.labelRect, mapRect, safeGap);
   const mapOverlap = photoMapInvalid || labelMapInvalid;
-  const lineTrial = lightweight ? placementById : new Map(placementById);
-  if (!lightweight) {
-    lineTrial.set(placeKey, { centerX: resolvedGeometry.photoCenterX, centerY: resolvedGeometry.photoCenterY });
-  }
-  const lineIntersected = lightweight ? false : hasIntersectingLines(lineTrial, groups);
+  const lineTrial = new Map(placementById);
+  lineTrial.set(placeKey, { centerX: resolvedGeometry.photoCenterX, centerY: resolvedGeometry.photoCenterY });
+  const lineIntersected = hasIntersectingLines(lineTrial, groups);
   const labelOverlap = hasLabelCollisions(resolvedGeometry, occupiedGeometries, safeGap);
   const photoOverlap = rectOverlapsOccupiedPhotos(resolvedGeometry.photoRect, occupiedGeometries, safeGap);
   const photoLabelOverlap = hasPhotoAgainstLabelCollisions(resolvedGeometry, occupiedGeometries, safeGap);
@@ -504,7 +486,7 @@ function scoreCandidateAroundCurrentCenter(
   return {
     geometry: candidateMeta.geometry,
     score:
-      candidateMeta.lineLengthScore * 0.68 +
+      candidateMeta.lineLengthScore * 0.54 +
       candidateMeta.radiusDelta * 0.34 +
       candidateMeta.sectorCrowdingScore * 1.15 +
       candidateMeta.labelClearanceScore * 1.16 +
@@ -664,18 +646,7 @@ function findMinimalFeasibleRadiusWithMinorAngleAdjust(
   const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
   const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
-  const policy = getMovementPolicyByRadius(currentRadius);
-  const angleSteps = [
-    0,
-    ...getShrinkAngleStepsByRadius(currentRadius).filter((step) => step !== 0),
-    -22,
-    22,
-    -28,
-    28,
-    ...buildDenseAngleSteps(Math.min(28, policy.maxAngleDeviation)),
-  ].filter((step, index, array) => (
-    Math.abs(step) <= policy.maxAngleDeviation && array.indexOf(step) === index
-  ));
+  const angleSteps = getShrinkAngleStepsByRadius(currentRadius).filter((step) => step !== 0);
   let best: null | {
     centerX: number;
     centerY: number;
@@ -755,8 +726,8 @@ function refineFeasibleRadiusLocally(
   const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
   let best = seedCandidate;
-  const localRadiusSteps = [0, -64, -40, -24, -12];
-  const localAngleSteps = [0, -2, 2, -4, 4, -6, 6];
+  const localRadiusSteps = [0, -40, -24, -12];
+  const localAngleSteps = [0, -2, 2, -4, 4];
 
   for (const radiusStep of localRadiusSteps) {
     const radius = Math.max(0, Math.hypot(seedCandidate.centerX, seedCandidate.centerY) + radiusStep);
@@ -927,131 +898,26 @@ function buildOccupiedGeometriesForGroup(
     })
     .filter((candidate): candidate is { id: string; geometry: GroupGeometry } => candidate !== null);
 
-  const downwardResolved = resolveGroupGeometryDownward(entries, { gap: 10, step: 6, maxOffset: 72 });
-  const seededEntries = entries.map((entry) => ({
-    id: entry.id,
-    geometry: downwardResolved.get(entry.id) ?? entry.geometry,
-  }));
-  const resolved: GroupGeometry[] = [];
-  const ordered = [...seededEntries].sort((left, right) => {
-    const leftRadius = Math.hypot(left.geometry.photoCenterX, left.geometry.photoCenterY);
-    const rightRadius = Math.hypot(right.geometry.photoCenterX, right.geometry.photoCenterY);
-    if (Math.abs(rightRadius - leftRadius) > 1e-6) return rightRadius - leftRadius;
-    return left.id.localeCompare(right.id, 'zh-CN');
-  });
-
-  for (const entry of ordered) {
-    let chosen = selectBestGroupGeometryLabelCandidate(entry.geometry, resolved, undefined, 12);
-    const variants = [chosen, ...buildGroupGeometryLabelCandidates(chosen), ...buildGroupGeometryLabelCandidates(entry.geometry)];
-    const seen = new Set<string>();
-    const prioritized = variants.filter((candidate) => {
-      const key = [
-        candidate.labelSide,
-        Math.round(candidate.labelRect.left),
-        Math.round(candidate.labelRect.top),
-        Math.round(candidate.lineRect.left),
-        Math.round(candidate.lineRect.top),
-      ].join(':');
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    let accepted = false;
-    for (const baseCandidate of prioritized) {
-      for (let offset = 0; offset <= 84; offset += 6) {
-        const candidate = offset === 0 ? baseCandidate : shiftGroupGeometryDown(baseCandidate, offset);
-        if (resolved.some((occupied) => (
-          rectsOverlap(candidate.photoRect, occupied.photoRect, 10) ||
-          rectsOverlap(candidate.labelRect, occupied.photoRect, 18) ||
-          rectsOverlap(candidate.photoRect, occupied.labelRect, 18) ||
-          rectsOverlap(candidate.labelRect, occupied.labelRect, 16) ||
-          rectsOverlap(candidate.lineRect, occupied.photoRect, 10) ||
-          rectsOverlap(candidate.lineRect, occupied.labelRect, 12)
-        ))) {
-          continue;
-        }
-        chosen = candidate;
-        accepted = true;
-        break;
-      }
-      if (accepted) break;
-    }
-    resolved.push(chosen);
-  }
-
-  return resolved;
-}
-
-function buildOccupiedGeometriesForGroupFast(
-  groups: PendingPlaceGroup[],
-  placementById: Map<string, FootprintPlacement>,
-  excludePlaceKey: string,
-) {
-  const entries = groups
-    .filter((candidate) => candidate.placeKey !== excludePlaceKey)
-    .map((candidate) => {
-      const placement = placementById.get(candidate.placeKey);
-      if (!placement) return null;
-      return {
-        id: candidate.placeKey,
-        geometry: translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY),
-      };
-    })
-    .filter((candidate): candidate is { id: string; geometry: GroupGeometry } => candidate !== null);
-
-  const downwardResolved = resolveGroupGeometryDownward(entries, { gap: 10, step: 6, maxOffset: 72 });
-  return entries.map((entry) => downwardResolved.get(entry.id) ?? entry.geometry);
-}
-
-function buildDenseAngleSteps(maxAngleDeviation: number) {
-  const candidates = [0];
-  for (let step = 2; step <= maxAngleDeviation + 1e-6; step += 2) {
-    candidates.push(-step, step);
-  }
-  return candidates;
+  const resolved = resolveGroupGeometryDownward(entries, { gap: 10, step: 6, maxOffset: 72 });
+  return entries
+    .map((entry) => resolved.get(entry.id) ?? entry.geometry);
 }
 
 function resolveCandidateGeometryAgainstOccupied(
   geometry: GroupGeometry,
   occupiedGeometries: GroupGeometry[],
-  mapRect: LogicalRect,
-  safeGap: number,
 ) {
-  const photoSafeGeometry = geometry;
-  const labelSeed = selectBestGroupGeometryLabelCandidate(photoSafeGeometry, occupiedGeometries, mapRect, safeGap + 2);
-  const allLabelCandidates = [photoSafeGeometry, ...buildGroupGeometryLabelCandidates(photoSafeGeometry)];
-  const seen = new Set<string>();
-  const prioritized = [labelSeed, ...allLabelCandidates].filter((candidate) => {
-    const key = [
-      candidate.labelSide,
-      Math.round(candidate.labelRect.left),
-      Math.round(candidate.labelRect.top),
-      Math.round(candidate.lineRect.left),
-      Math.round(candidate.lineRect.top),
-    ].join(':');
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  for (const baseCandidate of prioritized) {
-    for (let offset = 0; offset <= 108; offset += 6) {
-      const candidate = offset === 0 ? baseCandidate : shiftGroupGeometryDown(baseCandidate, offset);
-      if (occupiedGeometries.some((occupied) => (
-        rectsOverlap(candidate.photoRect, occupied.photoRect, 10) ||
-        rectsOverlap(candidate.labelRect, occupied.photoRect, 18) ||
-        rectsOverlap(candidate.photoRect, occupied.labelRect, 18) ||
-        rectsOverlap(candidate.labelRect, occupied.labelRect, 16) ||
-        rectsOverlap(candidate.lineRect, occupied.photoRect, 10) ||
-        rectsOverlap(candidate.lineRect, occupied.labelRect, 12)
-      ))) {
-        continue;
-      }
-      if (!fitsPhotoRectAroundMap(candidate.photoRect, mapRect, safeGap)) continue;
-      if (!fitsLabelRectAroundMap(candidate.labelRect, mapRect, safeGap + 6)) continue;
-      return candidate;
+  for (let offset = 0; offset <= 108; offset += 6) {
+    const candidate = offset === 0 ? geometry : shiftGroupGeometryDown(geometry, offset);
+    if (occupiedGeometries.some((occupied) => (
+      rectsOverlap(candidate.groupRect, occupied.groupRect, 10) ||
+      rectsOverlap(candidate.labelRect, occupied.photoRect, 14) ||
+      rectsOverlap(candidate.photoRect, occupied.labelRect, 14) ||
+      rectsOverlap(candidate.labelRect, occupied.labelRect, 12)
+    ))) {
+      continue;
     }
+    return candidate;
   }
   return geometry;
 }
@@ -1449,7 +1315,6 @@ function scoreClusterCompaction(
   let labelPhotoRiskPenalty = 0;
   let sectorDensityPenalty = 0;
   let maxRadius = 0;
-  let angularSpreadPenalty = 0;
 
   for (const group of cluster) {
     const placement = placementById.get(group.placeKey);
@@ -1484,10 +1349,6 @@ function scoreClusterCompaction(
     const sectorIndex = getSectorIndex(Math.atan2(placement.centerY, placement.centerX));
     return sum + occupancy[sectorIndex] * occupancy[sectorIndex];
   }, 0);
-  const clusterAverageAngle = averageAngle(centers);
-  for (const placement of centers) {
-    angularSpreadPenalty += Math.abs(angleDelta(Math.atan2(placement.centerY, placement.centerX), clusterAverageAngle));
-  }
   const radiusSpreadPenalty = computeRadiusSpreadPenalty(centers);
   const clusterSpanPenalty = Math.max(spanX, spanY) * 0.45 + Math.min(spanX, spanY) * 0.2;
 
@@ -1499,7 +1360,6 @@ function scoreClusterCompaction(
     pressure * 0.12 +
     labelPhotoRiskPenalty * 0.12 +
     radiusSpreadPenalty * 0.16 +
-    angularSpreadPenalty * 110 +
     sectorDensityPenalty * 11 +
     sectorVariance * 12
   );
@@ -1533,7 +1393,7 @@ function scoreGlobalLayoutEnergy(
   for (const group of groups) {
     const placement = placementById.get(group.placeKey);
     if (!placement) continue;
-    const occupiedGeometries = buildOccupiedGeometriesForGroupFast(groups, placementById, group.placeKey);
+    const occupiedGeometries = buildOccupiedGeometriesForGroup(groups, placementById, group.placeKey);
     const geometry = translateGroupGeometry(group.collisionGeometry, placement.centerX, placement.centerY);
     const evaluation = evaluatePlacementCandidate(
       group.placeKey,
@@ -1547,7 +1407,6 @@ function scoreGlobalLayoutEnergy(
       placement,
       placementById,
       groups,
-      { lightweight: true },
     );
     if (!evaluation.isValid) return Number.POSITIVE_INFINITY;
     pressure += evaluation.pressureScore + evaluation.labelClearanceScore * 0.7 + evaluation.sectorCrowdingScore * 0.55;
@@ -1627,12 +1486,31 @@ function evaluateClusterWindowPlacement(
   safeGap: number,
   basePlacementById: Map<string, FootprintPlacement>,
 ) {
+  const occupiedOutsideCluster = allGroups
+    .filter((candidate) => !cluster.some((group) => group.placeKey === candidate.placeKey))
+    .map((candidate) => {
+      const placement = trialPlacementById.get(candidate.placeKey);
+      if (!placement) return null;
+      return translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY);
+    })
+    .filter((candidate): candidate is GroupGeometry => candidate !== null);
+
   for (const group of cluster) {
     const placement = trialPlacementById.get(group.placeKey);
     const basePlacement = basePlacementById.get(group.placeKey);
     if (!placement || !basePlacement) return Number.POSITIVE_INFINITY;
     const geometry = translateGroupGeometry(group.collisionGeometry, placement.centerX, placement.centerY);
-    const occupiedGeometries = buildOccupiedGeometriesForGroupFast(allGroups, trialPlacementById, group.placeKey);
+    const occupiedGeometries = [
+      ...occupiedOutsideCluster,
+      ...cluster
+        .filter((candidate) => candidate.placeKey !== group.placeKey)
+        .map((candidate) => {
+          const candidatePlacement = trialPlacementById.get(candidate.placeKey);
+          if (!candidatePlacement) return null;
+          return translateGroupGeometry(candidate.collisionGeometry, candidatePlacement.centerX, candidatePlacement.centerY);
+        })
+        .filter((candidate): candidate is GroupGeometry => candidate !== null),
+    ];
     const evaluation = evaluatePlacementCandidate(
       group.placeKey,
       geometry,
@@ -1645,7 +1523,6 @@ function evaluateClusterWindowPlacement(
       placement,
       trialPlacementById,
       allGroups,
-      { lightweight: true },
     );
     if (!evaluation.isValid) return Number.POSITIVE_INFINITY;
   }
@@ -1782,29 +1659,6 @@ function generateClusterMigrationVariants(
     }
   }
 
-  for (const inward of CLUSTER_INWARD_STEPS) {
-    for (const lateral of CLUSTER_TANGENTIAL_STEPS) {
-      const tangentialVariant = new Map<string, FootprintPlacement>();
-      cluster.forEach((group, index) => {
-        const placement = placementById.get(group.placeKey);
-        if (!placement) return;
-        const radius = Math.hypot(placement.centerX, placement.centerY) || 1;
-        const inwardUnitX = -placement.centerX / radius;
-        const inwardUnitY = -placement.centerY / radius;
-        const tangentUnitX = -inwardUnitY;
-        const tangentUnitY = inwardUnitX;
-        const fanOffset = (index - (cluster.length - 1) / 2) * 54;
-        tangentialVariant.set(group.placeKey, {
-          centerX: placement.centerX + inwardUnitX * Math.min(inward, radius) + tangentUnitX * (lateral + fanOffset),
-          centerY: placement.centerY + inwardUnitY * Math.min(inward, radius) + tangentUnitY * (lateral + fanOffset),
-        });
-      });
-      if (tangentialVariant.size === cluster.length) {
-        variants.push(tangentialVariant);
-      }
-    }
-  }
-
   for (const shrink of [320, 240, 180, 120]) {
     const compactArcVariant = new Map<string, FootprintPlacement>();
     const compactBaseRadius = Math.max(0, averageRadius - shrink);
@@ -1856,8 +1710,6 @@ function tryNeighborNudge(
   const axisLength = Math.hypot(axisX, axisY) || 1;
   const unitX = axisX / axisLength;
   const unitY = axisY / axisLength;
-  const tangentX = -unitY;
-  const tangentY = unitX;
 
   let best: null | {
     groupPlacement: FootprintPlacement;
@@ -1866,84 +1718,82 @@ function tryNeighborNudge(
   } = null;
 
   for (const step of NEIGHBOR_NUDGE_STEPS) {
-    for (const tangential of [0, -56, 56, -96, 96]) {
-      const candidateGroupPlacement = {
-        centerX: groupPlacement.centerX - unitX * step * 0.35 - tangentX * tangential * 0.45,
-        centerY: groupPlacement.centerY - unitY * step * 0.35 - tangentY * tangential * 0.45,
-      };
-      const candidateNeighborPlacement = {
-        centerX: neighborPlacement.centerX + unitX * step + tangentX * tangential,
-        centerY: neighborPlacement.centerY + unitY * step + tangentY * tangential,
-      };
-      const trialPlacementById = new Map(placementById);
-      trialPlacementById.set(group.placeKey, candidateGroupPlacement);
-      trialPlacementById.set(neighbor.placeKey, candidateNeighborPlacement);
-      const candidateGroupGeometry = translateGroupGeometry(
-        group.collisionGeometry,
-        candidateGroupPlacement.centerX,
-        candidateGroupPlacement.centerY,
-      );
-      const occupied = groups
-        .filter((candidate) => candidate.placeKey !== group.placeKey)
-        .map((candidate) => {
-          const placement = trialPlacementById.get(candidate.placeKey);
-          if (!placement) return null;
-          return {
-            key: candidate.placeKey,
-            geometry: translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY),
-          };
-        })
-        .filter((candidate): candidate is { key: string; geometry: GroupGeometry } => candidate !== null);
-      const neighborGeometry = translateGroupGeometry(
-        neighbor.collisionGeometry,
-        candidateNeighborPlacement.centerX,
-        candidateNeighborPlacement.centerY,
-      );
-      const occupiedForGroup = occupied.map((item) => item.geometry);
-      const occupiedForNeighbor = occupied.filter((item) => item.key !== neighbor.placeKey).map((item) => item.geometry);
-      const groupEval = evaluatePlacementCandidate(
-        group.placeKey,
-        candidateGroupGeometry,
-        candidateGroupPlacement.centerX,
-        candidateGroupPlacement.centerY,
-        occupiedForGroup,
-        mapRect,
-        safeGap,
-        groupPlacement,
-        groupPlacement,
-        trialPlacementById,
-        groups,
-      );
-      if (!groupEval.isValid) continue;
-      const neighborEval = evaluatePlacementCandidate(
-        neighbor.placeKey,
-        neighborGeometry,
-        candidateNeighborPlacement.centerX,
-        candidateNeighborPlacement.centerY,
-        occupiedForNeighbor,
-        mapRect,
-        safeGap,
-        neighborPlacement,
-        neighborPlacement,
-        trialPlacementById,
-        groups,
-      );
-      if (!neighborEval.isValid) continue;
-
-      const score =
-        Math.hypot(candidateGroupPlacement.centerX, candidateGroupPlacement.centerY) +
-        Math.hypot(candidateNeighborPlacement.centerX, candidateNeighborPlacement.centerY) +
-        groupEval.lateralOffset * 0.08 +
-        neighborEval.lateralOffset * 0.08 +
-        groupEval.collisionScore * 0.04 +
-        neighborEval.collisionScore * 0.04;
-      if (!best || score < best.score) {
-        best = {
-          groupPlacement: candidateGroupPlacement,
-          neighborPlacement: candidateNeighborPlacement,
-          score,
+    const candidateGroupPlacement = {
+      centerX: groupPlacement.centerX - unitX * step * 0.35,
+      centerY: groupPlacement.centerY - unitY * step * 0.35,
+    };
+    const candidateNeighborPlacement = {
+      centerX: neighborPlacement.centerX + unitX * step,
+      centerY: neighborPlacement.centerY + unitY * step,
+    };
+    const trialPlacementById = new Map(placementById);
+    trialPlacementById.set(group.placeKey, candidateGroupPlacement);
+    trialPlacementById.set(neighbor.placeKey, candidateNeighborPlacement);
+    const candidateGroupGeometry = translateGroupGeometry(
+      group.collisionGeometry,
+      candidateGroupPlacement.centerX,
+      candidateGroupPlacement.centerY,
+    );
+    const occupied = groups
+      .filter((candidate) => candidate.placeKey !== group.placeKey)
+      .map((candidate) => {
+        const placement = trialPlacementById.get(candidate.placeKey);
+        if (!placement) return null;
+        return {
+          key: candidate.placeKey,
+          geometry: translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY),
         };
-      }
+      })
+      .filter((candidate): candidate is { key: string; geometry: GroupGeometry } => candidate !== null);
+    const neighborGeometry = translateGroupGeometry(
+      neighbor.collisionGeometry,
+      candidateNeighborPlacement.centerX,
+      candidateNeighborPlacement.centerY,
+    );
+    const occupiedForGroup = occupied.map((item) => item.geometry);
+    const occupiedForNeighbor = occupied.filter((item) => item.key !== neighbor.placeKey).map((item) => item.geometry);
+    const groupEval = evaluatePlacementCandidate(
+      group.placeKey,
+      candidateGroupGeometry,
+      candidateGroupPlacement.centerX,
+      candidateGroupPlacement.centerY,
+      occupiedForGroup,
+      mapRect,
+      safeGap,
+      groupPlacement,
+      groupPlacement,
+      trialPlacementById,
+      groups,
+    );
+    if (!groupEval.isValid) continue;
+    const neighborEval = evaluatePlacementCandidate(
+      neighbor.placeKey,
+      neighborGeometry,
+      candidateNeighborPlacement.centerX,
+      candidateNeighborPlacement.centerY,
+      occupiedForNeighbor,
+      mapRect,
+      safeGap,
+      neighborPlacement,
+      neighborPlacement,
+      trialPlacementById,
+      groups,
+    );
+    if (!neighborEval.isValid) continue;
+
+    const score =
+      Math.hypot(candidateGroupPlacement.centerX, candidateGroupPlacement.centerY) +
+      Math.hypot(candidateNeighborPlacement.centerX, candidateNeighborPlacement.centerY) +
+      groupEval.lateralOffset * 0.08 +
+      neighborEval.lateralOffset * 0.08 +
+      groupEval.collisionScore * 0.04 +
+      neighborEval.collisionScore * 0.04;
+    if (!best || score < best.score) {
+      best = {
+        groupPlacement: candidateGroupPlacement,
+        neighborPlacement: candidateNeighborPlacement,
+        score,
+      };
     }
   }
 
@@ -1957,7 +1807,6 @@ function refineSectorClusters(
   mapRect: LogicalRect,
   safeGap: number,
 ) {
-  if (!shouldUseHeavyGlobalRefine(groups)) return placementById;
   const nextPlacementById = new Map(placementById);
 
   for (let pass = 0; pass < CLUSTER_REARRANGE_PASSES; pass++) {
@@ -1966,8 +1815,7 @@ function refineSectorClusters(
       .sort((left, right) => (
         scoreClusterCompaction(right, nextPlacementById, groups, mapRect, safeGap) -
         scoreClusterCompaction(left, nextPlacementById, groups, mapRect, safeGap)
-      ))
-      .slice(0, MAX_CLUSTER_WINDOWS);
+      ));
 
     for (const windowGroups of windows) {
       const baseline = scoreClusterCompaction(windowGroups, nextPlacementById, groups, mapRect, safeGap);
@@ -2255,10 +2103,6 @@ export function refineRadialPlacements(
       refinePasses: POST_LAYOUT_REFINE_PASSES,
     },
   );
-
-  if (!shouldUseHeavyGlobalRefine(groups)) {
-    return refinedPlacementById;
-  }
 
   const basePlacementById = new Map(placementById);
   for (let pass = 0; pass < GLOBAL_COMPACTION_PASSES; pass++) {

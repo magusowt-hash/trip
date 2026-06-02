@@ -36,7 +36,6 @@ import styles from './footprints.module.css';
 const LOCAL_THUMB_MAX_EDGE = 320;
 const LOCAL_THUMB_CONCURRENCY = 2;
 const LOCAL_MAP_LOADING_MIN_DELAY_MS = 120;
-const MAX_DEBUG_SNAPSHOT_PHOTOS = 160;
 
 interface FootprintGroup {
   id: number;
@@ -213,7 +212,7 @@ function buildPlaceBounds(placePhotos: PhotoItem[], scale = 1): LogicalRect | nu
   const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
   const geometry = buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, scale);
-  return geometry.photoRect;
+  return geometry.groupRect;
 }
 
 function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1) {
@@ -253,7 +252,7 @@ function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalO
     scale,
   );
 
-  return geometry.photoRect;
+  return geometry.groupRect;
 }
 
 function buildOffsetsForLayout(
@@ -871,10 +870,6 @@ function UserFootprintsPageInner() {
         collisionScale,
       );
       if (!offsetGeometry) continue;
-      const resolvedOffsetGeometry = resolveGroupGeometryDownward(
-        [{ id: placeKey, geometry: offsetGeometry }],
-        { gap: 10, step: 6, maxOffset: 72 },
-      ).get(placeKey) ?? offsetGeometry;
       if (placedPhotos.length > 0) {
         const existingGeometry = resolvedExistingGeometryMap.get(placeKey) ?? buildPlaceGeometry(placedPhotos, collisionScale);
         if (!existingGeometry) continue;
@@ -890,7 +885,7 @@ function UserFootprintsPageInner() {
 
         const candidateCenterX = existingCenter.x + unitX * expansionBase;
         const candidateCenterY = existingCenter.y + unitY * expansionBase;
-        const nextGeometry = translateGroupGeometry(resolvedOffsetGeometry, candidateCenterX, candidateCenterY);
+        const nextGeometry = translateGroupGeometry(offsetGeometry, candidateCenterX, candidateCenterY);
         const occupiedByOthers = occupiedGeometries.filter((geometry) => geometry !== existingGeometry);
         const canExpandOutward =
           fitsAroundMap(nextGeometry.groupRect, mapRect, cardSize) &&
@@ -923,8 +918,8 @@ function UserFootprintsPageInner() {
         placeKey,
         placePhotos,
         renderRect,
-        collisionGeometry: resolvedOffsetGeometry,
-        collisionRect: resolvedOffsetGeometry.groupRect,
+        collisionGeometry: offsetGeometry,
+        collisionRect: offsetGeometry.groupRect,
         logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
         logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
         offsets,
@@ -1512,13 +1507,8 @@ function UserFootprintsPageInner() {
           return [...uploaded, ...mappedPhotos];
         });
         const debugMergedPhotos = [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos];
-        if (debugMergedPhotos.length <= MAX_DEBUG_SNAPSHOT_PHOTOS) {
-          setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
-          setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
-        } else {
-          setDebugBasePhotos(null);
-          setDebugBaseGroups(null);
-        }
+        setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
+        setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
         setLocalMapApplyProgress(82);
         enqueueLocalThumbnails(mappedPhotos);
         setLocalRootName(payload.rootName);

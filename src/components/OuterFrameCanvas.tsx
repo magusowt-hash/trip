@@ -6,8 +6,7 @@ import {
   buildGroupGeometry,
   GROUP_LABEL_FONT_SCREEN_SIZE,
   GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
-  type GroupLabelSide,
-  resolveGroupGeometryLabelAware,
+  resolveGroupGeometryTextAware,
 } from './localMapGroupGeometry';
 
 export interface PhotoItem {
@@ -53,7 +52,7 @@ export interface PlaceRect {
   labelTop: number;
   labelRight: number;
   labelBottom: number;
-  labelSide: GroupLabelSide;
+  labelSide: 'top' | 'bottom';
   labelAnchorX: number;
   labelAnchorY: number;
 }
@@ -256,7 +255,7 @@ export default function OuterFrameCanvas({
         geometry,
       });
     }
-    const resolvedGeometry = resolveGroupGeometryLabelAware(
+    const resolvedGeometry = resolveGroupGeometryTextAware(
       geometryEntries.map((entry) => ({ id: entry.placeKey, geometry: entry.geometry })),
       { gap: 10, step: 6, maxOffset: 72 },
     );
