@@ -8,12 +8,17 @@ export function computeGroupPressureScore(
   safeGap: number,
 ) {
   let score = 0;
-  const pressureGap = safeGap * 2.5;
+  const photoPressureGap = safeGap * 2.5;
+  const labelPressureGap = safeGap * 3;
   for (const occupied of occupiedGeometries) {
-    const groupDistance = rectDistance(candidate.groupRect, occupied.groupRect);
-    if (groupDistance < pressureGap) {
-      score += (pressureGap - groupDistance) ** 2;
-    }
+    const photoDistance = rectDistance(candidate.photoRect, occupied.photoRect);
+    const labelPhotoDistance = rectDistance(candidate.labelRect, occupied.photoRect);
+    const photoLabelDistance = rectDistance(candidate.photoRect, occupied.labelRect);
+    const labelDistance = rectDistance(candidate.labelRect, occupied.labelRect);
+    if (photoDistance < photoPressureGap) score += (photoPressureGap - photoDistance) ** 2 * 1.1;
+    if (labelPhotoDistance < labelPressureGap) score += (labelPressureGap - labelPhotoDistance) ** 2 * 1.25;
+    if (photoLabelDistance < labelPressureGap) score += (labelPressureGap - photoLabelDistance) ** 2 * 1.25;
+    if (labelDistance < labelPressureGap) score += (labelPressureGap - labelDistance) ** 2;
   }
   return score;
 }

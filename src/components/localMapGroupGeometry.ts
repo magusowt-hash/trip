@@ -375,7 +375,7 @@ export function selectBestGroupGeometryLabelCandidate(
   mapRect?: LogicalRect,
   safeGap = 10,
 ) {
-  const candidates = [geometry, ...buildGroupGeometryLabelCandidates(geometry).slice(0, 5)];
+  const candidates = [geometry, ...buildGroupGeometryLabelCandidates(geometry)];
   let best = geometry;
   let bestScore = Number.POSITIVE_INFINITY;
 
@@ -383,6 +383,31 @@ export function selectBestGroupGeometryLabelCandidate(
     let score = 0;
     for (const occupied of occupiedGeometries) {
       score += scoreGroupGeometryPlacement(candidate, [occupied], safeGap);
+      const verticalCenterGap = Math.abs(candidate.photoCenterY - occupied.photoCenterY);
+      const horizontalCenterGap = Math.abs(candidate.photoCenterX - occupied.photoCenterX);
+      const occupiedOnRight = occupied.photoCenterX >= candidate.photoCenterX;
+      const occupiedOnBottom = occupied.photoCenterY >= candidate.photoCenterY;
+      if (verticalCenterGap < 180) {
+        const verticalCongestion = 180 - verticalCenterGap;
+        if (candidate.labelSide === 'bottom' || candidate.labelSide === 'top') {
+          score += verticalCongestion * 8;
+        } else {
+          score -= verticalCongestion * 1.2;
+        }
+      }
+      if (verticalCenterGap < 260 && horizontalCenterGap < 260) {
+        const localCongestion = (260 - verticalCenterGap) + (260 - horizontalCenterGap);
+        if (
+          (candidate.labelSide === 'right' && occupiedOnRight) ||
+          (candidate.labelSide === 'left' && !occupiedOnRight) ||
+          (candidate.labelSide === 'bottom' && occupiedOnBottom) ||
+          (candidate.labelSide === 'top' && !occupiedOnBottom)
+        ) {
+          score += localCongestion * 2.8;
+        } else {
+          score -= localCongestion * 0.55;
+        }
+      }
     }
     if (mapRect) {
       const photoMapDx = Math.max(0, Math.max(mapRect.left - candidate.photoRect.right, candidate.photoRect.left - mapRect.right));
@@ -410,6 +435,9 @@ export function selectBestGroupGeometryLabelCandidate(
       Math.abs(candidate.lineAnchorX - geometry.lineAnchorX) +
       Math.abs(candidate.lineAnchorY - geometry.lineAnchorY);
     score += anchorShift * 0.35;
+    if (candidate.labelSide === 'left' || candidate.labelSide === 'right') {
+      score += 8;
+    }
     if (score < bestScore) {
       best = candidate;
       bestScore = score;
