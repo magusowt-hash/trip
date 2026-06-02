@@ -17,9 +17,6 @@ import {
   buildGroupGeometryFromPhotoRect,
   expandPhotoRect,
   resolveGroupLabelLayouts,
-  resolveGroupGeometryAsWhole,
-  scoreGroupGeometryPlacement,
-  translateGroupGeometry,
   type GroupLayoutSnapshot,
 } from '@/components/localMapGroupGeometry';
 import type { GroupGeometry } from '@/components/localMapGroupGeometry';
@@ -230,6 +227,16 @@ function buildOffsetGroupGeometry(placePhotos: PhotoItem[], offsets: LogicalOffs
   );
 }
 
+function extractOffsetsFromPlacedGroup(placePhotos: PhotoItem[], scale = 1) {
+  const geometry = buildPlaceGeometry(placePhotos, scale);
+  if (!geometry) return null;
+  const center = rectCenter(geometry.photoRect);
+  return placePhotos.map((photo) => ({
+    offsetX: (photo.frameX ?? center.x) - center.x,
+    offsetY: (photo.frameY ?? center.y) - center.y,
+  }));
+}
+
 function solveFrozenGroupLayouts(
   photos: PhotoItem[],
   scale: number,
@@ -314,15 +321,6 @@ function rectCenter(rect: LogicalRect) {
     x: (rect.left + rect.right) / 2,
     y: (rect.top + rect.bottom) / 2,
   };
-}
-
-function fitsGroupAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
-  return (
-    rect.right <= mapRect.left - gap ||
-    rect.left >= mapRect.right + gap ||
-    rect.bottom <= mapRect.top - gap ||
-    rect.top >= mapRect.bottom + gap
-  );
 }
 
 function buildDebugPhotoSnapshot(photos: PhotoItem[]): DebugPhotoSnapshot[] {
@@ -844,53 +842,29 @@ function UserFootprintsPageInner() {
       top: -(viewportHeight * 0.8) / 2,
       bottom: (viewportHeight * 0.8) / 2,
     };
-    const occupiedGeometries: GroupGeometry[] = [];
-
-    const existingGroups = new Map<string, PhotoItem[]>();
+    const allGroups = new Map<string, PhotoItem[]>();
     for (const photo of referencePhotos) {
-      if (photo.frameX == null || photo.frameY == null) continue;
-      const arr = existingGroups.get(photo.placeKey) || [];
+      const arr = allGroups.get(photo.placeKey) || [];
       arr.push(photo);
-      existingGroups.set(photo.placeKey, arr);
-    }
-    const existingGeometryEntries: Array<{ id: string; geometry: GroupGeometry }> = [];
-    for (const [placeKey, group] of existingGroups) {
-      const reservedLabelOffset = estimateReservedLabelOffset(placeKey, group, collisionScale, mapRect, groupLayouts);
-      const baseGeometry = buildPlaceGeometry(group, collisionScale);
-      const geometry = baseGeometry
-        ? buildGroupGeometryFromPhotoRect(
-            baseGeometry.photoRect,
-            group[0]?.placeTitle || '',
-            group.length,
-            collisionScale,
-            baseGeometry.labelSide,
-            reservedLabelOffset,
-          )
-        : null;
-      if (!geometry) continue;
-      existingGeometryEntries.push({ id: placeKey, geometry });
-    }
-    const resolvedExistingGeometryMap = resolveGroupGeometryAsWhole(
-      existingGeometryEntries.map((entry) => ({
-        id: entry.id,
-        geometry: entry.geometry,
-      })),
-      { gap: 10, mapRect, mapGap: cardSize, labelGapBoost: 8 },
-    );
-    for (const [, geometry] of resolvedExistingGeometryMap) {
-      occupiedGeometries.push(geometry);
+      allGroups.set(photo.placeKey, arr);
     }
 
-    const pendingNewGroups: PendingPlaceGroup[] = [];
+    const targetKeys = new Set(byPlace.keys());
+    const pendingGroups: PendingPlaceGroup[] = [];
 
-    for (const [placeKey, placePhotos] of byPlace) {
-      const placedPhotos = referencePhotos.filter((photo) => {
-        if (photo.placeKey !== placePhotos[0].placeKey) return false;
-        if (photo.frameX == null || photo.frameY == null) return false;
-        return !placePhotos.some((candidate) => candidate.id === photo.id);
-      });
-      const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
-      const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
+    for (const [placeKey, placePhotos] of allGroups) {
+      let offsets: LogicalOffset[] | null = null;
+      if (
+        !targetKeys.has(placeKey) &&
+        placePhotos.every((photo) => photo.frameX != null && photo.frameY != null)
+      ) {
+        offsets = extractOffsetsFromPlacedGroup(placePhotos, collisionScale);
+      }
+      if (!offsets) {
+        const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
+        offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
+      }
+
       const reservedLabelOffset = estimateReservedLabelOffset(placeKey, placePhotos, collisionScale, mapRect, groupLayouts);
       const baseOffsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale);
       const offsetGeometry = baseOffsetGeometry
@@ -904,49 +878,8 @@ function UserFootprintsPageInner() {
           )
         : null;
       if (!offsetGeometry) continue;
-      if (placedPhotos.length > 0) {
-        const existingGeometry = resolvedExistingGeometryMap.get(placeKey) ?? buildPlaceGeometry(placedPhotos, collisionScale);
-        if (!existingGeometry) continue;
-        const existingCenter = rectCenter(existingGeometry.photoRect);
-        const directionX = existingCenter.x || 0;
-        const directionY = existingCenter.y || 1;
-        const directionLen = Math.hypot(directionX, directionY) || 1;
-        const unitX = directionX / directionLen;
-        const unitY = directionY / directionLen;
-        const perpendicularX = -unitY;
-        const perpendicularY = unitX;
-        const expansionBase = Math.max(cardSize, layout.gapX + layout.gapY);
 
-        const candidateCenterX = existingCenter.x + unitX * expansionBase;
-        const candidateCenterY = existingCenter.y + unitY * expansionBase;
-        const nextGeometry = translateGroupGeometry(offsetGeometry, candidateCenterX, candidateCenterY);
-        const occupiedByOthers = occupiedGeometries.filter((geometry) => geometry !== existingGeometry);
-        const canExpandOutward =
-          fitsGroupAroundMap(nextGeometry.overallRect, mapRect, cardSize) &&
-          scoreGroupGeometryPlacement(nextGeometry, occupiedByOthers, cardSize) === 0;
-
-        if (!canExpandOutward) {
-          const fitOffsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
-          for (let i = 0; i < placePhotos.length; i++) {
-            placePhotos[i].frameX = existingCenter.x + fitOffsets[i].offsetX;
-            placePhotos[i].frameY = existingCenter.y + fitOffsets[i].offsetY;
-          }
-        } else {
-          for (let i = 0; i < placePhotos.length; i++) {
-            const forwardOffset = expansionBase + offsets[i].offsetY;
-            const lateralOffset = offsets[i].offsetX;
-            placePhotos[i].frameX = existingCenter.x + unitX * forwardOffset + perpendicularX * lateralOffset;
-            placePhotos[i].frameY = existingCenter.y + unitY * forwardOffset + perpendicularY * lateralOffset;
-          }
-        }
-        const placedGeometry = buildPlaceGeometry(placePhotos, collisionScale);
-        if (placedGeometry) {
-          occupiedGeometries.push(placedGeometry);
-        }
-        continue;
-      }
-
-      pendingNewGroups.push({
+      pendingGroups.push({
         placeKey,
         placePhotos,
         collisionGeometry: offsetGeometry,
@@ -959,24 +892,19 @@ function UserFootprintsPageInner() {
     }
 
     const solvedPendingGroups = solvePendingGroupPlacements(
-      pendingNewGroups,
+      pendingGroups,
       mapRect,
       cardSize,
       computeLabelGapBoost(outerScale),
     );
     const placementById = solvedPendingGroups.placements;
 
-    for (const group of pendingNewGroups) {
+    for (const group of pendingGroups) {
       const chosenCenter = placementById.get(group.placeKey);
       if (!chosenCenter) continue;
       for (let i = 0; i < group.placePhotos.length; i++) {
         group.placePhotos[i].frameX = chosenCenter.centerX + group.offsets[i].offsetX;
         group.placePhotos[i].frameY = chosenCenter.centerY + group.offsets[i].offsetY;
-      }
-
-      const placedGeometry = buildPlaceGeometry(group.placePhotos, collisionScale);
-      if (placedGeometry) {
-        occupiedGeometries.push(placedGeometry);
       }
     }
 
