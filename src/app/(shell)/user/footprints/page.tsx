@@ -492,6 +492,8 @@ function UserFootprintsPageInner() {
   const photosRef = useRef<PhotoItem[]>([]);
   const groupLayoutsRef = useRef<GroupLayoutSnapshot[]>([]);
   const poiPointsRef = useRef<PoiPoint[]>([]);
+  const outerScaleRef = useRef(1);
+  const outerMapRectRef = useRef<LogicalRect | null>(null);
   const localMapApplyRunIdRef = useRef(0);
   const actionNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -499,6 +501,8 @@ function UserFootprintsPageInner() {
   useEffect(() => { photosRef.current = photos; }, [photos]);
   useEffect(() => { groupLayoutsRef.current = groupLayouts; }, [groupLayouts]);
   useEffect(() => { poiPointsRef.current = poiPoints; }, [poiPoints]);
+  useEffect(() => { outerScaleRef.current = outerScale; }, [outerScale]);
+  useEffect(() => { outerMapRectRef.current = outerMapRect; }, [outerMapRect]);
 
   // Load settings
   useEffect(() => {
@@ -814,8 +818,15 @@ function UserFootprintsPageInner() {
     unplaced: PhotoItem[],
     referencePhotos: PhotoItem[] = photos,
     layout: LocalMapLayoutSettings = { enabled: true, mode: 'grid', gapX: 20, gapY: 20, staggerAxis: 'horizontal' },
+    options: {
+      poiPoints?: PoiPoint[];
+      groupLayouts?: GroupLayoutSnapshot[];
+      outerScale?: number;
+      outerMapRect?: LogicalRect | null;
+    } = {},
   ): GroupLayoutSnapshot[] {
-    if (unplaced.length === 0) return groupLayouts;
+    const activeGroupLayouts = options.groupLayouts ?? groupLayouts;
+    if (unplaced.length === 0) return activeGroupLayouts;
 
     const byPlace = new Map<string, PhotoItem[]>();
     for (const p of unplaced) {
@@ -824,17 +835,17 @@ function UserFootprintsPageInner() {
       byPlace.set(p.placeKey, arr);
     }
     const logicalPointByPlaceKey = new Map<string, { x: number; y: number }>(
-      poiPoints.map((point) => [point.placeKey, { x: point.logicalX, y: point.logicalY }]),
+      (options.poiPoints ?? poiPoints).map((point) => [point.placeKey, { x: point.logicalX, y: point.logicalY }]),
     );
     if ([...byPlace.keys()].some((placeKey) => !logicalPointByPlaceKey.has(placeKey))) {
-      return groupLayouts;
+      return activeGroupLayouts;
     }
 
     const cardSize = 80;
-    const collisionScale = Math.max(outerScale, 0.1);
+    const collisionScale = Math.max(options.outerScale ?? outerScale, 0.1);
     const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
     const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
-    const mapRect = outerMapRect ?? getFootprintMapRect(viewportWidth, viewportHeight);
+    const mapRect = options.outerMapRect ?? outerMapRect ?? getFootprintMapRect(viewportWidth, viewportHeight);
     const allGroups = new Map<string, PhotoItem[]>();
     for (const photo of referencePhotos) {
       const arr = allGroups.get(photo.placeKey) || [];
@@ -856,7 +867,7 @@ function UserFootprintsPageInner() {
           placePhotos,
           getPhotoLogicalSize,
           collisionScale,
-          groupLayouts,
+          activeGroupLayouts,
           mapRect,
         );
         if (lockedGeometry) {
@@ -875,7 +886,7 @@ function UserFootprintsPageInner() {
       const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
       const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
 
-      const reservedLabelOffset = estimateReservedLabelOffset(placeKey, placePhotos, collisionScale, mapRect, groupLayouts);
+      const reservedLabelOffset = estimateReservedLabelOffset(placeKey, placePhotos, collisionScale, mapRect, activeGroupLayouts);
       const baseOffsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale, mapRect);
       const offsetGeometry = baseOffsetGeometry
         ? buildGroupGeometryFromPhotoRect(
@@ -907,7 +918,7 @@ function UserFootprintsPageInner() {
       pendingGroups,
       mapRect,
       cardSize,
-      computeLabelGapBoost(outerScale),
+      computeLabelGapBoost(collisionScale),
       lockedGroups,
     );
     const placementById = solvedPendingGroups.placements;
@@ -933,7 +944,7 @@ function UserFootprintsPageInner() {
         labelOffset,
       });
     }
-    const next = new Map(groupLayouts.map((item) => [item.placeKey, item]));
+    const next = new Map(activeGroupLayouts.map((item) => [item.placeKey, item]));
     for (const layout of finalLayouts) {
       next.set(layout.placeKey, layout);
     }
@@ -1394,6 +1405,8 @@ function UserFootprintsPageInner() {
         const currentPhotos = photosRef.current;
         const currentGroupLayouts = groupLayoutsRef.current;
         const currentPoiPoints = poiPointsRef.current;
+        const currentOuterScale = outerScaleRef.current;
+        const currentOuterMapRect = outerMapRectRef.current;
         const itemByTitle = new Map(currentItems.map((item) => [item.title, item]));
         const poiPlaceKeys = new Set(currentPoiPoints.map((point) => point.placeKey));
         const targetPoiKeys = new Set(
@@ -1462,11 +1475,17 @@ function UserFootprintsPageInner() {
         setLocalMapApplyProgress(42);
         let nextGroupLayouts = currentGroupLayouts;
         if (unplaced.length > 0) {
-          setLocalMapApplyStage('计算安全排布');
+          setLocalMapApplyStage(`计算安全排布：${unplaced.length} 张 / ${currentPoiPoints.length} 个点位`);
           nextGroupLayouts = autoPlacePhotos(
             unplaced,
             [...currentPhotos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
             payload.layout,
+            {
+              poiPoints: currentPoiPoints,
+              groupLayouts: currentGroupLayouts,
+              outerScale: currentOuterScale,
+              outerMapRect: currentOuterMapRect,
+            },
           );
           if (unplaced.every((photo) => photo.frameX != null && photo.frameY != null)) {
             movedPhotosRef.current = true;
@@ -1474,6 +1493,7 @@ function UserFootprintsPageInner() {
           }
         }
         const visibleMappedCount = mappedPhotos.filter((photo) => photo.frameX != null && photo.frameY != null).length;
+        setLocalMapApplyStage(`排布坐标生成：${visibleMappedCount}/${mappedPhotos.length} 张`);
         if (mappedPhotos.length > 0 && visibleMappedCount === 0) {
           setLocalMapApplyStage('排布失败：未生成可显示坐标');
           alert('本地映射已匹配文件，但未生成可显示坐标。请等待地图点位加载完成后重试。');
