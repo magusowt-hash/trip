@@ -21,6 +21,15 @@ export function fitsLabelRectAroundMap(rect: LogicalRect, mapRect: LogicalRect, 
   );
 }
 
+export function fitsGroupRectAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
+  return (
+    rect.right <= mapRect.left - gap ||
+    rect.left >= mapRect.right + gap ||
+    rect.bottom <= mapRect.top - gap ||
+    rect.top >= mapRect.bottom + gap
+  );
+}
+
 export function rectOverlapsOccupiedPhotos(
   rect: LogicalRect,
   occupiedGeometries: GroupGeometry[],

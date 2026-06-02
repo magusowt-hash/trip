@@ -9,6 +9,7 @@ import {
 import { buildRadialLayout } from './localMapLayoutEngine';
 import type { FootprintPlacement, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
 import {
+  fitsGroupRectAroundMap,
   fitsLabelRectAroundMap,
   fitsPhotoRectAroundMap,
   hasLabelCollisions,
@@ -18,13 +19,14 @@ import {
 
 const GROUP_GAP = 10;
 const LABEL_GAP = 14;
-const MAP_GAP = 18;
-const ANGLE_STEPS = [0, -4, 4, -8, 8, -12, 12, -18, 18, -26, 26, -36, 36];
-const RADIUS_STEPS = [-420, -320, -240, -180, -120, -72, -36, 0, 48, 96, 160, 240];
-const REFINE_ANGLE_STEPS = [0, -3, 3, -6, 6, -10, 10];
-const REFINE_RADIUS_STEPS = [0, -120, -72, -36, 36, 72];
+const MAP_GAP = 28;
+const ANGLE_STEPS = [0, -3, 3, -6, 6, -10, 10, -14, 14, -20, 20, -28, 28];
+const RADIUS_STEPS = [-520, -420, -320, -240, -180, -120, -72, -36, 0, 36, 72, 120];
+const REFINE_ANGLE_STEPS = [0, -2, 2, -4, 4, -7, 7];
+const REFINE_RADIUS_STEPS = [0, -180, -120, -72, -36, 24];
 const LABEL_SIDE_PRIORITY: GroupLabelSide[] = ['top', 'bottom'];
-const REFINE_PASSES = 2;
+const REFINE_PASSES = 3;
+const LINE_BUNDLE_DISTANCE = 28;
 
 type PlacedEntry = {
   group: PendingPlaceGroup;
@@ -97,6 +99,7 @@ function buildGeometryForPlacement(
 
 function fitsAroundMap(geometry: GroupGeometry, mapRect: LogicalRect) {
   return (
+    fitsGroupRectAroundMap(geometry.groupRect, mapRect, MAP_GAP) &&
     fitsPhotoRectAroundMap(geometry.photoRect, mapRect, MAP_GAP) &&
     fitsLabelRectAroundMap(geometry.labelRect, mapRect, MAP_GAP)
   );
@@ -117,6 +120,36 @@ function hasCrossingWithPlaced(
   ));
 }
 
+function pointToSegmentDistance(
+  point: { x: number; y: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq <= 1e-6) return Math.hypot(point.x - start.x, point.y - start.y);
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lenSq));
+  const projX = start.x + t * dx;
+  const projY = start.y + t * dy;
+  return Math.hypot(point.x - projX, point.y - projY);
+}
+
+function segmentDistance(
+  a1: { x: number; y: number },
+  a2: { x: number; y: number },
+  b1: { x: number; y: number },
+  b2: { x: number; y: number },
+) {
+  if (segmentsIntersect(a1, a2, b1, b2)) return 0;
+  return Math.min(
+    pointToSegmentDistance(a1, b1, b2),
+    pointToSegmentDistance(a2, b1, b2),
+    pointToSegmentDistance(b1, a1, a2),
+    pointToSegmentDistance(b2, a1, a2),
+  );
+}
+
 function computeCollisionPenalty(geometry: GroupGeometry, placed: PlacedEntry[]) {
   const occupied = placed.map((entry) => entry.geometry);
   const photoOverlap = rectOverlapsOccupiedPhotos(geometry.photoRect, occupied, GROUP_GAP);
@@ -130,6 +163,27 @@ function computeCollisionPenalty(geometry: GroupGeometry, placed: PlacedEntry[])
     photoLabelOverlap,
     groupOverlap,
   };
+}
+
+function computeLineBundlePenalty(
+  group: PendingPlaceGroup,
+  geometry: GroupGeometry,
+  placed: PlacedEntry[],
+) {
+  let penalty = 0;
+  const start = { x: group.logicalX, y: group.logicalY };
+  const end = { x: geometry.lineAnchorX, y: geometry.lineAnchorY };
+
+  for (const entry of placed) {
+    const otherStart = { x: entry.group.logicalX, y: entry.group.logicalY };
+    const otherEnd = { x: entry.geometry.lineAnchorX, y: entry.geometry.lineAnchorY };
+    const distance = segmentDistance(start, end, otherStart, otherEnd);
+    if (distance < LINE_BUNDLE_DISTANCE) {
+      penalty += (LINE_BUNDLE_DISTANCE - distance) * (LINE_BUNDLE_DISTANCE - distance) * 4.5;
+    }
+  }
+
+  return penalty;
 }
 
 function computeUniformityPenalty(
@@ -178,19 +232,27 @@ function scoreCandidate(
   const crossing = hasCrossingWithPlaced(group, geometry, placed);
   const collisions = computeCollisionPenalty(geometry, placed);
   const uniformity = computeUniformityPenalty(placement, placed);
+  const lineBundlePenalty = computeLineBundlePenalty(group, geometry, placed);
 
-  const valid = !crossing && !collisions.photoOverlap && !collisions.labelOverlap && !collisions.photoLabelOverlap;
+  const valid =
+    !crossing &&
+    !collisions.groupOverlap &&
+    !collisions.photoOverlap &&
+    !collisions.labelOverlap &&
+    !collisions.photoLabelOverlap;
 
   let total = valid ? 0 : 1000000;
-  total += collisions.groupOverlap ? 120000 : 0;
+  total += collisions.groupOverlap ? 420000 : 0;
   total += collisions.photoOverlap ? 220000 : 0;
   total += collisions.labelOverlap ? 320000 : 0;
   total += collisions.photoLabelOverlap ? 380000 : 0;
   total += crossing ? 260000 : 0;
-  total += uniformity * 2.4;
-  total += Math.max(0, radius - baseRadius) * 1.6;
-  total += Math.abs(angleDelta(angle, baseAngle)) * 42;
-  total += radius * 0.18;
+  total += lineBundlePenalty;
+  total += uniformity * 3.2;
+  total += Math.max(0, radius - baseRadius) * 2.4;
+  total += Math.abs(angleDelta(angle, baseAngle)) * 34;
+  total += radius * 0.08;
+  total += Math.max(0, baseRadius - radius) * -0.22;
 
   return { total, valid, uniformity };
 }
