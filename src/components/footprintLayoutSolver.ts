@@ -549,6 +549,56 @@ function optimizeAssignments(
   }
 }
 
+function buildGeometryMapForPlacements(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  mapRect: LogicalRect,
+) {
+  const geometryById = new Map<string, GroupGeometry>();
+  for (const group of groups) {
+    const placement = placementById.get(group.placeKey);
+    if (!placement) continue;
+    geometryById.set(group.placeKey, chooseBestGeometryForPlacement(group, placement, mapRect));
+  }
+  return geometryById;
+}
+
+function hasHardConflicts(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  geometryById: Map<string, GroupGeometry>,
+  mapRect: LogicalRect,
+) {
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const geometry = geometryById.get(group.placeKey);
+    if (!geometry) return true;
+    if (!geometryFitsMap(geometry, mapRect)) return true;
+
+    const line = buildLine(group, geometry);
+    for (let neighborIndex = index + 1; neighborIndex < groups.length; neighborIndex++) {
+      const neighbor = groups[neighborIndex];
+      const neighborGeometry = geometryById.get(neighbor.placeKey);
+      if (!neighborGeometry) return true;
+
+      const photoOverlap = rectOverlapsOccupiedPhotos(geometry.photoRect, [neighborGeometry], GROUP_GAP);
+      const labelOverlap = hasLabelCollisions(geometry, [neighborGeometry], LABEL_GAP);
+      const photoLabelOverlap = hasPhotoAgainstLabelCollisions(geometry, [neighborGeometry], LABEL_GAP);
+      const groupOverlap = rectsOverlap(geometry.groupRect, neighborGeometry.groupRect, GROUP_GAP);
+      if (photoOverlap || labelOverlap || photoLabelOverlap || groupOverlap) {
+        return true;
+      }
+
+      const neighborLine = buildLine(neighbor, neighborGeometry);
+      if (segmentsIntersect(line.start, line.end, neighborLine.start, neighborLine.end)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 function buildFallbackState(
   orderedGroups: PendingPlaceGroup[],
   basePlacementById: Map<string, FootprintPlacement>,
@@ -613,15 +663,18 @@ export function solvePendingGroupPlacements(
     safeGap,
     labelGapBoost,
   );
-  const refinedGeometryById = new Map<string, GroupGeometry>();
-  for (const group of orderedGroups) {
-    const placement = refinedPlacementById.get(group.placeKey);
-    if (!placement) continue;
-    refinedGeometryById.set(group.placeKey, chooseBestGeometryForPlacement(group, placement, mapRect));
-  }
+  const refinedGeometryById = buildGeometryMapForPlacements(orderedGroups, refinedPlacementById, mapRect);
+  const optimizedGeometryById = buildGeometryMapForPlacements(orderedGroups, workingState.placementById, mapRect);
+
+  const finalPlacements = hasHardConflicts(orderedGroups, refinedPlacementById, refinedGeometryById, mapRect)
+    ? workingState.placementById
+    : refinedPlacementById;
+  const finalGeometries = finalPlacements === refinedPlacementById
+    ? refinedGeometryById
+    : optimizedGeometryById;
 
   return {
-    placements: refinedPlacementById,
-    geometries: refinedGeometryById,
+    placements: finalPlacements,
+    geometries: finalGeometries,
   };
 }
