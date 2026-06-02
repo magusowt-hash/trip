@@ -124,7 +124,8 @@ export default function OuterFrameCanvas({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dirtyRef = useRef(true);
-  const prevKeyRef = useRef('');
+  const rafRef = useRef<number | null>(null);
+  const renderRef = useRef<() => void>(() => {});
   const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
   const dragRef = useRef<{
     photoId: number | string;
@@ -139,6 +140,17 @@ export default function OuterFrameCanvas({
   const hoveredPhotoRef = useRef<number | string | null>(null);
   const placeRectsRef = useRef<PlaceRect[]>([]);
   const didDragRef = useRef(false);
+
+  const scheduleRender = useCallback(() => {
+    dirtyRef.current = true;
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      if (!dirtyRef.current) return;
+      renderRef.current();
+      dirtyRef.current = false;
+    });
+  }, []);
 
   const getRenderUrl = useCallback((photo: PhotoItem) => {
     if (photo.sourceType === 'local-mapped' && photo.thumbnailUrl && scale < 4) {
@@ -293,14 +305,14 @@ export default function OuterFrameCanvas({
     img.crossOrigin = 'anonymous';
     img.src = renderUrl;
     img.onload = () => {
-      dirtyRef.current = true;
+      scheduleRender();
     };
     img.onerror = () => {
-      dirtyRef.current = true;
+      scheduleRender();
     };
     imageCache.current.set(cacheKey, img);
     return img;
-  }, [getRenderUrl]);
+  }, [getRenderUrl, scheduleRender]);
 
   // --- Hit test ---
   const hitTest = useCallback((sx: number, sy: number): number | string | null => {
@@ -403,25 +415,13 @@ export default function OuterFrameCanvas({
   }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, computePlaceRects, getPhotoLogicalSize]);
 
   useEffect(() => {
-    const key = `${transform.scale},${transform.tx},${transform.ty},${photos.length},${showLabels},${width},${height}`;
-    if (key !== prevKeyRef.current) {
-      dirtyRef.current = true;
-      prevKeyRef.current = key;
-    }
-  }, [transform, photos, showLabels, width, height]);
+    renderRef.current = render;
+    scheduleRender();
+  }, [render, scheduleRender]);
 
-  useEffect(() => {
-    let rafId: number;
-    const loop = () => {
-      if (dirtyRef.current || dragRef.current) {
-        render();
-        dirtyRef.current = false;
-      }
-      rafId = requestAnimationFrame(loop);
-    };
-    rafId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafId);
-  }, [render]);
+  useEffect(() => () => {
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+  }, []);
 
   // Cleanup image cache
   useEffect(() => {
@@ -541,12 +541,16 @@ export default function OuterFrameCanvas({
         }
       }
       dirtyRef.current = true;
+      scheduleRender();
     } else {
       const pos = getCanvasPos(e);
       const hit = hitTest(pos.x, pos.y);
-      hoveredPhotoRef.current = hit;
+      if (hoveredPhotoRef.current !== hit) {
+        hoveredPhotoRef.current = hit;
+        scheduleRender();
+      }
     }
-  }, [getCanvasPos, hitTest, transform, photos, width, height, clampGroupAwayFromMap, getPhotoBounds]);
+  }, [getCanvasPos, hitTest, transform, photos, width, height, clampGroupAwayFromMap, getPhotoBounds, scheduleRender]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) {

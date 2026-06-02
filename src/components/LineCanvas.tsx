@@ -150,9 +150,7 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
   }, [width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor, logicalToScreen, getGroupAnchorPoint, getResolvedGroupGeometryMap]);
 
   useEffect(() => {
-    let rafId: number;
-    const loop = () => { render(); rafId = requestAnimationFrame(loop); };
-    rafId = requestAnimationFrame(loop);
+    const rafId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(rafId);
   }, [render]);
 
