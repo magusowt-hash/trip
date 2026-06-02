@@ -27,6 +27,9 @@ const REFINE_RADIUS_STEPS = [0, -180, -120, -72, -36, 24];
 const LABEL_SIDE_PRIORITY: GroupLabelSide[] = ['top', 'bottom'];
 const REFINE_PASSES = 3;
 const LINE_BUNDLE_DISTANCE = 28;
+const LINKED_PAIR_DISTANCE = 36;
+const LINKED_PAIR_ANGLE_STEPS = [-8, -5, -3, 3, 5, 8];
+const LINKED_PAIR_RADIUS_STEPS = [-120, -80, -48, -24];
 
 type PlacedEntry = {
   group: PendingPlaceGroup;
@@ -38,6 +41,11 @@ type CandidateScore = {
   total: number;
   valid: boolean;
   uniformity: number;
+};
+
+type LinkedPair = {
+  left: PendingPlaceGroup;
+  right: PendingPlaceGroup;
 };
 
 function normalizeAngle(angle: number) {
@@ -148,6 +156,13 @@ function segmentDistance(
     pointToSegmentDistance(b1, a1, a2),
     pointToSegmentDistance(b2, a1, a2),
   );
+}
+
+function buildLineSegment(group: PendingPlaceGroup, geometry: GroupGeometry) {
+  return {
+    start: { x: group.logicalX, y: group.logicalY },
+    end: { x: geometry.lineAnchorX, y: geometry.lineAnchorY },
+  };
 }
 
 function computeCollisionPenalty(geometry: GroupGeometry, placed: PlacedEntry[]) {
@@ -371,6 +386,105 @@ function rebuildPlacedEntries(
   return { placed, geometryById };
 }
 
+function findLinkedPairs(
+  ordered: PendingPlaceGroup[],
+  geometryById: Map<string, GroupGeometry>,
+) {
+  const pairs: LinkedPair[] = [];
+
+  for (let leftIndex = 0; leftIndex < ordered.length; leftIndex++) {
+    const left = ordered[leftIndex];
+    const leftGeometry = geometryById.get(left.placeKey);
+    if (!leftGeometry) continue;
+    const leftLine = buildLineSegment(left, leftGeometry);
+
+    for (let rightIndex = leftIndex + 1; rightIndex < ordered.length; rightIndex++) {
+      const right = ordered[rightIndex];
+      const rightGeometry = geometryById.get(right.placeKey);
+      if (!rightGeometry) continue;
+      const rightLine = buildLineSegment(right, rightGeometry);
+      const distance = segmentDistance(leftLine.start, leftLine.end, rightLine.start, rightLine.end);
+      if (distance > LINKED_PAIR_DISTANCE) continue;
+      pairs.push({ left, right });
+    }
+  }
+
+  return pairs;
+}
+
+function resolveLinkedPairs(
+  ordered: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  mapRect: LogicalRect,
+) {
+  let nextPlacementById = new Map(placementById);
+  let rebuilt = rebuildPlacedEntries(ordered, nextPlacementById, mapRect);
+
+  for (const pair of findLinkedPairs(ordered, rebuilt.geometryById)) {
+    const leftPlacement = nextPlacementById.get(pair.left.placeKey);
+    const rightPlacement = nextPlacementById.get(pair.right.placeKey);
+    if (!leftPlacement || !rightPlacement) continue;
+
+    let bestPlacementById = nextPlacementById;
+    let bestRebuilt = rebuilt;
+    let bestDistance = (() => {
+      const leftGeometry = rebuilt.geometryById.get(pair.left.placeKey);
+      const rightGeometry = rebuilt.geometryById.get(pair.right.placeKey);
+      if (!leftGeometry || !rightGeometry) return 0;
+      const leftLine = buildLineSegment(pair.left, leftGeometry);
+      const rightLine = buildLineSegment(pair.right, rightGeometry);
+      return segmentDistance(leftLine.start, leftLine.end, rightLine.start, rightLine.end);
+    })();
+
+    const leftAngle = Math.atan2(leftPlacement.centerY, leftPlacement.centerX);
+    const rightAngle = Math.atan2(rightPlacement.centerY, rightPlacement.centerX);
+    const leftRadius = Math.hypot(leftPlacement.centerX, leftPlacement.centerY);
+    const rightRadius = Math.hypot(rightPlacement.centerX, rightPlacement.centerY);
+
+    for (const radiusStep of LINKED_PAIR_RADIUS_STEPS) {
+      for (const angleStep of LINKED_PAIR_ANGLE_STEPS) {
+        const trialPlacementById = new Map(nextPlacementById);
+        trialPlacementById.set(pair.left.placeKey, {
+          centerX: Math.cos(leftAngle + (angleStep * Math.PI) / 180) * Math.max(0, leftRadius + radiusStep),
+          centerY: Math.sin(leftAngle + (angleStep * Math.PI) / 180) * Math.max(0, leftRadius + radiusStep),
+        });
+        trialPlacementById.set(pair.right.placeKey, {
+          centerX: Math.cos(rightAngle - (angleStep * Math.PI) / 180) * Math.max(0, rightRadius + radiusStep),
+          centerY: Math.sin(rightAngle - (angleStep * Math.PI) / 180) * Math.max(0, rightRadius + radiusStep),
+        });
+
+        const trialRebuilt = rebuildPlacedEntries(ordered, trialPlacementById, mapRect);
+        const nextLeftGeometry = trialRebuilt.geometryById.get(pair.left.placeKey);
+        const nextRightGeometry = trialRebuilt.geometryById.get(pair.right.placeKey);
+        if (!nextLeftGeometry || !nextRightGeometry) continue;
+        const leftLine = buildLineSegment(pair.left, nextLeftGeometry);
+        const rightLine = buildLineSegment(pair.right, nextRightGeometry);
+        const nextDistance = segmentDistance(leftLine.start, leftLine.end, rightLine.start, rightLine.end);
+        if (nextDistance <= bestDistance + 1e-6) continue;
+
+        const leftEntry = trialRebuilt.placed.find((entry) => entry.group.placeKey === pair.left.placeKey);
+        const rightEntry = trialRebuilt.placed.find((entry) => entry.group.placeKey === pair.right.placeKey);
+        if (!leftEntry || !rightEntry) continue;
+        const leftScore = scoreCandidate(leftEntry.placement, leftEntry.geometry, trialRebuilt.placed.filter((entry) => entry.group.placeKey !== pair.left.placeKey), leftPlacement, pair.left);
+        const rightScore = scoreCandidate(rightEntry.placement, rightEntry.geometry, trialRebuilt.placed.filter((entry) => entry.group.placeKey !== pair.right.placeKey), rightPlacement, pair.right);
+        if (!leftScore.valid || !rightScore.valid) continue;
+
+        bestPlacementById = trialPlacementById;
+        bestRebuilt = trialRebuilt;
+        bestDistance = nextDistance;
+      }
+    }
+
+    nextPlacementById = bestPlacementById;
+    rebuilt = bestRebuilt;
+  }
+
+  return {
+    placementById: nextPlacementById,
+    rebuilt,
+  };
+}
+
 function refinePlacements(
   ordered: PendingPlaceGroup[],
   placementById: Map<string, FootprintPlacement>,
@@ -476,10 +590,10 @@ export function solvePendingGroupPlacements(
   }
 
   const refinedPlacementById = refinePlacements(ordered, initialPlacementById, mapRect);
-  const rebuilt = rebuildPlacedEntries(ordered, refinedPlacementById, mapRect);
+  const linkedResolved = resolveLinkedPairs(ordered, refinedPlacementById, mapRect);
 
   return {
-    placements: refinedPlacementById,
-    geometries: rebuilt.geometryById,
+    placements: linkedResolved.placementById,
+    geometries: linkedResolved.rebuilt.geometryById,
   };
 }

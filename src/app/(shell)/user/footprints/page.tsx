@@ -982,9 +982,25 @@ function UserFootprintsPageInner() {
       }
     }
 
-    const finalPlacedPhotos = referencePhotos.filter((photo) => photo.frameX != null && photo.frameY != null);
-    const nextLayouts = Array.from(solveFrozenGroupLayouts(finalPlacedPhotos, collisionScale, mapRect, groupLayouts).values());
-    setGroupLayouts(nextLayouts);
+    const finalLayouts: GroupLayoutSnapshot[] = [];
+    for (const [placeKey, geometry] of solvedPendingGroups.geometries) {
+      const labelOffset =
+        geometry.labelSide === 'top'
+          ? Math.max(0, geometry.photoRect.top - geometry.lineAnchorY)
+          : Math.max(0, geometry.lineAnchorY - geometry.photoRect.bottom);
+      finalLayouts.push({
+        placeKey,
+        labelSide: geometry.labelSide,
+        labelOffset,
+      });
+    }
+    setGroupLayouts((current) => {
+      const next = new Map(current.map((item) => [item.placeKey, item]));
+      for (const layout of finalLayouts) {
+        next.set(layout.placeKey, layout);
+      }
+      return Array.from(next.values());
+    });
   }
 
   // --- Map handlers ---
