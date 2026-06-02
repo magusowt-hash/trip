@@ -1,4 +1,5 @@
 import {
+  buildGroupGeometryCandidatesFromPhotoRect,
   buildGroupGeometryFromPhotoRect,
   resolveGroupGeometryAsWhole,
   resolvePreferredLabelSide,
@@ -9,7 +10,6 @@ import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGro
 import {
   fitsLabelRectAroundMap,
   fitsPhotoRectAroundMap,
-  fitsGroupRectAroundMap,
   hasLabelCollisions,
   hasPhotoAgainstLabelCollisions,
   rectDistanceToMap,
@@ -17,9 +17,9 @@ import {
 } from './footprintLayoutConstraints';
 import { refineRadialPlacements } from './footprintSectorLayoutEngine';
 
-const GROUP_GAP = 10;
-const LABEL_GAP = 14;
-const MAP_GAP = 96;
+const GROUP_GAP = 28;
+const LABEL_GAP = 24;
+const MAP_GAP = 112;
 const LINE_BUNDLE_DISTANCE = 34;
 const LOCAL_DENSITY_DISTANCE = 380;
 const GLOBAL_SECTOR_COUNT = 16;
@@ -153,7 +153,6 @@ function buildGeometryForPlacement(
 
 function geometryFitsMap(geometry: GroupGeometry, mapRect: LogicalRect) {
   return (
-    fitsGroupRectAroundMap(geometry.groupRect, mapRect, MAP_GAP) &&
     fitsPhotoRectAroundMap(geometry.photoRect, mapRect, MAP_GAP) &&
     fitsLabelRectAroundMap(geometry.labelRect, mapRect, MAP_GAP) &&
     fitsLabelRectAroundMap(geometry.lineRect, mapRect, MAP_GAP)
@@ -165,7 +164,31 @@ function chooseBestGeometryForPlacement(
   placement: FootprintPlacement,
   mapRect: LogicalRect,
 ) {
-  return buildGeometryForPlacement(group, placement);
+  const geometry = buildGeometryForPlacement(group, placement);
+  const candidates = buildGroupGeometryCandidatesFromPhotoRect(
+    geometry.photoRect,
+    group.placePhotos[0]?.placeTitle || '',
+    group.placePhotos.length,
+    1,
+    undefined,
+    group.reservedLabelOffset,
+  );
+
+  return candidates.reduce((best, candidate) => {
+    const candidateMapPenalty = geometryFitsMap(candidate, mapRect) ? 0 : 100000;
+    const bestMapPenalty = geometryFitsMap(best, mapRect) ? 0 : 100000;
+    const candidateScore =
+      candidateMapPenalty +
+      rectDistanceToMap(candidate.labelRect, mapRect) * 0.4 +
+      rectDistanceToMap(candidate.lineRect, mapRect) * 0.25 +
+      rectDistanceToMap(candidate.groupRect, mapRect) * 0.08;
+    const bestScore =
+      bestMapPenalty +
+      rectDistanceToMap(best.labelRect, mapRect) * 0.4 +
+      rectDistanceToMap(best.lineRect, mapRect) * 0.25 +
+      rectDistanceToMap(best.groupRect, mapRect) * 0.08;
+    return candidateScore < bestScore ? candidate : best;
+  }, geometry);
 }
 
 function compareGroupOrder(
@@ -572,7 +595,11 @@ function buildGeometryMapForPlacements(
   });
   const resolved = resolveGroupGeometryAsWhole(
     [
-      ...lockedGroups.map((group) => ({ id: group.placeKey, geometry: group.geometry })),
+      ...lockedGroups.map((group) => ({
+        id: group.placeKey,
+        geometry: group.geometry,
+        candidates: [group.geometry],
+      })),
       ...entries,
     ],
     { gap: GROUP_GAP, mapRect, mapGap: MAP_GAP, labelGapBoost },
@@ -586,54 +613,50 @@ function buildGeometryMapForPlacements(
   return geometryById;
 }
 
-function hasHardConflicts(
+function countHardConflicts(
   groups: PendingPlaceGroup[],
-  placementById: Map<string, FootprintPlacement>,
   geometryById: Map<string, GroupGeometry>,
   mapRect: LogicalRect,
   lockedGroups: LockedPlaceGroup[] = [],
 ) {
+  let count = 0;
   for (let index = 0; index < groups.length; index++) {
     const group = groups[index];
     const geometry = geometryById.get(group.placeKey);
-    if (!geometry) return true;
-    if (!geometryFitsMap(geometry, mapRect)) return true;
-
+    if (!geometry) {
+      count += 1000;
+      continue;
+    }
+    if (!geometryFitsMap(geometry, mapRect)) count += 500;
     const line = buildLine(group, geometry);
+
     for (let neighborIndex = index + 1; neighborIndex < groups.length; neighborIndex++) {
       const neighbor = groups[neighborIndex];
       const neighborGeometry = geometryById.get(neighbor.placeKey);
-      if (!neighborGeometry) return true;
-
-      const photoOverlap = rectOverlapsOccupiedPhotos(geometry.photoRect, [neighborGeometry], GROUP_GAP);
-      const labelOverlap = hasLabelCollisions(geometry, [neighborGeometry], LABEL_GAP);
-      const photoLabelOverlap = hasPhotoAgainstLabelCollisions(geometry, [neighborGeometry], LABEL_GAP);
-      if (photoOverlap || labelOverlap || photoLabelOverlap) {
-        return true;
+      if (!neighborGeometry) {
+        count += 1000;
+        continue;
       }
-
+      if (rectOverlapsOccupiedPhotos(geometry.photoRect, [neighborGeometry], GROUP_GAP)) count += 8;
+      if (hasLabelCollisions(geometry, [neighborGeometry], LABEL_GAP)) count += 6;
+      if (hasPhotoAgainstLabelCollisions(geometry, [neighborGeometry], LABEL_GAP)) count += 6;
       const neighborLine = buildLine(neighbor, neighborGeometry);
       if (segmentsIntersect(line.start, line.end, neighborLine.start, neighborLine.end)) {
-        return true;
+        count += 10;
       }
     }
 
     for (const locked of lockedGroups) {
-      const photoOverlap = rectOverlapsOccupiedPhotos(geometry.photoRect, [locked.geometry], GROUP_GAP);
-      const labelOverlap = hasLabelCollisions(geometry, [locked.geometry], LABEL_GAP);
-      const photoLabelOverlap = hasPhotoAgainstLabelCollisions(geometry, [locked.geometry], LABEL_GAP);
-      if (photoOverlap || labelOverlap || photoLabelOverlap) {
-        return true;
-      }
-
+      if (rectOverlapsOccupiedPhotos(geometry.photoRect, [locked.geometry], GROUP_GAP)) count += 8;
+      if (hasLabelCollisions(geometry, [locked.geometry], LABEL_GAP)) count += 6;
+      if (hasPhotoAgainstLabelCollisions(geometry, [locked.geometry], LABEL_GAP)) count += 6;
       const lockedLine = buildLine(locked, locked.geometry);
       if (segmentsIntersect(line.start, line.end, lockedLine.start, lockedLine.end)) {
-        return true;
+        count += 10;
       }
     }
   }
-
-  return false;
+  return count;
 }
 
 function buildFallbackState(
@@ -716,9 +739,11 @@ export function solvePendingGroupPlacements(
     lockedGroups,
   );
 
-  const finalPlacements = hasHardConflicts(orderedGroups, refinedPlacementById, refinedGeometryById, mapRect, lockedGroups)
-    ? workingState.placementById
-    : refinedPlacementById;
+  const refinedConflictCount = countHardConflicts(orderedGroups, refinedGeometryById, mapRect, lockedGroups);
+  const optimizedConflictCount = countHardConflicts(orderedGroups, optimizedGeometryById, mapRect, lockedGroups);
+  const finalPlacements = refinedConflictCount <= optimizedConflictCount
+    ? refinedPlacementById
+    : workingState.placementById;
   const finalGeometries = finalPlacements === refinedPlacementById
     ? refinedGeometryById
     : optimizedGeometryById;

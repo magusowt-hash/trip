@@ -421,8 +421,10 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
     };
   };
 
-  const preferredSide = fixedLabelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
-  return [buildForSide(preferredSide)];
+  if (fixedLabelSide) return [buildForSide(fixedLabelSide)];
+  const preferredSide = resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  const fallbackSide: GroupLabelSide = preferredSide === 'top' ? 'bottom' : 'top';
+  return [buildForSide(preferredSide), buildForSide(fallbackSide)];
 }
 
 export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry, fixedLabelSide?: GroupLabelSide) {
@@ -486,8 +488,10 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
     };
   };
 
-  const preferredSide = fixedLabelSide ?? geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
-  return [buildForSide(preferredSide)];
+  if (fixedLabelSide) return [buildForSide(fixedLabelSide)];
+  const preferredSide = geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  const fallbackSide: GroupLabelSide = preferredSide === 'top' ? 'bottom' : 'top';
+  return [buildForSide(preferredSide), buildForSide(fallbackSide)];
 }
 
 export function buildGroupGeometry(
@@ -580,7 +584,7 @@ export function resolveGroupLabelLayouts(
       let score = scoreGroupGeometryPlacement(candidate, occupied, gap, { labelGapBoost });
 
       if (options?.mapRect) {
-        if (rectOverlapsMap(candidate.overallRect, options.mapRect, options.mapGap ?? gap)) {
+        if (geometryOverlapsMap(candidate, options.mapRect, options.mapGap ?? gap)) {
           score += 500000;
         }
       }
@@ -710,7 +714,20 @@ function rectDistanceToCenter(rect: LogicalRect) {
 }
 
 function rectOverlapsMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
-  return rectsOverlap(rect, mapRect, gap);
+  return rectsOverlap(rect, {
+    left: mapRect.left - gap,
+    right: mapRect.right + gap,
+    top: mapRect.top - gap,
+    bottom: mapRect.bottom + gap,
+  }, 0);
+}
+
+function geometryOverlapsMap(geometry: GroupGeometry, mapRect: LogicalRect, gap: number) {
+  return (
+    rectOverlapsMap(geometry.photoRect, mapRect, gap + 12) ||
+    rectOverlapsMap(geometry.labelRect, mapRect, gap + 16) ||
+    rectOverlapsMap(geometry.lineRect, mapRect, gap + 12)
+  );
 }
 
 export function resolveGroupGeometryAsWhole<T extends string = string>(
@@ -742,7 +759,7 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
       let score = scoreGroupGeometryPlacement(candidate, occupied, gap, { labelGapBoost });
 
       if (options?.mapRect) {
-        if (rectOverlapsMap(candidate.overallRect, options.mapRect, mapGap)) {
+        if (geometryOverlapsMap(candidate, options.mapRect, mapGap)) {
           score += 500000;
         }
       }
