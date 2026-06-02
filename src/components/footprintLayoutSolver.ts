@@ -1,6 +1,8 @@
 import { buildRadialLayout } from './localMapLayoutEngine';
 import type { FootprintPlacement, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
 
+const MAX_REFINED_PENDING_GROUPS = 10;
+
 export function solvePendingGroupPlacements(
   groups: PendingPlaceGroup[],
   mapRect: LogicalRect,
@@ -23,6 +25,10 @@ export function solvePendingGroupPlacements(
     })),
     mapRect,
   );
+
+  if (groups.length > MAX_REFINED_PENDING_GROUPS) {
+    return new Map(placements.map((placement) => [placement.id, placement]));
+  }
 
   return refinePlacements(
     groups,

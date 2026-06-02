@@ -36,6 +36,7 @@ import styles from './footprints.module.css';
 const LOCAL_THUMB_MAX_EDGE = 320;
 const LOCAL_THUMB_CONCURRENCY = 2;
 const LOCAL_MAP_LOADING_MIN_DELAY_MS = 120;
+const MAX_DEBUG_SNAPSHOT_PHOTOS = 160;
 
 interface FootprintGroup {
   id: number;
@@ -1511,8 +1512,13 @@ function UserFootprintsPageInner() {
           return [...uploaded, ...mappedPhotos];
         });
         const debugMergedPhotos = [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos];
-        setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
-        setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
+        if (debugMergedPhotos.length <= MAX_DEBUG_SNAPSHOT_PHOTOS) {
+          setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
+          setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
+        } else {
+          setDebugBasePhotos(null);
+          setDebugBaseGroups(null);
+        }
         setLocalMapApplyProgress(82);
         enqueueLocalThumbnails(mappedPhotos);
         setLocalRootName(payload.rootName);
