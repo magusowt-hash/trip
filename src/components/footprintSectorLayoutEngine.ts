@@ -284,8 +284,14 @@ function evaluatePlacementCandidate(
   currentPlacement: FootprintPlacement,
   placementById: Map<string, FootprintPlacement>,
   groups: PendingPlaceGroup[],
+  options?: {
+    lightweight?: boolean;
+  },
 ) {
-  const resolvedGeometry = resolveCandidateGeometryAgainstOccupied(geometry, occupiedGeometries, mapRect, safeGap);
+  const lightweight = options?.lightweight ?? false;
+  const resolvedGeometry = lightweight
+    ? geometry
+    : resolveCandidateGeometryAgainstOccupied(geometry, occupiedGeometries, mapRect, safeGap);
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
   const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
   const radius = Math.hypot(centerX, centerY);
@@ -298,9 +304,11 @@ function evaluatePlacementCandidate(
   const photoMapInvalid = !fitsPhotoRectAroundMap(resolvedGeometry.photoRect, mapRect, safeGap);
   const labelMapInvalid = !fitsLabelRectAroundMap(resolvedGeometry.labelRect, mapRect, safeGap);
   const mapOverlap = photoMapInvalid || labelMapInvalid;
-  const lineTrial = new Map(placementById);
-  lineTrial.set(placeKey, { centerX: resolvedGeometry.photoCenterX, centerY: resolvedGeometry.photoCenterY });
-  const lineIntersected = hasIntersectingLines(lineTrial, groups);
+  const lineTrial = lightweight ? placementById : new Map(placementById);
+  if (!lightweight) {
+    lineTrial.set(placeKey, { centerX: resolvedGeometry.photoCenterX, centerY: resolvedGeometry.photoCenterY });
+  }
+  const lineIntersected = lightweight ? false : hasIntersectingLines(lineTrial, groups);
   const labelOverlap = hasLabelCollisions(resolvedGeometry, occupiedGeometries, safeGap);
   const photoOverlap = rectOverlapsOccupiedPhotos(resolvedGeometry.photoRect, occupiedGeometries, safeGap);
   const photoLabelOverlap = hasPhotoAgainstLabelCollisions(resolvedGeometry, occupiedGeometries, safeGap);
@@ -1533,6 +1541,7 @@ function scoreGlobalLayoutEnergy(
       placement,
       placementById,
       groups,
+      { lightweight: true },
     );
     if (!evaluation.isValid) return Number.POSITIVE_INFINITY;
     pressure += evaluation.pressureScore + evaluation.labelClearanceScore * 0.7 + evaluation.sectorCrowdingScore * 0.55;
@@ -1630,6 +1639,7 @@ function evaluateClusterWindowPlacement(
       placement,
       trialPlacementById,
       allGroups,
+      { lightweight: true },
     );
     if (!evaluation.isValid) return Number.POSITIVE_INFINITY;
   }
