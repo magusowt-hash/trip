@@ -299,10 +299,11 @@ export function buildGroupGeometryFromPhotoRect(
   scale = 1,
   fixedLabelSide?: GroupLabelSide,
   fixedLabelOffset = 0,
+  mapRect?: LogicalRect,
 ): GroupGeometry {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
-  const labelSide = fixedLabelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  const labelSide = fixedLabelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y, mapRect);
   const lineAnchorRadius = toLogicalScreenSize(GROUP_ENDPOINT_RADIUS_SCREEN, safeScale);
   const photoWidth = Math.max(1, photoRect.right - photoRect.left);
   const photoHeight = Math.max(1, photoRect.bottom - photoRect.top);
@@ -519,11 +520,12 @@ export function buildGroupGeometry(
   scale = 1,
   fixedLabelSide?: GroupLabelSide,
   fixedLabelOffset = 0,
+  mapRect?: LogicalRect,
 ): GroupGeometry | null {
   const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
   const title = groupPhotos[0]?.placeTitle || '';
-  return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale, fixedLabelSide, fixedLabelOffset);
+  return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale, fixedLabelSide, fixedLabelOffset, mapRect);
 }
 
 export function createGroupLayoutSnapshot(placeKey: string, geometry: GroupGeometry): GroupLayoutSnapshot {
@@ -545,6 +547,7 @@ export function buildGroupGeometryFromLayout(
   getPhotoLogicalSize: SizeReader,
   scale = 1,
   layouts: GroupLayoutSnapshot[] = [],
+  mapRect?: LogicalRect,
 ) {
   const layoutByPlaceKey = new Map(layouts.map((layout) => [layout.placeKey, layout]));
   const layout = layoutByPlaceKey.get(placeKey);
@@ -554,6 +557,7 @@ export function buildGroupGeometryFromLayout(
     scale,
     layout?.labelSide,
     layout?.labelOffset ?? 0,
+    mapRect,
   );
 }
 

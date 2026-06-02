@@ -63,6 +63,7 @@ type LocalMapPlace = {
 
 type Props = {
   open: boolean;
+  groupId: number | null;
   places: LocalMapPlace[];
   onClose: () => void;
   onApply: (payload: {
@@ -97,11 +98,10 @@ function readImageDimensions(file: File) {
   });
 }
 
-export default function LocalMapModal({ open, places, onClose, onApply }: Props) {
+export default function LocalMapModal({ open, groupId, places, onClose, onApply }: Props) {
   const [rootName, setRootName] = useState('');
   const [knownRootNames, setKnownRootNames] = useState<string[]>([]);
   const [savedRecord, setSavedRecord] = useState<SavedRecord | null>(null);
-  const [matchedAssets, setMatchedAssets] = useState<LocalMappedAssetDraft[]>([]);
   const [unmatchedFolders, setUnmatchedFolders] = useState<string[]>([]);
   const [missingAssets, setMissingAssets] = useState<Array<{ relativePath: string; name: string }>>([]);
   const [addedAssets, setAddedAssets] = useState<string[]>([]);
@@ -146,14 +146,12 @@ export default function LocalMapModal({ open, places, onClose, onApply }: Props)
   const unmatchedPlaceCount = Math.max(places.length - matchedPlaceCount, 0);
   const knownRootSummary = knownRootNames.length > 0 ? knownRootNames.join(' / ') : '无';
   const savedRecordSummary = savedRecord?.rootName || '无';
-  const approvedFuzzyMatchCount = fuzzyMatches.filter((item) => item.checked).length;
-  const canApply = !!rootName && (pendingExactAssets.length + approvedFuzzyMatchCount) > 0;
+  const canApply = !!rootName && effectiveMatchedAssets.length > 0;
 
   useEffect(() => {
     if (!open) return;
     setRootName('');
     setSavedRecord(null);
-    setMatchedAssets([]);
     setUnmatchedFolders([]);
     setMissingAssets([]);
     setAddedAssets([]);
@@ -172,7 +170,13 @@ export default function LocalMapModal({ open, places, onClose, onApply }: Props)
 
   useEffect(() => {
     if (!open) return;
-    fetch('/api/footprints/local-map', {
+    if (!groupId) {
+      setKnownRootNames([]);
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set('group_id', String(groupId));
+    fetch(`/api/footprints/local-map?${params.toString()}`, {
       credentials: 'include',
       cache: 'no-store',
     })
@@ -182,15 +186,14 @@ export default function LocalMapModal({ open, places, onClose, onApply }: Props)
         setKnownRootNames(Array.isArray(data.knownRootNames) ? data.knownRootNames : []);
       })
       .catch(() => {});
-  }, [open]);
+  }, [groupId, open]);
 
   if (!open) return null;
 
   async function fetchRecord(nextRootName: string) {
+    if (!groupId) throw new Error('缺少当前足迹组，无法读取本地映射记录');
     const params = new URLSearchParams({ rootName: nextRootName });
-    for (const place of places) {
-      params.append('footprint_item_id', String(place.id));
-    }
+    params.set('group_id', String(groupId));
     const res = await fetch(`/api/footprints/local-map?${params.toString()}`, {
       credentials: 'include',
       cache: 'no-store',
@@ -319,7 +322,6 @@ export default function LocalMapModal({ open, places, onClose, onApply }: Props)
         }))
         .sort((a, b) => a.folderName.localeCompare(b.folderName, 'zh-CN'));
 
-      setMatchedAssets(nextExactMatched);
       setPendingExactAssets(nextExactMatched);
       setPendingFuzzyAssets(nextFuzzyMatched);
       setFuzzyMatches(nextFuzzyCandidates);
@@ -351,7 +353,7 @@ export default function LocalMapModal({ open, places, onClose, onApply }: Props)
       return;
     }
     if (savedRecord && needsOverwriteConfirm) {
-      const ok = window.confirm(`主文件夹「${rootName}」已有记录。继续将以本次扫描结果覆盖旧记录，是否继续？`);
+      const ok = window.confirm(`当前足迹组内，主文件夹「${rootName}」已有记录。继续会在前端用本次扫描结果覆盖当前组旧记录；只有点击“保存修改”才会写入，是否继续？`);
       if (!ok) return;
     }
     onApply({
@@ -379,10 +381,10 @@ export default function LocalMapModal({ open, places, onClose, onApply }: Props)
 
         <div className={styles.body}>
           <div className={styles.card}>
-            <h3 className={styles.cardTitle}>主文件夹记录</h3>
+            <h3 className={styles.cardTitle}>当前足迹组记录</h3>
             <div className={styles.recordGrid}>
               <div className={styles.recordBox}>
-                <span>主文件夹记录</span>
+                <span>当前组已保存主文件夹</span>
                 <strong>{knownRootSummary}</strong>
               </div>
               <div className={styles.recordBox}>
@@ -402,7 +404,7 @@ export default function LocalMapModal({ open, places, onClose, onApply }: Props)
                 </div>
               </div>
             ) : null}
-            <p className={styles.hint}>当前会使用主文件夹名称作为唯一记录键。同名主文件夹会命中同一份位置记录。</p>
+            <p className={styles.hint}>记录只作用于当前足迹组；同一主文件夹在不同足迹组内互不覆盖。</p>
           </div>
 
           <div className={styles.summaryGrid}>
@@ -467,8 +469,8 @@ export default function LocalMapModal({ open, places, onClose, onApply }: Props)
             </div>
             <p className={styles.hint}>
               {savedRecord
-                ? '检测到当前主文件夹已有记录，预设默认关闭。手动开启后，确认映射会用新预设替代原有位置记录。'
-                : '未检测到当前主文件夹旧记录，可直接使用预设生成初始排列。'}
+                ? '检测到当前足迹组已有该主文件夹记录，预设默认关闭。手动开启后，确认映射会在前端用新预设替代当前组原有位置，保存修改后才写入。'
+                : '当前足迹组未检测到该主文件夹旧记录，可直接使用预设生成初始排列。'}
             </p>
             <div className={!layoutEnabled ? styles.disabledBlock : ''}>
             <div className={styles.toggleRow}>

@@ -278,6 +278,7 @@ export const localMapRoots = mysqlTable(
   {
     id: serial('id').primaryKey(),
     userId: int('user_id').notNull(),
+    groupId: int('group_id').notNull(),
     rootName: varchar('root_name', { length: 255 }).notNull(),
     layoutMode: varchar('layout_mode', { length: 32 }),
     layoutGapX: int('layout_gap_x'),
@@ -287,8 +288,9 @@ export const localMapRoots = mysqlTable(
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
   (t) => ({
-    userRootUnique: uniqueIndex('local_map_roots_user_root_unique').on(t.userId, t.rootName),
+    userGroupRootUnique: uniqueIndex('local_map_roots_user_group_root_unique').on(t.userId, t.groupId, t.rootName),
     userIdIdx: index('local_map_roots_user_id_idx').on(t.userId),
+    groupIdIdx: index('local_map_roots_group_id_idx').on(t.groupId),
   }),
 );
 

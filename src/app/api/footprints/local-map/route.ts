@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db';
-import { localMapAssets, localMapRoots } from '@/db/schema';
+import { footprintGroups, footprintGroupItems, listItems, localMapAssets, localMapRoots, mapPois, userMapFootprints } from '@/db/schema';
 import { authenticate } from '../_auth';
 
 type LocalMapAssetRecord = {
@@ -34,11 +34,57 @@ function normalizeRootName(value: unknown): string {
   return value.trim().replace(/\\/g, '/');
 }
 
-function parseFootprintItemIds(searchParams: URLSearchParams): number[] {
-  return searchParams
-    .getAll('footprint_item_id')
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value));
+function parseGroupId(value: unknown): number | null {
+  const groupId = Number(value);
+  return Number.isFinite(groupId) && groupId > 0 ? groupId : null;
+}
+
+async function getGroupFootprintItems(userId: number, groupId: number) {
+  const [group] = await db
+    .select({ id: footprintGroups.id })
+    .from(footprintGroups)
+    .where(and(eq(footprintGroups.id, groupId), eq(footprintGroups.userId, userId)))
+    .limit(1);
+  if (!group) return null;
+
+  const listRows = await db
+    .select({ id: footprintGroupItems.id, title: listItems.title })
+    .from(footprintGroupItems)
+    .innerJoin(listItems, eq(footprintGroupItems.listItemId, listItems.id))
+    .where(eq(footprintGroupItems.groupId, groupId));
+  const mapRows = await db
+    .select({ id: userMapFootprints.id, title: mapPois.name })
+    .from(userMapFootprints)
+    .innerJoin(mapPois, eq(userMapFootprints.poiId, mapPois.id))
+    .where(and(eq(userMapFootprints.userId, userId), eq(userMapFootprints.groupId, groupId)));
+
+  return [
+    ...listRows.map((row) => ({ id: row.id, title: row.title })),
+    ...mapRows.map((row) => ({ id: row.id, title: row.title })),
+  ];
+}
+
+async function listKnownRootsForScope(userId: number, groupId: number) {
+  return db
+    .select({ rootName: localMapRoots.rootName })
+    .from(localMapRoots)
+    .where(and(
+      eq(localMapRoots.userId, userId),
+      eq(localMapRoots.groupId, groupId),
+    ));
+}
+
+async function findLocalMapRoot(userId: number, groupId: number, rootName: string) {
+  const [root] = await db
+    .select()
+    .from(localMapRoots)
+    .where(and(
+      eq(localMapRoots.userId, userId),
+      eq(localMapRoots.groupId, groupId),
+      eq(localMapRoots.rootName, rootName),
+    ))
+    .limit(1);
+  return root ?? null;
 }
 
 function parseLayout(input: unknown): LocalMapLayoutRecord | null {
@@ -65,12 +111,18 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const rootName = normalizeRootName(searchParams.get('rootName'));
-    const footprintItemIds = parseFootprintItemIds(searchParams);
+    const groupId = parseGroupId(searchParams.get('group_id'));
+    if (!groupId) {
+      return NextResponse.json({ error: '缺少足迹组' }, { status: 400 });
+    }
+    const groupFootprintItems = await getGroupFootprintItems(auth.userId, groupId);
+    if (groupFootprintItems === null) {
+      return NextResponse.json({ error: '足迹组不存在' }, { status: 404 });
+    }
+    const footprintItemIds = groupFootprintItems.map((item) => item.id);
+    const titleByFootprintItemId = new Map(groupFootprintItems.map((item) => [item.id, item.title]));
 
-    const knownRoots = await db
-      .select({ rootName: localMapRoots.rootName })
-      .from(localMapRoots)
-      .where(eq(localMapRoots.userId, auth.userId));
+    const knownRoots = await listKnownRootsForScope(auth.userId, groupId);
 
     if (!rootName) {
       return NextResponse.json({
@@ -79,16 +131,16 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const [root] = await db
-      .select()
-      .from(localMapRoots)
-      .where(and(
-        eq(localMapRoots.userId, auth.userId),
-        eq(localMapRoots.rootName, rootName),
-      ))
-      .limit(1);
+    const root = await findLocalMapRoot(auth.userId, groupId, rootName);
 
     if (!root) {
+      return NextResponse.json({
+        record: null,
+        knownRootNames: knownRoots.map((item) => item.rootName),
+      });
+    }
+
+    if (footprintItemIds.length === 0) {
       return NextResponse.json({
         record: null,
         knownRootNames: knownRoots.map((item) => item.rootName),
@@ -124,7 +176,7 @@ export async function GET(req: NextRequest) {
           name: asset.name,
           size: asset.size,
           lastModified: asset.lastModified,
-          matchedPlaceTitle: '',
+          matchedPlaceTitle: titleByFootprintItemId.get(asset.footprintItemId) ?? asset.folderName,
           footprintItemId: asset.footprintItemId,
           frameX: asset.frameX,
           frameY: asset.frameY,
@@ -149,6 +201,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const rootName = normalizeRootName(body?.rootName);
+    const groupId = parseGroupId(body?.groupId);
     const unmatchedFolders = Array.isArray(body?.unmatchedFolders)
       ? body.unmatchedFolders.filter((item: unknown): item is string => typeof item === 'string')
       : [];
@@ -157,6 +210,16 @@ export async function POST(req: NextRequest) {
     if (!rootName) {
       return NextResponse.json({ error: '缺少主文件夹名称' }, { status: 400 });
     }
+    if (!groupId) {
+      return NextResponse.json({ error: '缺少足迹组' }, { status: 400 });
+    }
+
+    const groupFootprintItems = await getGroupFootprintItems(auth.userId, groupId);
+    if (groupFootprintItems === null) {
+      return NextResponse.json({ error: '足迹组不存在' }, { status: 404 });
+    }
+    const groupFootprintItemIds = groupFootprintItems.map((item) => item.id);
+    const groupFootprintItemIdSet = new Set(groupFootprintItemIds);
 
     const assets: LocalMapAssetRecord[] = Array.isArray(body?.assets)
       ? body.assets
@@ -174,22 +237,21 @@ export async function POST(req: NextRequest) {
             pixelHeight: typeof asset?.pixelHeight === 'number' ? asset.pixelHeight : null,
             missing: Boolean(asset?.missing),
           }))
-          .filter((asset) => asset.relativePath && asset.name && asset.footprintItemId > 0)
+          .filter((asset) => (
+            asset.relativePath &&
+            asset.name &&
+            asset.footprintItemId > 0 &&
+            groupFootprintItemIdSet.has(asset.footprintItemId)
+          ))
       : [];
 
-    const [existingRoot] = await db
-      .select()
-      .from(localMapRoots)
-      .where(and(
-        eq(localMapRoots.userId, auth.userId),
-        eq(localMapRoots.rootName, rootName),
-      ))
-      .limit(1);
+    const existingRoot = await findLocalMapRoot(auth.userId, groupId, rootName);
 
     const rootId = existingRoot
       ? existingRoot.id
       : (await db.insert(localMapRoots).values({
           userId: auth.userId,
+          groupId,
           rootName,
           layoutMode: layout?.mode ?? null,
           layoutGapX: layout?.gapX ?? null,
@@ -214,6 +276,9 @@ export async function POST(req: NextRequest) {
         .where(and(
           eq(localMapAssets.userId, auth.userId),
           eq(localMapAssets.rootId, rootId),
+          groupFootprintItemIds.length > 0
+            ? inArray(localMapAssets.footprintItemId, groupFootprintItemIds)
+            : eq(localMapAssets.footprintItemId, -1),
         ));
     }
 
@@ -236,10 +301,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const knownRoots = await db
-      .select({ rootName: localMapRoots.rootName })
-      .from(localMapRoots)
-      .where(eq(localMapRoots.userId, auth.userId));
+    const knownRoots = await listKnownRootsForScope(auth.userId, groupId);
 
     return NextResponse.json({
       ok: true,

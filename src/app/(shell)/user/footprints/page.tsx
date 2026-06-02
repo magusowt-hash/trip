@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import OuterFrame from '@/components/OuterFrame';
+import type { PhotoItem, PoiPoint } from '@/components/OuterFrameCanvas';
 import FootprintGroupPanel from '@/components/FootprintGroupPanel';
 import PhotoAlbumModal from '@/components/PhotoAlbumModal';
 import LegendPanel from '@/components/LegendPanel';
@@ -21,12 +22,11 @@ import {
 } from '@/components/localMapGroupGeometry';
 import type { GroupGeometry } from '@/components/localMapGroupGeometry';
 import { FOOTPRINT_MAP_SAFE_GAP, getFootprintMapRect } from '@/components/footprintMapGeometry';
-import type { Viewport } from '@/lib/outerFrameCoords';
 import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 import styles from './footprints.module.css';
 
 const LOCAL_THUMB_MAX_EDGE = 320;
-const LOCAL_THUMB_CONCURRENCY = 2;
+const LOCAL_THUMB_CONCURRENCY = 4;
 const LOCAL_MAP_LOADING_MIN_DELAY_MS = 120;
 
 interface FootprintGroup {
@@ -54,25 +54,6 @@ interface FootprintItem {
   listName: string | null;
   addedAt: string;
 }
-
-type DebugPhotoSnapshot = {
-  index: number;
-  left: number | null;
-  right: number | null;
-  top: number | null;
-  bottom: number | null;
-  pixelWidth: number | null;
-  pixelHeight: number | null;
-};
-
-type DebugGroupSnapshot = {
-  index: number;
-  photoCount: number;
-  left: number | null;
-  right: number | null;
-  top: number | null;
-  bottom: number | null;
-};
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
@@ -109,13 +90,29 @@ function createThumbnailFromUrl(url: string, maxEdge = LOCAL_THUMB_MAX_EDGE) {
   });
 }
 
-function distanceToViewport(photo: PhotoItem, viewport: Viewport | null) {
-  if (!viewport) return Math.abs(photo.frameX ?? 0) + Math.abs(photo.frameY ?? 0);
-  const x = photo.frameX ?? 0;
-  const y = photo.frameY ?? 0;
-  const dx = x < viewport.left ? viewport.left - x : x > viewport.right ? x - viewport.right : 0;
-  const dy = y < viewport.top ? viewport.top - y : y > viewport.bottom ? y - viewport.bottom : 0;
-  return dx + dy;
+async function attachLocalThumbnails(photos: PhotoItem[]): Promise<PhotoItem[]> {
+  const nextPhotos = photos.map((photo) => ({ ...photo }));
+  let cursor = 0;
+  async function worker() {
+    while (cursor < nextPhotos.length) {
+      const index = cursor;
+      cursor += 1;
+      const photo = nextPhotos[index];
+      if (!photo || photo.sourceType !== 'local-mapped' || photo.thumbnailUrl) continue;
+      const thumb = await createThumbnailFromUrl(photo.url);
+      if (!thumb) continue;
+      nextPhotos[index] = {
+        ...photo,
+        thumbnailUrl: thumb.url,
+        pixelWidth: photo.pixelWidth ?? thumb.width,
+        pixelHeight: photo.pixelHeight ?? thumb.height,
+      };
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(LOCAL_THUMB_CONCURRENCY, Math.max(1, nextPhotos.length)) }, () => worker()),
+  );
+  return nextPhotos;
 }
 
 function getPhotoLogicalSize(photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>): LogicalSize {
@@ -200,17 +197,18 @@ function buildRandomOffsets(count: number, cardSize: number) {
   }));
 }
 
-function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1) {
+function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1, mapRect?: LogicalRect) {
   return buildGroupGeometryFromLayout(
     placePhotos[0]?.placeKey || '',
     placePhotos,
     getPhotoLogicalSize,
     scale,
     [],
+    mapRect,
   );
 }
 
-function buildOffsetGroupGeometry(placePhotos: PhotoItem[], offsets: LogicalOffset[], scale = 1) {
+function buildOffsetGroupGeometry(placePhotos: PhotoItem[], offsets: LogicalOffset[], scale = 1, mapRect?: LogicalRect) {
   if (placePhotos.length === 0 || offsets.length !== placePhotos.length) return null;
 
   const photoRect = expandPhotoRect({
@@ -225,6 +223,9 @@ function buildOffsetGroupGeometry(placePhotos: PhotoItem[], offsets: LogicalOffs
     placePhotos[0]?.placeTitle || '',
     placePhotos.length,
     scale,
+    undefined,
+    0,
+    mapRect,
   );
 }
 
@@ -244,7 +245,7 @@ function solveFrozenGroupLayouts(
 
   const entries: Array<{ placeKey: string; geometry: GroupGeometry; title: string; photoCount: number; scale: number }> = [];
   for (const [placeKey, groupPhotos] of groups) {
-    const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts);
+    const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts, mapRect);
     if (!geometry) continue;
     entries.push({
       placeKey,
@@ -272,7 +273,7 @@ function estimateReservedLabelOffset(
   mapRect: LogicalRect | undefined,
   existingLayouts: GroupLayoutSnapshot[] = [],
 ) {
-  const baseGeometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts);
+  const baseGeometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts, mapRect);
   if (!baseGeometry) return 0;
   const resolved = resolveGroupLabelLayouts([
     {
@@ -312,51 +313,6 @@ function rectCenter(rect: LogicalRect) {
     x: (rect.left + rect.right) / 2,
     y: (rect.top + rect.bottom) / 2,
   };
-}
-
-function buildDebugPhotoSnapshot(photos: PhotoItem[]): DebugPhotoSnapshot[] {
-  return photos
-    .slice()
-    .sort((a, b) => a.placeTitle.localeCompare(b.placeTitle, 'zh-CN') || String(a.id).localeCompare(String(b.id), 'zh-CN'))
-    .map((photo, index) => {
-      const size = getPhotoLogicalSize(photo);
-      const left = photo.frameX == null ? null : Number((photo.frameX - size.width / 2).toFixed(2));
-      const right = photo.frameX == null ? null : Number((photo.frameX + size.width / 2).toFixed(2));
-      const top = photo.frameY == null ? null : Number((photo.frameY - size.height / 2).toFixed(2));
-      const bottom = photo.frameY == null ? null : Number((photo.frameY + size.height / 2).toFixed(2));
-      return {
-        index: index + 1,
-        left,
-        right,
-        top,
-        bottom,
-        pixelWidth: photo.pixelWidth ?? null,
-        pixelHeight: photo.pixelHeight ?? null,
-      };
-    });
-}
-
-function buildDebugGroupSnapshot(photos: PhotoItem[]): DebugGroupSnapshot[] {
-  const groups = new Map<string, PhotoItem[]>();
-  for (const photo of photos) {
-    const group = groups.get(photo.placeKey) || [];
-    group.push(photo);
-    groups.set(photo.placeKey, group);
-  }
-
-  return Array.from(groups.entries())
-    .sort((a, b) => (a[1][0]?.placeTitle || '').localeCompare(b[1][0]?.placeTitle || '', 'zh-CN') || a[0].localeCompare(b[0], 'zh-CN'))
-    .map(([_, groupPhotos], index) => {
-      const geometry = buildPlaceGeometry(groupPhotos);
-      return {
-        index: index + 1,
-        photoCount: groupPhotos.length,
-        left: geometry ? Number(geometry.overallRect.left.toFixed(2)) : null,
-        right: geometry ? Number(geometry.overallRect.right.toFixed(2)) : null,
-        top: geometry ? Number(geometry.overallRect.top.toFixed(2)) : null,
-        bottom: geometry ? Number(geometry.overallRect.bottom.toFixed(2)) : null,
-      };
-    });
 }
 
 function applySizedOffsets(
@@ -473,7 +429,7 @@ function UserFootprintsPageInner() {
   const [backgroundColor, setBackgroundColor] = useState('#0f172a');
   const [lineStyle, setLineStyle] = useState<LineStyle>({ color: '#a5b4fc', width: 2, dashed: true });
   const [outerScale, setOuterScale] = useState(1);
-  const [outerViewport, setOuterViewport] = useState<Viewport | null>(null);
+  const [outerMapRect, setOuterMapRect] = useState<LogicalRect | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   const [groups, setGroups] = useState<FootprintGroup[]>([]);
@@ -492,6 +448,7 @@ function UserFootprintsPageInner() {
   const [localMapTargetItem, setLocalMapTargetItem] = useState<FootprintItem | null>(null);
   const [localRootName, setLocalRootName] = useState<string | null>(null);
   const [localUnmatchedFolders, setLocalUnmatchedFolders] = useState<string[]>([]);
+  const [localMissingAssets, setLocalMissingAssets] = useState<Array<{ relativePath: string; name: string }>>([]);
   const [localLayout, setLocalLayout] = useState<LocalMapLayoutSettings | null>(null);
   const [knownLocalRoots, setKnownLocalRoots] = useState<string[]>([]);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
@@ -499,8 +456,6 @@ function UserFootprintsPageInner() {
   const [localMapApplyProgress, setLocalMapApplyProgress] = useState(0);
   const [fitViewKey, setFitViewKey] = useState(0);
   const [fitViewEnabled, setFitViewEnabled] = useState(false);
-  const [debugBasePhotos, setDebugBasePhotos] = useState<DebugPhotoSnapshot[] | null>(null);
-  const [debugBaseGroups, setDebugBaseGroups] = useState<DebugGroupSnapshot[] | null>(null);
   const [shareAlbumPrompt, setShareAlbumPrompt] = useState<{
     item: FootprintItem;
     groupId: number;
@@ -509,10 +464,6 @@ function UserFootprintsPageInner() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstanceRef = useRef<any>(null);
   const movedPhotosRef = useRef<boolean>(false);
-  const localThumbQueueRef = useRef<Array<{ id: string; originalUrl: string }>>([]);
-  const localThumbRunningRef = useRef(0);
-  const localThumbSeenRef = useRef<Set<string>>(new Set());
-  const localOriginalPreloadRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const actionNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Load settings
@@ -594,9 +545,6 @@ function UserFootprintsPageInner() {
 
   useEffect(() => {
     if (selectedGroupId) {
-      localOriginalPreloadRef.current.clear();
-      localThumbQueueRef.current = [];
-      localThumbSeenRef.current.clear();
       setPhotos((current) => {
         current
           .filter((photo) => photo.sourceType === 'local-mapped' && photo.thumbnailUrl)
@@ -608,20 +556,23 @@ function UserFootprintsPageInner() {
         return [];
       });
       setGroupLayouts([]);
+      setLocalRootName(null);
+      setLocalUnmatchedFolders([]);
+      setLocalMissingAssets([]);
+      setLocalLayout(null);
       setItems([]);
       loadItems(selectedGroupId);
       setPhotosLoaded(false);
       setFitViewEnabled(false);
     } else {
-      localOriginalPreloadRef.current.clear();
-      localThumbQueueRef.current = [];
-      localThumbSeenRef.current.clear();
       setItems([]);
       setPhotos([]);
       setGroupLayouts([]);
+      setLocalRootName(null);
+      setLocalUnmatchedFolders([]);
+      setLocalMissingAssets([]);
+      setLocalLayout(null);
       setFitViewEnabled(false);
-      setDebugBasePhotos(null);
-      setDebugBaseGroups(null);
     }
   }, [selectedGroupId]);
 
@@ -640,7 +591,13 @@ function UserFootprintsPageInner() {
 
   useEffect(() => {
     if (isViewMode) return;
-    fetch('/api/footprints/local-map', {
+    if (!selectedGroupId) {
+      setKnownLocalRoots([]);
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set('group_id', String(selectedGroupId));
+    fetch(`/api/footprints/local-map?${params.toString()}`, {
       credentials: 'include',
       cache: 'no-store',
     })
@@ -650,7 +607,7 @@ function UserFootprintsPageInner() {
         setKnownLocalRoots(Array.isArray(data.knownRootNames) ? data.knownRootNames : []);
       })
       .catch(() => {});
-  }, [isViewMode]);
+  }, [isViewMode, selectedGroupId]);
 
   // --- API calls ---
 
@@ -798,9 +755,7 @@ function UserFootprintsPageInner() {
 
     setPhotos(allPhotos);
     setGroupLayouts(nextGroupLayouts);
-    setDebugBasePhotos(buildDebugPhotoSnapshot(allPhotos));
-    setDebugBaseGroups(buildDebugGroupSnapshot(allPhotos));
-  }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints]);
+  }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints, outerMapRect]);
 
   // Auto-load photos only after map POI coordinates are available.
   useEffect(() => {
@@ -819,9 +774,6 @@ function UserFootprintsPageInner() {
   ): GroupLayoutSnapshot[] {
     if (unplaced.length === 0) return groupLayouts;
 
-    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
-    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
-
     const byPlace = new Map<string, PhotoItem[]>();
     for (const p of unplaced) {
       const arr = byPlace.get(p.placeKey) || [];
@@ -837,7 +789,9 @@ function UserFootprintsPageInner() {
 
     const cardSize = 80;
     const collisionScale = Math.max(outerScale, 0.1);
-    const mapRect = getFootprintMapRect(viewportWidth, viewportHeight);
+    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
+    const mapRect = outerMapRect ?? getFootprintMapRect(viewportWidth, viewportHeight);
     const allGroups = new Map<string, PhotoItem[]>();
     for (const photo of referencePhotos) {
       const arr = allGroups.get(photo.placeKey) || [];
@@ -860,6 +814,7 @@ function UserFootprintsPageInner() {
           getPhotoLogicalSize,
           collisionScale,
           groupLayouts,
+          mapRect,
         );
         if (lockedGeometry) {
           const logicalPoint = logicalPointByPlaceKey.get(placeKey);
@@ -878,7 +833,7 @@ function UserFootprintsPageInner() {
       const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
 
       const reservedLabelOffset = estimateReservedLabelOffset(placeKey, placePhotos, collisionScale, mapRect, groupLayouts);
-      const baseOffsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale);
+      const baseOffsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale, mapRect);
       const offsetGeometry = baseOffsetGeometry
         ? buildGroupGeometryFromPhotoRect(
             baseOffsetGeometry.photoRect,
@@ -887,6 +842,7 @@ function UserFootprintsPageInner() {
             collisionScale,
             baseOffsetGeometry.labelSide,
             reservedLabelOffset,
+            mapRect,
           )
         : null;
       if (!offsetGeometry) continue;
@@ -952,29 +908,24 @@ function UserFootprintsPageInner() {
   const handlePhotoDragEnd = useCallback(async (photoId: number | string, x: number, y: number) => {
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, undefined, current).values()));
-  }, [photos]);
+    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, outerMapRect ?? undefined, current).values()));
+  }, [outerMapRect, photos]);
 
   const handlePhotoMoved = useCallback(() => {
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, undefined, current).values()));
-  }, [photos]);
+    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, outerMapRect ?? undefined, current).values()));
+  }, [outerMapRect, photos]);
 
   const handleGroupLabelDragEnd = useCallback((_placeKey: string, dx: number, dy: number) => {
     if (dx === 0 && dy === 0) return;
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, undefined, current).values()));
-  }, [photos]);
+    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, outerMapRect ?? undefined, current).values()));
+  }, [outerMapRect, photos]);
 
-  const handleSavePositions = useCallback(async () => {
-    if (!movedPhotosRef.current) return;
-    const uploadedUpdates = photos
-      .filter(p => p.sourceType !== 'local-mapped')
-      .filter(p => p.frameX != null && p.frameY != null)
-      .map(p => ({ id: p.id, frameX: p.frameX!, frameY: p.frameY! }));
-    const localAssets = photos
+  const buildLocalMapAssetsForSave = useCallback((sourcePhotos: PhotoItem[]) => (
+    sourcePhotos
       .filter(p => p.sourceType === 'local-mapped')
       .filter(p => p.frameX != null && p.frameY != null)
       .map(p => ({
@@ -990,9 +941,22 @@ function UserFootprintsPageInner() {
         missing: false,
         pixelWidth: p.pixelWidth ?? null,
         pixelHeight: p.pixelHeight ?? null,
-      }));
+      }))
+  ), []);
 
-    if (uploadedUpdates.length === 0 && localAssets.length === 0) return;
+  const handleSavePositions = useCallback(async () => {
+    if (!movedPhotosRef.current) return;
+    const uploadedUpdates = photos
+      .filter(p => p.sourceType !== 'local-mapped')
+      .filter(p => p.frameX != null && p.frameY != null)
+      .map(p => ({ id: p.id, frameX: p.frameX!, frameY: p.frameY! }));
+    const localAssets = buildLocalMapAssetsForSave(photos);
+
+    if (uploadedUpdates.length === 0 && localAssets.length === 0 && !localRootName) return;
+    if (localRootName && localMissingAssets.length > 0) {
+      const ok = window.confirm(`本次保存会删除 ${localMissingAssets.length} 个本地映射缺失文件的位置记录，是否继续？`);
+      if (!ok) return;
+    }
     try {
       if (uploadedUpdates.length > 0) {
         const res = await fetch('/api/storage/photos/0/position', {
@@ -1009,12 +973,17 @@ function UserFootprintsPageInner() {
       }
 
       if (localRootName) {
+        if (!selectedGroupId) {
+          alert('缺少当前足迹组，无法保存本地映射');
+          return;
+        }
         const res = await fetch('/api/footprints/local-map', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({
             rootName: localRootName,
+            groupId: selectedGroupId,
             assets: localAssets,
             unmatchedFolders: localUnmatchedFolders,
             layout: localLayout,
@@ -1025,87 +994,21 @@ function UserFootprintsPageInner() {
           alert(d.error || '本地映射保存失败');
           return;
         }
+        const data = await res.json().catch(() => null);
+        if (data && Array.isArray(data.knownRootNames)) {
+          setKnownLocalRoots(data.knownRootNames);
+        }
       }
       movedPhotosRef.current = false;
       setHasMovedPhotos(false);
+      setLocalMissingAssets([]);
     } catch { alert('保存失败'); }
-  }, [photos, localLayout, localRootName, localUnmatchedFolders]);
+  }, [buildLocalMapAssetsForSave, photos, localLayout, localMissingAssets, localRootName, localUnmatchedFolders, selectedGroupId]);
 
   const handlePhotoClick = useCallback((photoId: number | string) => {
     const p = photos.find(x => x.id === photoId);
     if (p) setViewerPhoto({ url: p.url, title: p.filename });
   }, [photos]);
-
-  const pumpLocalThumbnailQueue = useCallback(() => {
-    while (localThumbRunningRef.current < LOCAL_THUMB_CONCURRENCY && localThumbQueueRef.current.length > 0) {
-      const next = localThumbQueueRef.current.shift();
-      if (!next) return;
-      localThumbRunningRef.current += 1;
-      void createThumbnailFromUrl(next.originalUrl).then((thumb) => {
-        if (!thumb) return;
-        setPhotos((current) => current.map((photo) => {
-          if (String(photo.id) !== next.id || photo.sourceType !== 'local-mapped') return photo;
-          return {
-            ...photo,
-            thumbnailUrl: thumb.url,
-            pixelWidth: photo.pixelWidth ?? thumb.width,
-            pixelHeight: photo.pixelHeight ?? thumb.height,
-          };
-        }));
-      }).finally(() => {
-        localThumbRunningRef.current -= 1;
-        pumpLocalThumbnailQueue();
-      });
-    }
-  }, []);
-
-  const enqueueLocalThumbnails = useCallback((localPhotos: PhotoItem[]) => {
-    for (const photo of localPhotos) {
-      const photoId = String(photo.id);
-      if (localThumbSeenRef.current.has(photoId)) continue;
-      if (photo.thumbnailUrl) continue;
-      localThumbSeenRef.current.add(photoId);
-      localThumbQueueRef.current.push({ id: photoId, originalUrl: photo.url });
-    }
-    pumpLocalThumbnailQueue();
-  }, [pumpLocalThumbnailQueue]);
-
-  useEffect(() => {
-    if (localThumbQueueRef.current.length <= 1) return;
-    const photoById = new Map(
-      photos
-        .filter((photo) => photo.sourceType === 'local-mapped')
-        .map((photo) => [String(photo.id), photo]),
-    );
-    localThumbQueueRef.current.sort((a, b) => {
-      const photoA = photoById.get(a.id);
-      const photoB = photoById.get(b.id);
-      const distanceA = photoA ? distanceToViewport(photoA, outerViewport) : Number.POSITIVE_INFINITY;
-      const distanceB = photoB ? distanceToViewport(photoB, outerViewport) : Number.POSITIVE_INFINITY;
-      return distanceA - distanceB;
-    });
-  }, [photos, outerScale, outerViewport]);
-
-  useEffect(() => {
-    if (outerScale < 3.5) return;
-    const candidates = photos
-      .filter((photo) => photo.sourceType === 'local-mapped')
-      .filter((photo) => !!photo.thumbnailUrl)
-      .sort((a, b) => {
-        const distanceA = distanceToViewport(a, outerViewport);
-        const distanceB = distanceToViewport(b, outerViewport);
-        return distanceA - distanceB;
-      })
-      .slice(0, 24);
-
-    for (const photo of candidates) {
-      const photoId = String(photo.id);
-      if (localOriginalPreloadRef.current.has(photoId)) continue;
-      const img = new Image();
-      img.src = photo.url;
-      localOriginalPreloadRef.current.set(photoId, img);
-    }
-  }, [photos, outerScale, outerViewport]);
 
   // --- Item actions from panel ---
 
@@ -1432,7 +1335,7 @@ function UserFootprintsPageInner() {
     setIsApplyingLocalMap(true);
     setLocalMapApplyProgress(8);
 
-    const runApply = () => {
+    const runApply = async (attempt = 0) => {
       const itemByTitle = new Map(items.map((item) => [item.title, item]));
       const poiPlaceKeys = new Set(poiPoints.map((point) => point.placeKey));
       const targetPoiKeys = new Set(
@@ -1442,176 +1345,129 @@ function UserFootprintsPageInner() {
           .map(getFootprintItemPlaceKey),
       );
       if ([...targetPoiKeys].some((placeKey) => !poiPlaceKeys.has(placeKey))) {
-        setTimeout(runApply, 80);
+        if (attempt < 30) {
+          setTimeout(() => {
+            void runApply(attempt + 1);
+          }, 80);
+          return;
+        }
+        alert('地图点位尚未完成加载，无法应用本地映射。请稍后重试。');
+        setIsApplyingLocalMap(false);
+        setLocalMapApplyProgress(0);
         return;
       }
 
-      const currentItemKeys = new Set(items.map(getFootprintItemPlaceKey));
-      const mappedPhotos: PhotoItem[] = payload.matchedAssets
-        .map((asset) => {
-          const matchedItem = itemByTitle.get(asset.matchedPlaceTitle);
-          if (!matchedItem) return null;
-          return {
-            id: `local:${asset.relativePath}`,
-            url: asset.url,
-            thumbnailUrl: asset.thumbnailUrl,
-            frameX: asset.frameX ?? undefined,
-            frameY: asset.frameY ?? undefined,
-            placeKey: getFootprintItemPlaceKey(matchedItem),
-            placeTitle: matchedItem.title,
-            footprintItemId: matchedItem.id,
-            filename: asset.name,
-            size: asset.size,
-            lastModified: asset.lastModified,
-            pixelWidth: asset.pixelWidth ?? undefined,
-            pixelHeight: asset.pixelHeight ?? undefined,
-            sourceType: 'local-mapped',
-            relativePath: asset.relativePath,
-            rootName: payload.rootName,
-            missing: false,
-          } satisfies PhotoItem;
-        })
-        .filter((photo): photo is PhotoItem => !!photo)
-        .filter((photo) => currentItemKeys.has(photo.placeKey));
-      setLocalMapApplyProgress(24);
+      try {
+        const currentItemKeys = new Set(items.map(getFootprintItemPlaceKey));
+        const mappedPhotos: PhotoItem[] = payload.matchedAssets
+          .map((asset) => {
+            const matchedItem = itemByTitle.get(asset.matchedPlaceTitle);
+            if (!matchedItem) return null;
+            return {
+              id: `local:${asset.relativePath}`,
+              url: asset.url,
+              thumbnailUrl: asset.thumbnailUrl,
+              frameX: asset.frameX ?? undefined,
+              frameY: asset.frameY ?? undefined,
+              placeKey: getFootprintItemPlaceKey(matchedItem),
+              placeTitle: matchedItem.title,
+              footprintItemId: matchedItem.id,
+              filename: asset.name,
+              size: asset.size,
+              lastModified: asset.lastModified,
+              pixelWidth: asset.pixelWidth ?? undefined,
+              pixelHeight: asset.pixelHeight ?? undefined,
+              sourceType: 'local-mapped',
+              relativePath: asset.relativePath,
+              rootName: payload.rootName,
+              missing: false,
+            } satisfies PhotoItem;
+          })
+          .filter((photo): photo is PhotoItem => !!photo)
+          .filter((photo) => currentItemKeys.has(photo.placeKey));
+        setLocalMapApplyProgress(24);
 
-      if (payload.layout.enabled) {
-        for (const photo of mappedPhotos) {
-          photo.frameX = undefined;
-          photo.frameY = undefined;
+        if (payload.layout.enabled) {
+          for (const photo of mappedPhotos) {
+            photo.frameX = undefined;
+            photo.frameY = undefined;
+          }
         }
-      }
 
-      const unplaced = mappedPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
-      setLocalMapApplyProgress(42);
-      let nextGroupLayouts = groupLayouts;
-      if (unplaced.length > 0) {
-        nextGroupLayouts = autoPlacePhotos(
-          unplaced,
-          [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
-          payload.layout,
-        );
-        if (unplaced.every((photo) => photo.frameX != null && photo.frameY != null)) {
-          movedPhotosRef.current = true;
-          setHasMovedPhotos(true);
+        const unplaced = mappedPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
+        setLocalMapApplyProgress(42);
+        let nextGroupLayouts = groupLayouts;
+        if (unplaced.length > 0) {
+          nextGroupLayouts = autoPlacePhotos(
+            unplaced,
+            [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
+            payload.layout,
+          );
+          if (unplaced.every((photo) => photo.frameX != null && photo.frameY != null)) {
+            movedPhotosRef.current = true;
+            setHasMovedPhotos(true);
+          }
         }
-      }
-      setLocalMapApplyProgress(66);
+        setLocalMapApplyProgress(66);
 
-      setPhotos((current) => {
-        current
-          .filter((photo) => photo.sourceType === 'local-mapped')
-          .forEach((photo) => {
-            try {
-              URL.revokeObjectURL(photo.url);
-            } catch {}
-            if (photo.thumbnailUrl) {
+        const mappedPhotosWithThumbnails = await attachLocalThumbnails(mappedPhotos);
+        setLocalMapApplyProgress(78);
+
+        setPhotos((current) => {
+          current
+            .filter((photo) => photo.sourceType === 'local-mapped')
+            .forEach((photo) => {
               try {
-                URL.revokeObjectURL(photo.thumbnailUrl);
+                URL.revokeObjectURL(photo.url);
               } catch {}
-            }
-          });
-        const uploaded = current.filter((photo) => photo.sourceType !== 'local-mapped');
-        return [...uploaded, ...mappedPhotos];
-      });
-      const debugMergedPhotos = [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos];
-      setGroupLayouts(nextGroupLayouts);
-      setDebugBasePhotos(buildDebugPhotoSnapshot(debugMergedPhotos));
-      setDebugBaseGroups(buildDebugGroupSnapshot(debugMergedPhotos));
-      setLocalMapApplyProgress(82);
-      enqueueLocalThumbnails(mappedPhotos);
-      setLocalRootName(payload.rootName);
-      setLocalUnmatchedFolders(payload.unmatchedFolders);
-      setLocalLayout(payload.layout);
-      setFitViewEnabled(true);
-      setFitViewKey((value) => value + 1);
-      if (payload.missingAssets.length > 0) {
-        alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。若本次保存，这些文件的位置记录将被删除。`);
+              if (photo.thumbnailUrl) {
+                try {
+                  URL.revokeObjectURL(photo.thumbnailUrl);
+                } catch {}
+              }
+            });
+          const uploaded = current.filter((photo) => photo.sourceType !== 'local-mapped');
+          return [...uploaded, ...mappedPhotosWithThumbnails];
+        });
+        setGroupLayouts(nextGroupLayouts);
+        setLocalMapApplyProgress(88);
+        setLocalRootName(payload.rootName);
+        setLocalUnmatchedFolders(payload.unmatchedFolders);
+        setLocalMissingAssets(payload.missingAssets);
+        setLocalLayout(payload.layout);
+        movedPhotosRef.current = true;
+        setHasMovedPhotos(true);
+        setFitViewEnabled(true);
+        setFitViewKey((value) => value + 1);
+        if (payload.missingAssets.length > 0) {
+          alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。当前只在前端移除；点击“保存修改”时会再次确认是否删除这些位置记录。`);
+        }
+        setLocalMapTargetItem(null);
+        setLocalMapOpen(false);
+        setLocalMapApplyProgress(100);
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            setIsApplyingLocalMap(false);
+            setLocalMapApplyProgress(0);
+          }, 180);
+        });
+      } catch {
+        alert('应用本地映射失败，请重新选择主文件夹后再试。');
+        setIsApplyingLocalMap(false);
+        setLocalMapApplyProgress(0);
       }
-      setLocalMapTargetItem(null);
-      setLocalMapOpen(false);
-      setLocalMapApplyProgress(100);
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          setIsApplyingLocalMap(false);
-          setLocalMapApplyProgress(0);
-        }, 180);
-      });
     };
 
     setTimeout(() => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          setTimeout(runApply, 0);
+          setTimeout(() => {
+            void runApply();
+          }, 0);
         });
       });
     }, LOCAL_MAP_LOADING_MIN_DELAY_MS);
-  }, [groupLayouts, items, photos, poiPoints]);
-
-  const currentDebugPhotos = buildDebugPhotoSnapshot(photos);
-  const currentDebugGroups = buildDebugGroupSnapshot(photos);
-  const debugPhotoDiff = debugBasePhotos
-    ? currentDebugPhotos
-      .map((photo) => {
-        const base = debugBasePhotos.find((item) => item.index === photo.index);
-        if (!base) return { index: photo.index, kind: 'added' as const, current: photo };
-        const dLeft = photo.left != null && base.left != null ? Number((photo.left - base.left).toFixed(2)) : null;
-        const dRight = photo.right != null && base.right != null ? Number((photo.right - base.right).toFixed(2)) : null;
-        const dTop = photo.top != null && base.top != null ? Number((photo.top - base.top).toFixed(2)) : null;
-        const dBottom = photo.bottom != null && base.bottom != null ? Number((photo.bottom - base.bottom).toFixed(2)) : null;
-        if ((dLeft ?? 0) === 0 && (dRight ?? 0) === 0 && (dTop ?? 0) === 0 && (dBottom ?? 0) === 0) return null;
-        return {
-          index: photo.index,
-          kind: 'moved' as const,
-          base: { left: base.left, right: base.right, top: base.top, bottom: base.bottom },
-          current: { left: photo.left, right: photo.right, top: photo.top, bottom: photo.bottom },
-          delta: { dLeft, dRight, dTop, dBottom },
-        };
-      })
-      .filter((item) => !!item)
-    : [];
-  const debugGroupDiff = debugBaseGroups
-    ? currentDebugGroups
-      .map((group) => {
-        const base = debugBaseGroups.find((item) => item.index === group.index);
-        if (!base) return { index: group.index, kind: 'added' as const, current: group };
-        const dLeft = group.left != null && base.left != null ? Number((group.left - base.left).toFixed(2)) : null;
-        const dRight = group.right != null && base.right != null ? Number((group.right - base.right).toFixed(2)) : null;
-        const dTop = group.top != null && base.top != null ? Number((group.top - base.top).toFixed(2)) : null;
-        const dBottom = group.bottom != null && base.bottom != null ? Number((group.bottom - base.bottom).toFixed(2)) : null;
-        if ((dLeft ?? 0) === 0 && (dRight ?? 0) === 0 && (dTop ?? 0) === 0 && (dBottom ?? 0) === 0) return null;
-        return {
-          index: group.index,
-          kind: 'changed' as const,
-          base: { left: base.left, right: base.right, top: base.top, bottom: base.bottom },
-          current: { left: group.left, right: group.right, top: group.top, bottom: group.bottom },
-          delta: { dLeft, dRight, dTop, dBottom },
-        };
-      })
-      .filter((item) => !!item)
-    : [];
-  const debugDocument = JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    basePhotos: debugBasePhotos,
-    currentPhotos: currentDebugPhotos,
-    photoDiff: debugPhotoDiff,
-    baseGroups: debugBaseGroups,
-    currentGroups: currentDebugGroups,
-    groupDiff: debugGroupDiff,
-  }, null, 2);
-
-  const handleDownloadDebugDocument = useCallback(() => {
-    const blob = new Blob([debugDocument], { type: 'application/json;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    anchor.href = url;
-    anchor.download = `footprints-layout-debug-${stamp}.json`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
-  }, [debugDocument]);
+  }, [groupLayouts, items, photos, poiPoints, outerMapRect]);
 
   return (
     <div className={styles.rootFull}>
@@ -1632,12 +1488,6 @@ function UserFootprintsPageInner() {
           </div>
         </>
       ) : null}
-      <aside className={styles.debugDocPanel}>
-        <div className={styles.debugDocHeader}>布局调试文档</div>
-        <button className={styles.debugDocDownload} onClick={handleDownloadDebugDocument}>
-          下载 JSON
-        </button>
-      </aside>
       {/* Title */}
       {showTitle && selectedGroupId && (
         <div className={styles.pageTitle}>
@@ -1653,7 +1503,7 @@ function UserFootprintsPageInner() {
 
       {!isViewMode && !localRootName && knownLocalRoots.length > 0 ? (
         <button className={styles.localRecordHint} onClick={() => setLocalMapOpen(true)}>
-          已存在 {knownLocalRoots.length} 份本地映射记录，需重新选择主文件夹后恢复
+          当前足迹组已有 {knownLocalRoots.length} 份本地映射记录，需重新选择主文件夹后恢复
         </button>
       ) : null}
 
@@ -1686,7 +1536,7 @@ function UserFootprintsPageInner() {
         backgroundColor={backgroundColor}
         lineStyle={lineStyle}
         onScaleChange={setOuterScale}
-        onViewportChange={setOuterViewport}
+        onMapRectChange={setOuterMapRect}
         fitViewKey={fitViewKey}
         fitViewEnabled={fitViewEnabled}
         baseMinScale={1}
@@ -1789,6 +1639,7 @@ function UserFootprintsPageInner() {
       {!isViewMode && (
         <LocalMapModal
           open={localMapOpen}
+          groupId={selectedGroupId}
           places={localMapTargetItem
             ? [{ id: localMapTargetItem.id, title: localMapTargetItem.title }]
             : items.map((item) => ({ id: item.id, title: item.title }))}

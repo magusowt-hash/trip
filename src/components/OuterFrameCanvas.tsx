@@ -9,8 +9,9 @@ import {
   GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
   measureGroupLabelLayout,
   type GroupLayoutSnapshot,
+  type LogicalRect,
 } from './localMapGroupGeometry';
-import { getFootprintMapProtectionRect } from './footprintMapGeometry';
+import { FOOTPRINT_MAP_SAFE_GAP, getFootprintMapProtectionRect } from './footprintMapGeometry';
 
 export interface PhotoItem {
   id: number | string;
@@ -66,6 +67,7 @@ interface Props {
   transform: OuterFrameTransform;
   photos: PhotoItem[];
   groupLayouts?: GroupLayoutSnapshot[];
+  mapRect?: LogicalRect;
   scale: number;
   showLabels: boolean;
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
@@ -111,6 +113,7 @@ export default function OuterFrameCanvas({
   transform,
   photos,
   groupLayouts,
+  mapRect,
   scale,
   showLabels,
   onPhotoDragEnd,
@@ -196,9 +199,16 @@ export default function OuterFrameCanvas({
     );
     if (group.length === 0) return;
 
-    const mapBounds = mapProtectionBounds(width, height);
+    const mapBounds = mapRect
+      ? {
+          left: mapRect.left - FOOTPRINT_MAP_SAFE_GAP,
+          right: mapRect.right + FOOTPRINT_MAP_SAFE_GAP,
+          top: mapRect.top - FOOTPRINT_MAP_SAFE_GAP,
+          bottom: mapRect.bottom + FOOTPRINT_MAP_SAFE_GAP,
+        }
+      : mapProtectionBounds(width, height);
 
-    const geometry = buildGroupGeometryFromLayout(placeKey, group, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
+    const geometry = buildGroupGeometryFromLayout(placeKey, group, getPhotoLogicalSize, transform.scale, groupLayouts ?? [], mapRect);
     if (!geometry) return;
     const left = geometry.groupRect.left;
     const right = geometry.groupRect.right;
@@ -230,7 +240,7 @@ export default function OuterFrameCanvas({
       photo.frameX = (photo.frameX ?? 0) + shiftX;
       photo.frameY = (photo.frameY ?? 0) + shiftY;
     }
-  }, [photos, groupLayouts, width, height, getPhotoLogicalSize, transform.scale]);
+  }, [photos, groupLayouts, width, height, getPhotoLogicalSize, transform.scale, mapRect]);
 
   // --- Compute place rects from current photo positions ---
   const computePlaceRects = useCallback((): PlaceRect[] => {
@@ -243,7 +253,7 @@ export default function OuterFrameCanvas({
     }
     const rects: PlaceRect[] = [];
     for (const [placeKey, items] of groups) {
-      const geometry = buildGroupGeometryFromLayout(placeKey, items, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
+      const geometry = buildGroupGeometryFromLayout(placeKey, items, getPhotoLogicalSize, transform.scale, groupLayouts ?? [], mapRect);
       if (!geometry) continue;
       rects.push({
         placeKey,
@@ -266,7 +276,7 @@ export default function OuterFrameCanvas({
       });
     }
     return rects;
-  }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale]);
+  }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale, mapRect]);
 
   // --- Coordinate helpers ---
   const logicalToScreen = useCallback((lx: number, ly: number): Point => ({

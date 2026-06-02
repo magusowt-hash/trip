@@ -45,6 +45,7 @@ interface Props {
   lineStyle: LineStyle;
   onScaleChange?: (scale: number) => void;
   onViewportChange?: (viewport: Viewport) => void;
+  onMapRectChange?: (rect: { left: number; right: number; top: number; bottom: number }) => void;
   fitViewKey?: string | number;
   fitViewEnabled?: boolean;
   baseMinScale?: number;
@@ -73,6 +74,7 @@ export default function OuterFrame({
   lineStyle,
   onScaleChange,
   onViewportChange,
+  onMapRectChange,
   fitViewKey,
   fitViewEnabled = false,
   baseMinScale = 1,
@@ -144,6 +146,16 @@ export default function OuterFrame({
     getFootprintMapLogicalBounds(containerSize.w, containerSize.h)
   ), [containerSize]);
 
+  const getMapLogicalRect = useCallback(() => {
+    const { halfW, halfH } = getMapLogicalBounds();
+    return {
+      left: -halfW,
+      right: halfW,
+      top: -halfH,
+      bottom: halfH,
+    };
+  }, [getMapLogicalBounds]);
+
   const buildPhotoGroupViewport = useCallback((padding = VIEWPORT_PADDING_LOGICAL): Viewport | null => {
     const groups = new Map<string, PhotoItem[]>();
     for (const photo of photos) {
@@ -166,6 +178,7 @@ export default function OuterFrame({
         getPhotoLogicalSize,
         VIEWPORT_GEOMETRY_SCALE,
         groupLayouts ?? [],
+        getMapLogicalRect(),
       );
       if (!geometry) continue;
       left = Math.min(left, geometry.groupRect.left);
@@ -184,7 +197,7 @@ export default function OuterFrame({
       top: top - padding,
       bottom: bottom + padding,
     };
-  }, [photos, getPhotoLogicalSize, groupLayouts]);
+  }, [photos, getPhotoLogicalSize, groupLayouts, getMapLogicalRect]);
 
   const computePoiPoints = useCallback(() => {
     const map = mapInstanceRef.current;
@@ -229,6 +242,11 @@ export default function OuterFrame({
     if (!containerSize.w || !containerSize.h) return;
     onViewportChange?.(logicalViewport(containerSize.w, containerSize.h, transform));
   }, [containerSize, transform, onViewportChange]);
+
+  useEffect(() => {
+    if (!containerSize.w || !containerSize.h) return;
+    onMapRectChange?.(getMapLogicalRect());
+  }, [containerSize, getMapLogicalRect, onMapRectChange]);
 
   useEffect(() => {
     setMinScale(baseMinScale);
@@ -334,6 +352,7 @@ export default function OuterFrame({
           transform={transform}
           photos={photos}
           groupLayouts={groupLayouts}
+          mapRect={getMapLogicalRect()}
           poiPoints={poiPoints}
           lineStyle={lineStyle}
           showPoiLabels={showPoiLabels}
@@ -349,6 +368,7 @@ export default function OuterFrame({
           transform={transform}
           photos={photos}
           groupLayouts={groupLayouts}
+          mapRect={getMapLogicalRect()}
           scale={transform.scale}
           showLabels={showLabels}
           onPhotoDragEnd={onPhotoDragEnd}
