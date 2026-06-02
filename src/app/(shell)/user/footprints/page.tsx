@@ -1552,23 +1552,9 @@ function UserFootprintsPageInner() {
 
     window.setTimeout(() => {
       if (!isCurrentRun()) return;
-      setLocalMapApplyStage('等待界面绘制');
-      let started = false;
-      const startApply = (source: 'raf' | 'timer') => {
-        if (started || !isCurrentRun()) return;
-        started = true;
-        setLocalMapApplyStage(`启动排布任务（${source === 'raf' ? '界面已绘制' : '计时兜底'}）`);
-        window.setTimeout(() => {
-          if (!isCurrentRun()) return;
-          setLocalMapApplyStage('进入排布任务');
-          setLocalMapApplyProgress(10);
-          void runApply();
-        }, 0);
-      };
-      window.requestAnimationFrame(() => {
-        startApply('raf');
-      });
-      window.setTimeout(() => startApply('timer'), 80);
+      setLocalMapApplyStage('进入排布任务');
+      setLocalMapApplyProgress(10);
+      void runApply();
     }, LOCAL_MAP_LOADING_MIN_DELAY_MS);
   }, []);
 
