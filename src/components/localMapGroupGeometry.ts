@@ -627,3 +627,58 @@ export function resolveGroupGeometryLabels<T extends string = string>(
 
   return resolved;
 }
+
+export function resolveGroupGeometryLabelAware<T extends string = string>(
+  entries: GroupGeometryEntry<T>[],
+  options?: {
+    gap?: number;
+    step?: number;
+    maxOffset?: number;
+    mapRect?: LogicalRect;
+  },
+) {
+  const gap = options?.gap ?? 14;
+  const step = options?.step ?? 6;
+  const maxOffset = options?.maxOffset ?? 108;
+  const resolved = new Map<T, GroupGeometry>();
+  const occupied: GroupGeometry[] = [];
+  const sortedEntries = [...entries].sort((left, right) => (
+    left.geometry.photoRect.top - right.geometry.photoRect.top ||
+    left.geometry.photoCenterX - right.geometry.photoCenterX
+  ));
+
+  for (const entry of sortedEntries) {
+    const labelSeed = selectBestGroupGeometryLabelCandidate(
+      entry.geometry,
+      occupied,
+      options?.mapRect,
+      gap,
+    );
+    const variants = [labelSeed, ...buildGroupGeometryLabelCandidates(labelSeed)];
+    let chosen = labelSeed;
+    let accepted = false;
+
+    for (const baseCandidate of variants) {
+      for (let offset = 0; offset <= maxOffset; offset += step) {
+        const candidate = offset === 0 ? baseCandidate : shiftGroupGeometryDown(baseCandidate, offset);
+        if (occupied.some((item) => (
+          rectsOverlap(candidate.photoRect, item.photoRect, gap - 4) ||
+          rectsOverlap(candidate.labelRect, item.photoRect, gap + 4) ||
+          rectsOverlap(candidate.photoRect, item.labelRect, gap + 4) ||
+          rectsOverlap(candidate.labelRect, item.labelRect, gap + 2)
+        ))) {
+          continue;
+        }
+        chosen = candidate;
+        accepted = true;
+        break;
+      }
+      if (accepted) break;
+    }
+
+    resolved.set(entry.id, chosen);
+    occupied.push(chosen);
+  }
+
+  return resolved;
+}

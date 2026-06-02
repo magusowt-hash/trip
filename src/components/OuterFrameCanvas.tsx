@@ -7,7 +7,7 @@ import {
   GROUP_LABEL_FONT_SCREEN_SIZE,
   GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
   type GroupLabelSide,
-  resolveGroupGeometryDownward,
+  resolveGroupGeometryLabelAware,
 } from './localMapGroupGeometry';
 
 export interface PhotoItem {
@@ -256,7 +256,7 @@ export default function OuterFrameCanvas({
         geometry,
       });
     }
-    const resolvedGeometry = resolveGroupGeometryDownward(
+    const resolvedGeometry = resolveGroupGeometryLabelAware(
       geometryEntries.map((entry) => ({ id: entry.placeKey, geometry: entry.geometry })),
       { gap: 10, step: 6, maxOffset: 72 },
     );

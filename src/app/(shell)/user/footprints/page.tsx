@@ -213,7 +213,7 @@ function buildPlaceBounds(placePhotos: PhotoItem[], scale = 1): LogicalRect | nu
   const photoRect = buildPhotoRect(placePhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
   const geometry = buildGroupGeometryFromPhotoRect(photoRect, placePhotos[0]?.placeTitle || '', placePhotos.length, scale);
-  return geometry.groupRect;
+  return geometry.photoRect;
 }
 
 function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1) {
@@ -253,7 +253,7 @@ function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalO
     scale,
   );
 
-  return geometry.groupRect;
+  return geometry.photoRect;
 }
 
 function buildOffsetsForLayout(

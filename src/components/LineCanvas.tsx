@@ -7,7 +7,7 @@ import type { LineStyle } from './LegendPanel';
 import {
   buildGroupGeometry,
   GROUP_ENDPOINT_RADIUS_SCREEN,
-  resolveGroupGeometryDownward,
+  resolveGroupGeometryLabelAware,
 } from './localMapGroupGeometry';
 
 const MAX_OVERLAY_SCALE = 2.4;
@@ -70,7 +70,7 @@ export default function LineCanvas({ width, height, transform, photos, poiPoints
       if (!geometry) continue;
       entries.push({ id: placeKey, geometry });
     }
-    return resolveGroupGeometryDownward(entries, { gap: 10, step: 6, maxOffset: 72 });
+    return resolveGroupGeometryLabelAware(entries, { gap: 10, step: 6, maxOffset: 72 });
   }, [photos, getPhotoLogicalSize, transform.scale]);
 
   const getGroupAnchorPoint = useCallback((resolvedGeometryMap: Map<string, NonNullable<ReturnType<typeof buildGroupGeometry>>>, groupPhotos: PhotoItem[], poi: PoiPoint) => {
