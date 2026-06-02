@@ -34,6 +34,7 @@ interface Props {
 
 export default function LineCanvas({ width, height, transform, photos, groupLayouts, poiPoints, lineStyle, showPoiLabels, poiLabelColor }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dirtyRef = useRef(true);
 
   const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
     const sourceWidth = photo.pixelWidth ?? 0;
@@ -58,7 +59,7 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
     y: ly * transform.scale + height / 2 + transform.ty,
   }), [transform, width, height]);
 
-  const getResolvedGroupGeometryMap = useCallback(() => {
+  const getPhotoGroups = useCallback(() => {
     const groups = new Map<string, PhotoItem[]>();
     for (const photo of photos) {
       if (photo.frameX == null || photo.frameY == null) continue;
@@ -66,6 +67,10 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
       arr.push(photo);
       groups.set(photo.placeKey, arr);
     }
+    return groups;
+  }, [photos]);
+
+  const getResolvedGroupGeometryMap = useCallback((groups: Map<string, PhotoItem[]>) => {
     const entries: Array<{ id: string; geometry: NonNullable<ReturnType<typeof buildGroupGeometry>> }> = [];
     for (const [placeKey, groupPhotos] of groups) {
       const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
@@ -73,7 +78,7 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
       entries.push({ id: placeKey, geometry });
     }
     return new Map(entries.map((entry) => [entry.id, entry.geometry]));
-  }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale]);
+  }, [groupLayouts, getPhotoLogicalSize, transform.scale]);
 
   const getGroupAnchorPoint = useCallback((resolvedGeometryMap: Map<string, NonNullable<ReturnType<typeof buildGroupGeometry>>>, groupPhotos: PhotoItem[], poi: PoiPoint) => {
     const placeKey = groupPhotos[0]?.placeKey || '';
@@ -101,14 +106,12 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
 
     ctx.clearRect(0, 0, width, height);
     const overlayScale = getOverlayScale(transform.scale);
-    const resolvedGeometryMap = getResolvedGroupGeometryMap();
+    const photoGroups = getPhotoGroups();
+    const resolvedGeometryMap = getResolvedGroupGeometryMap(photoGroups);
 
     for (const poi of poiPoints) {
       const poiScreen = logicalToScreen(poi.logicalX, poi.logicalY);
-
-      const poiPhotos = photos.filter(
-        p => p.placeKey === poi.placeKey && p.frameX != null && p.frameY != null,
-      );
+      const poiPhotos = photoGroups.get(poi.placeKey) ?? [];
       if (poiPhotos.length === 0) continue;
 
       const groupAnchor = getGroupAnchorPoint(resolvedGeometryMap, poiPhotos, poi);
@@ -147,11 +150,21 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
         ctx.fillText(poi.placeTitle, poiScreen.x, poiScreen.y + offset);
       }
     }
-  }, [width, height, transform, photos, poiPoints, lineStyle, showPoiLabels, poiLabelColor, logicalToScreen, getGroupAnchorPoint, getResolvedGroupGeometryMap]);
+  }, [width, height, transform, poiPoints, lineStyle, showPoiLabels, poiLabelColor, logicalToScreen, getGroupAnchorPoint, getPhotoGroups, getResolvedGroupGeometryMap]);
+
+  useEffect(() => {
+    dirtyRef.current = true;
+  }, [width, height, transform, photos, groupLayouts, poiPoints, lineStyle, showPoiLabels, poiLabelColor]);
 
   useEffect(() => {
     let rafId: number;
-    const loop = () => { render(); rafId = requestAnimationFrame(loop); };
+    const loop = () => {
+      if (dirtyRef.current) {
+        render();
+        dirtyRef.current = false;
+      }
+      rafId = requestAnimationFrame(loop);
+    };
     rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
   }, [render]);

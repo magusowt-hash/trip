@@ -9,6 +9,7 @@ import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGro
 import {
   fitsLabelRectAroundMap,
   fitsPhotoRectAroundMap,
+  fitsGroupRectAroundMap,
   hasLabelCollisions,
   hasPhotoAgainstLabelCollisions,
   rectDistanceToMap,
@@ -18,7 +19,7 @@ import { refineRadialPlacements } from './footprintSectorLayoutEngine';
 
 const GROUP_GAP = 10;
 const LABEL_GAP = 14;
-const MAP_GAP = 72;
+const MAP_GAP = 96;
 const LINE_BUNDLE_DISTANCE = 34;
 const LOCAL_DENSITY_DISTANCE = 380;
 const GLOBAL_SECTOR_COUNT = 16;
@@ -30,7 +31,7 @@ const ANGLE_OFFSETS_DEGREES = [-36, -24, -16, -10, -6, 0, 6, 10, 16, 24, 36];
 const RIGHT_SIDE_BOOST_DEGREES = [-20, -12, -6, 0, 6, 12, 20];
 const RADIUS_FACTORS = [0.68, 0.76, 0.84, 0.92, 1, 1.12, 1.26, 1.42, 1.62];
 const GLOBAL_SECTOR_ANGLE_OFFSETS = [-8, 0, 8];
-const GLOBAL_RADIUS_FACTORS = [0.72, 0.84, 0.96, 1.08, 1.22, 1.38];
+const GLOBAL_RADIUS_FACTORS = [0.62, 0.72, 0.84, 0.96, 1.08, 1.22, 1.38];
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -145,13 +146,14 @@ function buildGeometryForPlacement(
     group.placePhotos[0]?.placeTitle || '',
     group.placePhotos.length,
     1,
-    resolvePreferredLabelSide(placement.centerX, placement.centerY),
+    resolvePreferredLabelSide(placement.centerX, placement.centerY, group.mapRect),
     group.reservedLabelOffset,
   );
 }
 
 function geometryFitsMap(geometry: GroupGeometry, mapRect: LogicalRect) {
   return (
+    fitsGroupRectAroundMap(geometry.groupRect, mapRect, MAP_GAP) &&
     fitsPhotoRectAroundMap(geometry.photoRect, mapRect, MAP_GAP) &&
     fitsLabelRectAroundMap(geometry.labelRect, mapRect, MAP_GAP) &&
     fitsLabelRectAroundMap(geometry.lineRect, mapRect, MAP_GAP)
@@ -197,16 +199,16 @@ function scoreBaseCandidate(
   mapRect: LogicalRect,
 ) {
   const driftPenalty = Math.abs(angleDelta(angle, baseAngle)) * 46;
-  const radiusPenalty = Math.abs(radius - baseRadius) * 0.85;
-  const outwardPenalty = Math.max(0, radius - baseRadius) * 1.15;
+  const radiusPenalty = Math.abs(radius - baseRadius) * 0.72;
+  const outwardPenalty = Math.max(0, radius - baseRadius) * 1.35;
   const photoMapDistance = rectDistanceToMap(geometry.photoRect, mapRect);
   const labelMapDistance = rectDistanceToMap(geometry.labelRect, mapRect);
   const lineMapDistance = rectDistanceToMap(geometry.lineRect, mapRect);
   const mapDistancePenalty =
-    Math.max(0, photoMapDistance - 140) * 0.34 +
-    Math.max(0, labelMapDistance - 140) * 0.52 +
-    Math.max(0, lineMapDistance - 140) * 0.44;
-  const rightReward = geometry.groupRect.left >= 0 ? -90 : 0;
+    Math.max(0, photoMapDistance - 110) * 0.24 +
+    Math.max(0, labelMapDistance - 110) * 0.34 +
+    Math.max(0, lineMapDistance - 110) * 0.3;
+  const rightReward = geometry.groupRect.left >= 0 ? -50 : 0;
   return driftPenalty + radiusPenalty + outwardPenalty + mapDistancePenalty + rightReward;
 }
 
@@ -256,7 +258,7 @@ function buildCandidatePool(
     }
   }
 
-  for (const radiusFactor of [0.72, 0.84, 0.96, 1.08, 1.22, 1.38, 1.54]) {
+  for (const radiusFactor of [0.62, 0.72, 0.84, 0.96, 1.08, 1.22, 1.38, 1.54]) {
     const radius = safeBaseRadius * radiusFactor;
     for (const angleOffset of RIGHT_SIDE_BOOST_DEGREES) {
       addCandidate(rightAnchorAngle + (angleOffset * Math.PI) / 180, radius);
@@ -419,8 +421,8 @@ function evaluateCandidate(
   const sectorCounts = buildSectorCounts(groups, state, group.placeKey, candidate);
   const sectorPenalty = computeSectorPenalty(sectorCounts, groups.length);
   const envelopePenalty = computeEnvelopePenalty(groups, state, group.placeKey, candidate);
-  const rightUsageReward = candidate.geometry.groupRect.left > 180 ? -120 : 0;
-  const mapDistanceReward = candidate.geometry.groupRect.left > 0 ? -30 : 0;
+  const rightUsageReward = candidate.geometry.groupRect.left > 180 ? -50 : 0;
+  const mapDistanceReward = candidate.geometry.groupRect.left > 0 ? -12 : 0;
 
   return {
     valid: true,

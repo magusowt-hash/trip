@@ -77,6 +77,7 @@ const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
 const MAP_AREA_RATIO_W = 0.6;
 const MAP_AREA_RATIO_H = 0.8;
+const MAP_SAFE_GAP = 96;
 const MAX_OVERLAY_SCALE = 2.4;
 const HOVER_STROKE_WIDTH = 1.5;
 
@@ -106,6 +107,16 @@ function getMapLogicalBounds(width: number, height: number) {
   return {
     halfW: (width * MAP_AREA_RATIO_W) / 2,
     halfH: (height * MAP_AREA_RATIO_H) / 2,
+  };
+}
+
+function mapProtectionBounds(width: number, height: number) {
+  const { halfW, halfH } = getMapLogicalBounds(width, height);
+  return {
+    left: -halfW - MAP_SAFE_GAP,
+    right: halfW + MAP_SAFE_GAP,
+    top: -halfH - MAP_SAFE_GAP,
+    bottom: halfH + MAP_SAFE_GAP,
   };
 }
 
@@ -200,7 +211,7 @@ export default function OuterFrameCanvas({
     );
     if (group.length === 0) return;
 
-    const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height);
+    const mapBounds = mapProtectionBounds(width, height);
 
     const geometry = buildGroupGeometryFromLayout(placeKey, group, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
     if (!geometry) return;
@@ -210,17 +221,17 @@ export default function OuterFrameCanvas({
     const bottom = geometry.groupRect.bottom;
 
     const overlapsMap =
-      right > -mapHalfW &&
-      left < mapHalfW &&
-      bottom > -mapHalfH &&
-      top < mapHalfH;
+      right > mapBounds.left &&
+      left < mapBounds.right &&
+      bottom > mapBounds.top &&
+      top < mapBounds.bottom;
 
     if (!overlapsMap) return;
 
-    const dl = right - (-mapHalfW);
-    const dr = mapHalfW - left;
-    const dt = bottom - (-mapHalfH);
-    const db = mapHalfH - top;
+    const dl = right - mapBounds.left;
+    const dr = mapBounds.right - left;
+    const dt = bottom - mapBounds.top;
+    const db = mapBounds.bottom - top;
     const minD = Math.min(dl, dr, dt, db);
 
     let shiftX = 0;
@@ -519,24 +530,24 @@ export default function OuterFrameCanvas({
           photo.frameX = newX;
           photo.frameY = newY;
 
-          const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height);
+          const mapBounds = mapProtectionBounds(width, height);
           const bounds = getPhotoBounds(photo);
           if (!bounds) return;
           const photoLeft = bounds.left;
           const photoRight = bounds.right;
           const photoTop = bounds.top;
           const photoBottom = bounds.bottom;
-          if (photoRight > -mapHalfW && photoLeft < mapHalfW &&
-              photoBottom > -mapHalfH && photoTop < mapHalfH) {
-            const dl = photoRight - (-mapHalfW);
-            const dr = mapHalfW - photoLeft;
-            const dt = photoBottom - (-mapHalfH);
-            const db = mapHalfH - photoTop;
+          if (photoRight > mapBounds.left && photoLeft < mapBounds.right &&
+              photoBottom > mapBounds.top && photoTop < mapBounds.bottom) {
+            const dl = photoRight - mapBounds.left;
+            const dr = mapBounds.right - photoLeft;
+            const dt = photoBottom - mapBounds.top;
+            const db = mapBounds.bottom - photoTop;
             const minD = Math.min(dl, dr, dt, db);
-            if (minD === dl) photo.frameX = -mapHalfW - bounds.width / 2;
-            else if (minD === dr) photo.frameX = mapHalfW + bounds.width / 2;
-            else if (minD === dt) photo.frameY = -mapHalfH - bounds.height / 2;
-            else photo.frameY = mapHalfH + bounds.height / 2;
+            if (minD === dl) photo.frameX = mapBounds.left - bounds.width / 2;
+            else if (minD === dr) photo.frameX = mapBounds.right + bounds.width / 2;
+            else if (minD === dt) photo.frameY = mapBounds.top - bounds.height / 2;
+            else photo.frameY = mapBounds.bottom + bounds.height / 2;
           }
         }
       }

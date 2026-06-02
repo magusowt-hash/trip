@@ -46,8 +46,8 @@ export const GROUP_LABEL_MIN_FONT_SCREEN_SIZE = 9;
 export const GROUP_LABEL_LINE_HEIGHT_SCREEN = 13;
 export const GROUP_ENDPOINT_RADIUS_SCREEN = 4;
 
-const PHOTO_RECT_PADDING = 40;
-const PHOTO_BOTTOM_EXTRA = 20;
+const PHOTO_RECT_PADDING = 52;
+const PHOTO_BOTTOM_EXTRA = 28;
 const PHOTO_TO_LINE_SCREEN_GAP_MIN = 1;
 const PHOTO_TO_LINE_SCREEN_GAP_MAX = 4;
 const LINE_TO_LABEL_SCREEN_GAP_MIN = 0;
@@ -63,6 +63,7 @@ const SMALL_GROUP_TIGHTEN_MAX = 0.7;
 const HARD_OVERLAP_WEIGHT = 1000;
 const SOFT_GAP_WEIGHT = 20;
 const BOTTOM_SECTOR_HALF_ANGLE = Math.PI / 4;
+const BOTTOM_CORNER_PARTITION_MARGIN = 160;
 
 function toLogicalScreenSize(screenSize: number, scale: number) {
   return screenSize / Math.max(scale, 0.1);
@@ -119,7 +120,18 @@ function angleDistance(left: number, right: number) {
   return Math.abs(delta);
 }
 
-export function resolvePreferredLabelSide(centerX: number, centerY: number): GroupLabelSide {
+export function resolvePreferredLabelSide(
+  centerX: number,
+  centerY: number,
+  mapRect?: LogicalRect,
+): GroupLabelSide {
+  if (mapRect && centerY >= mapRect.bottom - BOTTOM_CORNER_PARTITION_MARGIN) {
+    const cornerX = centerX < 0 ? mapRect.left : mapRect.right;
+    const cornerY = mapRect.bottom;
+    const angleFromCorner = Math.atan2(centerY - cornerY, centerX - cornerX);
+    return angleDistance(angleFromCorner, Math.PI / 2) <= BOTTOM_SECTOR_HALF_ANGLE ? 'top' : 'bottom';
+  }
+
   const angle = Math.atan2(centerY, centerX);
   const downwardAngle = Math.PI / 2;
   return angleDistance(angle, downwardAngle) <= BOTTOM_SECTOR_HALF_ANGLE ? 'top' : 'bottom';

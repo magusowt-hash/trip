@@ -903,6 +903,7 @@ function UserFootprintsPageInner() {
         reservedLabelOffset,
         logicalX: logicalPointByPlaceKey.get(placeKey)!.x,
         logicalY: logicalPointByPlaceKey.get(placeKey)!.y,
+        mapRect,
         offsets,
       });
     }
