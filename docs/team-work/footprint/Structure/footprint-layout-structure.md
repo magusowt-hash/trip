@@ -8,15 +8,19 @@
 - Responsibility:
   - group unplaced photos by `placeKey`
   - build photo-cluster offsets
-  - build pending group geometry
-  - solve initial outer placement
-  - freeze group label layout snapshot
+  - convert offsets into one `collisionGeometry` per group
+  - expand existing groups in place when the same place receives more photos
+  - pass only `PendingPlaceGroup[]` into the outer solver
+  - freeze final label layout snapshot after placement is done
 
 2. Outer placement solver
 - File: `src/components/footprintLayoutSolver.ts`
 - Function: `solvePendingGroupPlacements(...)`
 - Responsibility:
+  - consume pending groups only, without page-level wrapper logic
   - evaluate radial candidates
+  - recompute whole-group geometry for every candidate position
+  - recompute `labelSide` from the candidate center, not from precomputed state
   - reject map overlap
   - reject line crossing
   - reject whole-group overlap
@@ -55,6 +59,24 @@ Current frozen label state:
 - `labelOffset`
 
 This data is stored in page state as `groupLayouts` and is now the only label-layout input for runtime rendering.
+
+## Simplified ownership
+
+Current ownership is intentionally single-path:
+
+- `page.tsx`
+  - prepares grouped input
+  - applies solved centers back to photos
+  - stores frozen `groupLayouts`
+- `footprintLayoutSolver.ts`
+  - decides initial group center
+  - decides candidate-synchronous label side
+- `localMapGroupGeometry.ts`
+  - defines group bounds
+  - defines label bounds
+  - defines final frozen rendering geometry
+
+There should no longer be parallel page-level placement wrappers or extra render-only geometry branches.
 
 ## Bugs found
 
@@ -106,6 +128,8 @@ This data is stored in page state as `groupLayouts` and is now the only label-la
 ### Label solve is now a dedicated stage
 - Stage 1:
   - solve photo-group outer placement
+  - each placement candidate now computes its own label geometry at the same time
+  - label side is no longer pre-frozen before candidate evaluation
 - Stage 2:
   - keep `labelSide` fixed
   - solve only `labelOffset`
@@ -128,11 +152,11 @@ This data is stored in page state as `groupLayouts` and is now the only label-la
 - Risk:
   - if a user drags a dense group into a tighter area, overlap may remain because no second label-avoidance solve is run
 
-### 2. Initial candidate generation is still photo-rect based
+### 2. Initial candidate generation is still page-level
 - Current behavior:
-  - `page.tsx` builds initial pending geometry from offset photo bounds
+  - `page.tsx` still converts offset arrays into `collisionGeometry`
 - Risk:
-  - if future label rules become more complex, pending-geometry creation should also be centralized
+  - if future group-shape rules become more complex, that conversion should also move into `localMapGroupGeometry.ts`
 
 ### 3. Group label overlap still depends on placement quality, not a dedicated label-only solver
 - Current behavior:
@@ -143,7 +167,7 @@ This data is stored in page state as `groupLayouts` and is now the only label-la
 ## Recommended next optimization direction
 
 1. Move pending-group geometry creation into `localMapGroupGeometry.ts`
-- Remove page-level ad hoc geometry assembly
+- Remove the last page-level offset-to-geometry helper
 
 2. Add explicit label clearance tiers
 - Example:

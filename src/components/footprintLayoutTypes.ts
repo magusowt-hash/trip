@@ -1,5 +1,5 @@
 import type { PhotoItem } from './OuterFrameCanvas';
-import type { GroupGeometry, GroupLabelSide } from './localMapGroupGeometry';
+import type { GroupGeometry } from './localMapGroupGeometry';
 
 export type LogicalRect = {
   left: number;
@@ -26,11 +26,8 @@ export type FootprintPlacement = {
 export type PendingPlaceGroup = {
   placeKey: string;
   placePhotos: PhotoItem[];
-  renderRect: LogicalRect;
   collisionGeometry: GroupGeometry;
   collisionRect: LogicalRect;
-  collisionCandidates?: GroupGeometry[];
-  preferredLabelSide?: GroupLabelSide;
   logicalX: number;
   logicalY: number;
   offsets: LogicalOffset[];

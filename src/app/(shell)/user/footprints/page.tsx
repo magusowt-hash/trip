@@ -8,25 +8,14 @@ import FootprintGroupPanel from '@/components/FootprintGroupPanel';
 import PhotoAlbumModal from '@/components/PhotoAlbumModal';
 import LegendPanel from '@/components/LegendPanel';
 import LocalMapModal, { type LocalMappedAssetDraft, type LocalMapLayoutSettings } from '@/components/LocalMapModal';
-import {
-  rectDistance,
-} from '@/components/footprintLayoutConstraints';
-import { solvePendingGroupPlacements as solvePendingGroupPlacementsCore } from '@/components/footprintLayoutSolver';
-import {
-  refineRadialPlacements as refineRadialPlacementsCore,
-} from '@/components/footprintSectorLayoutEngine';
-import type { LogicalOffset, LogicalRect, PendingPlaceGroup } from '@/components/footprintLayoutTypes';
+import { solvePendingGroupPlacements } from '@/components/footprintLayoutSolver';
+import type { LogicalOffset, LogicalRect, LogicalSize, PendingPlaceGroup } from '@/components/footprintLayoutTypes';
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import {
   buildGroupGeometryFromLayout,
-  buildPhotoRect,
-  buildGroupGeometryCandidatesFromGeometry,
-  buildGroupGeometryCandidatesFromPhotoRect,
   buildGroupGeometryFromPhotoRect,
-  createGroupLayoutSnapshot,
   expandPhotoRect,
-  rectsOverlap,
   resolveGroupLabelLayouts,
   resolveGroupGeometryAsWhole,
   scoreGroupGeometryPlacement,
@@ -213,18 +202,6 @@ function buildRandomOffsets(count: number, cardSize: number) {
   }));
 }
 
-function buildPlaceBounds(placePhotos: PhotoItem[], scale = 1): LogicalRect | null {
-  const geometry = buildGroupGeometryFromLayout(
-    placePhotos[0]?.placeKey || '',
-    placePhotos,
-    getPhotoLogicalSize,
-    scale,
-    [],
-  );
-  if (!geometry) return null;
-  return geometry.overallRect;
-}
-
 function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1) {
   return buildGroupGeometryFromLayout(
     placePhotos[0]?.placeKey || '',
@@ -232,6 +209,24 @@ function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1) {
     getPhotoLogicalSize,
     scale,
     [],
+  );
+}
+
+function buildOffsetGroupGeometry(placePhotos: PhotoItem[], offsets: LogicalOffset[], scale = 1) {
+  if (placePhotos.length === 0 || offsets.length !== placePhotos.length) return null;
+
+  const photoRect = expandPhotoRect({
+    left: Math.min(...offsets.map((item, index) => item.offsetX - getPhotoLogicalSize(placePhotos[index]).width / 2)),
+    right: Math.max(...offsets.map((item, index) => item.offsetX + getPhotoLogicalSize(placePhotos[index]).width / 2)),
+    top: Math.min(...offsets.map((item, index) => item.offsetY - getPhotoLogicalSize(placePhotos[index]).height / 2)),
+    bottom: Math.max(...offsets.map((item, index) => item.offsetY + getPhotoLogicalSize(placePhotos[index]).height / 2)),
+  });
+
+  return buildGroupGeometryFromPhotoRect(
+    photoRect,
+    placePhotos[0]?.placeTitle || '',
+    placePhotos.length,
+    scale,
   );
 }
 
@@ -272,40 +267,6 @@ function solveFrozenGroupLayouts(
   });
 }
 
-function getGroupArea(rect: LogicalRect) {
-  return Math.max(1, (rect.right - rect.left) * (rect.bottom - rect.top));
-}
-
-function buildPlaceBoundsFromOffsets(placePhotos: PhotoItem[], offsets: LogicalOffset[], scale = 1): LogicalRect | null {
-  if (placePhotos.length === 0 || offsets.length !== placePhotos.length) return null;
-
-  let left = Infinity;
-  let right = -Infinity;
-  let top = Infinity;
-  let bottom = -Infinity;
-
-  for (let i = 0; i < offsets.length; i++) {
-    const size = getPhotoLogicalSize(placePhotos[i]);
-    left = Math.min(left, offsets[i].offsetX - size.width / 2);
-    right = Math.max(right, offsets[i].offsetX + size.width / 2);
-    top = Math.min(top, offsets[i].offsetY - size.height / 2);
-    bottom = Math.max(bottom, offsets[i].offsetY + size.height / 2);
-  }
-
-  if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
-    return null;
-  }
-
-  const geometry = buildGroupGeometryFromPhotoRect(
-    expandPhotoRect({ left, right, top, bottom }),
-    placePhotos[0]?.placeTitle || '',
-    placePhotos.length,
-    scale,
-  );
-
-  return geometry.overallRect;
-}
-
 function buildOffsetsForLayout(
   count: number,
   layout: LocalMapLayoutSettings,
@@ -325,6 +286,15 @@ function rectCenter(rect: LogicalRect) {
     x: (rect.left + rect.right) / 2,
     y: (rect.top + rect.bottom) / 2,
   };
+}
+
+function fitsGroupAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
+  return (
+    rect.right <= mapRect.left - gap ||
+    rect.left >= mapRect.right + gap ||
+    rect.bottom <= mapRect.top - gap ||
+    rect.top >= mapRect.bottom + gap
+  );
 }
 
 function buildDebugPhotoSnapshot(photos: PhotoItem[]): DebugPhotoSnapshot[] {
@@ -360,14 +330,14 @@ function buildDebugGroupSnapshot(photos: PhotoItem[]): DebugGroupSnapshot[] {
   return Array.from(groups.entries())
     .sort((a, b) => (a[1][0]?.placeTitle || '').localeCompare(b[1][0]?.placeTitle || '', 'zh-CN') || a[0].localeCompare(b[0], 'zh-CN'))
     .map(([_, groupPhotos], index) => {
-      const rect = buildPlaceBounds(groupPhotos);
+      const geometry = buildPlaceGeometry(groupPhotos);
       return {
         index: index + 1,
         photoCount: groupPhotos.length,
-        left: rect ? Number(rect.left.toFixed(2)) : null,
-        right: rect ? Number(rect.right.toFixed(2)) : null,
-        top: rect ? Number(rect.top.toFixed(2)) : null,
-        bottom: rect ? Number(rect.bottom.toFixed(2)) : null,
+        left: geometry ? Number(geometry.overallRect.left.toFixed(2)) : null,
+        right: geometry ? Number(geometry.overallRect.right.toFixed(2)) : null,
+        top: geometry ? Number(geometry.overallRect.top.toFixed(2)) : null,
+        bottom: geometry ? Number(geometry.overallRect.bottom.toFixed(2)) : null,
       };
     });
 }
@@ -444,37 +414,6 @@ function applySizedOffsets(
     offsetX: item.offsetX - centerX,
     offsetY: item.offsetY - centerY,
   }));
-}
-
-function refineRadialPlacements(
-  groups: PendingPlaceGroup[],
-  placementById: Map<string, { centerX: number; centerY: number }>,
-  mapRect: LogicalRect,
-  safeGap: number,
-  labelGapBoost: number,
-) {
-  return refineRadialPlacementsCore(
-    groups,
-    placementById,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-  );
-}
-
-function solvePendingGroupPlacements(
-  groups: PendingPlaceGroup[],
-  mapRect: LogicalRect,
-  safeGap: number,
-  labelGapBoost: number,
-) {
-  return solvePendingGroupPlacementsCore(
-    groups,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    refineRadialPlacements,
-  );
 }
 
 function computeLabelGapBoost(scale: number) {
@@ -879,7 +818,6 @@ function UserFootprintsPageInner() {
       top: -(viewportHeight * 0.8) / 2,
       bottom: (viewportHeight * 0.8) / 2,
     };
-    const occupiedRects: LogicalRect[] = [];
     const occupiedGeometries: GroupGeometry[] = [];
 
     const existingGroups = new Map<string, PhotoItem[]>();
@@ -899,12 +837,10 @@ function UserFootprintsPageInner() {
       existingGeometryEntries.map((entry) => ({
         id: entry.id,
         geometry: entry.geometry,
-        candidates: buildGroupGeometryCandidatesFromGeometry(entry.geometry),
       })),
       { gap: 10, mapRect, mapGap: cardSize, labelGapBoost: 8 },
     );
     for (const [, geometry] of resolvedExistingGeometryMap) {
-      occupiedRects.push(geometry.overallRect);
       occupiedGeometries.push(geometry);
     }
 
@@ -918,19 +854,7 @@ function UserFootprintsPageInner() {
       });
       const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
       const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
-      const renderRect = buildPlaceBoundsFromOffsets(placePhotos, offsets, collisionScale);
-      if (!renderRect) continue;
-      const offsetGeometry = buildGroupGeometryFromPhotoRect(
-        expandPhotoRect({
-          left: Math.min(...offsets.map((item, index) => item.offsetX - getPhotoLogicalSize(placePhotos[index]).width / 2)),
-          right: Math.max(...offsets.map((item, index) => item.offsetX + getPhotoLogicalSize(placePhotos[index]).width / 2)),
-          top: Math.min(...offsets.map((item, index) => item.offsetY - getPhotoLogicalSize(placePhotos[index]).height / 2)),
-          bottom: Math.max(...offsets.map((item, index) => item.offsetY + getPhotoLogicalSize(placePhotos[index]).height / 2)),
-        }),
-        placePhotos[0]?.placeTitle || '',
-        placePhotos.length,
-        collisionScale,
-      );
+      const offsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale);
       if (!offsetGeometry) continue;
       if (placedPhotos.length > 0) {
         const existingGeometry = resolvedExistingGeometryMap.get(placeKey) ?? buildPlaceGeometry(placedPhotos, collisionScale);
@@ -950,7 +874,7 @@ function UserFootprintsPageInner() {
         const nextGeometry = translateGroupGeometry(offsetGeometry, candidateCenterX, candidateCenterY);
         const occupiedByOthers = occupiedGeometries.filter((geometry) => geometry !== existingGeometry);
         const canExpandOutward =
-          fitsAroundMap(nextGeometry.overallRect, mapRect, cardSize) &&
+          fitsGroupAroundMap(nextGeometry.overallRect, mapRect, cardSize) &&
           scoreGroupGeometryPlacement(nextGeometry, occupiedByOthers, cardSize) === 0;
 
         if (!canExpandOutward) {
@@ -967,10 +891,8 @@ function UserFootprintsPageInner() {
             placePhotos[i].frameY = existingCenter.y + unitY * forwardOffset + perpendicularY * lateralOffset;
           }
         }
-        const placedRect = buildPlaceBounds(placePhotos, collisionScale);
         const placedGeometry = buildPlaceGeometry(placePhotos, collisionScale);
-        if (placedRect && placedGeometry) {
-          occupiedRects.push(placedRect);
+        if (placedGeometry) {
           occupiedGeometries.push(placedGeometry);
         }
         continue;
@@ -979,15 +901,8 @@ function UserFootprintsPageInner() {
       pendingNewGroups.push({
         placeKey,
         placePhotos,
-        renderRect,
         collisionGeometry: offsetGeometry,
         collisionRect: offsetGeometry.overallRect,
-        collisionCandidates: buildGroupGeometryCandidatesFromPhotoRect(
-          offsetGeometry.photoRect,
-          placePhotos[0]?.placeTitle || '',
-          placePhotos.length,
-          collisionScale,
-        ),
         logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
         logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
         offsets,
@@ -1010,10 +925,8 @@ function UserFootprintsPageInner() {
         group.placePhotos[i].frameY = chosenCenter.centerY + group.offsets[i].offsetY;
       }
 
-      const placedRect = buildPlaceBounds(group.placePhotos, collisionScale);
       const placedGeometry = buildPlaceGeometry(group.placePhotos, collisionScale);
-      if (placedRect && placedGeometry) {
-        occupiedRects.push(placedRect);
+      if (placedGeometry) {
         occupiedGeometries.push(placedGeometry);
       }
     }

@@ -1,4 +1,10 @@
-import { rectsOverlap, translateGroupGeometry, type GroupGeometry } from './localMapGroupGeometry';
+import {
+  buildGroupGeometryFromPhotoRect,
+  rectsOverlap,
+  resolvePreferredLabelSide,
+  translateGroupGeometry,
+  type GroupGeometry,
+} from './localMapGroupGeometry';
 import { buildRadialLayout } from './localMapLayoutEngine';
 import type { FootprintPlacement, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
 
@@ -97,6 +103,26 @@ function scoreCandidate(
   return radius * 1.15 + outwardPenalty + anglePenalty + overlapPenalty + crossingPenalty;
 }
 
+function buildGeometryForPlacement(
+  group: PendingPlaceGroup,
+  placement: FootprintPlacement,
+): GroupGeometry {
+  const translatedPhotoRect = {
+    left: group.collisionGeometry.photoRect.left + placement.centerX,
+    right: group.collisionGeometry.photoRect.right + placement.centerX,
+    top: group.collisionGeometry.photoRect.top + placement.centerY,
+    bottom: group.collisionGeometry.photoRect.bottom + placement.centerY,
+  };
+  const labelSide = resolvePreferredLabelSide(placement.centerX, placement.centerY);
+  return buildGroupGeometryFromPhotoRect(
+    translatedPhotoRect,
+    group.placePhotos[0]?.placeTitle || '',
+    group.placePhotos.length,
+    1,
+    labelSide,
+  );
+}
+
 function compareGroupOrder(
   left: PendingPlaceGroup,
   right: PendingPlaceGroup,
@@ -122,13 +148,6 @@ export function solvePendingGroupPlacements(
   mapRect: LogicalRect,
   _safeGap: number,
   _labelGapBoost: number,
-  _refinePlacements: (
-    groups: PendingPlaceGroup[],
-    placementById: Map<string, FootprintPlacement>,
-    mapRect: LogicalRect,
-    safeGap: number,
-    labelGapBoost: number,
-  ) => Map<string, FootprintPlacement>,
 ) {
   const basePlacements = buildRadialLayout(
     groups.map((group) => ({
@@ -151,10 +170,8 @@ export function solvePendingGroupPlacements(
     if (!basePlacement) continue;
     const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
     const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
-    const geometryCandidates = group.collisionCandidates?.length ? group.collisionCandidates : [group.collisionGeometry];
-
     let bestPlacement = basePlacement;
-    let bestGeometry = translateGroupGeometry(geometryCandidates[0], basePlacement.centerX, basePlacement.centerY);
+    let bestGeometry = buildGeometryForPlacement(group, basePlacement);
     let bestScore = scoreCandidate(bestPlacement, bestGeometry, placed, basePlacement, group);
 
     for (const radiusStep of RADIUS_STEPS) {
@@ -165,15 +182,13 @@ export function solvePendingGroupPlacements(
           centerX: Math.cos(angle) * radius,
           centerY: Math.sin(angle) * radius,
         };
-        for (const candidateGeometry of geometryCandidates) {
-          const geometry = translateGroupGeometry(candidateGeometry, placement.centerX, placement.centerY);
-          if (!fitsAroundMap(geometry.overallRect, mapRect, MAP_GAP)) continue;
-          const score = scoreCandidate(placement, geometry, placed, basePlacement, group);
-          if (score < bestScore - 1e-6) {
-            bestPlacement = placement;
-            bestGeometry = geometry;
-            bestScore = score;
-          }
+        const geometry = buildGeometryForPlacement(group, placement);
+        if (!fitsAroundMap(geometry.overallRect, mapRect, MAP_GAP)) continue;
+        const score = scoreCandidate(placement, geometry, placed, basePlacement, group);
+        if (score < bestScore - 1e-6) {
+          bestPlacement = placement;
+          bestGeometry = geometry;
+          bestScore = score;
         }
       }
     }
