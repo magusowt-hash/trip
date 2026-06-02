@@ -16,6 +16,7 @@ import {
   rectDistanceToMap,
   rectOverlapsOccupiedPhotos,
 } from './footprintLayoutConstraints';
+import { refineRadialPlacements } from './footprintSectorLayoutEngine';
 
 const GROUP_GAP = 10;
 const LABEL_GAP = 14;
@@ -573,8 +574,8 @@ function buildFallbackState(
 export function solvePendingGroupPlacements(
   groups: PendingPlaceGroup[],
   mapRect: LogicalRect,
-  _safeGap: number,
-  _labelGapBoost: number,
+  safeGap: number,
+  labelGapBoost: number,
 ) {
   const basePlacements = buildRadialLayout(
     groups.map((group) => ({
@@ -605,8 +606,22 @@ export function solvePendingGroupPlacements(
   const workingState = assignedState ?? buildFallbackState(orderedGroups, basePlacementById, mapRect);
   optimizeAssignments(orderedGroups, candidatePoolById, workingState);
 
+  const refinedPlacementById = refineRadialPlacements(
+    orderedGroups,
+    new Map(workingState.placementById),
+    mapRect,
+    safeGap,
+    labelGapBoost,
+  );
+  const refinedGeometryById = new Map<string, GroupGeometry>();
+  for (const group of orderedGroups) {
+    const placement = refinedPlacementById.get(group.placeKey);
+    if (!placement) continue;
+    refinedGeometryById.set(group.placeKey, chooseBestGeometryForPlacement(group, placement, mapRect));
+  }
+
   return {
-    placements: workingState.placementById,
-    geometries: workingState.geometryById,
+    placements: refinedPlacementById,
+    geometries: refinedGeometryById,
   };
 }

@@ -16,6 +16,8 @@ const PHOTO_MIN_EDGE = 48;
 const FIT_VIEW_PADDING = 24;
 const VIEWPORT_GEOMETRY_SCALE = 1;
 const VIEWPORT_PADDING_LOGICAL = 24;
+const MAP_AREA_RATIO_W = 0.6;
+const MAP_AREA_RATIO_H = 0.8;
 
 interface Props {
   markers: MapMarker[];
@@ -130,6 +132,11 @@ export default function OuterFrame({
     return { width: PHOTO_MAX_EDGE, height: PHOTO_MAX_EDGE };
   }, []);
 
+  const getMapLogicalBounds = useCallback(() => ({
+    halfW: (containerSize.w * MAP_AREA_RATIO_W) / 2,
+    halfH: (containerSize.h * MAP_AREA_RATIO_H) / 2,
+  }), [containerSize]);
+
   const buildPhotoGroupViewport = useCallback((padding = VIEWPORT_PADDING_LOGICAL): Viewport | null => {
     const groups = new Map<string, PhotoItem[]>();
     for (const photo of photos) {
@@ -183,18 +190,17 @@ export default function OuterFrame({
     const amapContainer = map.getContainer();
     const amapWidth = amapContainer?.offsetWidth || mapRect.width;
     const amapHeight = amapContainer?.offsetHeight || mapRect.height;
+    const { halfW, halfH } = getMapLogicalBounds();
+    if (halfW <= 0 || halfH <= 0) return;
 
     const points: PoiPoint[] = [];
     for (const m of markers) {
       try {
         const pos = map.lngLatToContainer([m.position[0], m.position[1]]);
-        // Convert AMap container coords → screen coords
-        const screenX = mapRect.left + (pos.x / amapWidth) * mapRect.width;
-        const screenY = mapRect.top + (pos.y / amapHeight) * mapRect.height;
-
-        // Screen → OuterFrame logical (model: screen = logical*scale + Vw/2 + tx)
-        const logicalX = (screenX - containerSize.w / 2 - transform.tx) / transform.scale;
-        const logicalY = (screenY - containerSize.h / 2 - transform.ty) / transform.scale;
+        const normalizedX = amapWidth > 0 ? pos.x / amapWidth : 0.5;
+        const normalizedY = amapHeight > 0 ? pos.y / amapHeight : 0.5;
+        const logicalX = (normalizedX - 0.5) * halfW * 2;
+        const logicalY = (normalizedY - 0.5) * halfH * 2;
 
         points.push({
           placeKey: m.id ? String(m.id) : m.title || '',
@@ -205,7 +211,7 @@ export default function OuterFrame({
       } catch { /* skip marker with invalid coordinates */ }
     }
     setPoiPoints(points);
-  }, [markers, transform, containerSize]);
+  }, [markers, getMapLogicalBounds]);
 
   // Report scale changes
   useEffect(() => {
