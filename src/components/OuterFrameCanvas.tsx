@@ -60,6 +60,7 @@ export interface PlaceRect {
 export interface GroupLayoutSnapshot {
   placeKey: string;
   labelSide: GroupLabelSide;
+  labelOffset: number;
 }
 
 interface Props {
@@ -241,7 +242,7 @@ export default function OuterFrameCanvas({
 
   // --- Compute place rects from current photo positions ---
   const computePlaceRects = useCallback((): PlaceRect[] => {
-    const labelSideByPlaceKey = new Map((groupLayouts ?? []).map((layout) => [layout.placeKey, layout.labelSide]));
+    const layoutByPlaceKey = new Map((groupLayouts ?? []).map((layout) => [layout.placeKey, layout]));
     const groups = new Map<string, PhotoItem[]>();
     for (const p of photos) {
       if (p.frameX == null || p.frameY == null) continue;
@@ -255,7 +256,8 @@ export default function OuterFrameCanvas({
         items,
         getPhotoLogicalSize,
         transform.scale,
-        labelSideByPlaceKey.get(placeKey),
+        layoutByPlaceKey.get(placeKey)?.labelSide,
+        layoutByPlaceKey.get(placeKey)?.labelOffset ?? 0,
       );
       if (!geometry) continue;
       rects.push({

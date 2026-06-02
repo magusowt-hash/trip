@@ -142,6 +142,7 @@ export function solvePendingGroupPlacements(
 
   const basePlacementById = new Map(basePlacements.map((placement) => [placement.id, placement]));
   const result = new Map<string, FootprintPlacement>();
+  const geometryById = new Map<string, GroupGeometry>();
   const placed: PlacedEntry[] = [];
   const ordered = [...groups].sort((left, right) => compareGroupOrder(left, right, basePlacementById));
 
@@ -178,6 +179,7 @@ export function solvePendingGroupPlacements(
     }
 
     result.set(group.placeKey, bestPlacement);
+    geometryById.set(group.placeKey, bestGeometry);
     placed.push({
       group,
       placement: bestPlacement,
@@ -185,5 +187,8 @@ export function solvePendingGroupPlacements(
     });
   }
 
-  return result;
+  return {
+    placements: result,
+    geometries: geometryById,
+  };
 }

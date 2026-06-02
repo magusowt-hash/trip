@@ -57,7 +57,7 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
   }), [transform, width, height]);
 
   const getResolvedGroupGeometryMap = useCallback(() => {
-    const labelSideByPlaceKey = new Map((groupLayouts ?? []).map((layout) => [layout.placeKey, layout.labelSide]));
+    const layoutByPlaceKey = new Map((groupLayouts ?? []).map((layout) => [layout.placeKey, layout]));
     const groups = new Map<string, PhotoItem[]>();
     for (const photo of photos) {
       if (photo.frameX == null || photo.frameY == null) continue;
@@ -71,7 +71,8 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
         groupPhotos,
         getPhotoLogicalSize,
         transform.scale,
-        labelSideByPlaceKey.get(placeKey),
+        layoutByPlaceKey.get(placeKey)?.labelSide,
+        layoutByPlaceKey.get(placeKey)?.labelOffset ?? 0,
       );
       if (!geometry) continue;
       entries.push({ id: placeKey, geometry });
@@ -80,12 +81,22 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
   }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale]);
 
   const getGroupAnchorPoint = useCallback((resolvedGeometryMap: Map<string, NonNullable<ReturnType<typeof buildGroupGeometry>>>, groupPhotos: PhotoItem[], poi: PoiPoint) => {
-    const geometry = resolvedGeometryMap.get(groupPhotos[0]?.placeKey || '') ?? buildGroupGeometry(groupPhotos, getPhotoLogicalSize, transform.scale);
+    const placeKey = groupPhotos[0]?.placeKey || '';
+    const layoutByPlaceKey = new Map((groupLayouts ?? []).map((layout) => [layout.placeKey, layout]));
+    const geometry =
+      resolvedGeometryMap.get(placeKey) ??
+      buildGroupGeometry(
+        groupPhotos,
+        getPhotoLogicalSize,
+        transform.scale,
+        layoutByPlaceKey.get(placeKey)?.labelSide,
+        layoutByPlaceKey.get(placeKey)?.labelOffset ?? 0,
+      );
     if (!geometry) {
       return { x: poi.logicalX, y: poi.logicalY };
     }
     return { x: geometry.lineAnchorX, y: geometry.lineAnchorY };
-  }, [getPhotoLogicalSize, transform.scale]);
+  }, [groupLayouts, getPhotoLogicalSize, transform.scale]);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;

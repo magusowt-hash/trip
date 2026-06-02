@@ -200,6 +200,7 @@ export function buildGroupGeometryFromPhotoRect(
   photoCount = 1,
   scale = 1,
   fixedLabelSide?: GroupLabelSide,
+  fixedLabelOffset = 0,
 ): GroupGeometry {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
@@ -221,7 +222,10 @@ export function buildGroupGeometryFromPhotoRect(
   const labelHalfHeight = toLogicalScreenSize(GROUP_LABEL_HEIGHT_SCREEN, safeScale) / 2;
   const labelAnchorX = photoCenter.x;
   const lineAnchorX = labelAnchorX;
-  const lineAnchorY = labelSide === 'top' ? photoRect.top - photoToLineGap : photoRect.bottom + photoToLineGap;
+  const lineAnchorY =
+    labelSide === 'top'
+      ? photoRect.top - photoToLineGap - fixedLabelOffset
+      : photoRect.bottom + photoToLineGap + fixedLabelOffset;
   const labelAnchorY =
     labelSide === 'top'
       ? lineAnchorY - lineAnchorRadius - lineToLabelGap - labelHalfHeight
@@ -265,6 +269,7 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   photoCount = 1,
   scale = 1,
   fixedLabelSide?: GroupLabelSide,
+  fixedLabelOffset = 0,
 ) {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
@@ -286,7 +291,10 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
 
   const buildForSide = (labelSide: GroupLabelSide): GroupGeometry => {
     const lineAnchorX = photoCenter.x;
-    const lineAnchorY = labelSide === 'top' ? photoRect.top - photoToLineGap : photoRect.bottom + photoToLineGap;
+    const lineAnchorY =
+      labelSide === 'top'
+        ? photoRect.top - photoToLineGap - fixedLabelOffset
+        : photoRect.bottom + photoToLineGap + fixedLabelOffset;
     const labelAnchorX = photoCenter.x;
     const labelAnchorY =
       labelSide === 'top'
@@ -390,11 +398,12 @@ export function buildGroupGeometry(
   getPhotoLogicalSize: SizeReader,
   scale = 1,
   fixedLabelSide?: GroupLabelSide,
+  fixedLabelOffset = 0,
 ): GroupGeometry | null {
   const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
   if (!photoRect) return null;
   const title = groupPhotos[0]?.placeTitle || '';
-  return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale, fixedLabelSide);
+  return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale, fixedLabelSide, fixedLabelOffset);
 }
 
 export function shiftGroupGeometryDown(

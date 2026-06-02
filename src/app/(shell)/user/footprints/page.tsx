@@ -228,7 +228,7 @@ function buildGroupLayoutsFromPhotos(
   scale = 1,
   existingLayouts: GroupLayoutSnapshot[] = [],
 ): GroupLayoutSnapshot[] {
-  const existingLabelSideByPlaceKey = new Map(existingLayouts.map((layout) => [layout.placeKey, layout.labelSide]));
+  const existingLayoutByPlaceKey = new Map(existingLayouts.map((layout) => [layout.placeKey, layout]));
   const groups = new Map<string, PhotoItem[]>();
   for (const photo of photos) {
     if (photo.frameX == null || photo.frameY == null) continue;
@@ -246,15 +246,34 @@ function buildGroupLayoutsFromPhotos(
       groupPhotos[0]?.placeTitle || '',
       groupPhotos.length,
       scale,
-      existingLabelSideByPlaceKey.get(placeKey),
+      existingLayoutByPlaceKey.get(placeKey)?.labelSide,
+      existingLayoutByPlaceKey.get(placeKey)?.labelOffset ?? 0,
     );
+    const labelOffset =
+      geometry.labelSide === 'top'
+        ? Math.max(0, photoRect.top - geometry.lineAnchorY)
+        : Math.max(0, geometry.lineAnchorY - photoRect.bottom);
     layouts.push({
       placeKey,
       labelSide: geometry.labelSide,
+      labelOffset,
     });
   }
 
   return layouts;
+}
+
+function createGroupLayoutSnapshot(placeKey: string, geometry: GroupGeometry): GroupLayoutSnapshot {
+  const labelOffset =
+    geometry.labelSide === 'top'
+      ? Math.max(0, geometry.photoRect.top - geometry.lineAnchorY)
+      : Math.max(0, geometry.lineAnchorY - geometry.photoRect.bottom);
+
+  return {
+    placeKey,
+    labelSide: geometry.labelSide,
+    labelOffset,
+  };
 }
 
 function getGroupArea(rect: LogicalRect) {
@@ -888,6 +907,15 @@ function UserFootprintsPageInner() {
       })),
       { gap: 10, mapRect, mapGap: cardSize, labelGapBoost: 8 },
     );
+    if (resolvedExistingGeometryMap.size > 0) {
+      setGroupLayouts((current) => {
+        const next = new Map(current.map((layout) => [layout.placeKey, layout]));
+        for (const [placeKey, geometry] of resolvedExistingGeometryMap) {
+          next.set(placeKey, createGroupLayoutSnapshot(placeKey, geometry));
+        }
+        return Array.from(next.values());
+      });
+    }
     for (const [, geometry] of resolvedExistingGeometryMap) {
       occupiedRects.push(geometry.overallRect);
       occupiedGeometries.push(geometry);
@@ -979,12 +1007,14 @@ function UserFootprintsPageInner() {
       });
     }
 
-    const placementById = solvePendingGroupPlacements(
+    const solvedPendingGroups = solvePendingGroupPlacements(
       pendingNewGroups,
       mapRect,
       cardSize,
       computeLabelGapBoost(outerScale),
     );
+    const placementById = solvedPendingGroups.placements;
+    const pendingGeometryById = solvedPendingGroups.geometries;
 
     for (const group of pendingNewGroups) {
       const chosenCenter = placementById.get(group.placeKey);
@@ -1000,6 +1030,16 @@ function UserFootprintsPageInner() {
         occupiedRects.push(placedRect);
         occupiedGeometries.push(placedGeometry);
       }
+    }
+
+    if (pendingGeometryById.size > 0) {
+      setGroupLayouts((current) => {
+        const next = new Map(current.map((layout) => [layout.placeKey, layout]));
+        for (const [placeKey, geometry] of pendingGeometryById) {
+          next.set(placeKey, createGroupLayoutSnapshot(placeKey, geometry));
+        }
+        return Array.from(next.values());
+      });
     }
   }
 
