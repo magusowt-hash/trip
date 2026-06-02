@@ -1351,28 +1351,29 @@ function UserFootprintsPageInner() {
     setLocalMapApplyProgress(8);
 
     const runApply = async (attempt = 0) => {
-      const itemByTitle = new Map(items.map((item) => [item.title, item]));
-      const poiPlaceKeys = new Set(poiPoints.map((point) => point.placeKey));
-      const targetPoiKeys = new Set(
-        payload.matchedAssets
-          .map((asset) => itemByTitle.get(asset.matchedPlaceTitle))
-          .filter((item): item is FootprintItem => Boolean(item?.lng && item?.lat))
-          .map(getFootprintItemPlaceKey),
-      );
-      if ([...targetPoiKeys].some((placeKey) => !poiPlaceKeys.has(placeKey))) {
-        if (attempt < 30) {
-          setTimeout(() => {
-            void runApply(attempt + 1);
-          }, 80);
+      try {
+        setLocalMapApplyProgress(12);
+        const itemByTitle = new Map(items.map((item) => [item.title, item]));
+        const poiPlaceKeys = new Set(poiPoints.map((point) => point.placeKey));
+        const targetPoiKeys = new Set(
+          payload.matchedAssets
+            .map((asset) => itemByTitle.get(asset.matchedPlaceTitle))
+            .filter((item): item is FootprintItem => Boolean(item?.lng && item?.lat))
+            .map(getFootprintItemPlaceKey),
+        );
+        if ([...targetPoiKeys].some((placeKey) => !poiPlaceKeys.has(placeKey))) {
+          if (attempt < 30) {
+            setTimeout(() => {
+              void runApply(attempt + 1);
+            }, 80);
+            return;
+          }
+          alert('地图点位尚未完成加载，无法应用本地映射。请稍后重试。');
+          setIsApplyingLocalMap(false);
+          setLocalMapApplyProgress(0);
           return;
         }
-        alert('地图点位尚未完成加载，无法应用本地映射。请稍后重试。');
-        setIsApplyingLocalMap(false);
-        setLocalMapApplyProgress(0);
-        return;
-      }
 
-      try {
         const currentItemKeys = new Set(items.map(getFootprintItemPlaceKey));
         const mappedPhotos: PhotoItem[] = payload.matchedAssets
           .map((asset) => {
@@ -1474,13 +1475,7 @@ function UserFootprintsPageInner() {
     };
 
     setTimeout(() => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setTimeout(() => {
-            void runApply();
-          }, 0);
-        });
-      });
+      void runApply();
     }, LOCAL_MAP_LOADING_MIN_DELAY_MS);
   }, [groupLayouts, items, photos, poiPoints, outerMapRect]);
 
