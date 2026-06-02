@@ -57,6 +57,14 @@ interface FootprintItem {
   addedAt: string;
 }
 
+type LocalMapApplyPayload = {
+  rootName: string;
+  matchedAssets: LocalMappedAssetDraft[];
+  unmatchedFolders: string[];
+  missingAssets: Array<{ relativePath: string; name: string }>;
+  layout: LocalMapLayoutSettings;
+};
+
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
 function randomInt(min: number, max: number): number {
@@ -469,6 +477,8 @@ function UserFootprintsPageInner() {
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [isApplyingLocalMap, setIsApplyingLocalMap] = useState(false);
   const [localMapApplyProgress, setLocalMapApplyProgress] = useState(0);
+  const [localMapApplyStage, setLocalMapApplyStage] = useState('等待开始');
+  const [pendingLocalMapApply, setPendingLocalMapApply] = useState<LocalMapApplyPayload | null>(null);
   const [fitViewKey, setFitViewKey] = useState(0);
   const [fitViewEnabled, setFitViewEnabled] = useState(false);
   const [shareAlbumPrompt, setShareAlbumPrompt] = useState<{
@@ -479,7 +489,17 @@ function UserFootprintsPageInner() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstanceRef = useRef<any>(null);
   const movedPhotosRef = useRef<boolean>(false);
+  const itemsRef = useRef<FootprintItem[]>([]);
+  const photosRef = useRef<PhotoItem[]>([]);
+  const groupLayoutsRef = useRef<GroupLayoutSnapshot[]>([]);
+  const poiPointsRef = useRef<PoiPoint[]>([]);
+  const localMapApplyRunIdRef = useRef(0);
   const actionNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => { itemsRef.current = items; }, [items]);
+  useEffect(() => { photosRef.current = photos; }, [photos]);
+  useEffect(() => { groupLayoutsRef.current = groupLayouts; }, [groupLayouts]);
+  useEffect(() => { poiPointsRef.current = poiPoints; }, [poiPoints]);
 
   // Load settings
   useEffect(() => {
@@ -1340,21 +1360,40 @@ function UserFootprintsPageInner() {
     } catch { alert('设置默认失败'); }
   }
 
-  const handleApplyLocalMap = useCallback((payload: {
-    rootName: string;
-    matchedAssets: LocalMappedAssetDraft[];
-    unmatchedFolders: string[];
-    missingAssets: Array<{ relativePath: string; name: string }>;
-    layout: LocalMapLayoutSettings;
-  }) => {
+  const handleApplyLocalMap = useCallback((payload: LocalMapApplyPayload) => {
+    setLocalMapOpen(false);
+    setLocalMapTargetItem(null);
+    setPendingLocalMapApply(payload);
     setIsApplyingLocalMap(true);
     setLocalMapApplyProgress(8);
+    setLocalMapApplyStage('准备启动排布任务');
+  }, []);
+
+  useEffect(() => {
+    if (!isApplyingLocalMap || !pendingLocalMapApply) return;
+    const runId = localMapApplyRunIdRef.current + 1;
+    localMapApplyRunIdRef.current = runId;
+    const payload = pendingLocalMapApply;
+    const isCurrentRun = () => localMapApplyRunIdRef.current === runId;
+    const finishApplying = () => {
+      if (!isCurrentRun()) return;
+      setPendingLocalMapApply(null);
+      setIsApplyingLocalMap(false);
+      setLocalMapApplyProgress(0);
+      setLocalMapApplyStage('等待开始');
+    };
 
     const runApply = async (attempt = 0) => {
+      if (!isCurrentRun()) return;
       try {
+        setLocalMapApplyStage('检查地图点位');
         setLocalMapApplyProgress(12);
-        const itemByTitle = new Map(items.map((item) => [item.title, item]));
-        const poiPlaceKeys = new Set(poiPoints.map((point) => point.placeKey));
+        const currentItems = itemsRef.current;
+        const currentPhotos = photosRef.current;
+        const currentGroupLayouts = groupLayoutsRef.current;
+        const currentPoiPoints = poiPointsRef.current;
+        const itemByTitle = new Map(currentItems.map((item) => [item.title, item]));
+        const poiPlaceKeys = new Set(currentPoiPoints.map((point) => point.placeKey));
         const targetPoiKeys = new Set(
           payload.matchedAssets
             .map((asset) => itemByTitle.get(asset.matchedPlaceTitle))
@@ -1369,12 +1408,12 @@ function UserFootprintsPageInner() {
             return;
           }
           alert('地图点位尚未完成加载，无法应用本地映射。请稍后重试。');
-          setIsApplyingLocalMap(false);
-          setLocalMapApplyProgress(0);
+          finishApplying();
           return;
         }
 
-        const currentItemKeys = new Set(items.map(getFootprintItemPlaceKey));
+        setLocalMapApplyStage('生成本地图片映射');
+        const currentItemKeys = new Set(currentItems.map(getFootprintItemPlaceKey));
         const mappedPhotos: PhotoItem[] = payload.matchedAssets
           .map((asset) => {
             const matchedItem = itemByTitle.get(asset.matchedPlaceTitle);
@@ -1404,6 +1443,7 @@ function UserFootprintsPageInner() {
         setLocalMapApplyProgress(24);
 
         if (payload.layout.enabled) {
+          setLocalMapApplyStage('应用预设布局');
           for (const photo of mappedPhotos) {
             photo.frameX = undefined;
             photo.frameY = undefined;
@@ -1412,11 +1452,12 @@ function UserFootprintsPageInner() {
 
         const unplaced = mappedPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
         setLocalMapApplyProgress(42);
-        let nextGroupLayouts = groupLayouts;
+        let nextGroupLayouts = currentGroupLayouts;
         if (unplaced.length > 0) {
+          setLocalMapApplyStage('计算安全排布');
           nextGroupLayouts = autoPlacePhotos(
             unplaced,
-            [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
+            [...currentPhotos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
             payload.layout,
           );
           if (unplaced.every((photo) => photo.frameX != null && photo.frameY != null)) {
@@ -1426,9 +1467,12 @@ function UserFootprintsPageInner() {
         }
         setLocalMapApplyProgress(66);
 
+        setLocalMapApplyStage('生成本地缩略图');
         const mappedPhotosWithThumbnails = await attachLocalThumbnails(mappedPhotos);
+        if (!isCurrentRun()) return;
         setLocalMapApplyProgress(78);
 
+        setLocalMapApplyStage('写入前端状态');
         setPhotos((current) => {
           current
             .filter((photo) => photo.sourceType === 'local-mapped')
@@ -1458,26 +1502,32 @@ function UserFootprintsPageInner() {
         if (payload.missingAssets.length > 0) {
           alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。当前只在前端移除；点击“保存修改”时会再次确认是否删除这些位置记录。`);
         }
-        setLocalMapTargetItem(null);
-        setLocalMapOpen(false);
+        setLocalMapApplyStage('完成映射');
         setLocalMapApplyProgress(100);
         requestAnimationFrame(() => {
           setTimeout(() => {
-            setIsApplyingLocalMap(false);
-            setLocalMapApplyProgress(0);
+            finishApplying();
           }, 180);
         });
       } catch {
         alert('应用本地映射失败，请重新选择主文件夹后再试。');
-        setIsApplyingLocalMap(false);
-        setLocalMapApplyProgress(0);
+        finishApplying();
       }
     };
 
-    setTimeout(() => {
-      void runApply();
+    const timer = window.setTimeout(() => {
+      setLocalMapApplyStage('启动排布任务');
+      window.requestAnimationFrame(() => {
+        void runApply();
+      });
     }, LOCAL_MAP_LOADING_MIN_DELAY_MS);
-  }, [groupLayouts, items, photos, poiPoints, outerMapRect]);
+    return () => {
+      if (localMapApplyRunIdRef.current === runId) {
+        localMapApplyRunIdRef.current += 1;
+      }
+      window.clearTimeout(timer);
+    };
+  }, [isApplyingLocalMap, pendingLocalMapApply]);
 
   return (
     <div className={styles.rootFull}>
@@ -1487,7 +1537,7 @@ function UserFootprintsPageInner() {
           <div className={styles.loadingCard} role="status" aria-live="polite">
             <div className={styles.loadingSpinner} />
             <div className={styles.loadingTitle}>正在应用预设映射</div>
-            <div className={styles.loadingSubtitle}>布局与本地图片映射处理中，请稍候</div>
+            <div className={styles.loadingSubtitle}>{localMapApplyStage}</div>
             <div className={styles.loadingProgressTrack} aria-hidden="true">
               <div
                 className={styles.loadingProgressBar}
