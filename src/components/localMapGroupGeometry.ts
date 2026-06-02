@@ -1,6 +1,11 @@
 import type { PhotoItem } from './OuterFrameCanvas';
 
 export type GroupLabelSide = 'top' | 'bottom';
+export type GroupLayoutSnapshot = {
+  placeKey: string;
+  labelSide: GroupLabelSide;
+  labelOffset: number;
+};
 
 export type LogicalRect = {
   left: number;
@@ -341,10 +346,14 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
   const labelHalfWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left) / 2;
   const labelHalfHeight = Math.max(1, geometry.labelRect.bottom - geometry.labelRect.top) / 2;
   const lineAnchorRadius = Math.max(1, geometry.lineRect.right - geometry.lineRect.left) / 2;
-  const photoToLineGap =
+  const fixedLabelOffset =
     geometry.labelSide === 'top'
       ? Math.max(0, photoRect.top - geometry.lineAnchorY)
       : Math.max(0, geometry.lineAnchorY - photoRect.bottom);
+  const photoToLineGap =
+    geometry.labelSide === 'top'
+      ? Math.max(0, photoRect.top - geometry.lineAnchorY - fixedLabelOffset)
+      : Math.max(0, geometry.lineAnchorY - photoRect.bottom - fixedLabelOffset);
   const lineToLabelGap =
     geometry.labelSide === 'top'
       ? Math.max(0, geometry.lineRect.top - geometry.labelRect.bottom)
@@ -352,7 +361,10 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
 
   const buildForSide = (labelSide: GroupLabelSide): GroupGeometry => {
     const lineAnchorX = photoCenter.x;
-    const lineAnchorY = labelSide === 'top' ? photoRect.top - photoToLineGap : photoRect.bottom + photoToLineGap;
+    const lineAnchorY =
+      labelSide === 'top'
+        ? photoRect.top - photoToLineGap - fixedLabelOffset
+        : photoRect.bottom + photoToLineGap + fixedLabelOffset;
     const labelAnchorX = photoCenter.x;
     const labelAnchorY =
       labelSide === 'top'
@@ -404,6 +416,37 @@ export function buildGroupGeometry(
   if (!photoRect) return null;
   const title = groupPhotos[0]?.placeTitle || '';
   return buildGroupGeometryFromPhotoRect(photoRect, title, groupPhotos.length, scale, fixedLabelSide, fixedLabelOffset);
+}
+
+export function createGroupLayoutSnapshot(placeKey: string, geometry: GroupGeometry): GroupLayoutSnapshot {
+  const labelOffset =
+    geometry.labelSide === 'top'
+      ? Math.max(0, geometry.photoRect.top - geometry.lineAnchorY)
+      : Math.max(0, geometry.lineAnchorY - geometry.photoRect.bottom);
+
+  return {
+    placeKey,
+    labelSide: geometry.labelSide,
+    labelOffset,
+  };
+}
+
+export function buildGroupGeometryFromLayout(
+  placeKey: string,
+  groupPhotos: Array<Pick<PhotoItem, 'frameX' | 'frameY' | 'pixelWidth' | 'pixelHeight' | 'placeTitle'>>,
+  getPhotoLogicalSize: SizeReader,
+  scale = 1,
+  layouts: GroupLayoutSnapshot[] = [],
+) {
+  const layoutByPlaceKey = new Map(layouts.map((layout) => [layout.placeKey, layout]));
+  const layout = layoutByPlaceKey.get(placeKey);
+  return buildGroupGeometry(
+    groupPhotos,
+    getPhotoLogicalSize,
+    scale,
+    layout?.labelSide,
+    layout?.labelOffset ?? 0,
+  );
 }
 
 export function shiftGroupGeometryDown(

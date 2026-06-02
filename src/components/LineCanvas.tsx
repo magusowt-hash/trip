@@ -2,11 +2,13 @@
 
 import { useRef, useEffect, useCallback } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
-import type { GroupLayoutSnapshot, PhotoItem, PoiPoint } from './OuterFrameCanvas';
+import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
 import {
+  buildGroupGeometryFromLayout,
   buildGroupGeometry,
   GROUP_ENDPOINT_RADIUS_SCREEN,
+  type GroupLayoutSnapshot,
 } from './localMapGroupGeometry';
 
 const MAX_OVERLAY_SCALE = 2.4;
@@ -57,7 +59,6 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
   }), [transform, width, height]);
 
   const getResolvedGroupGeometryMap = useCallback(() => {
-    const layoutByPlaceKey = new Map((groupLayouts ?? []).map((layout) => [layout.placeKey, layout]));
     const groups = new Map<string, PhotoItem[]>();
     for (const photo of photos) {
       if (photo.frameX == null || photo.frameY == null) continue;
@@ -67,13 +68,7 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
     }
     const entries: Array<{ id: string; geometry: NonNullable<ReturnType<typeof buildGroupGeometry>> }> = [];
     for (const [placeKey, groupPhotos] of groups) {
-      const geometry = buildGroupGeometry(
-        groupPhotos,
-        getPhotoLogicalSize,
-        transform.scale,
-        layoutByPlaceKey.get(placeKey)?.labelSide,
-        layoutByPlaceKey.get(placeKey)?.labelOffset ?? 0,
-      );
+      const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
       if (!geometry) continue;
       entries.push({ id: placeKey, geometry });
     }
@@ -82,16 +77,9 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
 
   const getGroupAnchorPoint = useCallback((resolvedGeometryMap: Map<string, NonNullable<ReturnType<typeof buildGroupGeometry>>>, groupPhotos: PhotoItem[], poi: PoiPoint) => {
     const placeKey = groupPhotos[0]?.placeKey || '';
-    const layoutByPlaceKey = new Map((groupLayouts ?? []).map((layout) => [layout.placeKey, layout]));
     const geometry =
       resolvedGeometryMap.get(placeKey) ??
-      buildGroupGeometry(
-        groupPhotos,
-        getPhotoLogicalSize,
-        transform.scale,
-        layoutByPlaceKey.get(placeKey)?.labelSide,
-        layoutByPlaceKey.get(placeKey)?.labelOffset ?? 0,
-      );
+      buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
     if (!geometry) {
       return { x: poi.logicalX, y: poi.logicalY };
     }

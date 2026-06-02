@@ -5,11 +5,11 @@ import { useOuterFrame } from '@/hooks/useOuterFrame';
 import { CLAMP_SCALE, logicalViewport, type Viewport } from '@/lib/outerFrameCoords';
 import OuterFrameCanvas from './OuterFrameCanvas';
 import LineCanvas from './LineCanvas';
-import type { GroupLayoutSnapshot, PhotoItem, PoiPoint } from './OuterFrameCanvas';
+import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
 import type { MapMarker } from './PlanMap';
 import PlanMap from './PlanMap';
-import { buildGroupGeometry } from './localMapGroupGeometry';
+import { buildGroupGeometryFromLayout, type GroupLayoutSnapshot } from './localMapGroupGeometry';
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
@@ -146,7 +146,13 @@ export default function OuterFrame({
     let bottom = -Infinity;
 
     for (const [, groupPhotos] of groups) {
-      const geometry = buildGroupGeometry(groupPhotos, getPhotoLogicalSize, VIEWPORT_GEOMETRY_SCALE);
+      const geometry = buildGroupGeometryFromLayout(
+        groupPhotos[0]?.placeKey || '',
+        groupPhotos,
+        getPhotoLogicalSize,
+        VIEWPORT_GEOMETRY_SCALE,
+        groupLayouts ?? [],
+      );
       if (!geometry) continue;
       left = Math.min(left, geometry.groupRect.left);
       right = Math.max(right, geometry.groupRect.right);

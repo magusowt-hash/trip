@@ -18,17 +18,19 @@ import {
 import type { LogicalOffset, LogicalRect, PendingPlaceGroup } from '@/components/footprintLayoutTypes';
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
-import type { GroupLayoutSnapshot, PhotoItem, PoiPoint } from '@/components/OuterFrameCanvas';
 import {
+  buildGroupGeometryFromLayout,
   buildPhotoRect,
   buildGroupGeometryCandidatesFromGeometry,
   buildGroupGeometryCandidatesFromPhotoRect,
   buildGroupGeometryFromPhotoRect,
+  createGroupLayoutSnapshot,
   expandPhotoRect,
   rectsOverlap,
   resolveGroupGeometryAsWhole,
   scoreGroupGeometryPlacement,
   translateGroupGeometry,
+  type GroupLayoutSnapshot,
 } from '@/components/localMapGroupGeometry';
 import type { GroupGeometry } from '@/components/localMapGroupGeometry';
 import type { Viewport } from '@/lib/outerFrameCoords';
@@ -228,7 +230,6 @@ function buildGroupLayoutsFromPhotos(
   scale = 1,
   existingLayouts: GroupLayoutSnapshot[] = [],
 ): GroupLayoutSnapshot[] {
-  const existingLayoutByPlaceKey = new Map(existingLayouts.map((layout) => [layout.placeKey, layout]));
   const groups = new Map<string, PhotoItem[]>();
   for (const photo of photos) {
     if (photo.frameX == null || photo.frameY == null) continue;
@@ -239,41 +240,12 @@ function buildGroupLayoutsFromPhotos(
 
   const layouts: GroupLayoutSnapshot[] = [];
   for (const [placeKey, groupPhotos] of groups) {
-    const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
-    if (!photoRect) continue;
-    const geometry = buildGroupGeometryFromPhotoRect(
-      photoRect,
-      groupPhotos[0]?.placeTitle || '',
-      groupPhotos.length,
-      scale,
-      existingLayoutByPlaceKey.get(placeKey)?.labelSide,
-      existingLayoutByPlaceKey.get(placeKey)?.labelOffset ?? 0,
-    );
-    const labelOffset =
-      geometry.labelSide === 'top'
-        ? Math.max(0, photoRect.top - geometry.lineAnchorY)
-        : Math.max(0, geometry.lineAnchorY - photoRect.bottom);
-    layouts.push({
-      placeKey,
-      labelSide: geometry.labelSide,
-      labelOffset,
-    });
+    const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts);
+    if (!geometry) continue;
+    layouts.push(createGroupLayoutSnapshot(placeKey, geometry));
   }
 
   return layouts;
-}
-
-function createGroupLayoutSnapshot(placeKey: string, geometry: GroupGeometry): GroupLayoutSnapshot {
-  const labelOffset =
-    geometry.labelSide === 'top'
-      ? Math.max(0, geometry.photoRect.top - geometry.lineAnchorY)
-      : Math.max(0, geometry.lineAnchorY - geometry.photoRect.bottom);
-
-  return {
-    placeKey,
-    labelSide: geometry.labelSide,
-    labelOffset,
-  };
 }
 
 function getGroupArea(rect: LogicalRect) {

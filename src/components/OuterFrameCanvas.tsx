@@ -3,10 +3,10 @@
 import { useRef, useEffect, useCallback } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 import {
-  buildGroupGeometry,
+  buildGroupGeometryFromLayout,
   GROUP_LABEL_FONT_SCREEN_SIZE,
   GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
-  type GroupLabelSide,
+  type GroupLayoutSnapshot,
 } from './localMapGroupGeometry';
 
 export interface PhotoItem {
@@ -55,12 +55,6 @@ export interface PlaceRect {
   labelSide: 'top' | 'bottom';
   labelAnchorX: number;
   labelAnchorY: number;
-}
-
-export interface GroupLayoutSnapshot {
-  placeKey: string;
-  labelSide: GroupLabelSide;
-  labelOffset: number;
 }
 
 interface Props {
@@ -206,7 +200,7 @@ export default function OuterFrameCanvas({
 
     const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height);
 
-    const geometry = buildGroupGeometry(group, getPhotoLogicalSize, transform.scale);
+    const geometry = buildGroupGeometryFromLayout(placeKey, group, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
     if (!geometry) return;
     const left = geometry.groupRect.left;
     const right = geometry.groupRect.right;
@@ -238,11 +232,10 @@ export default function OuterFrameCanvas({
       photo.frameX = (photo.frameX ?? 0) + shiftX;
       photo.frameY = (photo.frameY ?? 0) + shiftY;
     }
-  }, [photos, width, height, getPhotoLogicalSize, transform.scale]);
+  }, [photos, groupLayouts, width, height, getPhotoLogicalSize, transform.scale]);
 
   // --- Compute place rects from current photo positions ---
   const computePlaceRects = useCallback((): PlaceRect[] => {
-    const layoutByPlaceKey = new Map((groupLayouts ?? []).map((layout) => [layout.placeKey, layout]));
     const groups = new Map<string, PhotoItem[]>();
     for (const p of photos) {
       if (p.frameX == null || p.frameY == null) continue;
@@ -252,13 +245,7 @@ export default function OuterFrameCanvas({
     }
     const rects: PlaceRect[] = [];
     for (const [placeKey, items] of groups) {
-      const geometry = buildGroupGeometry(
-        items,
-        getPhotoLogicalSize,
-        transform.scale,
-        layoutByPlaceKey.get(placeKey)?.labelSide,
-        layoutByPlaceKey.get(placeKey)?.labelOffset ?? 0,
-      );
+      const geometry = buildGroupGeometryFromLayout(placeKey, items, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
       if (!geometry) continue;
       rects.push({
         placeKey,
