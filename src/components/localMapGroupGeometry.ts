@@ -62,7 +62,7 @@ const SMALL_GROUP_COUNT_MAX = 4;
 const SMALL_GROUP_TIGHTEN_MAX = 0.7;
 const HARD_OVERLAP_WEIGHT = 1000;
 const SOFT_GAP_WEIGHT = 20;
-const BOTTOM_SECTOR_HALF_ANGLE = Math.PI / 3;
+const BOTTOM_SECTOR_HALF_ANGLE = Math.PI / 4;
 
 function toLogicalScreenSize(screenSize: number, scale: number) {
   return screenSize / Math.max(scale, 0.1);

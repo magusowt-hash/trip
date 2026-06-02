@@ -620,13 +620,6 @@ function UserFootprintsPageInner() {
     }
   }, [selectedGroupId]);
 
-  // Auto-load photos when items change
-  useEffect(() => {
-    if (items.length > 0 && !photosLoaded) {
-      loadAllPhotos();
-    }
-  }, [items, photosLoaded]);
-
   useEffect(() => {
     const ms: MapMarker[] = items
       .filter(it => it.lng && it.lat)
@@ -804,6 +797,14 @@ function UserFootprintsPageInner() {
     setDebugBaseGroups(buildDebugGroupSnapshot(allPhotos));
   }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints]);
 
+  // Auto-load photos only after map POI coordinates are available.
+  useEffect(() => {
+    const poiReady = markers.length === 0 || poiPoints.length >= markers.length;
+    if (items.length > 0 && poiReady && !photosLoaded) {
+      loadAllPhotos();
+    }
+  }, [items.length, markers.length, poiPoints.length, photosLoaded, loadAllPhotos]);
+
   function autoPlacePhotos(
     unplaced: PhotoItem[],
     referencePhotos: PhotoItem[] = photos,
@@ -823,6 +824,9 @@ function UserFootprintsPageInner() {
     const logicalPointByPlaceKey = new Map<string, { x: number; y: number }>(
       poiPoints.map((point) => [point.placeKey, { x: point.logicalX, y: point.logicalY }]),
     );
+    if ([...byPlace.keys()].some((placeKey) => !logicalPointByPlaceKey.has(placeKey))) {
+      return groupLayouts;
+    }
 
     const cardSize = 80;
     const collisionScale = Math.max(outerScale, 0.1);
@@ -856,10 +860,12 @@ function UserFootprintsPageInner() {
           groupLayouts,
         );
         if (lockedGeometry) {
+          const logicalPoint = logicalPointByPlaceKey.get(placeKey);
+          if (!logicalPoint) continue;
           lockedGroups.push({
             placeKey,
-            logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
-            logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
+            logicalX: logicalPoint.x,
+            logicalY: logicalPoint.y,
             geometry: lockedGeometry,
           });
           continue;
@@ -889,8 +895,8 @@ function UserFootprintsPageInner() {
         collisionGeometry: offsetGeometry,
         collisionRect: offsetGeometry.photoRect,
         reservedLabelOffset,
-        logicalX: logicalPointByPlaceKey.get(placeKey)?.x ?? 0,
-        logicalY: logicalPointByPlaceKey.get(placeKey)?.y ?? 0,
+        logicalX: logicalPointByPlaceKey.get(placeKey)!.x,
+        logicalY: logicalPointByPlaceKey.get(placeKey)!.y,
         offsets,
       });
     }
@@ -1422,9 +1428,8 @@ function UserFootprintsPageInner() {
   }) => {
     setIsApplyingLocalMap(true);
     setLocalMapApplyProgress(8);
-    setTimeout(() => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+
+    const runApply = () => {
         const itemByTitle = new Map(items.map((item) => [item.title, item]));
         const currentItemKeys = new Set(items.map((item) => buildFootprintPhotoScopeKey(item.id)));
         const mappedPhotos: PhotoItem[] = payload.matchedAssets
@@ -1463,25 +1468,27 @@ function UserFootprintsPageInner() {
         }
 
         const unplaced = mappedPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
+        const poiPlaceKeys = new Set(poiPoints.map((point) => point.placeKey));
+        const markerPlaceKeys = new Set(markers.map((marker) => String(marker.id ?? '')));
+        if (unplaced.some((photo) => markerPlaceKeys.has(photo.placeKey) && !poiPlaceKeys.has(photo.placeKey))) {
+          setTimeout(runApply, 80);
+          return;
+        }
+
         setLocalMapApplyProgress(42);
+        let nextGroupLayouts = groupLayouts;
         if (unplaced.length > 0) {
-          autoPlacePhotos(
+          nextGroupLayouts = autoPlacePhotos(
             unplaced,
             [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
             payload.layout,
           );
-          movedPhotosRef.current = true;
-          setHasMovedPhotos(true);
+          if (unplaced.every((photo) => photo.frameX != null && photo.frameY != null)) {
+            movedPhotosRef.current = true;
+            setHasMovedPhotos(true);
+          }
         }
         setLocalMapApplyProgress(66);
-
-        const nextGroupLayouts = payload.layout.enabled
-          ? autoPlacePhotos(
-              unplaced,
-              [...photos.filter((photo) => photo.sourceType !== 'local-mapped'), ...mappedPhotos],
-              payload.layout,
-            )
-          : groupLayouts;
 
         setPhotos((current) => {
           current
@@ -1522,10 +1529,16 @@ function UserFootprintsPageInner() {
             setLocalMapApplyProgress(0);
           }, 180);
         });
+    };
+
+    setTimeout(() => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setTimeout(runApply, 0);
         });
       });
     }, LOCAL_MAP_LOADING_MIN_DELAY_MS);
-  }, [items, photos]);
+  }, [groupLayouts, items, markers, photos, poiPoints]);
 
   const currentDebugPhotos = buildDebugPhotoSnapshot(photos);
   const currentDebugGroups = buildDebugGroupSnapshot(photos);
