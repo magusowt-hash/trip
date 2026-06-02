@@ -796,8 +796,9 @@ function UserFootprintsPageInner() {
 
     // Auto-place photos without existing positions and persist
     const unplaced = allPhotos.filter(p => p.frameX == null || p.frameY == null);
+    let nextGroupLayouts = groupLayouts;
     if (unplaced.length > 0) {
-      autoPlacePhotos(unplaced);
+      nextGroupLayouts = autoPlacePhotos(unplaced);
       // Persist auto-placed positions
       const uploadedUnplaced = unplaced
         .filter((photo) => photo.sourceType !== 'local-mapped')
@@ -813,7 +814,7 @@ function UserFootprintsPageInner() {
     }
 
     setPhotos(allPhotos);
-    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(allPhotos, 1, undefined, current).values()));
+    setGroupLayouts(nextGroupLayouts);
     setDebugBasePhotos(buildDebugPhotoSnapshot(allPhotos));
     setDebugBaseGroups(buildDebugGroupSnapshot(allPhotos));
   }, [items, photosLoaded, photos, isViewMode, viewApiBase, selectedGroupId, poiPoints]);
@@ -822,8 +823,8 @@ function UserFootprintsPageInner() {
     unplaced: PhotoItem[],
     referencePhotos: PhotoItem[] = photos,
     layout: LocalMapLayoutSettings = { enabled: true, mode: 'grid', gapX: 20, gapY: 20, staggerAxis: 'horizontal' },
-  ) {
-    if (unplaced.length === 0) return;
+  ): GroupLayoutSnapshot[] {
+    if (unplaced.length === 0) return groupLayouts;
 
     const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
     const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
@@ -994,13 +995,11 @@ function UserFootprintsPageInner() {
         labelOffset,
       });
     }
-    setGroupLayouts((current) => {
-      const next = new Map(current.map((item) => [item.placeKey, item]));
-      for (const layout of finalLayouts) {
-        next.set(layout.placeKey, layout);
-      }
-      return Array.from(next.values());
-    });
+    const next = new Map(groupLayouts.map((item) => [item.placeKey, item]));
+    for (const layout of finalLayouts) {
+      next.set(layout.placeKey, layout);
+    }
+    return Array.from(next.values());
   }
 
   // --- Map handlers ---
