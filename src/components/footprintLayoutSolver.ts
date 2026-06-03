@@ -27,11 +27,10 @@ const INITIAL_ASSIGNMENT_PASSES = 3;
 const REBALANCE_ITERATION_COUNT = 8;
 const MAX_CANDIDATES_PER_GROUP = 48;
 
-const ANGLE_OFFSETS_DEGREES = [-36, -24, -16, -10, -6, 0, 6, 10, 16, 24, 36];
-const RIGHT_SIDE_BOOST_DEGREES = [-20, -12, -6, 0, 6, 12, 20];
-const RADIUS_FACTORS = [0.8, 0.9, 1, 1.12, 1.26, 1.42, 1.62];
+const ANGLE_OFFSETS_DEGREES = [-24, -16, -10, -6, 0, 6, 10, 16, 24];
+const RADIUS_FACTORS = [0.84, 0.92, 1, 1.1, 1.22, 1.36];
 const GLOBAL_SECTOR_ANGLE_OFFSETS = [-8, 0, 8];
-const GLOBAL_RADIUS_FACTORS = [0.92, 1.04, 1.18, 1.34];
+const GLOBAL_RADIUS_FACTORS = [0.96, 1.1, 1.24];
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -212,8 +211,7 @@ function scoreBaseCandidate(
   const outwardPenalty = Math.max(0, radius - baseRadius) * 1.15;
   const mapDistance = rectDistanceToMap(geometry.groupRect, mapRect);
   const mapDistancePenalty = Math.max(0, mapDistance - 180) * 0.55;
-  const rightReward = geometry.groupRect.left >= 0 ? -90 : 0;
-  return driftPenalty + radiusPenalty + outwardPenalty + mapDistancePenalty + rightReward;
+  return driftPenalty + radiusPenalty + outwardPenalty + mapDistancePenalty;
 }
 
 function dedupeCandidates(candidates: PlacementCandidate[]) {
@@ -239,7 +237,6 @@ function buildCandidatePool(
   const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
   const safeBaseRadius = Math.max(baseRadius, 180);
   const seeds: PlacementCandidate[] = [];
-  const rightAnchorAngle = 0;
 
   const addCandidate = (angle: number, radius: number) => {
     const placement = {
@@ -259,14 +256,6 @@ function buildCandidatePool(
     const radius = safeBaseRadius * radiusFactor;
     for (const angleOffset of ANGLE_OFFSETS_DEGREES) {
       addCandidate(baseAngle + (angleOffset * Math.PI) / 180, radius);
-    }
-  }
-
-  for (const radiusFactor of [1, 1.12, 1.24, 1.38, 1.54]) {
-    const radius = safeBaseRadius * radiusFactor;
-    for (const angleOffset of RIGHT_SIDE_BOOST_DEGREES) {
-      addCandidate(rightAnchorAngle + (angleOffset * Math.PI) / 180, radius);
-      addCandidate(-rightAnchorAngle + (angleOffset * Math.PI) / 180, radius);
     }
   }
 
@@ -425,8 +414,6 @@ function evaluateCandidate(
   const sectorCounts = buildSectorCounts(groups, state, group.placeKey, candidate);
   const sectorPenalty = computeSectorPenalty(sectorCounts, groups.length);
   const envelopePenalty = computeEnvelopePenalty(groups, state, group.placeKey, candidate);
-  const rightUsageReward = candidate.geometry.groupRect.left > 180 ? -120 : 0;
-  const mapDistanceReward = candidate.geometry.groupRect.left > 0 ? -30 : 0;
 
   return {
     valid: true,
@@ -435,9 +422,7 @@ function evaluateCandidate(
       bundlePenalty +
       densityPenalty +
       sectorPenalty * 56 +
-      envelopePenalty +
-      rightUsageReward +
-      mapDistanceReward,
+      envelopePenalty,
   };
 }
 
@@ -640,6 +625,35 @@ function hasHardConflicts(
   return false;
 }
 
+function scoreFinalLayoutEnvelope(
+  groups: PendingPlaceGroup[],
+  geometryById: Map<string, GroupGeometry>,
+) {
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+  let radiusSum = 0;
+  let count = 0;
+
+  for (const group of groups) {
+    const geometry = geometryById.get(group.placeKey);
+    if (!geometry) continue;
+    left = Math.min(left, geometry.groupRect.left);
+    right = Math.max(right, geometry.groupRect.right);
+    top = Math.min(top, geometry.groupRect.top);
+    bottom = Math.max(bottom, geometry.groupRect.bottom);
+    radiusSum += Math.hypot(geometry.photoCenterX, geometry.photoCenterY);
+    count += 1;
+  }
+
+  if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return (right - left) * 0.72 + (bottom - top) * 0.72 + (count > 0 ? radiusSum / count : 0);
+}
+
 function buildFallbackState(
   orderedGroups: PendingPlaceGroup[],
   basePlacementById: Map<string, FootprintPlacement>,
@@ -703,7 +717,7 @@ export function solvePendingGroupPlacements(
     orderedGroups,
     new Map(workingState.placementById),
     mapRect,
-    safeGap,
+    Math.max(safeGap, MAP_GAP),
     labelGapBoost,
   );
   const refinedGeometryById = buildGeometryMapForPlacements(
@@ -721,9 +735,28 @@ export function solvePendingGroupPlacements(
     lockedGroups,
   );
 
-  const finalPlacements = hasHardConflicts(orderedGroups, refinedPlacementById, refinedGeometryById, mapRect, lockedGroups)
-    ? workingState.placementById
-    : refinedPlacementById;
+  const refinedHasHardConflicts = hasHardConflicts(
+    orderedGroups,
+    refinedPlacementById,
+    refinedGeometryById,
+    mapRect,
+    lockedGroups,
+  );
+  const optimizedHasHardConflicts = hasHardConflicts(
+    orderedGroups,
+    workingState.placementById,
+    optimizedGeometryById,
+    mapRect,
+    lockedGroups,
+  );
+  const refinedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, refinedGeometryById);
+  const optimizedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, optimizedGeometryById);
+  const shouldUseRefined =
+    !refinedHasHardConflicts &&
+    (optimizedHasHardConflicts || refinedEnvelopeScore <= optimizedEnvelopeScore * 1.08);
+  const finalPlacements = shouldUseRefined
+    ? refinedPlacementById
+    : workingState.placementById;
   const finalGeometries = finalPlacements === refinedPlacementById
     ? refinedGeometryById
     : optimizedGeometryById;
