@@ -4,12 +4,14 @@ import { useRef, useEffect, useCallback, useMemo } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 import {
   buildGroupGeometryFromLayout,
+  GROUP_ENDPOINT_RADIUS_SCREEN,
   GROUP_LABEL_FONT_SCREEN_SIZE,
   GROUP_LABEL_LINE_HEIGHT_SCREEN,
   GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
   measureGroupLabelLayout,
   type GroupLayoutSnapshot,
 } from './localMapGroupGeometry';
+import type { LineStyle } from './LegendPanel';
 
 export interface PhotoItem {
   id: number | string;
@@ -57,6 +59,8 @@ export interface PlaceRect {
   labelSide: 'top' | 'bottom';
   labelAnchorX: number;
   labelAnchorY: number;
+  lineAnchorX: number;
+  lineAnchorY: number;
 }
 
 interface Props {
@@ -66,11 +70,15 @@ interface Props {
   photos: PhotoItem[];
   groupLayouts?: GroupLayoutSnapshot[];
   scale: number;
+  poiPoints: PoiPoint[];
+  showLines: boolean;
+  lineStyle: LineStyle;
   showLabels: boolean;
+  showPoiLabels: boolean;
+  poiLabelColor: string;
   renderVersion?: string | number;
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
   onPhotoClick?: (photoId: number | string) => void;
-  onPhotoDragFrame?: (placeKey: string) => void;
   onGroupLabelDragEnd?: (placeKey: string, dx: number, dy: number) => void;
 }
 
@@ -80,6 +88,9 @@ const MAP_AREA_RATIO_W = 0.6;
 const MAP_AREA_RATIO_H = 0.8;
 const MAX_OVERLAY_SCALE = 2.4;
 const HOVER_STROKE_WIDTH = 1.5;
+const MAX_LINE_WIDTH = 4;
+const MAX_ANCHOR_RADIUS = 6;
+const MAX_POI_LABEL_FONT = 18;
 
 function getOverlayScale(scale: number) {
   return Math.min(scale, MAX_OVERLAY_SCALE);
@@ -117,11 +128,15 @@ export default function OuterFrameCanvas({
   photos,
   groupLayouts,
   scale,
+  poiPoints,
+  showLines,
+  lineStyle,
   showLabels,
+  showPoiLabels,
+  poiLabelColor,
   renderVersion,
   onPhotoDragEnd,
   onPhotoClick,
-  onPhotoDragFrame,
   onGroupLabelDragEnd,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -278,6 +293,8 @@ export default function OuterFrameCanvas({
       labelSide: geometry.labelSide,
       labelAnchorX: geometry.labelAnchorX,
       labelAnchorY: geometry.labelAnchorY,
+      lineAnchorX: geometry.lineAnchorX,
+      lineAnchorY: geometry.lineAnchorY,
     };
   }, [getPhotoLogicalSize, transform.scale, groupLayouts]);
 
@@ -384,6 +401,52 @@ export default function OuterFrameCanvas({
       }
     }
     placeRectsRef.current = currentRects;
+    const currentRectMap = new Map<string, PlaceRect>();
+    for (const rect of currentRects) currentRectMap.set(rect.placeKey, rect);
+
+    if (showLines) {
+      for (const poi of poiPoints) {
+        const rect = currentRectMap.get(poi.placeKey);
+        if (!rect) continue;
+
+        const poiScreen = logicalToScreen(poi.logicalX, poi.logicalY);
+        const anchorScreen = logicalToScreen(rect.lineAnchorX, rect.lineAnchorY);
+
+        ctx.beginPath();
+        ctx.moveTo(poiScreen.x, poiScreen.y);
+        ctx.lineTo(anchorScreen.x, anchorScreen.y);
+        ctx.strokeStyle = lineStyle.color + 'b3';
+        ctx.lineWidth = Math.max(1, Math.min(MAX_LINE_WIDTH, lineStyle.width * overlayScale));
+        if (lineStyle.dashed) ctx.setLineDash([8, 4]);
+        else ctx.setLineDash([]);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(
+          anchorScreen.x,
+          anchorScreen.y,
+          Math.max(3, Math.min(MAX_ANCHOR_RADIUS, GROUP_ENDPOINT_RADIUS_SCREEN * overlayScale)),
+          0,
+          Math.PI * 2,
+        );
+        ctx.fillStyle = lineStyle.color;
+        ctx.fill();
+        ctx.strokeStyle = '#c7d2fe';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([]);
+        ctx.stroke();
+
+        if (showPoiLabels) {
+          const offset = 14 * overlayScale;
+          ctx.fillStyle = poiLabelColor;
+          ctx.font = `${Math.max(10, Math.min(MAX_POI_LABEL_FONT, 11 * overlayScale))}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'alphabetic';
+          ctx.fillText(poi.placeTitle, poiScreen.x, poiScreen.y + offset);
+        }
+      }
+      ctx.setLineDash([]);
+    }
 
     // --- Draw photos (no per-photo labels) ---
     for (const photo of photos) {
@@ -444,7 +507,7 @@ export default function OuterFrameCanvas({
         }
       }
     }
-  }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, placeRects, placeRectMap, photosByPlaceKey, buildPlaceRectForGroup, getPhotoLogicalSize]);
+  }, [width, height, transform, photos, poiPoints, showLines, lineStyle, showLabels, showPoiLabels, poiLabelColor, logicalToScreen, loadImage, placeRects, placeRectMap, photosByPlaceKey, buildPlaceRectForGroup, getPhotoLogicalSize]);
 
   useEffect(() => {
     renderRef.current = render;
@@ -575,7 +638,6 @@ export default function OuterFrameCanvas({
           }
         }
       }
-      onPhotoDragFrame?.(dragRef.current.placeKey);
       scheduleRender();
     } else {
       const pos = getCanvasPos(e);
@@ -585,7 +647,7 @@ export default function OuterFrameCanvas({
         scheduleRender();
       }
     }
-  }, [getCanvasPos, hitTest, transform, photos, width, height, clampGroupAwayFromMap, getPhotoBounds, onPhotoDragFrame, scheduleRender]);
+  }, [getCanvasPos, hitTest, transform, photos, width, height, clampGroupAwayFromMap, getPhotoBounds, scheduleRender]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) {

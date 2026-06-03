@@ -4,7 +4,6 @@ import { useRef, useCallback, useState, useEffect } from 'react';
 import { useOuterFrame } from '@/hooks/useOuterFrame';
 import { CLAMP_SCALE, logicalViewport, type Viewport } from '@/lib/outerFrameCoords';
 import OuterFrameCanvas from './OuterFrameCanvas';
-import LineCanvas, { type LineCanvasHandle } from './LineCanvas';
 import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
 import type { MapMarker } from './PlanMap';
@@ -86,9 +85,7 @@ export default function OuterFrame({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstanceRef = useRef<any>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const lineCanvasRef = useRef<LineCanvasHandle | null>(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
-  const dragRenderFrameRef = useRef<number | null>(null);
 
   // Measure container + pass to useOuterFrame
   const roRef = useRef<ResizeObserver | null>(null);
@@ -110,18 +107,6 @@ export default function OuterFrame({
     if (mapRef) mapRef.current = map;
     setMapReady(true);
   }, [mapRef]);
-
-  const handlePhotoDragFrame = useCallback((placeKey: string) => {
-    if (dragRenderFrameRef.current != null) return;
-    dragRenderFrameRef.current = requestAnimationFrame(() => {
-      dragRenderFrameRef.current = null;
-      lineCanvasRef.current?.renderNow(placeKey);
-    });
-  }, []);
-
-  useEffect(() => () => {
-    if (dragRenderFrameRef.current != null) cancelAnimationFrame(dragRenderFrameRef.current);
-  }, []);
 
   // --- POI coordinate conversion ---
   const [poiPoints, setPoiPoints] = useState<PoiPoint[]>([]);
@@ -331,23 +316,7 @@ export default function OuterFrame({
         />
       </div>
 
-      {/* Lines (z:2, between map and photos) */}
-      {showLines && (
-        <LineCanvas
-          ref={lineCanvasRef}
-          width={containerSize.w || 1200}
-          height={containerSize.h || 800}
-          transform={transform}
-          photos={photos}
-          groupLayouts={groupLayouts}
-          poiPoints={poiPoints}
-          lineStyle={lineStyle}
-          showPoiLabels={showPoiLabels}
-          poiLabelColor={poiLabelColor}
-        />
-      )}
-
-      {/* Photos (z:3, top) */}
+      {/* Photos / lines / labels (z:3, top) */}
       {showPhotos && (
         <OuterFrameCanvas
           width={containerSize.w || 1200}
@@ -356,9 +325,13 @@ export default function OuterFrame({
           photos={photos}
           groupLayouts={groupLayouts}
           scale={transform.scale}
+          poiPoints={poiPoints}
+          showLines={showLines}
+          lineStyle={lineStyle}
           showLabels={showLabels}
+          showPoiLabels={showPoiLabels}
+          poiLabelColor={poiLabelColor}
           renderVersion={fitViewKey}
-          onPhotoDragFrame={handlePhotoDragFrame}
           onPhotoDragEnd={onPhotoDragEnd}
           onPhotoClick={onPhotoClick}
           onGroupLabelDragEnd={onGroupLabelDragEnd}
