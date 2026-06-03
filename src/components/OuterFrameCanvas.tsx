@@ -388,9 +388,7 @@ export default function OuterFrameCanvas({
     // --- Draw place labels (one per rectangle) ---
     if (showLabels) {
       for (const rect of currentRects) {
-        const labelCenterX = (rect.labelLeft + rect.labelRight) / 2;
-        const labelCenterY = (rect.labelTop + rect.labelBottom) / 2;
-        const anchor = logicalToScreen(labelCenterX, labelCenterY);
+        const anchor = logicalToScreen(rect.labelAnchorX, rect.labelAnchorY);
         const labelWidthLogical = Math.max(1, rect.labelRight - rect.labelLeft);
         const labelLayout = measureGroupLabelLayout(
           rect.placeTitle,

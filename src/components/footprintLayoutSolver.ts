@@ -18,7 +18,7 @@ import {
 import { refineRadialPlacements } from './footprintSectorLayoutEngine';
 
 const GROUP_GAP = 14;
-const LABEL_GAP = 28;
+const LABEL_GAP = 18;
 const MAP_GAP = 128;
 const LINE_BUNDLE_DISTANCE = 34;
 const LOCAL_DENSITY_DISTANCE = 420;
@@ -28,8 +28,8 @@ const REBALANCE_ITERATION_COUNT = 8;
 const MAX_CANDIDATES_PER_GROUP = 48;
 
 const ANGLE_OFFSETS_DEGREES = [-24, -16, -10, -6, 0, 6, 10, 16, 24];
-const RADIUS_FACTORS = [0.82, 0.9, 0.98, 1.04, 1.1, 1.16];
-const OUTER_RING_RADIUS_FACTORS = [1.2, 1.28];
+const RADIUS_FACTORS = [0.86, 0.94, 1, 1.08, 1.18, 1.3];
+const OUTER_RING_RADIUS_FACTORS = [1.36, 1.52];
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -647,7 +647,7 @@ function scoreFinalLayoutEnvelope(
     return Number.POSITIVE_INFINITY;
   }
 
-  return (right - left) * 1.1 + (bottom - top) * 1.1 + (count > 0 ? radiusSum / count : 0) * 1.55;
+  return (right - left) * 0.72 + (bottom - top) * 0.72 + (count > 0 ? radiusSum / count : 0);
 }
 
 function buildFallbackState(
@@ -749,7 +749,7 @@ export function solvePendingGroupPlacements(
   const optimizedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, optimizedGeometryById);
   const shouldUseRefined =
     (!refinedHasHardConflicts && optimizedHasHardConflicts) ||
-    (!refinedHasHardConflicts && !optimizedHasHardConflicts && refinedEnvelopeScore <= optimizedEnvelopeScore) ||
+    (!refinedHasHardConflicts && !optimizedHasHardConflicts && refinedEnvelopeScore <= optimizedEnvelopeScore * 1.04) ||
     (refinedHasHardConflicts && optimizedHasHardConflicts && refinedEnvelopeScore < optimizedEnvelopeScore);
   const finalPlacements = shouldUseRefined
     ? refinedPlacementById

@@ -29,22 +29,6 @@ export type GroupGeometry = {
   lineAnchorY: number;
 };
 
-function buildLabelRect(anchorX: number, anchorY: number, halfWidth: number, halfHeight: number): LogicalRect {
-  const horizontalBias = anchorX < 0 ? 1 : anchorX > 0 ? -1 : 0;
-  const left =
-    horizontalBias > 0
-      ? anchorX - halfWidth * 2
-      : horizontalBias < 0
-        ? anchorX
-        : anchorX - halfWidth;
-  return {
-    left,
-    right: left + halfWidth * 2,
-    top: anchorY - halfHeight,
-    bottom: anchorY + halfHeight,
-  };
-}
-
 type SizeReader = (photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>) => { width: number; height: number };
 type GroupGeometryEntry<T extends string = string> = {
   id: T;
@@ -62,8 +46,8 @@ export const GROUP_LABEL_MIN_FONT_SCREEN_SIZE = 9;
 export const GROUP_LABEL_LINE_HEIGHT_SCREEN = 13;
 export const GROUP_ENDPOINT_RADIUS_SCREEN = 4;
 
-const PHOTO_RECT_PADDING = 58;
-const PHOTO_BOTTOM_EXTRA = 34;
+const PHOTO_RECT_PADDING = 52;
+const PHOTO_BOTTOM_EXTRA = 28;
 const PHOTO_TO_LINE_SCREEN_GAP_MIN = 1;
 const PHOTO_TO_LINE_SCREEN_GAP_MAX = 4;
 const LINE_TO_LABEL_SCREEN_GAP_MIN = 0;
@@ -340,7 +324,12 @@ export function buildGroupGeometryFromPhotoRect(
     labelSide === 'top'
       ? lineAnchorY - lineAnchorRadius - lineToLabelGap - labelHalfHeight
       : lineAnchorY + lineAnchorRadius + lineToLabelGap + labelHalfHeight;
-  const labelRect = buildLabelRect(labelAnchorX, labelAnchorY, labelHalfWidth, labelHalfHeight);
+  const labelRect: LogicalRect = {
+    left: labelAnchorX - labelHalfWidth,
+    right: labelAnchorX + labelHalfWidth,
+    top: labelAnchorY - labelHalfHeight,
+    bottom: labelAnchorY + labelHalfHeight,
+  };
 
   const lineRect: LogicalRect = {
     left: lineAnchorX - lineAnchorRadius,
@@ -408,7 +397,12 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
         ? lineAnchorY - lineAnchorRadius - lineToLabelGap - labelHalfHeight
         : lineAnchorY + lineAnchorRadius + lineToLabelGap + labelHalfHeight;
 
-    const labelRect = buildLabelRect(labelAnchorX, labelAnchorY, labelHalfWidth, labelHalfHeight);
+    const labelRect: LogicalRect = {
+      left: labelAnchorX - labelHalfWidth,
+      right: labelAnchorX + labelHalfWidth,
+      top: labelAnchorY - labelHalfHeight,
+      bottom: labelAnchorY + labelHalfHeight,
+    };
     const lineRect: LogicalRect = {
       left: lineAnchorX - lineAnchorRadius,
       right: lineAnchorX + lineAnchorRadius,
@@ -468,7 +462,12 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
         ? lineAnchorY - lineAnchorRadius - lineToLabelGap - labelHalfHeight
         : lineAnchorY + lineAnchorRadius + lineToLabelGap + labelHalfHeight;
 
-    const labelRect = buildLabelRect(labelAnchorX, labelAnchorY, labelHalfWidth, labelHalfHeight);
+    const labelRect: LogicalRect = {
+      left: labelAnchorX - labelHalfWidth,
+      right: labelAnchorX + labelHalfWidth,
+      top: labelAnchorY - labelHalfHeight,
+      bottom: labelAnchorY + labelHalfHeight,
+    };
     const lineRect: LogicalRect = {
       left: lineAnchorX - lineAnchorRadius,
       right: lineAnchorX + lineAnchorRadius,
@@ -678,8 +677,8 @@ export function scoreGroupGeometryPlacement(
   let score = 0;
   const pairs: Array<[LogicalRect, LogicalRect, number]> = [];
   const labelGapBoost = options?.labelGapBoost ?? 0;
-  const labelSafeGap = safeGap + 16 + labelGapBoost;
-  const lineLabelSafeGap = safeGap + 10 + labelGapBoost * 0.8;
+  const labelSafeGap = safeGap + 10 + labelGapBoost;
+  const lineLabelSafeGap = safeGap + 6 + labelGapBoost * 0.7;
 
   for (const neighbor of neighbors) {
     pairs.push(
