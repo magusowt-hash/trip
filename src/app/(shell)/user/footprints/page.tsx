@@ -27,6 +27,7 @@ import { FOOTPRINT_MAP_SAFE_GAP, getFootprintMapRect } from '@/components/footpr
 import {
   applyGroupDragToPhotos,
   applyPhotoDragToPhotos,
+  type FootprintLayoutInteractionMode,
   mergeGroupLayoutSnapshot,
 } from '@/components/footprintManualLayout';
 import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
@@ -484,6 +485,7 @@ function UserFootprintsPageInner() {
   const [localMapApplyStage, setLocalMapApplyStage] = useState('等待开始');
   const [fitViewKey, setFitViewKey] = useState(0);
   const [fitViewEnabled, setFitViewEnabled] = useState(false);
+  const [layoutInteractionMode, setLayoutInteractionMode] = useState<FootprintLayoutInteractionMode>('manual');
   const [shareAlbumPrompt, setShareAlbumPrompt] = useState<{
     item: FootprintItem;
     groupId: number;
@@ -501,12 +503,14 @@ function UserFootprintsPageInner() {
   const actionNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const dirtyUploadedPhotoIdsRef = useRef<Set<number | string>>(new Set());
   const dirtyLocalAssetPathsRef = useRef<Set<string>>(new Set());
+  const layoutInteractionModeRef = useRef<FootprintLayoutInteractionMode>('manual');
 
   useEffect(() => { itemsRef.current = items; }, [items]);
   useEffect(() => { photosRef.current = photos; }, [photos]);
   useEffect(() => { groupLayoutsRef.current = groupLayouts; }, [groupLayouts]);
   useEffect(() => { poiPointsRef.current = poiPoints; }, [poiPoints]);
   useEffect(() => { outerScaleRef.current = outerScale; }, [outerScale]);
+  useEffect(() => { layoutInteractionModeRef.current = layoutInteractionMode; }, [layoutInteractionMode]);
 
   // Load settings
   useEffect(() => {
@@ -606,6 +610,7 @@ function UserFootprintsPageInner() {
       loadItems(selectedGroupId);
       setPhotosLoaded(false);
       setFitViewEnabled(false);
+      setLayoutInteractionMode('manual');
     } else {
       setItems([]);
       setPhotos([]);
@@ -615,6 +620,7 @@ function UserFootprintsPageInner() {
       setLocalMissingAssets([]);
       setLocalLayout(null);
       setFitViewEnabled(false);
+      setLayoutInteractionMode('manual');
     }
   }, [selectedGroupId]);
 
@@ -960,6 +966,7 @@ function UserFootprintsPageInner() {
   // --- Photo handlers ---
 
   const handlePhotoDragEnd = useCallback((photoId: number | string, x: number, y: number) => {
+    if (layoutInteractionModeRef.current !== 'manual') return;
     const target = photosRef.current.find((photo) => photo.id === photoId);
     if (target?.sourceType === 'local-mapped' && target.relativePath) {
       dirtyLocalAssetPathsRef.current.add(target.relativePath);
@@ -972,6 +979,7 @@ function UserFootprintsPageInner() {
   }, []);
 
   const handleGroupLabelDragEnd = useCallback((placeKey: string, dx: number, dy: number) => {
+    if (layoutInteractionModeRef.current !== 'manual') return;
     if (dx === 0 && dy === 0) return;
     for (const photo of photosRef.current) {
       if (photo.placeKey !== placeKey) continue;
@@ -1411,6 +1419,7 @@ function UserFootprintsPageInner() {
     setLocalMapOpen(false);
     setLocalMapTargetItem(null);
     setIsApplyingLocalMap(true);
+    setLayoutInteractionMode('preset');
     setLocalMapApplyProgress(8);
     setLocalMapApplyStage('准备启动排布任务');
 
@@ -1422,6 +1431,8 @@ function UserFootprintsPageInner() {
       setIsApplyingLocalMap(false);
       setLocalMapApplyProgress(0);
       setLocalMapApplyStage('等待开始');
+      setFitViewEnabled(false);
+      setLayoutInteractionMode('manual');
     };
 
     const runApply = async (attempt = 0) => {
@@ -1563,8 +1574,10 @@ function UserFootprintsPageInner() {
         );
         movedPhotosRef.current = true;
         setHasMovedPhotos(true);
-        setFitViewEnabled(true);
-        setFitViewKey((value) => value + 1);
+        if (layoutInteractionModeRef.current === 'preset') {
+          setFitViewEnabled(true);
+          setFitViewKey((value) => value + 1);
+        }
         if (payload.missingAssets.length > 0) {
           alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。当前只在前端移除；点击“保存修改”时会再次确认是否删除这些位置记录。`);
         }

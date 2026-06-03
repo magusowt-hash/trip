@@ -1,6 +1,8 @@
 import type { PhotoItem } from './OuterFrameCanvas';
 import type { GroupLayoutSnapshot } from './localMapGroupGeometry';
 
+export type FootprintLayoutInteractionMode = 'preset' | 'manual';
+
 export function applyPhotoDragToPhotos(
   photos: PhotoItem[],
   photoId: number | string,

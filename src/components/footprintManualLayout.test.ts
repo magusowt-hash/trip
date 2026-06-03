@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   applyGroupDragToPhotos,
   applyPhotoDragToPhotos,
+  type FootprintLayoutInteractionMode,
   mergeGroupLayoutSnapshot,
 } from './footprintManualLayout.ts';
 
@@ -90,4 +91,9 @@ test('mergeGroupLayoutSnapshot replaces only the changed place snapshot', () => 
     { placeKey: 'alpha', labelSide: 'bottom', labelOffset: 18 },
     { placeKey: 'beta', labelSide: 'bottom', labelOffset: 36 },
   ]);
+});
+
+test('manual mode is the terminal state after preset mode', () => {
+  const modeFlow: FootprintLayoutInteractionMode[] = ['preset', 'manual'];
+  assert.equal(modeFlow.at(-1), 'manual');
 });
