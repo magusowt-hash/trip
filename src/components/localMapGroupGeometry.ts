@@ -657,6 +657,7 @@ export function resolveGroupLabelLayouts(
 
   for (const entry of sortedEntries) {
     const candidates: GroupGeometry[] = [];
+    const candidateKeys = new Set<string>();
     const baseCandidates = buildGroupGeometryCandidatesFromPhotoRect(
       entry.geometry.photoRect,
       entry.title,
@@ -672,7 +673,22 @@ export function resolveGroupLabelLayouts(
         baseCandidate.labelSide === 'top'
           ? Math.max(0, baseCandidate.photoRect.top - baseCandidate.lineAnchorY)
           : Math.max(0, baseCandidate.lineAnchorY - baseCandidate.photoRect.bottom);
+      const extraOffsets = new Set<number>([0]);
       for (let extraOffset = 0; extraOffset <= maxOffset; extraOffset += step) {
+        extraOffsets.add(extraOffset);
+      }
+      const requiredMapClearance = computeMapClearanceOffset(baseCandidate, options?.mapRect, mapGap);
+      if (requiredMapClearance > 0) {
+        extraOffsets.add(requiredMapClearance);
+        extraOffsets.add(Math.ceil(requiredMapClearance / Math.max(step, 1)) * Math.max(step, 1));
+        extraOffsets.add(requiredMapClearance + step);
+        extraOffsets.add(requiredMapClearance + step * 2);
+      }
+      for (const extraOffset of Array.from(extraOffsets).sort((left, right) => left - right)) {
+        const finalOffset = Math.max(0, baseOffset + extraOffset);
+        const candidateKey = `${baseCandidate.labelSide}:${Math.round(finalOffset * 1000)}`;
+        if (candidateKeys.has(candidateKey)) continue;
+        candidateKeys.add(candidateKey);
         candidates.push(
           buildGroupGeometryFromPhotoRect(
             entry.geometry.photoRect,
@@ -680,7 +696,7 @@ export function resolveGroupLabelLayouts(
             entry.photoCount,
             entry.scale,
             baseCandidate.labelSide,
-            baseOffset + extraOffset,
+            finalOffset,
             options?.mapRect,
           ),
         );
@@ -841,6 +857,18 @@ function rectDistanceToCenter(rect: LogicalRect) {
 
 function rectOverlapsMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
   return rectsOverlap(rect, mapRect, gap);
+}
+
+function computeMapClearanceOffset(
+  candidate: GroupGeometry,
+  mapRect?: LogicalRect,
+  mapGap = 0,
+) {
+  if (!mapRect) return 0;
+  if (candidate.labelSide === 'top') {
+    return Math.max(0, candidate.labelRect.bottom - (mapRect.top - mapGap));
+  }
+  return Math.max(0, mapRect.bottom + mapGap - candidate.labelRect.top);
 }
 
 function isLabelPlacementHardInvalid(
