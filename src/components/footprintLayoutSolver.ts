@@ -17,20 +17,19 @@ import {
 } from './footprintLayoutConstraints';
 import { refineRadialPlacements } from './footprintSectorLayoutEngine';
 
-const GROUP_GAP = 18;
-const LABEL_GAP = 22;
+const GROUP_GAP = 14;
+const LABEL_GAP = 18;
 const MAP_GAP = 128;
 const LINE_BUNDLE_DISTANCE = 34;
-const LOCAL_DENSITY_DISTANCE = 460;
+const LOCAL_DENSITY_DISTANCE = 420;
 const GLOBAL_SECTOR_COUNT = 16;
 const INITIAL_ASSIGNMENT_PASSES = 3;
 const REBALANCE_ITERATION_COUNT = 8;
 const MAX_CANDIDATES_PER_GROUP = 48;
 
 const ANGLE_OFFSETS_DEGREES = [-24, -16, -10, -6, 0, 6, 10, 16, 24];
-const RADIUS_FACTORS = [0.84, 0.92, 1, 1.1, 1.22, 1.36];
-const GLOBAL_SECTOR_ANGLE_OFFSETS = [-8, 0, 8];
-const GLOBAL_RADIUS_FACTORS = [0.96, 1.1, 1.24];
+const RADIUS_FACTORS = [0.86, 0.94, 1, 1.08, 1.18, 1.3];
+const OUTER_RING_RADIUS_FACTORS = [1.36, 1.52];
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -259,13 +258,10 @@ function buildCandidatePool(
     }
   }
 
-  for (let sectorIndex = 0; sectorIndex < GLOBAL_SECTOR_COUNT; sectorIndex++) {
-    const sectorCenterDegrees = (sectorIndex / GLOBAL_SECTOR_COUNT) * 360;
-    for (const sectorOffset of GLOBAL_SECTOR_ANGLE_OFFSETS) {
-      const angle = ((sectorCenterDegrees + sectorOffset) * Math.PI) / 180;
-      for (const radiusFactor of GLOBAL_RADIUS_FACTORS) {
-        addCandidate(angle, safeBaseRadius * radiusFactor);
-      }
+  for (const radiusFactor of OUTER_RING_RADIUS_FACTORS) {
+    const radius = safeBaseRadius * radiusFactor;
+    for (const angleOffset of [-18, -10, 0, 10, 18]) {
+      addCandidate(baseAngle + (angleOffset * Math.PI) / 180, radius);
     }
   }
 
@@ -752,8 +748,9 @@ export function solvePendingGroupPlacements(
   const refinedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, refinedGeometryById);
   const optimizedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, optimizedGeometryById);
   const shouldUseRefined =
-    !refinedHasHardConflicts &&
-    (optimizedHasHardConflicts || refinedEnvelopeScore <= optimizedEnvelopeScore * 1.08);
+    (!refinedHasHardConflicts && optimizedHasHardConflicts) ||
+    (!refinedHasHardConflicts && !optimizedHasHardConflicts && refinedEnvelopeScore <= optimizedEnvelopeScore * 1.04) ||
+    (refinedHasHardConflicts && optimizedHasHardConflicts && refinedEnvelopeScore < optimizedEnvelopeScore);
   const finalPlacements = shouldUseRefined
     ? refinedPlacementById
     : workingState.placementById;
