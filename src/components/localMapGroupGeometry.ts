@@ -516,6 +516,70 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
   return candidates;
 }
 
+export function buildSingleSideGroupGeometryFromGeometry(
+  geometry: GroupGeometry,
+  fixedLabelSide?: GroupLabelSide,
+) {
+  const photoRect = geometry.photoRect;
+  const photoCenter = rectCenter(photoRect);
+  const labelHalfWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left) / 2;
+  const labelHalfHeight = Math.max(1, geometry.labelRect.bottom - geometry.labelRect.top) / 2;
+  const lineAnchorRadius = Math.max(1, geometry.lineRect.right - geometry.lineRect.left) / 2;
+  const fixedLabelOffset =
+    geometry.labelSide === 'top'
+      ? Math.max(0, photoRect.top - geometry.lineAnchorY)
+      : Math.max(0, geometry.lineAnchorY - photoRect.bottom);
+  const photoToLineGap =
+    geometry.labelSide === 'top'
+      ? Math.max(0, photoRect.top - geometry.lineAnchorY - fixedLabelOffset)
+      : Math.max(0, geometry.lineAnchorY - photoRect.bottom - fixedLabelOffset);
+  const lineToLabelGap =
+    geometry.labelSide === 'top'
+      ? Math.max(0, geometry.lineRect.top - geometry.labelRect.bottom)
+      : Math.max(0, geometry.labelRect.top - geometry.lineRect.bottom);
+
+  const labelSide = fixedLabelSide ?? geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  const lineAnchorX = photoCenter.x;
+  const lineAnchorY =
+    labelSide === 'top'
+      ? photoRect.top - photoToLineGap - fixedLabelOffset
+      : photoRect.bottom + photoToLineGap + fixedLabelOffset;
+  const labelAnchorX = photoCenter.x;
+  const labelAnchorY =
+    labelSide === 'top'
+      ? lineAnchorY - lineAnchorRadius - lineToLabelGap - labelHalfHeight
+      : lineAnchorY + lineAnchorRadius + lineToLabelGap + labelHalfHeight;
+
+  const labelRect: LogicalRect = {
+    left: labelAnchorX - labelHalfWidth,
+    right: labelAnchorX + labelHalfWidth,
+    top: labelAnchorY - labelHalfHeight,
+    bottom: labelAnchorY + labelHalfHeight,
+  };
+  const lineRect: LogicalRect = {
+    left: lineAnchorX - lineAnchorRadius,
+    right: lineAnchorX + lineAnchorRadius,
+    top: lineAnchorY - lineAnchorRadius,
+    bottom: lineAnchorY + lineAnchorRadius,
+  };
+  const groupRect = unionRect(unionRect(photoRect, labelRect), lineRect);
+
+  return {
+    ...geometry,
+    labelRect,
+    lineRect,
+    groupRect,
+    overallRect: groupRect,
+    photoCenterX: photoCenter.x,
+    photoCenterY: photoCenter.y,
+    labelSide,
+    labelAnchorX,
+    labelAnchorY,
+    lineAnchorX,
+    lineAnchorY,
+  };
+}
+
 export function buildGroupGeometry(
   groupPhotos: Array<Pick<PhotoItem, 'frameX' | 'frameY' | 'pixelWidth' | 'pixelHeight' | 'placeTitle'>>,
   getPhotoLogicalSize: SizeReader,
@@ -761,7 +825,7 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
   ));
 
   for (const entry of sortedEntries) {
-    const candidates = entry.candidates?.length ? entry.candidates : buildGroupGeometryCandidatesFromGeometry(entry.geometry);
+    const candidates = entry.candidates?.length ? entry.candidates : [buildSingleSideGroupGeometryFromGeometry(entry.geometry)];
     let chosen = candidates[0];
     let bestScore = Number.POSITIVE_INFINITY;
 
