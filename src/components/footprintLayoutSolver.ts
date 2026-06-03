@@ -5,7 +5,6 @@ import {
   type GroupGeometry,
 } from './localMapGroupGeometry';
 import { buildRadialLayout } from './localMapLayoutEngine';
-import { compactOuterBaselinePlacements } from './footprintPresetBaseline';
 import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
 import {
   fitsLabelRectAroundMap,
@@ -699,17 +698,16 @@ export function solvePendingGroupPlacements(
       centerY: placement.centerY,
     });
   });
-  const compactedBasePlacementById = compactOuterBaselinePlacements(basePlacementById);
 
-  const orderedGroups = [...groups].sort((left, right) => compareGroupOrder(left, right, compactedBasePlacementById));
+  const orderedGroups = [...groups].sort((left, right) => compareGroupOrder(left, right, basePlacementById));
   const candidatePoolById = new Map<string, PlacementCandidate[]>();
   for (const group of orderedGroups) {
-    const basePlacement = compactedBasePlacementById.get(group.placeKey) ?? { centerX: 0, centerY: 0 };
+    const basePlacement = basePlacementById.get(group.placeKey) ?? { centerX: 0, centerY: 0 };
     candidatePoolById.set(group.placeKey, buildCandidatePool(group, basePlacement, mapRect));
   }
 
   const assignedState = assignInitialPlacements(orderedGroups, candidatePoolById, lockedGroups);
-  const workingState = assignedState ?? buildFallbackState(orderedGroups, compactedBasePlacementById, mapRect);
+  const workingState = assignedState ?? buildFallbackState(orderedGroups, basePlacementById, mapRect);
   optimizeAssignments(orderedGroups, candidatePoolById, workingState, lockedGroups);
 
   const refinedPlacementById = refineRadialPlacements(
