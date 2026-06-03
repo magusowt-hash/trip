@@ -643,6 +643,7 @@ export function resolveGroupLabelLayouts(
   },
 ) {
   const gap = options?.gap ?? 10;
+  const mapGap = options?.mapGap ?? gap;
   const step = options?.step ?? 8;
   const maxOffset = options?.maxOffset ?? 120;
   const labelGapBoost = options?.labelGapBoost ?? 0;
@@ -655,28 +656,62 @@ export function resolveGroupLabelLayouts(
   ));
 
   for (const entry of sortedEntries) {
-    let chosen = entry.geometry;
+    const candidates: GroupGeometry[] = [];
+    const baseCandidates = buildGroupGeometryCandidatesFromPhotoRect(
+      entry.geometry.photoRect,
+      entry.title,
+      entry.photoCount,
+      entry.scale,
+      entry.geometry.labelSide,
+      0,
+      options?.mapRect,
+    );
+
+    for (const baseCandidate of baseCandidates) {
+      const baseOffset =
+        baseCandidate.labelSide === 'top'
+          ? Math.max(0, baseCandidate.photoRect.top - baseCandidate.lineAnchorY)
+          : Math.max(0, baseCandidate.lineAnchorY - baseCandidate.photoRect.bottom);
+      for (let extraOffset = 0; extraOffset <= maxOffset; extraOffset += step) {
+        candidates.push(
+          buildGroupGeometryFromPhotoRect(
+            entry.geometry.photoRect,
+            entry.title,
+            entry.photoCount,
+            entry.scale,
+            baseCandidate.labelSide,
+            baseOffset + extraOffset,
+            options?.mapRect,
+          ),
+        );
+      }
+    }
+
+    let chosen = candidates[0] ?? entry.geometry;
     let bestScore = Number.POSITIVE_INFINITY;
 
-    for (let offset = 0; offset <= maxOffset; offset += step) {
-      const candidate = buildGroupGeometryFromPhotoRect(
-        entry.geometry.photoRect,
-        entry.title,
-        entry.photoCount,
-        entry.scale,
-        entry.geometry.labelSide,
-        offset,
-      );
+    for (const candidate of candidates) {
+      if (isLabelPlacementHardInvalid(candidate, occupied, gap, options?.mapRect, mapGap)) {
+        continue;
+      }
 
       let score = scoreGroupGeometryPlacement(candidate, occupied, gap, { labelGapBoost });
 
       if (options?.mapRect) {
-        if (rectOverlapsMap(candidate.overallRect, options.mapRect, options.mapGap ?? gap)) {
+        if (rectOverlapsMap(candidate.overallRect, options.mapRect, mapGap)) {
           score += 500000;
         }
       }
 
-      score += offset * 0.6;
+      const candidateOffset =
+        candidate.labelSide === 'top'
+          ? Math.max(0, candidate.photoRect.top - candidate.lineAnchorY)
+          : Math.max(0, candidate.lineAnchorY - candidate.photoRect.bottom);
+      score += candidateOffset * 0.6;
+
+      if (candidate.labelSide !== entry.geometry.labelSide) {
+        score += 24;
+      }
 
       if (score < bestScore) {
         bestScore = score;
@@ -684,6 +719,10 @@ export function resolveGroupLabelLayouts(
       }
 
       if (score === 0) break;
+    }
+
+    if (bestScore === Number.POSITIVE_INFINITY) {
+      chosen = candidates[0] ?? entry.geometry;
     }
 
     occupied.push(chosen);
