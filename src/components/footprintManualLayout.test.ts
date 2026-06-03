@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   applyGroupDragToPhotos,
+  applyGroupPhotoPositions,
   applyPhotoDragToPhotos,
   type FootprintLayoutInteractionMode,
   mergeGroupLayoutSnapshot,
@@ -70,6 +71,28 @@ test('applyGroupDragToPhotos moves only the target place group', () => {
     [
       { id: 'a', x: 22, y: 12 },
       { id: 'b', x: 42, y: 32 },
+      { id: 'c', x: 50, y: 60 },
+    ],
+  );
+});
+
+test('applyGroupPhotoPositions commits final group positions without adding extra offset', () => {
+  const photos = [
+    buildPhoto('a', 'alpha', 10, 20),
+    buildPhoto('b', 'alpha', 30, 40),
+    buildPhoto('c', 'beta', 50, 60),
+  ];
+
+  const next = applyGroupPhotoPositions(photos, 'alpha', [
+    { id: 'a', frameX: 18, frameY: 11 },
+    { id: 'b', frameX: 38, frameY: 31 },
+  ]);
+
+  assert.deepEqual(
+    next.map((photo) => ({ id: photo.id, x: photo.frameX, y: photo.frameY })),
+    [
+      { id: 'a', x: 18, y: 11 },
+      { id: 'b', x: 38, y: 31 },
       { id: 'c', x: 50, y: 60 },
     ],
   );

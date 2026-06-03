@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import OuterFrame from '@/components/OuterFrame';
 import { CLAMP_SCALE } from '@/lib/outerFrameCoords';
-import type { PhotoItem, PoiPoint } from '@/components/OuterFrameCanvas';
+import type { DraggedGroupPhotoPosition, PhotoItem, PoiPoint } from '@/components/OuterFrameCanvas';
 import FootprintGroupPanel from '@/components/FootprintGroupPanel';
 import PhotoAlbumModal from '@/components/PhotoAlbumModal';
 import LegendPanel from '@/components/LegendPanel';
@@ -26,6 +26,7 @@ import type { GroupGeometry } from '@/components/localMapGroupGeometry';
 import { FOOTPRINT_MAP_SAFE_GAP, getFootprintMapRect } from '@/components/footprintMapGeometry';
 import {
   applyGroupDragToPhotos,
+  applyGroupPhotoPositions,
   applyPhotoDragToPhotos,
   type FootprintLayoutInteractionMode,
   mergeGroupLayoutSnapshot,
@@ -978,9 +979,9 @@ function UserFootprintsPageInner() {
     setHasMovedPhotos(true);
   }, []);
 
-  const handleGroupLabelDragEnd = useCallback((placeKey: string, dx: number, dy: number) => {
+  const handleGroupLabelDragEnd = useCallback((placeKey: string, nextGroupPhotos: DraggedGroupPhotoPosition[]) => {
     if (layoutInteractionModeRef.current !== 'manual') return;
-    if (dx === 0 && dy === 0) return;
+    if (nextGroupPhotos.length === 0) return;
     for (const photo of photosRef.current) {
       if (photo.placeKey !== placeKey) continue;
       if (photo.sourceType === 'local-mapped' && photo.relativePath) {
@@ -989,7 +990,7 @@ function UserFootprintsPageInner() {
         dirtyUploadedPhotoIdsRef.current.add(photo.id);
       }
     }
-    const nextPhotos = applyGroupDragToPhotos(photosRef.current, placeKey, dx, dy);
+    const nextPhotos = applyGroupPhotoPositions(photosRef.current, placeKey, nextGroupPhotos);
     setPhotos(nextPhotos);
 
     const groupPhotos = nextPhotos.filter((photo) => photo.placeKey === placeKey);
