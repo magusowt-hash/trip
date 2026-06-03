@@ -20,6 +20,10 @@ import {
   computeLabelClearanceScore,
   computeSectorCrowdingScore,
 } from './footprintLayoutScoring';
+import {
+  buildOccupiedGeometryGapPolicy,
+  geometryOverlapsOccupiedWithGapPolicy,
+} from './footprintCollisionSpacing';
 import { refineRadialPlacementsWithDeps } from './footprintLayoutRefiner';
 
 const GROUP_SAFE_GAP = 11;
@@ -281,7 +285,7 @@ function evaluatePlacementCandidate(
   placementById: Map<string, FootprintPlacement>,
   groups: PendingPlaceGroup[],
 ) {
-  const resolvedGeometry = resolveCandidateGeometryAgainstOccupied(geometry, occupiedGeometries);
+  const resolvedGeometry = resolveCandidateGeometryAgainstOccupied(geometry, occupiedGeometries, safeGap);
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
   const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
   const radius = Math.hypot(centerX, centerY);
@@ -885,6 +889,7 @@ function buildOccupiedGeometriesForGroup(
   groups: PendingPlaceGroup[],
   placementById: Map<string, FootprintPlacement>,
   excludePlaceKey: string,
+  safeGap = 10,
 ) {
   const entries = groups
     .filter((candidate) => candidate.placeKey !== excludePlaceKey)
@@ -898,7 +903,7 @@ function buildOccupiedGeometriesForGroup(
     })
     .filter((candidate): candidate is { id: string; geometry: GroupGeometry } => candidate !== null);
 
-  const resolved = resolveGroupGeometryAsWhole(entries, { gap: 10 });
+  const resolved = resolveGroupGeometryAsWhole(entries, { gap: safeGap });
   return entries
     .map((entry) => resolved.get(entry.id) ?? entry.geometry);
 }
@@ -906,15 +911,12 @@ function buildOccupiedGeometriesForGroup(
 function resolveCandidateGeometryAgainstOccupied(
   geometry: GroupGeometry,
   occupiedGeometries: GroupGeometry[],
+  safeGap = 10,
 ) {
+  const gapPolicy = buildOccupiedGeometryGapPolicy(safeGap);
   for (let offset = 0; offset <= 108; offset += 6) {
     const candidate = offset === 0 ? geometry : shiftGroupGeometryDown(geometry, offset);
-    if (occupiedGeometries.some((occupied) => (
-      rectsOverlap(candidate.photoRect, occupied.photoRect, 10) ||
-      rectsOverlap(candidate.labelRect, occupied.photoRect, 14) ||
-      rectsOverlap(candidate.photoRect, occupied.labelRect, 14) ||
-      rectsOverlap(candidate.labelRect, occupied.labelRect, 12)
-    ))) {
+    if (geometryOverlapsOccupiedWithGapPolicy(candidate, occupiedGeometries, gapPolicy)) {
       continue;
     }
     return candidate;
@@ -1393,7 +1395,7 @@ function scoreGlobalLayoutEnergy(
   for (const group of groups) {
     const placement = placementById.get(group.placeKey);
     if (!placement) continue;
-    const occupiedGeometries = buildOccupiedGeometriesForGroup(groups, placementById, group.placeKey);
+    const occupiedGeometries = buildOccupiedGeometriesForGroup(groups, placementById, group.placeKey, safeGap);
     const geometry = translateGroupGeometry(group.collisionGeometry, placement.centerX, placement.centerY);
     const evaluation = evaluatePlacementCandidate(
       group.placeKey,
