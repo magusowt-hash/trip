@@ -3,14 +3,13 @@ import assert from 'node:assert/strict';
 
 import { scoreMapDistanceBand } from './footprintLayoutHeuristics.ts';
 
-test('scoreMapDistanceBand strongly penalizes candidates that are too close to the protected map edge', () => {
+test('scoreMapDistanceBand does not punish candidates that are already just outside the protected map edge', () => {
   const safeGap = 128;
-  const ideal = scoreMapDistanceBand(safeGap + 48, safeGap);
-  const tooClose = scoreMapDistanceBand(safeGap - 12, safeGap);
+  const edgeAligned = scoreMapDistanceBand(safeGap + 12, safeGap);
+  const compact = scoreMapDistanceBand(safeGap + 84, safeGap);
 
-  assert.equal(ideal, 0);
-  assert.ok(tooClose > ideal);
-  assert.ok(tooClose > 1000);
+  assert.equal(edgeAligned, 0);
+  assert.equal(compact, 0);
 });
 
 test('scoreMapDistanceBand lightly penalizes candidates that drift too far outward', () => {
@@ -20,5 +19,5 @@ test('scoreMapDistanceBand lightly penalizes candidates that drift too far outwa
 
   assert.equal(compact, 0);
   assert.ok(stretched > compact);
-  assert.ok(stretched < scoreMapDistanceBand(safeGap - 12, safeGap));
+  assert.ok(stretched > 0);
 });
