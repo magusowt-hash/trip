@@ -67,6 +67,7 @@ interface Props {
   groupLayouts?: GroupLayoutSnapshot[];
   scale: number;
   showLabels: boolean;
+  renderVersion?: string | number;
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
   onPhotoClick?: (photoId: number | string) => void;
   onPhotoMoved?: () => void;
@@ -117,6 +118,7 @@ export default function OuterFrameCanvas({
   groupLayouts,
   scale,
   showLabels,
+  renderVersion,
   onPhotoDragEnd,
   onPhotoClick,
   onPhotoMoved,
@@ -413,7 +415,7 @@ export default function OuterFrameCanvas({
   useEffect(() => {
     renderRef.current = render;
     scheduleRender();
-  }, [render, scheduleRender]);
+  }, [render, renderVersion, scheduleRender]);
 
   useEffect(() => () => {
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current);

@@ -1520,6 +1520,8 @@ function UserFootprintsPageInner() {
         setLocalUnmatchedFolders(payload.unmatchedFolders);
         setLocalMissingAssets(payload.missingAssets);
         setLocalLayout(payload.layout);
+        setShowPhotos(true);
+        setShowLabels(true);
         movedPhotosRef.current = true;
         setHasMovedPhotos(true);
         setFitViewEnabled(true);

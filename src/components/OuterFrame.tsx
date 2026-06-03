@@ -344,6 +344,7 @@ export default function OuterFrame({
           groupLayouts={groupLayouts}
           scale={transform.scale}
           showLabels={showLabels}
+          renderVersion={fitViewKey}
           onPhotoDragEnd={onPhotoDragEnd}
           onPhotoClick={onPhotoClick}
           onPhotoMoved={onPhotoMoved}
