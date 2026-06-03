@@ -910,7 +910,7 @@ function UserFootprintsPageInner() {
         placeKey,
         placePhotos,
         collisionGeometry: offsetGeometry,
-        collisionRect: offsetGeometry.photoRect,
+        collisionRect: offsetGeometry.groupRect,
         reservedLabelOffset,
         logicalX: logicalPointByPlaceKey.get(placeKey)!.x,
         logicalY: logicalPointByPlaceKey.get(placeKey)!.y,

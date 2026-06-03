@@ -66,10 +66,14 @@ test('solvePendingGroupPlacements reduces dense inner-ring label collisions arou
   const geometries = groups.map((group) => solved.geometries.get(group.placeKey)).filter(Boolean);
 
   let crossGroupConflictCount = 0;
+  let groupOverlapCount = 0;
   for (let index = 0; index < geometries.length; index++) {
     for (let neighborIndex = index + 1; neighborIndex < geometries.length; neighborIndex++) {
       const geometry = geometries[index]!;
       const neighbor = geometries[neighborIndex]!;
+      if (rectsOverlap(geometry.photoRect, neighbor.photoRect, 80)) {
+        groupOverlapCount += 1;
+      }
       if (
         rectsOverlap(geometry.labelRect, neighbor.photoRect, 96) ||
         rectsOverlap(neighbor.labelRect, geometry.photoRect, 96) ||
@@ -80,8 +84,31 @@ test('solvePendingGroupPlacements reduces dense inner-ring label collisions arou
     }
   }
 
+  assert.equal(
+    groupOverlapCount,
+    0,
+    `expected no photo/group overlap in dense inner-ring solver result, got ${groupOverlapCount}`,
+  );
   assert.ok(
     crossGroupConflictCount <= 1,
     `expected dense inner-ring solver conflicts to be at most 1, got ${crossGroupConflictCount}`,
+  );
+});
+
+test('solvePendingGroupPlacements keeps neighboring groups apart when label footprint is much wider than photo footprint', () => {
+  const mapRect = rect(-200, -160, 200, 160);
+  const left = buildGroup('left', '武功山风景名胜区很多字', rect(-120, -20, 0, 60), -60, 0, mapRect);
+  const right = buildGroup('right', '武功山风景名胜区很多字', rect(0, -20, 120, 60), 60, 0, mapRect);
+
+  const solved = solvePendingGroupPlacements([left, right], mapRect, 80, 0, []);
+  const leftGeometry = solved.geometries.get('left');
+  const rightGeometry = solved.geometries.get('right');
+
+  assert.ok(leftGeometry);
+  assert.ok(rightGeometry);
+  assert.equal(
+    rectsOverlap(leftGeometry!.groupRect, rightGeometry!.groupRect, 40),
+    false,
+    'expected full group footprints to remain separated',
   );
 });
