@@ -17,11 +17,11 @@ import {
 } from './footprintLayoutConstraints';
 import { refineRadialPlacements } from './footprintSectorLayoutEngine';
 
-const GROUP_GAP = 10;
-const LABEL_GAP = 14;
+const GROUP_GAP = 18;
+const LABEL_GAP = 22;
 const MAP_GAP = 128;
 const LINE_BUNDLE_DISTANCE = 34;
-const LOCAL_DENSITY_DISTANCE = 380;
+const LOCAL_DENSITY_DISTANCE = 460;
 const GLOBAL_SECTOR_COUNT = 16;
 const INITIAL_ASSIGNMENT_PASSES = 3;
 const REBALANCE_ITERATION_COUNT = 8;
@@ -370,7 +370,7 @@ function evaluateCandidate(
       candidate.placement.centerY - neighborPlacement.centerY,
     );
     if (centerDistance < LOCAL_DENSITY_DISTANCE) {
-      densityPenalty += (LOCAL_DENSITY_DISTANCE - centerDistance) * 3.2;
+      densityPenalty += (LOCAL_DENSITY_DISTANCE - centerDistance) * 4.6;
     }
 
     const horizontalGap = Math.max(
@@ -387,8 +387,8 @@ function evaluateCandidate(
         candidate.geometry.groupRect.top - neighborGeometry.groupRect.bottom,
       ),
     );
-    if (horizontalGap < 180 && verticalGap < 160) {
-      densityPenalty += (180 - horizontalGap) * 0.8 + (160 - verticalGap) * 0.8;
+    if (horizontalGap < 240 && verticalGap < 210) {
+      densityPenalty += (240 - horizontalGap) * 1.15 + (210 - verticalGap) * 1.15;
     }
   }
 

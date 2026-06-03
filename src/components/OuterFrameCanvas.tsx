@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback, useMemo } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 import {
   buildGroupGeometryFromLayout,
@@ -126,7 +126,7 @@ export default function OuterFrameCanvas({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
-  const [renderSignal, setRenderSignal] = useState(0);
+  const renderRef = useRef<() => void>(() => {});
   const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
   const dragRef = useRef<{
     photoId: number | string;
@@ -146,7 +146,7 @@ export default function OuterFrameCanvas({
     if (rafRef.current != null) return;
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null;
-      setRenderSignal((value) => value + 1);
+      renderRef.current();
     });
   }, []);
 
@@ -246,8 +246,7 @@ export default function OuterFrameCanvas({
     }
   }, [photos, groupLayouts, width, height, getPhotoLogicalSize, transform.scale]);
 
-  // --- Compute place rects from current photo positions ---
-  const computePlaceRects = useCallback((): PlaceRect[] => {
+  const placeRects = useMemo((): PlaceRect[] => {
     const groups = new Map<string, PhotoItem[]>();
     for (const p of photos) {
       if (p.frameX == null || p.frameY == null) continue;
@@ -347,8 +346,7 @@ export default function OuterFrameCanvas({
     ctx.clearRect(0, 0, width, height);
     const overlayScale = getOverlayScale(transform.scale);
 
-    // Recompute place rects from current (possibly dragged) positions
-    const currentRects = computePlaceRects();
+    const currentRects = placeRects;
     placeRectsRef.current = currentRects;
 
     // --- Draw photos (no per-photo labels) ---
@@ -410,12 +408,13 @@ export default function OuterFrameCanvas({
         }
       }
     }
-  }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, computePlaceRects, getPhotoLogicalSize]);
+  }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, placeRects, getPhotoLogicalSize]);
 
   useEffect(() => {
+    renderRef.current = render;
     const rafId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(rafId);
-  }, [render, renderVersion, renderSignal]);
+  }, [render, renderVersion]);
 
   useEffect(() => () => {
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
