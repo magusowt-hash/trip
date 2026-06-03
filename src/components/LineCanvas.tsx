@@ -30,9 +30,10 @@ interface Props {
   lineStyle: LineStyle;
   showPoiLabels: boolean;
   poiLabelColor: string;
+  renderVersion?: string | number;
 }
 
-export default function LineCanvas({ width, height, transform, photos, groupLayouts, poiPoints, lineStyle, showPoiLabels, poiLabelColor }: Props) {
+export default function LineCanvas({ width, height, transform, photos, groupLayouts, poiPoints, lineStyle, showPoiLabels, poiLabelColor, renderVersion }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
@@ -67,7 +68,7 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
       groups.set(photo.placeKey, arr);
     }
     return groups;
-  }, [photos]);
+  }, [photos, renderVersion]);
 
   const resolvedGeometryMap = useMemo(() => {
     const entries: Array<{ id: string; geometry: NonNullable<ReturnType<typeof buildGroupGeometry>> }> = [];
@@ -153,7 +154,7 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
   useEffect(() => {
     const rafId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(rafId);
-  }, [render]);
+  }, [render, renderVersion]);
 
   return (
     <canvas

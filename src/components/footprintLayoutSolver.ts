@@ -28,8 +28,8 @@ const REBALANCE_ITERATION_COUNT = 8;
 const MAX_CANDIDATES_PER_GROUP = 48;
 
 const ANGLE_OFFSETS_DEGREES = [-24, -16, -10, -6, 0, 6, 10, 16, 24];
-const RADIUS_FACTORS = [0.86, 0.94, 1, 1.08, 1.18, 1.3];
-const OUTER_RING_RADIUS_FACTORS = [1.36, 1.52];
+const RADIUS_FACTORS = [0.78, 0.86, 0.94, 1, 1.08, 1.18];
+const OUTER_RING_RADIUS_FACTORS = [1.24, 1.36];
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -647,7 +647,7 @@ function scoreFinalLayoutEnvelope(
     return Number.POSITIVE_INFINITY;
   }
 
-  return (right - left) * 0.72 + (bottom - top) * 0.72 + (count > 0 ? radiusSum / count : 0);
+  return (right - left) * 0.82 + (bottom - top) * 0.82 + (count > 0 ? radiusSum / count : 0) * 1.18;
 }
 
 function buildFallbackState(

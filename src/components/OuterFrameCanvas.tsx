@@ -70,6 +70,7 @@ interface Props {
   renderVersion?: string | number;
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
   onPhotoClick?: (photoId: number | string) => void;
+  onPhotoDragFrame?: () => void;
   onPhotoMoved?: () => void;
   onGroupLabelDragEnd?: (placeKey: string, dx: number, dy: number) => void;
 }
@@ -121,6 +122,7 @@ export default function OuterFrameCanvas({
   renderVersion,
   onPhotoDragEnd,
   onPhotoClick,
+  onPhotoDragFrame,
   onPhotoMoved,
   onGroupLabelDragEnd,
 }: Props) {
@@ -279,7 +281,7 @@ export default function OuterFrameCanvas({
       });
     }
     return rects;
-  }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale]);
+  }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale, renderVersion]);
 
   // --- Coordinate helpers ---
   const logicalToScreen = useCallback((lx: number, ly: number): Point => ({
@@ -537,6 +539,7 @@ export default function OuterFrameCanvas({
           }
         }
       }
+      onPhotoDragFrame?.();
       scheduleRender();
     } else {
       const pos = getCanvasPos(e);
@@ -546,7 +549,7 @@ export default function OuterFrameCanvas({
         scheduleRender();
       }
     }
-  }, [getCanvasPos, hitTest, transform, photos, width, height, clampGroupAwayFromMap, getPhotoBounds, scheduleRender]);
+  }, [getCanvasPos, hitTest, transform, photos, width, height, clampGroupAwayFromMap, getPhotoBounds, onPhotoDragFrame, scheduleRender]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) {

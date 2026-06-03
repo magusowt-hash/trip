@@ -89,6 +89,8 @@ export default function OuterFrame({
   const mapInstanceRef = useRef<any>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
+  const [dragRenderVersion, setDragRenderVersion] = useState(0);
+  const dragRenderFrameRef = useRef<number | null>(null);
 
   // Measure container + pass to useOuterFrame
   const roRef = useRef<ResizeObserver | null>(null);
@@ -110,6 +112,18 @@ export default function OuterFrame({
     if (mapRef) mapRef.current = map;
     setMapReady(true);
   }, [mapRef]);
+
+  const handlePhotoDragFrame = useCallback(() => {
+    if (dragRenderFrameRef.current != null) return;
+    dragRenderFrameRef.current = requestAnimationFrame(() => {
+      dragRenderFrameRef.current = null;
+      setDragRenderVersion((value) => value + 1);
+    });
+  }, []);
+
+  useEffect(() => () => {
+    if (dragRenderFrameRef.current != null) cancelAnimationFrame(dragRenderFrameRef.current);
+  }, []);
 
   // --- POI coordinate conversion ---
   const [poiPoints, setPoiPoints] = useState<PoiPoint[]>([]);
@@ -327,6 +341,7 @@ export default function OuterFrame({
           transform={transform}
           photos={photos}
           groupLayouts={groupLayouts}
+          renderVersion={dragRenderVersion}
           poiPoints={poiPoints}
           lineStyle={lineStyle}
           showPoiLabels={showPoiLabels}
@@ -344,7 +359,8 @@ export default function OuterFrame({
           groupLayouts={groupLayouts}
           scale={transform.scale}
           showLabels={showLabels}
-          renderVersion={fitViewKey}
+          renderVersion={`${fitViewKey}:${dragRenderVersion}`}
+          onPhotoDragFrame={handlePhotoDragFrame}
           onPhotoDragEnd={onPhotoDragEnd}
           onPhotoClick={onPhotoClick}
           onPhotoMoved={onPhotoMoved}

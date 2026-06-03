@@ -4,7 +4,6 @@ import { createPortal } from 'react-dom';
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import OuterFrame from '@/components/OuterFrame';
-import { CLAMP_SCALE } from '@/lib/outerFrameCoords';
 import type { PhotoItem, PoiPoint } from '@/components/OuterFrameCanvas';
 import FootprintGroupPanel from '@/components/FootprintGroupPanel';
 import PhotoAlbumModal from '@/components/PhotoAlbumModal';
@@ -31,6 +30,7 @@ const LOCAL_THUMB_CONCURRENCY = 4;
 const LOCAL_THUMB_TIMEOUT_MS = 2500;
 const LOCAL_THUMB_TOTAL_TIMEOUT_MS = 3500;
 const LOCAL_MAP_LOADING_MIN_DELAY_MS = 120;
+const PRESET_LAYOUT_LABEL_SCALE = 0.12;
 
 interface FootprintGroup {
   id: number;
@@ -836,7 +836,7 @@ function UserFootprintsPageInner() {
     }
 
     const cardSize = 80;
-    const collisionScale = CLAMP_SCALE.max;
+    const collisionScale = PRESET_LAYOUT_LABEL_SCALE;
     const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
     const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
     const mapRect = getFootprintMapRect(viewportWidth, viewportHeight);
