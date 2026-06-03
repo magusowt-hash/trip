@@ -5,6 +5,8 @@ import {
   buildGroupGeometryCandidatesFromGeometry,
   buildGroupGeometryFromPhotoRect,
   buildSingleSideGroupGeometryFromGeometry,
+  rectsOverlap,
+  resolveGroupLabelLayouts,
   resolveGroupGeometryAsWhole,
 } from './localMapGroupGeometry.ts';
 
@@ -112,4 +114,113 @@ test('whole-layout label resolution rejects candidates that overlap another labe
     ),
     true,
   );
+});
+
+test('final label layout resolution avoids another group photo and label', () => {
+  const left = buildGroupGeometryFromPhotoRect(
+    rect(-280, -40, -160, 40),
+    'left',
+    4,
+    1,
+    'bottom',
+    0,
+  );
+  const right = buildGroupGeometryFromPhotoRect(
+    rect(-110, -40, 10, 40),
+    'right',
+    4,
+    1,
+    'bottom',
+    0,
+  );
+
+  const layouts = resolveGroupLabelLayouts([
+    {
+      placeKey: 'left',
+      geometry: left,
+      title: 'left',
+      photoCount: 4,
+      scale: 1,
+    },
+    {
+      placeKey: 'right',
+      geometry: right,
+      title: 'right',
+      photoCount: 4,
+      scale: 1,
+    },
+  ], {
+    gap: 24,
+    step: 12,
+    maxOffset: 120,
+  });
+
+  const leftLayout = layouts.get('left');
+  const rightLayout = layouts.get('right');
+  assert.ok(leftLayout);
+  assert.ok(rightLayout);
+
+  const resolvedLeft = buildGroupGeometryFromPhotoRect(
+    left.photoRect,
+    'left',
+    4,
+    1,
+    leftLayout!.labelSide,
+    leftLayout!.labelOffset,
+  );
+  const resolvedRight = buildGroupGeometryFromPhotoRect(
+    right.photoRect,
+    'right',
+    4,
+    1,
+    rightLayout!.labelSide,
+    rightLayout!.labelOffset,
+  );
+
+  assert.equal(rectsOverlap(resolvedLeft.labelRect, resolvedRight.photoRect, 24), false);
+  assert.equal(rectsOverlap(resolvedRight.labelRect, resolvedLeft.photoRect, 24), false);
+  assert.equal(rectsOverlap(resolvedLeft.labelRect, resolvedRight.labelRect, 24), false);
+});
+
+test('final label layout resolution rejects map-overlapping labels by increasing offset or switching side', () => {
+  const mapRect = rect(-120, -120, 120, 120);
+  const bottomCenter = buildGroupGeometryFromPhotoRect(
+    rect(-60, 100, 60, 180),
+    'center',
+    4,
+    1,
+    'top',
+    0,
+    mapRect,
+  );
+
+  const layouts = resolveGroupLabelLayouts([
+    {
+      placeKey: 'center',
+      geometry: bottomCenter,
+      title: 'center',
+      photoCount: 4,
+      scale: 1,
+    },
+  ], {
+    gap: 24,
+    mapRect,
+    mapGap: 24,
+    step: 12,
+    maxOffset: 160,
+  });
+
+  const centerLayout = layouts.get('center');
+  assert.ok(centerLayout);
+
+  const resolvedCenter = buildGroupGeometryFromPhotoRect(
+    bottomCenter.photoRect,
+    'center',
+    4,
+    1,
+    centerLayout!.labelSide,
+    centerLayout!.labelOffset,
+  );
+
+  assert.equal(rectsOverlap(resolvedCenter.labelRect, mapRect, 24), false);
 });
