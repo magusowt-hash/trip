@@ -21,6 +21,11 @@ import {
   computeSectorCrowdingScore,
 } from './footprintLayoutScoring';
 import {
+  buildOuterShellPlaceKeys,
+  computeOuterShellEnvelope,
+  isOuterShellEnvelopeImproved,
+} from './footprintPresetOuterShell';
+import {
   buildOccupiedGeometryGapPolicy,
   geometryOverlapsOccupiedWithGapPolicy,
 } from './footprintCollisionSpacing';
@@ -44,6 +49,7 @@ const GLOBAL_DIRECTIONAL_RADIUS_STEPS = [320, 240, 180, 120, 80];
 const GLOBAL_DIRECTIONAL_ANGLE_STEPS = [0, -4, 4, -8, 8];
 const GLOBAL_FIELD_RADIUS_STEPS = [320, 240, 180, 120, 80];
 const GLOBAL_FIELD_LATERAL_STEPS = [0, -60, 60, -120, 120];
+const STRICT_LABEL_CLEARANCE_FACTOR = 2.4;
 
 type PlacementCandidate = {
   centerX: number;
@@ -306,9 +312,11 @@ function evaluatePlacementCandidate(
   const photoLabelOverlap = hasPhotoAgainstLabelCollisions(resolvedGeometry, occupiedGeometries, safeGap);
   const angleExceeded = (angleDeltaFromBase * 180) / Math.PI > policy.maxAngleDeviation + 1e-6;
   const lateralExceeded = lateralOffset > policy.maxLateralOffset + 1e-6;
-  const isValid = !mapOverlap && !lineIntersected && !labelOverlap && !photoOverlap && !photoLabelOverlap;
   const pressureScore = computeGroupPressureScore(resolvedGeometry, occupiedGeometries, safeGap);
   const labelClearanceScore = computeLabelClearanceScore(resolvedGeometry, occupiedGeometries, mapRect, safeGap);
+  const strictLabelClearanceLimit = safeGap * STRICT_LABEL_CLEARANCE_FACTOR;
+  const labelClearanceRisk = labelClearanceScore > strictLabelClearanceLimit * strictLabelClearanceLimit;
+  const isValid = !mapOverlap && !lineIntersected && !labelOverlap && !photoOverlap && !photoLabelOverlap && !labelClearanceRisk;
   const sectorCrowdingScore = computeSectorCrowdingScore(
     placeKey,
     resolvedGeometry.photoCenterX,
@@ -327,6 +335,7 @@ function evaluatePlacementCandidate(
     lineLengthScore: radius,
     mapOverlap,
     labelOverlap,
+    labelClearanceRisk,
     angleDelta: angleDeltaFromBase,
     radiusDelta: radiusDeltaFromBase,
     lateralOffset,
@@ -1810,6 +1819,7 @@ function refineSectorClusters(
   safeGap: number,
 ) {
   const nextPlacementById = new Map(placementById);
+  const outerShellPlaceKeys = buildOuterShellPlaceKeys(basePlacementById, 180);
 
   for (let pass = 0; pass < CLUSTER_REARRANGE_PASSES; pass++) {
     let changed = false;
@@ -1823,6 +1833,7 @@ function refineSectorClusters(
       const baseline = scoreClusterCompaction(windowGroups, nextPlacementById, groups, mapRect, safeGap);
       const baselineGlobalEnergy = scoreGlobalLayoutEnergy(groups, nextPlacementById, mapRect, safeGap);
       const baselineTotalRadius = computeTotalRadius(groups, nextPlacementById);
+      const baselineOuterShellEnvelope = computeOuterShellEnvelope(nextPlacementById, outerShellPlaceKeys);
       let bestScore = baseline;
       let bestPlacementById: Map<string, FootprintPlacement> | null = null;
       let bestGlobalEnergy = baselineGlobalEnergy;
@@ -1841,10 +1852,12 @@ function refineSectorClusters(
         );
         const trialGlobalEnergy = scoreGlobalLayoutEnergy(groups, trialPlacementById, mapRect, safeGap);
         const trialTotalRadius = computeTotalRadius(groups, trialPlacementById);
+        const trialOuterShellEnvelope = computeOuterShellEnvelope(trialPlacementById, outerShellPlaceKeys);
         if (
           trialScore < bestScore - 1e-6 &&
           trialGlobalEnergy < bestGlobalEnergy - 0.5 &&
-          trialTotalRadius < bestTotalRadius - 4
+          trialTotalRadius < bestTotalRadius - 4 &&
+          isOuterShellEnvelopeImproved(baselineOuterShellEnvelope, trialOuterShellEnvelope)
         ) {
           bestScore = trialScore;
           bestGlobalEnergy = trialGlobalEnergy;
@@ -1866,10 +1879,12 @@ function refineSectorClusters(
         );
         const trialGlobalEnergy = scoreGlobalLayoutEnergy(groups, trialPlacementById, mapRect, safeGap);
         const trialTotalRadius = computeTotalRadius(groups, trialPlacementById);
+        const trialOuterShellEnvelope = computeOuterShellEnvelope(trialPlacementById, outerShellPlaceKeys);
         if (
           trialScore < bestScore - 1e-6 &&
           trialGlobalEnergy < bestGlobalEnergy - 0.5 &&
-          trialTotalRadius < bestTotalRadius - 2
+          trialTotalRadius < bestTotalRadius - 2 &&
+          isOuterShellEnvelopeImproved(baselineOuterShellEnvelope, trialOuterShellEnvelope)
         ) {
           bestScore = trialScore;
           bestGlobalEnergy = trialGlobalEnergy;
@@ -1891,10 +1906,12 @@ function refineSectorClusters(
         );
         const trialGlobalEnergy = scoreGlobalLayoutEnergy(groups, trialPlacementById, mapRect, safeGap);
         const trialTotalRadius = computeTotalRadius(groups, trialPlacementById);
+        const trialOuterShellEnvelope = computeOuterShellEnvelope(trialPlacementById, outerShellPlaceKeys);
         if (
           trialScore < bestScore - 1e-6 &&
           trialGlobalEnergy < bestGlobalEnergy - 1.5 &&
-          trialTotalRadius < bestTotalRadius - 4
+          trialTotalRadius < bestTotalRadius - 4 &&
+          isOuterShellEnvelopeImproved(baselineOuterShellEnvelope, trialOuterShellEnvelope)
         ) {
           bestScore = trialScore;
           bestGlobalEnergy = trialGlobalEnergy;
@@ -1922,10 +1939,12 @@ function refineSectorClusters(
           );
           const trialGlobalEnergy = scoreGlobalLayoutEnergy(groups, trialPlacementById, mapRect, safeGap);
           const trialTotalRadius = computeTotalRadius(groups, trialPlacementById);
+          const trialOuterShellEnvelope = computeOuterShellEnvelope(trialPlacementById, outerShellPlaceKeys);
           if (
             trialScore < bestScore - 1e-6 &&
             trialGlobalEnergy < bestGlobalEnergy - 0.5 &&
-            trialTotalRadius < bestTotalRadius - 1
+            trialTotalRadius < bestTotalRadius - 1 &&
+            isOuterShellEnvelopeImproved(baselineOuterShellEnvelope, trialOuterShellEnvelope)
           ) {
             bestScore = trialScore;
             bestGlobalEnergy = trialGlobalEnergy;
