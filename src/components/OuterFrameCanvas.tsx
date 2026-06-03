@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 import {
   buildGroupGeometryFromLayout,
@@ -126,7 +126,7 @@ export default function OuterFrameCanvas({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
-  const renderRef = useRef<() => void>(() => {});
+  const [renderSignal, setRenderSignal] = useState(0);
   const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
   const dragRef = useRef<{
     photoId: number | string;
@@ -146,7 +146,7 @@ export default function OuterFrameCanvas({
     if (rafRef.current != null) return;
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null;
-      renderRef.current();
+      setRenderSignal((value) => value + 1);
     });
   }, []);
 
@@ -413,9 +413,9 @@ export default function OuterFrameCanvas({
   }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, computePlaceRects, getPhotoLogicalSize]);
 
   useEffect(() => {
-    renderRef.current = render;
-    scheduleRender();
-  }, [render, renderVersion, scheduleRender]);
+    const rafId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(rafId);
+  }, [render, renderVersion, renderSignal]);
 
   useEffect(() => () => {
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
