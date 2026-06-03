@@ -71,7 +71,6 @@ interface Props {
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
   onPhotoClick?: (photoId: number | string) => void;
   onPhotoDragFrame?: () => void;
-  onPhotoMoved?: () => void;
   onGroupLabelDragEnd?: (placeKey: string, dx: number, dy: number) => void;
 }
 
@@ -123,7 +122,6 @@ export default function OuterFrameCanvas({
   onPhotoDragEnd,
   onPhotoClick,
   onPhotoDragFrame,
-  onPhotoMoved,
   onGroupLabelDragEnd,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -557,18 +555,16 @@ export default function OuterFrameCanvas({
         const dx = (dragRef.current as any)._lastDx ?? 0;
         const dy = (dragRef.current as any)._lastDy ?? 0;
         onGroupLabelDragEnd?.(dragRef.current.placeKey, dx, dy);
-        onPhotoMoved?.();
       } else {
         const photo = photos.find(p => p.id === dragRef.current!.photoId);
         if (photo && photo.frameX != null && photo.frameY != null) {
           onPhotoDragEnd?.(dragRef.current.photoId, photo.frameX, photo.frameY);
-          onPhotoMoved?.();
         }
       }
       dragRef.current = null;
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     }
-  }, [photos, onPhotoDragEnd, onPhotoMoved, onGroupLabelDragEnd]);
+  }, [photos, onPhotoDragEnd, onGroupLabelDragEnd]);
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (didDragRef.current) return;

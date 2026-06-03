@@ -954,21 +954,13 @@ function UserFootprintsPageInner() {
   const handlePhotoDragEnd = useCallback(async (photoId: number | string, x: number, y: number) => {
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, undefined, current).values()));
-  }, [photos]);
-
-  const handlePhotoMoved = useCallback(() => {
-    movedPhotosRef.current = true;
-    setHasMovedPhotos(true);
-    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, undefined, current).values()));
-  }, [photos]);
+  }, []);
 
   const handleGroupLabelDragEnd = useCallback((_placeKey: string, dx: number, dy: number) => {
     if (dx === 0 && dy === 0) return;
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-    setGroupLayouts((current) => Array.from(solveFrozenGroupLayouts(photos, 1, undefined, current).values()));
-  }, [photos]);
+  }, []);
 
   const buildLocalMapAssetsForSave = useCallback((sourcePhotos: PhotoItem[]) => (
     sourcePhotos
@@ -1602,7 +1594,6 @@ function UserFootprintsPageInner() {
         onMarkerClick={handleMapMarkerClick}
         onPhotoDragEnd={handlePhotoDragEnd}
         onPhotoClick={handlePhotoClick}
-        onPhotoMoved={handlePhotoMoved}
         onGroupLabelDragEnd={handleGroupLabelDragEnd}
         mapRef={mapInstanceRef}
         showPhotos={showPhotos}

@@ -28,7 +28,6 @@ interface Props {
   onMarkerClick?: (marker: MapMarker) => void;
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
   onPhotoClick?: (photoId: number | string) => void;
-  onPhotoMoved?: () => void;
   onGroupLabelDragEnd?: (placeKey: string, dx: number, dy: number) => void;
   mapRef?: React.MutableRefObject<unknown>;
   showPhotos: boolean;
@@ -56,7 +55,6 @@ export default function OuterFrame({
   onMarkerClick,
   onPhotoDragEnd,
   onPhotoClick,
-  onPhotoMoved,
   onGroupLabelDragEnd,
   mapRef,
   showPhotos,
@@ -363,7 +361,6 @@ export default function OuterFrame({
           onPhotoDragFrame={handlePhotoDragFrame}
           onPhotoDragEnd={onPhotoDragEnd}
           onPhotoClick={onPhotoClick}
-          onPhotoMoved={onPhotoMoved}
           onGroupLabelDragEnd={onGroupLabelDragEnd}
         />
       )}
