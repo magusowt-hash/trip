@@ -191,12 +191,28 @@ export function measureGroupLabelLayout(
 ) {
   const safeScale = Math.max(scale, 0.1);
   const photoWidthScreen = Math.max(1, photoRectWidth * safeScale);
+  const tokens = splitLabelText(title);
+
+  if (LABEL_MAX_LINES === 1) {
+    const line = tokens.join('');
+    const fullWidth = line.split('').reduce((sum, char) => sum + estimateCharacterScreenWidth(char), 0);
+    const widthLogical = toLogicalScreenSize(
+      Math.max(LABEL_MIN_SCREEN_WIDTH, fullWidth || LABEL_MIN_SCREEN_WIDTH),
+      safeScale,
+    );
+    return {
+      lines: [line],
+      width: widthLogical,
+      height: toLogicalScreenSize(GROUP_LABEL_LINE_HEIGHT_SCREEN, safeScale),
+      maxWidth: widthLogical,
+    };
+  }
+
   const labelMaxWidthScreen = clamp(
     photoWidthScreen * LABEL_WIDTH_RATIO,
     LABEL_MIN_SCREEN_WIDTH,
     LABEL_MAX_SCREEN_WIDTH,
   );
-  const tokens = splitLabelText(title);
   const lines: string[] = [];
   let currentLine = '';
   let currentWidth = 0;
@@ -223,19 +239,6 @@ export function measureGroupLabelLayout(
 
   if (lines.length > LABEL_MAX_LINES) {
     lines.length = LABEL_MAX_LINES;
-  }
-
-  if (tokens.length > 0 && lines.length === LABEL_MAX_LINES) {
-    const joinedLength = lines.join('').length;
-    if (joinedLength < tokens.length) {
-      const last = lines[LABEL_MAX_LINES - 1] ?? '';
-      const trimmed = last.length > 1 ? last.slice(0, Math.max(1, last.length - 1)).trimEnd() : '';
-      lines[LABEL_MAX_LINES - 1] = `${trimmed}…`;
-      maxLineWidth = Math.max(
-        maxLineWidth,
-        trimmed.split('').reduce((sum, char) => sum + estimateCharacterScreenWidth(char), 0) + estimateCharacterScreenWidth('…'),
-      );
-    }
   }
 
   const widthLogical = toLogicalScreenSize(Math.max(LABEL_MIN_SCREEN_WIDTH, Math.min(labelMaxWidthScreen, maxLineWidth || LABEL_MIN_SCREEN_WIDTH)), safeScale);
