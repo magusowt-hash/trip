@@ -224,3 +224,147 @@ test('final label layout resolution rejects map-overlapping labels by increasing
 
   assert.equal(rectsOverlap(resolvedCenter.labelRect, mapRect, 24), false);
 });
+
+test('final label layout resolution exposes dense inner-ring conflicts near the map edge', () => {
+  const mapRect = rect(-200, -160, 200, 160);
+  const entries = [
+    {
+      placeKey: 'zhangjiajie',
+      geometry: buildGroupGeometryFromPhotoRect(
+        rect(-140, -20, -20, 60),
+        '张家界',
+        4,
+        1,
+        'bottom',
+        0,
+        mapRect,
+      ),
+      title: '张家界',
+      photoCount: 4,
+      scale: 1,
+    },
+    {
+      placeKey: 'foshan',
+      geometry: buildGroupGeometryFromPhotoRect(
+        rect(60, 30, 180, 110),
+        '佛山市',
+        4,
+        1,
+        'bottom',
+        0,
+        mapRect,
+      ),
+      title: '佛山市',
+      photoCount: 4,
+      scale: 1,
+    },
+    {
+      placeKey: 'zhuhai',
+      geometry: buildGroupGeometryFromPhotoRect(
+        rect(-20, 90, 100, 170),
+        '珠海市',
+        4,
+        1,
+        'top',
+        0,
+        mapRect,
+      ),
+      title: '珠海市',
+      photoCount: 4,
+      scale: 1,
+    },
+    {
+      placeKey: 'huzhou',
+      geometry: buildGroupGeometryFromPhotoRect(
+        rect(40, 80, 160, 160),
+        '湖州市',
+        4,
+        1,
+        'top',
+        0,
+        mapRect,
+      ),
+      title: '湖州市',
+      photoCount: 4,
+      scale: 1,
+    },
+    {
+      placeKey: 'luoyang',
+      geometry: buildGroupGeometryFromPhotoRect(
+        rect(-40, -220, 80, -140),
+        '洛阳市',
+        4,
+        1,
+        'bottom',
+        0,
+        mapRect,
+      ),
+      title: '洛阳市',
+      photoCount: 4,
+      scale: 1,
+    },
+    {
+      placeKey: 'zhangzhou',
+      geometry: buildGroupGeometryFromPhotoRect(
+        rect(80, 200, 200, 280),
+        '漳州市',
+        4,
+        1,
+        'top',
+        0,
+        mapRect,
+      ),
+      title: '漳州市',
+      photoCount: 4,
+      scale: 1,
+    },
+  ];
+
+  const layouts = resolveGroupLabelLayouts(entries, {
+    gap: 80,
+    mapRect,
+    mapGap: 128,
+    step: 12,
+    maxOffset: 180,
+  });
+
+  const resolved = entries.map((entry) => {
+    const layout = layouts.get(entry.placeKey);
+    assert.ok(layout);
+    return buildGroupGeometryFromPhotoRect(
+      entry.geometry.photoRect,
+      entry.title,
+      entry.photoCount,
+      entry.scale,
+      layout!.labelSide,
+      layout!.labelOffset,
+    );
+  });
+
+  const mapOverlapCount = resolved.filter((geometry) => rectsOverlap(geometry.labelRect, mapRect, 128)).length;
+  let crossGroupConflictCount = 0;
+  for (let index = 0; index < resolved.length; index++) {
+    for (let neighborIndex = index + 1; neighborIndex < resolved.length; neighborIndex++) {
+      const geometry = resolved[index]!;
+      const neighbor = resolved[neighborIndex]!;
+      if (
+        rectsOverlap(geometry.labelRect, neighbor.photoRect, 96) ||
+        rectsOverlap(neighbor.labelRect, geometry.photoRect, 96) ||
+        rectsOverlap(geometry.labelRect, neighbor.labelRect, 96)
+      ) {
+        crossGroupConflictCount += 1;
+      }
+    }
+  }
+
+  assert.equal(
+    mapOverlapCount,
+    0,
+    `expected no map-overlapping labels in dense inner-ring case, got ${mapOverlapCount}`,
+  );
+  assert.equal(
+    crossGroupConflictCount,
+    0,
+    `expected no cross-group label conflicts in dense inner-ring case, got ${crossGroupConflictCount}`,
+  );
+});
