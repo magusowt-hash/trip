@@ -1,6 +1,5 @@
 import {
   buildGroupGeometryFromPhotoRect,
-  rectsOverlap,
   resolveGroupGeometryAsWhole,
   resolvePreferredLabelSideForMap,
   type GroupGeometry,
@@ -28,9 +27,9 @@ const INITIAL_ASSIGNMENT_PASSES = 3;
 const REBALANCE_ITERATION_COUNT = 8;
 const MAX_CANDIDATES_PER_GROUP = 48;
 
-const ANGLE_OFFSETS_DEGREES = [-40, -32, -24, -16, -10, -6, 0, 6, 10, 16, 24, 32, 40];
+const ANGLE_OFFSETS_DEGREES = [-24, -16, -10, -6, 0, 6, 10, 16, 24];
 const RADIUS_FACTORS = [0.78, 0.86, 0.94, 1, 1.08, 1.18];
-const OUTER_RING_RADIUS_FACTORS = [1.24, 1.36, 1.5, 1.66];
+const OUTER_RING_RADIUS_FACTORS = [1.24, 1.36];
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -665,56 +664,6 @@ function hasHardConflicts(
   return false;
 }
 
-function countStrictSafetyGapConflicts(
-  groups: PendingPlaceGroup[],
-  geometryById: Map<string, GroupGeometry>,
-  safeGap: number,
-  lockedGroups: LockedPlaceGroup[] = [],
-) {
-  let count = 0;
-  const groupGap = Math.max(48, safeGap * 0.5);
-  const labelGap = Math.max(LABEL_GAP, safeGap + 16);
-
-  for (let index = 0; index < groups.length; index++) {
-    const group = groups[index];
-    const geometry = geometryById.get(group.placeKey);
-    if (!geometry) {
-      count += 1;
-      continue;
-    }
-
-    for (let neighborIndex = index + 1; neighborIndex < groups.length; neighborIndex++) {
-      const neighbor = groups[neighborIndex];
-      const neighborGeometry = geometryById.get(neighbor.placeKey);
-      if (!neighborGeometry) {
-        count += 1;
-        continue;
-      }
-      if (
-        rectsOverlap(geometry.groupRect, neighborGeometry.groupRect, groupGap) ||
-        rectsOverlap(geometry.labelRect, neighborGeometry.photoRect, labelGap) ||
-        rectsOverlap(neighborGeometry.labelRect, geometry.photoRect, labelGap) ||
-        rectsOverlap(geometry.labelRect, neighborGeometry.labelRect, labelGap)
-      ) {
-        count += 1;
-      }
-    }
-
-    for (const locked of lockedGroups) {
-      if (
-        rectsOverlap(geometry.groupRect, locked.geometry.groupRect, groupGap) ||
-        rectsOverlap(geometry.labelRect, locked.geometry.photoRect, labelGap) ||
-        rectsOverlap(locked.geometry.labelRect, geometry.photoRect, labelGap) ||
-        rectsOverlap(geometry.labelRect, locked.geometry.labelRect, labelGap)
-      ) {
-        count += 1;
-      }
-    }
-  }
-
-  return count;
-}
-
 function scoreFinalLayoutEnvelope(
   groups: PendingPlaceGroup[],
   geometryById: Map<string, GroupGeometry>,
@@ -842,34 +791,12 @@ export function solvePendingGroupPlacements(
     safeGap,
     lockedGroups,
   );
-  const refinedStrictConflictCount = countStrictSafetyGapConflicts(
-    orderedGroups,
-    refinedGeometryById,
-    safeGap,
-    lockedGroups,
-  );
-  const optimizedStrictConflictCount = countStrictSafetyGapConflicts(
-    orderedGroups,
-    optimizedGeometryById,
-    safeGap,
-    lockedGroups,
-  );
   const refinedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, refinedGeometryById);
   const optimizedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, optimizedGeometryById);
   const shouldUseRefined =
     (!refinedHasHardConflicts && optimizedHasHardConflicts) ||
-    (refinedStrictConflictCount < optimizedStrictConflictCount) ||
-    (
-      refinedStrictConflictCount === optimizedStrictConflictCount &&
-      !refinedHasHardConflicts &&
-      optimizedHasHardConflicts
-    ) ||
     (!refinedHasHardConflicts && !optimizedHasHardConflicts && refinedEnvelopeScore <= optimizedEnvelopeScore * 1.04) ||
-    (
-      refinedStrictConflictCount === optimizedStrictConflictCount &&
-      refinedHasHardConflicts === optimizedHasHardConflicts &&
-      refinedEnvelopeScore < optimizedEnvelopeScore
-    );
+    (refinedHasHardConflicts && optimizedHasHardConflicts && refinedEnvelopeScore < optimizedEnvelopeScore);
   const finalPlacements = shouldUseRefined
     ? refinedPlacementById
     : workingState.placementById;
