@@ -16,6 +16,7 @@ import {
   rectOverlapsOccupiedPhotos,
 } from './footprintLayoutConstraints';
 import { scoreMapDistanceBand } from './footprintLayoutHeuristics';
+import { buildFallbackRepairSteps, expandPlacementAlongRay } from './footprintFallbackRepair';
 import { refineRadialPlacements } from './footprintSectorLayoutEngine';
 
 const GROUP_GAP = 14;
@@ -726,6 +727,75 @@ function buildFallbackState(
   return state;
 }
 
+function buildPlacementByIdFromGeometryMap(
+  geometryById: Map<string, GroupGeometry>,
+) {
+  const placementById = new Map<string, FootprintPlacement>();
+  geometryById.forEach((geometry, placeKey) => {
+    placementById.set(placeKey, {
+      centerX: geometry.photoCenterX,
+      centerY: geometry.photoCenterY,
+    });
+  });
+  return placementById;
+}
+
+function repairConflictingPlacements(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  mapRect: LogicalRect,
+  safeGap: number,
+  labelGapBoost: number,
+  lockedGroups: LockedPlaceGroup[] = [],
+) {
+  const nextPlacementById = new Map(placementById);
+
+  for (const step of buildFallbackRepairSteps()) {
+    const geometryById = buildGeometryMapForPlacements(
+      groups,
+      nextPlacementById,
+      mapRect,
+      safeGap,
+      labelGapBoost,
+      lockedGroups,
+    );
+    const hasConflicts = hasHardConflicts(
+      groups,
+      nextPlacementById,
+      geometryById,
+      mapRect,
+      safeGap,
+      lockedGroups,
+    );
+    if (!hasConflicts) {
+      return {
+        placements: nextPlacementById,
+        geometries: geometryById,
+        repaired: true,
+      };
+    }
+
+    for (const group of groups) {
+      const current = nextPlacementById.get(group.placeKey);
+      if (!current) continue;
+      nextPlacementById.set(group.placeKey, expandPlacementAlongRay(current, step));
+    }
+  }
+
+  return {
+    placements: nextPlacementById,
+    geometries: buildGeometryMapForPlacements(
+      groups,
+      nextPlacementById,
+      mapRect,
+      safeGap,
+      labelGapBoost,
+      lockedGroups,
+    ),
+    repaired: false,
+  };
+}
+
 export function solvePendingGroupPlacements(
   groups: PendingPlaceGroup[],
   mapRect: LogicalRect,
@@ -809,12 +879,48 @@ export function solvePendingGroupPlacements(
     (!refinedHasHardConflicts && optimizedHasHardConflicts) ||
     (!refinedHasHardConflicts && !optimizedHasHardConflicts && refinedEnvelopeScore <= optimizedEnvelopeScore * 1.04) ||
     (refinedHasHardConflicts && optimizedHasHardConflicts && refinedEnvelopeScore < optimizedEnvelopeScore);
-  const finalPlacements = shouldUseRefined
+  let finalPlacements = shouldUseRefined
     ? refinedPlacementById
     : workingState.placementById;
-  const finalGeometries = finalPlacements === refinedPlacementById
+  let finalGeometries = finalPlacements === refinedPlacementById
     ? refinedGeometryById
     : optimizedGeometryById;
+
+  if (refinedHasHardConflicts && optimizedHasHardConflicts) {
+    const repairedGeometryById = buildGeometryMapForPlacements(
+      orderedGroups,
+      basePlacementById,
+      mapRect,
+      safeGap,
+      labelGapBoost,
+      lockedGroups,
+    );
+    const repairedHasHardConflicts = hasHardConflicts(
+      orderedGroups,
+      basePlacementById,
+      repairedGeometryById,
+      mapRect,
+      safeGap,
+      lockedGroups,
+    );
+    if (!repairedHasHardConflicts) {
+      finalGeometries = repairedGeometryById;
+      finalPlacements = buildPlacementByIdFromGeometryMap(repairedGeometryById);
+    } else {
+      const repairedFallback = repairConflictingPlacements(
+        orderedGroups,
+        basePlacementById,
+        mapRect,
+        safeGap,
+        labelGapBoost,
+        lockedGroups,
+      );
+      if (repairedFallback.repaired) {
+        finalPlacements = repairedFallback.placements;
+        finalGeometries = repairedFallback.geometries;
+      }
+    }
+  }
 
   return {
     placements: finalPlacements,
