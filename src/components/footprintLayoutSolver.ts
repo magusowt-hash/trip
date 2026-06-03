@@ -1,5 +1,6 @@
 import {
   buildGroupGeometryFromPhotoRect,
+  rectsOverlap,
   resolveGroupGeometryAsWhole,
   resolvePreferredLabelSideForMap,
   type GroupGeometry,
@@ -30,6 +31,8 @@ const MAX_CANDIDATES_PER_GROUP = 48;
 const ANGLE_OFFSETS_DEGREES = [-24, -16, -10, -6, 0, 6, 10, 16, 24];
 const RADIUS_FACTORS = [0.78, 0.86, 0.94, 1, 1.08, 1.18];
 const OUTER_RING_RADIUS_FACTORS = [1.24, 1.36];
+const DENSE_SECTOR_ANGLE_OFFSETS_DEGREES = [-32, -24, 24, 32];
+const DENSE_SECTOR_RADIUS_FACTORS = [1.08, 1.18, 1.28];
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -262,6 +265,7 @@ function buildCandidatePool(
   group: PendingPlaceGroup,
   basePlacement: FootprintPlacement,
   mapRect: LogicalRect,
+  sectorDensity = 0,
 ) {
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
   const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
@@ -293,6 +297,15 @@ function buildCandidatePool(
     const radius = safeBaseRadius * radiusFactor;
     for (const angleOffset of [-18, -10, 0, 10, 18]) {
       addCandidate(baseAngle + (angleOffset * Math.PI) / 180, radius);
+    }
+  }
+
+  if (sectorDensity >= 3) {
+    for (const radiusFactor of DENSE_SECTOR_RADIUS_FACTORS) {
+      const radius = safeBaseRadius * radiusFactor;
+      for (const angleOffset of DENSE_SECTOR_ANGLE_OFFSETS_DEGREES) {
+        addCandidate(baseAngle + (angleOffset * Math.PI) / 180, radius);
+      }
     }
   }
 
@@ -358,6 +371,51 @@ function computeEnvelopePenalty(
   return (right - left) * 0.05 + (bottom - top) * 0.04;
 }
 
+function computeCorridorRiskPenalty(
+  candidate: GroupGeometry,
+  neighbor: GroupGeometry,
+  safeGap: number,
+) {
+  const preferredGroupGap = Math.max(48, safeGap * 0.5);
+  const preferredLabelGap = Math.max(LABEL_GAP, safeGap + 16);
+
+  const horizontalGap = Math.max(
+    0,
+    Math.max(
+      neighbor.groupRect.left - candidate.groupRect.right,
+      candidate.groupRect.left - neighbor.groupRect.right,
+    ),
+  );
+  const verticalGap = Math.max(
+    0,
+    Math.max(
+      neighbor.groupRect.top - candidate.groupRect.bottom,
+      candidate.groupRect.top - neighbor.groupRect.bottom,
+    ),
+  );
+
+  let penalty = 0;
+  if (horizontalGap < preferredGroupGap) {
+    penalty += (preferredGroupGap - horizontalGap) * 1.8;
+  }
+  if (verticalGap < preferredGroupGap) {
+    penalty += (preferredGroupGap - verticalGap) * 1.8;
+  }
+  if (rectDistanceToMap(candidate.groupRect, neighbor.groupRect) < preferredGroupGap) {
+    penalty += (preferredGroupGap - rectDistanceToMap(candidate.groupRect, neighbor.groupRect)) * 4.2;
+  }
+  if (rectDistanceToMap(candidate.labelRect, neighbor.photoRect) < preferredLabelGap) {
+    penalty += (preferredLabelGap - rectDistanceToMap(candidate.labelRect, neighbor.photoRect)) * 3.4;
+  }
+  if (rectDistanceToMap(candidate.photoRect, neighbor.labelRect) < preferredLabelGap) {
+    penalty += (preferredLabelGap - rectDistanceToMap(candidate.photoRect, neighbor.labelRect)) * 3.4;
+  }
+  if (rectDistanceToMap(candidate.labelRect, neighbor.labelRect) < preferredLabelGap) {
+    penalty += (preferredLabelGap - rectDistanceToMap(candidate.labelRect, neighbor.labelRect)) * 2.8;
+  }
+  return penalty;
+}
+
 function evaluateCandidate(
   group: PendingPlaceGroup,
   candidate: PlacementCandidate,
@@ -405,23 +463,7 @@ function evaluateCandidate(
       densityPenalty += (LOCAL_DENSITY_DISTANCE - centerDistance) * 4.6;
     }
 
-    const horizontalGap = Math.max(
-      0,
-      Math.max(
-        neighborGeometry.groupRect.left - candidate.geometry.groupRect.right,
-        candidate.geometry.groupRect.left - neighborGeometry.groupRect.right,
-      ),
-    );
-    const verticalGap = Math.max(
-      0,
-      Math.max(
-        neighborGeometry.groupRect.top - candidate.geometry.groupRect.bottom,
-        candidate.geometry.groupRect.top - neighborGeometry.groupRect.bottom,
-      ),
-    );
-    if (horizontalGap < 240 && verticalGap < 210) {
-      densityPenalty += (240 - horizontalGap) * 1.15 + (210 - verticalGap) * 1.15;
-    }
+    densityPenalty += computeCorridorRiskPenalty(candidate.geometry, neighborGeometry, safeGap);
   }
 
   for (const locked of lockedGroups) {
@@ -433,6 +475,7 @@ function evaluateCandidate(
     }
 
     densityPenalty += getLabelPressurePenalty(candidate.geometry, locked.geometry, safeGap);
+    densityPenalty += computeCorridorRiskPenalty(candidate.geometry, locked.geometry, safeGap);
 
     const lockedLine = buildLine(locked, locked.geometry);
     if (segmentsIntersect(line.start, line.end, lockedLine.start, lockedLine.end)) {
@@ -583,6 +626,123 @@ function optimizeAssignments(
   }
 }
 
+function improveCorridorRisk(
+  orderedGroups: PendingPlaceGroup[],
+  candidatePoolById: Map<string, PlacementCandidate[]>,
+  state: PlacementState,
+  mapRect: LogicalRect,
+  safeGap: number,
+  labelGapBoost: number,
+  lockedGroups: LockedPlaceGroup[],
+) {
+  let geometryById = buildGeometryMapForPlacements(
+    orderedGroups,
+    state.placementById,
+    mapRect,
+    safeGap,
+    labelGapBoost,
+    lockedGroups,
+  );
+  let hardConflicts = hasHardConflicts(
+    orderedGroups,
+    state.placementById,
+    geometryById,
+    mapRect,
+    safeGap,
+    lockedGroups,
+  );
+  let corridorRisk = countCorridorRiskConflicts(
+    orderedGroups,
+    geometryById,
+    safeGap,
+    lockedGroups,
+  );
+  let envelopeScore = scoreFinalLayoutEnvelope(orderedGroups, geometryById);
+
+  for (let iteration = 0; iteration < REBALANCE_ITERATION_COUNT; iteration++) {
+    let changed = false;
+
+    for (const group of orderedGroups) {
+      const currentPlacement = state.placementById.get(group.placeKey);
+      if (!currentPlacement) continue;
+
+      const candidates = candidatePoolById.get(group.placeKey) ?? [];
+      let bestPlacement = currentPlacement;
+      let bestIndex = state.candidateIndexById.get(group.placeKey) ?? 0;
+      let bestGeometry = geometryById;
+      let bestHardConflicts = hardConflicts;
+      let bestCorridorRisk = corridorRisk;
+      let bestEnvelopeScore = envelopeScore;
+
+      for (let index = 0; index < candidates.length; index++) {
+        const candidate = candidates[index];
+        if (!candidate) continue;
+
+        const placementById = new Map(state.placementById);
+        placementById.set(group.placeKey, candidate.placement);
+        const candidateGeometryById = buildGeometryMapForPlacements(
+          orderedGroups,
+          placementById,
+          mapRect,
+          safeGap,
+          labelGapBoost,
+          lockedGroups,
+        );
+        const candidateHardConflicts = hasHardConflicts(
+          orderedGroups,
+          placementById,
+          candidateGeometryById,
+          mapRect,
+          safeGap,
+          lockedGroups,
+        );
+        const candidateCorridorRisk = countCorridorRiskConflicts(
+          orderedGroups,
+          candidateGeometryById,
+          safeGap,
+          lockedGroups,
+        );
+        const candidateEnvelopeScore = scoreFinalLayoutEnvelope(
+          orderedGroups,
+          candidateGeometryById,
+        );
+
+        const isBetter =
+          (!candidateHardConflicts && bestHardConflicts) ||
+          (candidateHardConflicts === bestHardConflicts &&
+            candidateCorridorRisk < bestCorridorRisk) ||
+          (candidateHardConflicts === bestHardConflicts &&
+            candidateCorridorRisk === bestCorridorRisk &&
+            candidateEnvelopeScore < bestEnvelopeScore - 1e-6);
+
+        if (!isBetter) continue;
+
+        bestPlacement = candidate.placement;
+        bestIndex = index;
+        bestGeometry = candidateGeometryById;
+        bestHardConflicts = candidateHardConflicts;
+        bestCorridorRisk = candidateCorridorRisk;
+        bestEnvelopeScore = candidateEnvelopeScore;
+      }
+
+      if (
+        bestPlacement.centerX !== currentPlacement.centerX ||
+        bestPlacement.centerY !== currentPlacement.centerY
+      ) {
+        state.placementById.set(group.placeKey, bestPlacement);
+        state.candidateIndexById.set(group.placeKey, bestIndex);
+        geometryById = bestGeometry;
+        hardConflicts = bestHardConflicts;
+        corridorRisk = bestCorridorRisk;
+        envelopeScore = bestEnvelopeScore;
+        changed = true;
+      }
+    }
+
+    if (!changed) break;
+  }
+}
+
 function buildGeometryMapForPlacements(
   groups: PendingPlaceGroup[],
   placementById: Map<string, FootprintPlacement>,
@@ -664,6 +824,56 @@ function hasHardConflicts(
   return false;
 }
 
+function countCorridorRiskConflicts(
+  groups: PendingPlaceGroup[],
+  geometryById: Map<string, GroupGeometry>,
+  safeGap: number,
+  lockedGroups: LockedPlaceGroup[] = [],
+) {
+  let risk = 0;
+  const groupGap = Math.max(48, safeGap * 0.5);
+  const labelGap = Math.max(LABEL_GAP, safeGap + 16);
+
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const geometry = geometryById.get(group.placeKey);
+    if (!geometry) {
+      risk += 1;
+      continue;
+    }
+
+    for (let neighborIndex = index + 1; neighborIndex < groups.length; neighborIndex++) {
+      const neighbor = groups[neighborIndex];
+      const neighborGeometry = geometryById.get(neighbor.placeKey);
+      if (!neighborGeometry) {
+        risk += 1;
+        continue;
+      }
+      if (
+        rectsOverlap(geometry.groupRect, neighborGeometry.groupRect, groupGap) ||
+        rectsOverlap(geometry.labelRect, neighborGeometry.photoRect, labelGap) ||
+        rectsOverlap(neighborGeometry.labelRect, geometry.photoRect, labelGap) ||
+        rectsOverlap(geometry.labelRect, neighborGeometry.labelRect, labelGap)
+      ) {
+        risk += 1;
+      }
+    }
+
+    for (const locked of lockedGroups) {
+      if (
+        rectsOverlap(geometry.groupRect, locked.geometry.groupRect, groupGap) ||
+        rectsOverlap(geometry.labelRect, locked.geometry.photoRect, labelGap) ||
+        rectsOverlap(locked.geometry.labelRect, geometry.photoRect, labelGap) ||
+        rectsOverlap(geometry.labelRect, locked.geometry.labelRect, labelGap)
+      ) {
+        risk += 1;
+      }
+    }
+  }
+
+  return risk;
+}
+
 function scoreFinalLayoutEnvelope(
   groups: PendingPlaceGroup[],
   geometryById: Map<string, GroupGeometry>,
@@ -739,17 +949,31 @@ export function solvePendingGroupPlacements(
       centerY: placement.centerY,
     });
   });
+  const baseSectorCounts = Array.from({ length: GLOBAL_SECTOR_COUNT }, () => 0);
+  basePlacementById.forEach((placement) => {
+    baseSectorCounts[computeSectorIndex(Math.atan2(placement.centerY, placement.centerX))] += 1;
+  });
 
   const orderedGroups = [...groups].sort((left, right) => compareGroupOrder(left, right, basePlacementById));
   const candidatePoolById = new Map<string, PlacementCandidate[]>();
   for (const group of orderedGroups) {
     const basePlacement = basePlacementById.get(group.placeKey) ?? { centerX: 0, centerY: 0 };
-    candidatePoolById.set(group.placeKey, buildCandidatePool(group, basePlacement, mapRect));
+    const sectorDensity = baseSectorCounts[computeSectorIndex(Math.atan2(basePlacement.centerY, basePlacement.centerX))] ?? 0;
+    candidatePoolById.set(group.placeKey, buildCandidatePool(group, basePlacement, mapRect, sectorDensity));
   }
 
   const assignedState = assignInitialPlacements(orderedGroups, candidatePoolById, lockedGroups, safeGap);
   const workingState = assignedState ?? buildFallbackState(orderedGroups, basePlacementById, mapRect);
   optimizeAssignments(orderedGroups, candidatePoolById, workingState, lockedGroups, safeGap);
+  improveCorridorRisk(
+    orderedGroups,
+    candidatePoolById,
+    workingState,
+    mapRect,
+    safeGap,
+    labelGapBoost,
+    lockedGroups,
+  );
 
   const refinedPlacementById = refineRadialPlacements(
     orderedGroups,
@@ -791,12 +1015,35 @@ export function solvePendingGroupPlacements(
     safeGap,
     lockedGroups,
   );
+  const refinedCorridorRisk = countCorridorRiskConflicts(
+    orderedGroups,
+    refinedGeometryById,
+    safeGap,
+    lockedGroups,
+  );
+  const optimizedCorridorRisk = countCorridorRiskConflicts(
+    orderedGroups,
+    optimizedGeometryById,
+    safeGap,
+    lockedGroups,
+  );
   const refinedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, refinedGeometryById);
   const optimizedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, optimizedGeometryById);
   const shouldUseRefined =
     (!refinedHasHardConflicts && optimizedHasHardConflicts) ||
-    (!refinedHasHardConflicts && !optimizedHasHardConflicts && refinedEnvelopeScore <= optimizedEnvelopeScore * 1.04) ||
-    (refinedHasHardConflicts && optimizedHasHardConflicts && refinedEnvelopeScore < optimizedEnvelopeScore);
+    (refinedCorridorRisk < optimizedCorridorRisk) ||
+    (
+      refinedCorridorRisk === optimizedCorridorRisk &&
+      !refinedHasHardConflicts &&
+      !optimizedHasHardConflicts &&
+      refinedEnvelopeScore <= optimizedEnvelopeScore * 1.04
+    ) ||
+    (
+      refinedCorridorRisk === optimizedCorridorRisk &&
+      refinedHasHardConflicts &&
+      optimizedHasHardConflicts &&
+      refinedEnvelopeScore < optimizedEnvelopeScore
+    );
   const finalPlacements = shouldUseRefined
     ? refinedPlacementById
     : workingState.placementById;
