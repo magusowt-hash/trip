@@ -804,6 +804,27 @@ function rectOverlapsMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
   return rectsOverlap(rect, mapRect, gap);
 }
 
+function isLabelPlacementHardInvalid(
+  candidate: GroupGeometry,
+  occupied: GroupGeometry[],
+  gap: number,
+  mapRect?: LogicalRect,
+  mapGap?: number,
+) {
+  if (occupied.some((neighbor) => (
+    rectsOverlap(candidate.labelRect, neighbor.photoRect, gap) ||
+    rectsOverlap(candidate.labelRect, neighbor.labelRect, gap)
+  ))) {
+    return true;
+  }
+
+  if (mapRect && rectOverlapsMap(candidate.labelRect, mapRect, mapGap ?? gap)) {
+    return true;
+  }
+
+  return false;
+}
+
 export function resolveGroupGeometryAsWhole<T extends string = string>(
   entries: WholeGeometryEntry<T>[],
   options?: {
@@ -830,6 +851,10 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
     let bestScore = Number.POSITIVE_INFINITY;
 
     for (const candidate of candidates) {
+      if (isLabelPlacementHardInvalid(candidate, occupied, gap, options?.mapRect, mapGap)) {
+        continue;
+      }
+
       let score = scoreGroupGeometryPlacement(candidate, occupied, gap, { labelGapBoost });
 
       const nearbySameSidePenalty = occupied.reduce((sum, neighbor) => {
@@ -859,6 +884,10 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
         bestScore = score;
         chosen = candidate;
       }
+    }
+
+    if (bestScore === Number.POSITIVE_INFINITY) {
+      chosen = candidates[0];
     }
 
     resolved.set(entry.id, chosen);

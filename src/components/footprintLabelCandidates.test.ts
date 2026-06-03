@@ -56,5 +56,60 @@ test('geometry candidates include both label sides so whole-layout resolution ca
 
   assert.ok(resolvedLeft);
   assert.ok(resolvedRight);
-  assert.notEqual(resolvedLeft!.labelSide, resolvedRight!.labelSide);
+  assert.equal(
+    !(
+      resolvedLeft!.labelRect.right > resolvedRight!.labelRect.left &&
+      resolvedRight!.labelRect.right > resolvedLeft!.labelRect.left &&
+      resolvedLeft!.labelRect.bottom > resolvedRight!.labelRect.top &&
+      resolvedRight!.labelRect.bottom > resolvedLeft!.labelRect.top
+    ),
+    true,
+  );
+});
+
+test('whole-layout label resolution rejects candidates that overlap another label or the map', () => {
+  const mapRect = rect(-120, -120, 120, 120);
+  const left = buildGroupGeometryFromPhotoRect(
+    rect(-260, -40, -140, 40),
+    'left',
+    4,
+    1,
+    'bottom',
+    0,
+    mapRect,
+  );
+  const right = buildGroupGeometryFromPhotoRect(
+    rect(140, -40, 260, 40),
+    'right',
+    4,
+    1,
+    'bottom',
+    0,
+    mapRect,
+  );
+
+  const resolved = resolveGroupGeometryAsWhole(
+    [
+      { id: 'left', geometry: left, candidates: buildGroupGeometryCandidatesFromGeometry(left) },
+      { id: 'right', geometry: right, candidates: buildGroupGeometryCandidatesFromGeometry(right) },
+    ],
+    { gap: 24, mapRect, mapGap: 128 },
+  );
+
+  const resolvedLeft = resolved.get('left');
+  const resolvedRight = resolved.get('right');
+
+  assert.ok(resolvedLeft);
+  assert.ok(resolvedRight);
+  assert.ok(resolvedLeft!.labelRect.right <= mapRect.left || resolvedLeft!.labelRect.left >= mapRect.right);
+  assert.ok(resolvedRight!.labelRect.right <= mapRect.left || resolvedRight!.labelRect.left >= mapRect.right);
+  assert.equal(
+    !(
+      resolvedLeft!.labelRect.right > resolvedRight!.labelRect.left &&
+      resolvedRight!.labelRect.right > resolvedLeft!.labelRect.left &&
+      resolvedLeft!.labelRect.bottom > resolvedRight!.labelRect.top &&
+      resolvedRight!.labelRect.bottom > resolvedLeft!.labelRect.top
+    ),
+    true,
+  );
 });
