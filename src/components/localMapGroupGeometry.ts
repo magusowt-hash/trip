@@ -41,6 +41,14 @@ type WholeGeometryEntry<T extends string = string> = {
   candidates?: GroupGeometry[];
 };
 
+type LabelLayoutEntry = {
+  placeKey: string;
+  geometry: GroupGeometry;
+  title: string;
+  photoCount: number;
+  scale: number;
+};
+
 export const GROUP_LABEL_FONT_SCREEN_SIZE = 10;
 export const GROUP_LABEL_MIN_FONT_SCREEN_SIZE = 9;
 export const GROUP_LABEL_LINE_HEIGHT_SCREEN = 13;
@@ -63,6 +71,12 @@ const SMALL_GROUP_TIGHTEN_MAX = 0.7;
 const HARD_OVERLAP_WEIGHT = 1000;
 const SOFT_GAP_WEIGHT = 20;
 const BOTTOM_SECTOR_HALF_ANGLE = Math.PI / 4;
+
+type LabelPlacementGapPolicy = {
+  labelPhotoGap: number;
+  labelGap: number;
+  mapGap: number;
+};
 
 function toLogicalScreenSize(screenSize: number, scale: number) {
   return screenSize / Math.max(scale, 0.1);
@@ -626,13 +640,7 @@ export function buildGroupGeometryFromLayout(
 }
 
 export function resolveGroupLabelLayouts(
-  entries: Array<{
-    placeKey: string;
-    geometry: GroupGeometry;
-    title: string;
-    photoCount: number;
-    scale: number;
-  }>,
+  entries: LabelLayoutEntry[],
   options?: {
     gap?: number;
     mapRect?: LogicalRect;
@@ -644,16 +652,17 @@ export function resolveGroupLabelLayouts(
 ) {
   const gap = options?.gap ?? 10;
   const mapGap = options?.mapGap ?? gap;
+  const gapPolicy = buildLabelPlacementGapPolicy(gap, mapGap);
   const step = options?.step ?? 8;
   const maxOffset = options?.maxOffset ?? 120;
   const labelGapBoost = options?.labelGapBoost ?? 0;
-  const resolved = new Map<string, GroupLayoutSnapshot>();
-  const occupied: GroupGeometry[] = [];
   const sortedEntries = [...entries].sort((left, right) => (
     rectDistanceToCenter(right.geometry.photoRect) - rectDistanceToCenter(left.geometry.photoRect) ||
     left.geometry.photoRect.top - right.geometry.photoRect.top ||
     left.geometry.photoCenterX - right.geometry.photoCenterX
   ));
+  const resolved = new Map<string, GroupGeometry>();
+  const candidateEntries: Array<{ id: string; geometry: GroupGeometry; candidates: GroupGeometry[] }> = [];
 
   for (const entry of sortedEntries) {
     const candidates: GroupGeometry[] = [];
@@ -702,50 +711,57 @@ export function resolveGroupLabelLayouts(
         );
       }
     }
-
-    let chosen = candidates[0] ?? entry.geometry;
-    let bestScore = Number.POSITIVE_INFINITY;
-
-    for (const candidate of candidates) {
-      if (isLabelPlacementHardInvalid(candidate, occupied, gap, options?.mapRect, mapGap)) {
-        continue;
-      }
-
-      let score = scoreGroupGeometryPlacement(candidate, occupied, gap, { labelGapBoost });
-
-      if (options?.mapRect) {
-        if (rectOverlapsMap(candidate.overallRect, options.mapRect, mapGap)) {
-          score += 500000;
-        }
-      }
-
-      const candidateOffset =
-        candidate.labelSide === 'top'
-          ? Math.max(0, candidate.photoRect.top - candidate.lineAnchorY)
-          : Math.max(0, candidate.lineAnchorY - candidate.photoRect.bottom);
-      score += candidateOffset * 0.6;
-
-      if (candidate.labelSide !== entry.geometry.labelSide) {
-        score += 24;
-      }
-
-      if (score < bestScore) {
-        bestScore = score;
-        chosen = candidate;
-      }
-
-      if (score === 0) break;
-    }
-
-    if (bestScore === Number.POSITIVE_INFINITY) {
-      chosen = candidates[0] ?? entry.geometry;
-    }
-
-    occupied.push(chosen);
-    resolved.set(entry.placeKey, createGroupLayoutSnapshot(entry.placeKey, chosen));
+    candidateEntries.push({ id: entry.placeKey, geometry: entry.geometry, candidates });
   }
 
-  return resolved;
+  for (const entry of candidateEntries) {
+    const occupied = candidateEntries
+      .filter((candidate) => candidate.id !== entry.id)
+      .map((candidate) => resolved.get(candidate.id))
+      .filter((candidate): candidate is GroupGeometry => candidate != null);
+    const chosen = pickBestResolvedCandidate(
+      entry.candidates,
+      occupied,
+      entry.geometry,
+      gap,
+      gapPolicy,
+      labelGapBoost,
+      options?.mapRect,
+      mapGap,
+    );
+    resolved.set(entry.id, chosen);
+  }
+
+  optimizeResolvedAssignments(
+    candidateEntries,
+    resolved,
+    gap,
+    gapPolicy,
+    labelGapBoost,
+    options?.mapRect,
+    mapGap,
+  );
+
+  const searched = searchResolvedAssignments(
+    candidateEntries,
+    gap,
+    gapPolicy,
+    labelGapBoost,
+    options?.mapRect,
+    mapGap,
+  );
+  if (searched) {
+    searched.forEach((geometry, placeKey) => {
+      resolved.set(placeKey, geometry);
+    });
+  }
+
+  return new Map(
+    Array.from(resolved.entries()).map(([placeKey, geometry]) => [
+      placeKey,
+      createGroupLayoutSnapshot(placeKey, geometry),
+    ]),
+  );
 }
 
 export function shiftGroupGeometryDown(
@@ -859,6 +875,34 @@ function rectOverlapsMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
   return rectsOverlap(rect, mapRect, gap);
 }
 
+function buildLabelPlacementGapPolicy(
+  safeGap: number,
+  mapGap: number,
+): LabelPlacementGapPolicy {
+  return {
+    labelPhotoGap: Math.max(18, safeGap + 16),
+    labelGap: Math.max(16, safeGap + 16),
+    mapGap,
+  };
+}
+
+function scorePlacementGapViolation(
+  left: LogicalRect,
+  right: LogicalRect,
+  safeGap: number,
+  weight: number,
+) {
+  const overlapArea = rectOverlapArea(left, right);
+  if (overlapArea > 0) {
+    return overlapArea * HARD_OVERLAP_WEIGHT * weight * 4;
+  }
+
+  const gapDistance = rectGapDistance(left, right);
+  if (gapDistance >= safeGap) return 0;
+  const deficit = safeGap - gapDistance;
+  return deficit * deficit * SOFT_GAP_WEIGHT * weight * 10;
+}
+
 function computeMapClearanceOffset(
   candidate: GroupGeometry,
   mapRect?: LogicalRect,
@@ -874,22 +918,301 @@ function computeMapClearanceOffset(
 function isLabelPlacementHardInvalid(
   candidate: GroupGeometry,
   occupied: GroupGeometry[],
-  gap: number,
+  gapPolicy: LabelPlacementGapPolicy,
   mapRect?: LogicalRect,
-  mapGap?: number,
 ) {
   if (occupied.some((neighbor) => (
-    rectsOverlap(candidate.labelRect, neighbor.photoRect, gap) ||
-    rectsOverlap(candidate.labelRect, neighbor.labelRect, gap)
+    rectsOverlap(candidate.labelRect, neighbor.photoRect, gapPolicy.labelPhotoGap) ||
+    rectsOverlap(candidate.labelRect, neighbor.labelRect, gapPolicy.labelGap)
   ))) {
     return true;
   }
 
-  if (mapRect && rectOverlapsMap(candidate.labelRect, mapRect, mapGap ?? gap)) {
+  if (mapRect && rectOverlapsMap(candidate.labelRect, mapRect, gapPolicy.mapGap)) {
     return true;
   }
 
   return false;
+}
+
+function scoreLabelPlacementPenalties(
+  candidate: GroupGeometry,
+  occupied: GroupGeometry[],
+  gapPolicy: LabelPlacementGapPolicy,
+  mapRect?: LogicalRect,
+) {
+  let penalty = 0;
+  const overlapsMap = mapRect
+    ? rectOverlapsMap(candidate.labelRect, mapRect, gapPolicy.mapGap)
+    : false;
+
+  for (const neighbor of occupied) {
+    penalty += scorePlacementGapViolation(
+      candidate.labelRect,
+      neighbor.photoRect,
+      gapPolicy.labelPhotoGap,
+      1.6,
+    );
+    penalty += scorePlacementGapViolation(
+      candidate.labelRect,
+      neighbor.labelRect,
+      gapPolicy.labelGap,
+      1.4,
+    );
+  }
+
+  if (mapRect) {
+    penalty += scorePlacementGapViolation(
+      candidate.labelRect,
+      mapRect,
+      gapPolicy.mapGap,
+      4.2,
+    );
+  }
+
+  return penalty + (overlapsMap ? 10_000_000 : 0);
+}
+
+function scoreResolvedCandidate(
+  candidate: GroupGeometry,
+  occupied: GroupGeometry[],
+  baseGeometry: GroupGeometry,
+  safeGap: number,
+  gapPolicy: LabelPlacementGapPolicy,
+  labelGapBoost: number,
+  mapRect?: LogicalRect,
+  mapGap?: number,
+) {
+  let score = scoreGroupGeometryPlacement(candidate, occupied, safeGap, { labelGapBoost });
+  const hardInvalid = isLabelPlacementHardInvalid(candidate, occupied, gapPolicy, mapRect);
+  const hardPenalty = scoreLabelPlacementPenalties(candidate, occupied, gapPolicy, mapRect);
+
+  const nearbySameSidePenalty = occupied.reduce((sum, neighbor) => {
+    if (neighbor.labelSide !== candidate.labelSide) return sum;
+    const centerDistance = Math.hypot(
+      candidate.photoCenterX - neighbor.photoCenterX,
+      candidate.photoCenterY - neighbor.photoCenterY,
+    );
+    if (centerDistance >= safeGap * 14) return sum;
+    return sum + Math.max(0, safeGap * 14 - centerDistance) * 12;
+  }, 0);
+  score += nearbySameSidePenalty;
+
+  if (mapRect && mapGap != null && rectOverlapsMap(candidate.overallRect, mapRect, mapGap)) {
+    score += 500000;
+  }
+
+  const candidateOffset =
+    candidate.labelSide === 'top'
+      ? Math.max(0, candidate.photoRect.top - candidate.lineAnchorY)
+      : Math.max(0, candidate.lineAnchorY - candidate.photoRect.bottom);
+  score += candidateOffset * 0.6;
+
+  if (candidate.labelSide !== baseGeometry.labelSide) {
+    score += 24;
+  }
+
+  return {
+    hardInvalid,
+    preferredScore: score,
+    fallbackScore: score + hardPenalty,
+  };
+}
+
+function pickBestResolvedCandidate(
+  candidates: GroupGeometry[],
+  occupied: GroupGeometry[],
+  baseGeometry: GroupGeometry,
+  safeGap: number,
+  gapPolicy: LabelPlacementGapPolicy,
+  labelGapBoost: number,
+  mapRect?: LogicalRect,
+  mapGap?: number,
+) {
+  let chosen = candidates[0] ?? baseGeometry;
+  let bestPreferredScore = Number.POSITIVE_INFINITY;
+  let bestFallbackScore = Number.POSITIVE_INFINITY;
+
+  for (const candidate of candidates) {
+    const evaluation = scoreResolvedCandidate(
+      candidate,
+      occupied,
+      baseGeometry,
+      safeGap,
+      gapPolicy,
+      labelGapBoost,
+      mapRect,
+      mapGap,
+    );
+
+    if (evaluation.fallbackScore < bestFallbackScore) {
+      bestFallbackScore = evaluation.fallbackScore;
+      chosen = candidate;
+    }
+
+    if (evaluation.hardInvalid) continue;
+
+    if (evaluation.preferredScore < bestPreferredScore) {
+      bestPreferredScore = evaluation.preferredScore;
+      chosen = candidate;
+    }
+  }
+
+  return chosen;
+}
+
+function optimizeResolvedAssignments<T extends string>(
+  orderedEntries: Array<{ id: T; geometry: GroupGeometry; candidates: GroupGeometry[] }>,
+  resolved: Map<T, GroupGeometry>,
+  safeGap: number,
+  gapPolicy: LabelPlacementGapPolicy,
+  labelGapBoost: number,
+  mapRect?: LogicalRect,
+  mapGap?: number,
+) {
+  for (let iteration = 0; iteration < 4; iteration++) {
+    let changed = false;
+
+    for (const entry of orderedEntries) {
+      const occupied = orderedEntries
+        .filter((candidate) => candidate.id !== entry.id)
+        .map((candidate) => resolved.get(candidate.id))
+        .filter((candidate): candidate is GroupGeometry => candidate != null);
+
+      const next = pickBestResolvedCandidate(
+        entry.candidates,
+        occupied,
+        entry.geometry,
+        safeGap,
+        gapPolicy,
+        labelGapBoost,
+        mapRect,
+        mapGap,
+      );
+      const current = resolved.get(entry.id);
+
+      if (!current || current !== next) {
+        resolved.set(entry.id, next);
+        changed = true;
+      }
+    }
+
+    if (!changed) break;
+  }
+}
+
+function computeResolvedTotalScore<T extends string>(
+  orderedEntries: Array<{ id: T; geometry: GroupGeometry; candidates: GroupGeometry[] }>,
+  resolved: Map<T, GroupGeometry>,
+  safeGap: number,
+  gapPolicy: LabelPlacementGapPolicy,
+  labelGapBoost: number,
+  mapRect?: LogicalRect,
+  mapGap?: number,
+) {
+  let total = 0;
+
+  for (const entry of orderedEntries) {
+    const candidate = resolved.get(entry.id);
+    if (!candidate) continue;
+    const occupied = orderedEntries
+      .filter((neighbor) => neighbor.id !== entry.id)
+      .map((neighbor) => resolved.get(neighbor.id))
+      .filter((neighbor): neighbor is GroupGeometry => neighbor != null);
+    total += scoreResolvedCandidate(
+      candidate,
+      occupied,
+      entry.geometry,
+      safeGap,
+      gapPolicy,
+      labelGapBoost,
+      mapRect,
+      mapGap,
+    ).fallbackScore;
+  }
+
+  return total;
+}
+
+function searchResolvedAssignments<T extends string>(
+  orderedEntries: Array<{ id: T; geometry: GroupGeometry; candidates: GroupGeometry[] }>,
+  safeGap: number,
+  gapPolicy: LabelPlacementGapPolicy,
+  labelGapBoost: number,
+  mapRect?: LogicalRect,
+  mapGap?: number,
+) {
+  if (orderedEntries.length === 0 || orderedEntries.length > 8) return null;
+
+  const rankedEntries = orderedEntries.map((entry) => ({
+    ...entry,
+    candidates: entry.candidates
+      .map((candidate) => ({
+        candidate,
+        score: scoreResolvedCandidate(
+          candidate,
+          [],
+          entry.geometry,
+          safeGap,
+          gapPolicy,
+          labelGapBoost,
+          mapRect,
+          mapGap,
+        ).fallbackScore,
+      }))
+      .sort((left, right) => left.score - right.score)
+      .slice(0, 6)
+      .map((item) => item.candidate),
+  }));
+
+  let bestScore = Number.POSITIVE_INFINITY;
+  let best: Map<T, GroupGeometry> | null = null;
+  const partial = new Map<T, GroupGeometry>();
+
+  function dfs(index: number) {
+    if (index >= rankedEntries.length) {
+      const totalScore = computeResolvedTotalScore(
+        rankedEntries,
+        partial,
+        safeGap,
+        gapPolicy,
+        labelGapBoost,
+        mapRect,
+        mapGap,
+      );
+      if (totalScore < bestScore) {
+        bestScore = totalScore;
+        best = new Map(partial);
+      }
+      return;
+    }
+
+    const entry = rankedEntries[index]!;
+    const occupied = rankedEntries
+      .slice(0, index)
+      .map((neighbor) => partial.get(neighbor.id))
+      .filter((neighbor): neighbor is GroupGeometry => neighbor != null);
+
+    for (const candidate of entry.candidates) {
+      const evaluation = scoreResolvedCandidate(
+        candidate,
+        occupied,
+        entry.geometry,
+        safeGap,
+        gapPolicy,
+        labelGapBoost,
+        mapRect,
+        mapGap,
+      );
+      if (evaluation.fallbackScore >= bestScore) continue;
+      partial.set(entry.id, candidate);
+      dfs(index + 1);
+      partial.delete(entry.id);
+    }
+  }
+
+  dfs(0);
+  return best;
 }
 
 export function resolveGroupGeometryAsWhole<T extends string = string>(
@@ -903,62 +1226,60 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
 ) {
   const gap = options?.gap ?? 10;
   const mapGap = options?.mapGap ?? gap;
+  const gapPolicy = buildLabelPlacementGapPolicy(gap, mapGap);
   const labelGapBoost = options?.labelGapBoost ?? 0;
-  const resolved = new Map<T, GroupGeometry>();
-  const occupied: GroupGeometry[] = [];
   const sortedEntries = [...entries].sort((left, right) => (
     rectDistanceToCenter(right.geometry.photoRect) - rectDistanceToCenter(left.geometry.photoRect) ||
     left.geometry.photoRect.top - right.geometry.photoRect.top ||
     left.geometry.photoCenterX - right.geometry.photoCenterX
   ));
+  const candidateEntries = sortedEntries.map((entry) => ({
+    id: entry.id,
+    geometry: entry.geometry,
+    candidates: entry.candidates?.length ? entry.candidates : [buildSingleSideGroupGeometryFromGeometry(entry.geometry)],
+  }));
+  const resolved = new Map<T, GroupGeometry>();
 
-  for (const entry of sortedEntries) {
-    const candidates = entry.candidates?.length ? entry.candidates : [buildSingleSideGroupGeometryFromGeometry(entry.geometry)];
-    let chosen = candidates[0];
-    let bestScore = Number.POSITIVE_INFINITY;
-
-    for (const candidate of candidates) {
-      if (isLabelPlacementHardInvalid(candidate, occupied, gap, options?.mapRect, mapGap)) {
-        continue;
-      }
-
-      let score = scoreGroupGeometryPlacement(candidate, occupied, gap, { labelGapBoost });
-
-      const nearbySameSidePenalty = occupied.reduce((sum, neighbor) => {
-        if (neighbor.labelSide !== candidate.labelSide) return sum;
-        const centerDistance = Math.hypot(
-          candidate.photoCenterX - neighbor.photoCenterX,
-          candidate.photoCenterY - neighbor.photoCenterY,
-        );
-        if (centerDistance >= gap * 14) return sum;
-        return sum + Math.max(0, gap * 14 - centerDistance) * 12;
-      }, 0);
-      score += nearbySameSidePenalty;
-
-      if (options?.mapRect) {
-        if (rectOverlapsMap(candidate.overallRect, options.mapRect, mapGap)) {
-          score += 500000;
-        }
-      }
-
-      score += rectDistanceToCenter(candidate.overallRect) * 0.08;
-
-      if (candidate.labelSide !== entry.geometry.labelSide) {
-        score += 24;
-      }
-
-      if (score < bestScore) {
-        bestScore = score;
-        chosen = candidate;
-      }
-    }
-
-    if (bestScore === Number.POSITIVE_INFINITY) {
-      chosen = candidates[0];
-    }
-
+  for (const entry of candidateEntries) {
+    const occupied = candidateEntries
+      .filter((candidate) => candidate.id !== entry.id)
+      .map((candidate) => resolved.get(candidate.id))
+      .filter((candidate): candidate is GroupGeometry => candidate != null);
+    const chosen = pickBestResolvedCandidate(
+      entry.candidates,
+      occupied,
+      entry.geometry,
+      gap,
+      gapPolicy,
+      labelGapBoost,
+      options?.mapRect,
+      mapGap,
+    );
     resolved.set(entry.id, chosen);
-    occupied.push(chosen);
+  }
+
+  optimizeResolvedAssignments(
+    candidateEntries,
+    resolved,
+    gap,
+    gapPolicy,
+    labelGapBoost,
+    options?.mapRect,
+    mapGap,
+  );
+
+  const searched = searchResolvedAssignments(
+    candidateEntries,
+    gap,
+    gapPolicy,
+    labelGapBoost,
+    options?.mapRect,
+    mapGap,
+  );
+  if (searched) {
+    searched.forEach((geometry, id) => {
+      resolved.set(id, geometry);
+    });
   }
 
   return resolved;

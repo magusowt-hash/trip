@@ -48,6 +48,37 @@ type CandidateEvaluation = {
   score: number;
 };
 
+function getPhotoGap(safeGap: number) {
+  return Math.max(GROUP_GAP, safeGap);
+}
+
+function getLabelGap(safeGap: number) {
+  return Math.max(LABEL_GAP, safeGap + 16);
+}
+
+function getLabelPressurePenalty(
+  candidate: GroupGeometry,
+  neighbor: GroupGeometry,
+  safeGap: number,
+) {
+  const targetGap = getLabelGap(safeGap);
+  const photoLabelDistance = rectDistanceToMap(candidate.labelRect, neighbor.photoRect);
+  const reversePhotoLabelDistance = rectDistanceToMap(candidate.photoRect, neighbor.labelRect);
+  const labelDistance = rectDistanceToMap(candidate.labelRect, neighbor.labelRect);
+
+  let penalty = 0;
+  if (photoLabelDistance < targetGap) {
+    penalty += (targetGap - photoLabelDistance) * (targetGap - photoLabelDistance) * 1.8;
+  }
+  if (reversePhotoLabelDistance < targetGap) {
+    penalty += (targetGap - reversePhotoLabelDistance) * (targetGap - reversePhotoLabelDistance) * 1.8;
+  }
+  if (labelDistance < targetGap) {
+    penalty += (targetGap - labelDistance) * (targetGap - labelDistance) * 1.5;
+  }
+  return penalty;
+}
+
 function normalizeAngle(angle: number) {
   const fullTurn = Math.PI * 2;
   const normalized = angle % fullTurn;
@@ -333,10 +364,13 @@ function evaluateCandidate(
   groups: PendingPlaceGroup[],
   state: PlacementState,
   lockedGroups: LockedPlaceGroup[],
+  safeGap: number,
 ) : CandidateEvaluation {
   const line = buildLine(group, candidate.geometry);
   let bundlePenalty = 0;
   let densityPenalty = 0;
+  const photoGap = getPhotoGap(safeGap);
+  const labelGap = getLabelGap(safeGap);
 
   for (const neighbor of groups) {
     if (neighbor.placeKey === group.placeKey) continue;
@@ -344,12 +378,14 @@ function evaluateCandidate(
     const neighborGeometry = state.geometryById.get(neighbor.placeKey);
     if (!neighborPlacement || !neighborGeometry) continue;
 
-    const photoOverlap = rectOverlapsOccupiedPhotos(candidate.geometry.photoRect, [neighborGeometry], GROUP_GAP);
-    const labelOverlap = hasLabelCollisions(candidate.geometry, [neighborGeometry], LABEL_GAP);
-    const photoLabelOverlap = hasPhotoAgainstLabelCollisions(candidate.geometry, [neighborGeometry], LABEL_GAP);
+    const photoOverlap = rectOverlapsOccupiedPhotos(candidate.geometry.photoRect, [neighborGeometry], photoGap);
+    const labelOverlap = hasLabelCollisions(candidate.geometry, [neighborGeometry], labelGap);
+    const photoLabelOverlap = hasPhotoAgainstLabelCollisions(candidate.geometry, [neighborGeometry], labelGap);
     if (photoOverlap || labelOverlap || photoLabelOverlap) {
       return { valid: false, score: Number.POSITIVE_INFINITY };
     }
+
+    densityPenalty += getLabelPressurePenalty(candidate.geometry, neighborGeometry, safeGap);
 
     const neighborLine = buildLine(neighbor, neighborGeometry);
     if (segmentsIntersect(line.start, line.end, neighborLine.start, neighborLine.end)) {
@@ -389,12 +425,14 @@ function evaluateCandidate(
   }
 
   for (const locked of lockedGroups) {
-    const photoOverlap = rectOverlapsOccupiedPhotos(candidate.geometry.photoRect, [locked.geometry], GROUP_GAP);
-    const labelOverlap = hasLabelCollisions(candidate.geometry, [locked.geometry], LABEL_GAP);
-    const photoLabelOverlap = hasPhotoAgainstLabelCollisions(candidate.geometry, [locked.geometry], LABEL_GAP);
+    const photoOverlap = rectOverlapsOccupiedPhotos(candidate.geometry.photoRect, [locked.geometry], photoGap);
+    const labelOverlap = hasLabelCollisions(candidate.geometry, [locked.geometry], labelGap);
+    const photoLabelOverlap = hasPhotoAgainstLabelCollisions(candidate.geometry, [locked.geometry], labelGap);
     if (photoOverlap || labelOverlap || photoLabelOverlap) {
       return { valid: false, score: Number.POSITIVE_INFINITY };
     }
+
+    densityPenalty += getLabelPressurePenalty(candidate.geometry, locked.geometry, safeGap);
 
     const lockedLine = buildLine(locked, locked.geometry);
     if (segmentsIntersect(line.start, line.end, lockedLine.start, lockedLine.end)) {
@@ -426,6 +464,7 @@ function assignInitialPlacements(
   orderedGroups: PendingPlaceGroup[],
   candidatePoolById: Map<string, PlacementCandidate[]>,
   lockedGroups: LockedPlaceGroup[],
+  safeGap: number,
 ) {
   let bestState: PlacementState | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
@@ -454,7 +493,7 @@ function assignInitialPlacements(
       for (let step = 0; step < candidates.length; step++) {
         const index = (step + offset) % candidates.length;
         const candidate = candidates[index];
-        const evaluation = evaluateCandidate(group, candidate, orderedGroups, state, lockedGroups);
+        const evaluation = evaluateCandidate(group, candidate, orderedGroups, state, lockedGroups, safeGap);
         if (!evaluation.valid) continue;
         if (evaluation.score < bestCandidateScore) {
           bestCandidateScore = evaluation.score;
@@ -489,6 +528,7 @@ function reassignGroup(
   candidatePoolById: Map<string, PlacementCandidate[]>,
   state: PlacementState,
   lockedGroups: LockedPlaceGroup[],
+  safeGap: number,
 ) {
   const currentIndex = state.candidateIndexById.get(group.placeKey) ?? 0;
   const candidates = candidatePoolById.get(group.placeKey) ?? [];
@@ -496,7 +536,7 @@ function reassignGroup(
 
   const currentCandidate = candidates[currentIndex];
   const currentScore = currentCandidate
-    ? evaluateCandidate(group, currentCandidate, groups, state, lockedGroups)
+    ? evaluateCandidate(group, currentCandidate, groups, state, lockedGroups, safeGap)
     : { valid: false, score: Number.POSITIVE_INFINITY };
 
   let bestIndex = currentIndex;
@@ -507,7 +547,7 @@ function reassignGroup(
 
   for (let index = 0; index < candidates.length; index++) {
     const candidate = candidates[index];
-    const evaluation = evaluateCandidate(group, candidate, groups, state, lockedGroups);
+    const evaluation = evaluateCandidate(group, candidate, groups, state, lockedGroups, safeGap);
     if (!evaluation.valid) continue;
     if (evaluation.score < bestScore - 1e-6) {
       bestScore = evaluation.score;
@@ -530,11 +570,12 @@ function optimizeAssignments(
   candidatePoolById: Map<string, PlacementCandidate[]>,
   state: PlacementState,
   lockedGroups: LockedPlaceGroup[],
+  safeGap: number,
 ) {
   for (let iteration = 0; iteration < REBALANCE_ITERATION_COUNT; iteration++) {
     let changed = false;
     for (const group of orderedGroups) {
-      if (reassignGroup(group, orderedGroups, candidatePoolById, state, lockedGroups)) {
+      if (reassignGroup(group, orderedGroups, candidatePoolById, state, lockedGroups, safeGap)) {
         changed = true;
       }
     }
@@ -706,9 +747,9 @@ export function solvePendingGroupPlacements(
     candidatePoolById.set(group.placeKey, buildCandidatePool(group, basePlacement, mapRect));
   }
 
-  const assignedState = assignInitialPlacements(orderedGroups, candidatePoolById, lockedGroups);
+  const assignedState = assignInitialPlacements(orderedGroups, candidatePoolById, lockedGroups, safeGap);
   const workingState = assignedState ?? buildFallbackState(orderedGroups, basePlacementById, mapRect);
-  optimizeAssignments(orderedGroups, candidatePoolById, workingState, lockedGroups);
+  optimizeAssignments(orderedGroups, candidatePoolById, workingState, lockedGroups, safeGap);
 
   const refinedPlacementById = refineRadialPlacements(
     orderedGroups,
