@@ -1086,7 +1086,7 @@ function applyGlobalCompactionPass(
     const currentPlacement = nextPlacementById.get(group.placeKey);
     if (!currentPlacement) continue;
     const basePlacement = basePlacementById.get(group.placeKey) ?? currentPlacement;
-    const occupiedGeometries = buildOccupiedGeometriesForGroup(groups, nextPlacementById, group.placeKey);
+    const occupiedGeometries = buildOccupiedGeometriesForGroup(groups, nextPlacementById, group.placeKey, safeGap);
 
     const compacted = findMinimalFeasibleRadius(
       group,
