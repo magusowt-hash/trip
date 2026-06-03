@@ -29,6 +29,10 @@ type LocalMapLayoutRecord = {
   staggerAxis: LocalMapStaggerAxis;
 };
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 function normalizeRootName(value: unknown): string {
   if (typeof value !== 'string') return '';
   return value.trim().replace(/\\/g, '/');
@@ -205,6 +209,9 @@ export async function POST(req: NextRequest) {
     const unmatchedFolders = Array.isArray(body?.unmatchedFolders)
       ? body.unmatchedFolders.filter((item: unknown): item is string => typeof item === 'string')
       : [];
+    const deletedRelativePaths = Array.isArray(body?.deletedRelativePaths)
+      ? body.deletedRelativePaths.filter(isNonEmptyString).map((item) => item.trim())
+      : [];
     const layout = parseLayout(body?.layout);
 
     if (!rootName) {
@@ -270,12 +277,15 @@ export async function POST(req: NextRequest) {
           layoutStaggerAxis: layout?.staggerAxis ?? null,
         })
         .where(eq(localMapRoots.id, rootId));
+    }
 
+    if (deletedRelativePaths.length > 0) {
       await db
         .delete(localMapAssets)
         .where(and(
           eq(localMapAssets.userId, auth.userId),
           eq(localMapAssets.rootId, rootId),
+          inArray(localMapAssets.relativePath, deletedRelativePaths),
           groupFootprintItemIds.length > 0
             ? inArray(localMapAssets.footprintItemId, groupFootprintItemIds)
             : eq(localMapAssets.footprintItemId, -1),
@@ -283,22 +293,61 @@ export async function POST(req: NextRequest) {
     }
 
     if (assets.length > 0) {
-      await db.insert(localMapAssets).values(
-        assets.map((asset) => ({
-          userId: auth.userId,
-          rootId,
-          footprintItemId: asset.footprintItemId,
-          relativePath: asset.relativePath,
-          folderName: asset.folderName,
-          name: asset.name,
-          size: asset.size,
-          lastModified: asset.lastModified,
-          frameX: asset.frameX,
-          frameY: asset.frameY,
-          pixelWidth: asset.pixelWidth ?? null,
-          pixelHeight: asset.pixelHeight ?? null,
-        })),
-      );
+      const existingAssets = await db
+        .select({
+          id: localMapAssets.id,
+          relativePath: localMapAssets.relativePath,
+        })
+        .from(localMapAssets)
+        .where(and(
+          eq(localMapAssets.userId, auth.userId),
+          eq(localMapAssets.rootId, rootId),
+          inArray(localMapAssets.relativePath, assets.map((asset) => asset.relativePath)),
+          groupFootprintItemIds.length > 0
+            ? inArray(localMapAssets.footprintItemId, groupFootprintItemIds)
+            : eq(localMapAssets.footprintItemId, -1),
+        ));
+      const existingByRelativePath = new Map(existingAssets.map((asset) => [asset.relativePath, asset.id]));
+
+      const toInsert = assets.filter((asset) => !existingByRelativePath.has(asset.relativePath));
+      const toUpdate = assets.filter((asset) => existingByRelativePath.has(asset.relativePath));
+
+      if (toInsert.length > 0) {
+        await db.insert(localMapAssets).values(
+          toInsert.map((asset) => ({
+            userId: auth.userId,
+            rootId,
+            footprintItemId: asset.footprintItemId,
+            relativePath: asset.relativePath,
+            folderName: asset.folderName,
+            name: asset.name,
+            size: asset.size,
+            lastModified: asset.lastModified,
+            frameX: asset.frameX,
+            frameY: asset.frameY,
+            pixelWidth: asset.pixelWidth ?? null,
+            pixelHeight: asset.pixelHeight ?? null,
+          })),
+        );
+      }
+
+      for (const asset of toUpdate) {
+        await db
+          .update(localMapAssets)
+          .set({
+            footprintItemId: asset.footprintItemId,
+            folderName: asset.folderName,
+            name: asset.name,
+            size: asset.size,
+            lastModified: asset.lastModified,
+            frameX: asset.frameX,
+            frameY: asset.frameY,
+            pixelWidth: asset.pixelWidth ?? null,
+            pixelHeight: asset.pixelHeight ?? null,
+            updatedAt: new Date(),
+          })
+          .where(eq(localMapAssets.id, existingByRelativePath.get(asset.relativePath)!));
+      }
     }
 
     const knownRoots = await listKnownRootsForScope(auth.userId, groupId);
