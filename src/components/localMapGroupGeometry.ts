@@ -385,12 +385,12 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   );
   const labelHalfHeight = labelLayout.height / 2;
 
-  const buildForSide = (labelSide: GroupLabelSide): GroupGeometry => {
+  const buildForSide = (labelSide: GroupLabelSide, extraOffset = 0): GroupGeometry => {
     const lineAnchorX = photoCenter.x;
     const lineAnchorY =
       labelSide === 'top'
-        ? photoRect.top - photoToLineGap - fixedLabelOffset
-        : photoRect.bottom + photoToLineGap + fixedLabelOffset;
+        ? photoRect.top - photoToLineGap - fixedLabelOffset - extraOffset
+        : photoRect.bottom + photoToLineGap + fixedLabelOffset + extraOffset;
     const labelAnchorX = photoCenter.x;
     const labelAnchorY =
       labelSide === 'top'
@@ -428,7 +428,17 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   };
 
   const preferredSide = fixedLabelSide ?? resolvePreferredLabelSideForMap(photoCenter.x, photoCenter.y, mapRect);
-  return [buildForSide(preferredSide)];
+  const alternateSide: GroupLabelSide = preferredSide === 'top' ? 'bottom' : 'top';
+  const offsetSteps = [0, 18, 36];
+  const candidates: GroupGeometry[] = [];
+
+  for (const side of [preferredSide, alternateSide]) {
+    for (const offset of offsetSteps) {
+      candidates.push(buildForSide(side, offset));
+    }
+  }
+
+  return candidates;
 }
 
 export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry, fixedLabelSide?: GroupLabelSide) {
@@ -450,12 +460,12 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
       ? Math.max(0, geometry.lineRect.top - geometry.labelRect.bottom)
       : Math.max(0, geometry.labelRect.top - geometry.lineRect.bottom);
 
-  const buildForSide = (labelSide: GroupLabelSide): GroupGeometry => {
+  const buildForSide = (labelSide: GroupLabelSide, extraOffset = 0): GroupGeometry => {
     const lineAnchorX = photoCenter.x;
     const lineAnchorY =
       labelSide === 'top'
-        ? photoRect.top - photoToLineGap - fixedLabelOffset
-        : photoRect.bottom + photoToLineGap + fixedLabelOffset;
+        ? photoRect.top - photoToLineGap - fixedLabelOffset - extraOffset
+        : photoRect.bottom + photoToLineGap + fixedLabelOffset + extraOffset;
     const labelAnchorX = photoCenter.x;
     const labelAnchorY =
       labelSide === 'top'
@@ -493,7 +503,17 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
   };
 
   const preferredSide = fixedLabelSide ?? geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
-  return [buildForSide(preferredSide)];
+  const alternateSide: GroupLabelSide = preferredSide === 'top' ? 'bottom' : 'top';
+  const offsetSteps = [0, 18, 36];
+  const candidates: GroupGeometry[] = [];
+
+  for (const side of [preferredSide, alternateSide]) {
+    for (const offset of offsetSteps) {
+      candidates.push(buildForSide(side, offset));
+    }
+  }
+
+  return candidates;
 }
 
 export function buildGroupGeometry(
@@ -747,6 +767,17 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
 
     for (const candidate of candidates) {
       let score = scoreGroupGeometryPlacement(candidate, occupied, gap, { labelGapBoost });
+
+      const nearbySameSidePenalty = occupied.reduce((sum, neighbor) => {
+        if (neighbor.labelSide !== candidate.labelSide) return sum;
+        const centerDistance = Math.hypot(
+          candidate.photoCenterX - neighbor.photoCenterX,
+          candidate.photoCenterY - neighbor.photoCenterY,
+        );
+        if (centerDistance >= gap * 14) return sum;
+        return sum + Math.max(0, gap * 14 - centerDistance) * 12;
+      }, 0);
+      score += nearbySameSidePenalty;
 
       if (options?.mapRect) {
         if (rectOverlapsMap(candidate.overallRect, options.mapRect, mapGap)) {
