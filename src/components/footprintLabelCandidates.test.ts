@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildGroupGeometryCandidatesFromGeometry,
   buildGroupGeometryFromPhotoRect,
+  buildSingleSideGroupGeometryFromGeometry,
   resolveGroupGeometryAsWhole,
 } from './localMapGroupGeometry.ts';
 
@@ -39,6 +40,8 @@ test('geometry candidates include both label sides so whole-layout resolution ca
   assert.ok(leftCandidates.some((candidate) => candidate.labelSide === 'bottom'));
   assert.ok(rightCandidates.some((candidate) => candidate.labelSide === 'top'));
   assert.ok(rightCandidates.some((candidate) => candidate.labelSide === 'bottom'));
+  assert.equal(buildSingleSideGroupGeometryFromGeometry(left).labelSide, 'bottom');
+  assert.equal(buildSingleSideGroupGeometryFromGeometry(right).labelSide, 'bottom');
 
   const resolved = resolveGroupGeometryAsWhole(
     [
