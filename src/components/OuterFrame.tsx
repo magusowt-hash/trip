@@ -14,7 +14,6 @@ import { buildGroupGeometryFromLayout, type GroupLayoutSnapshot } from './localM
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
 const FIT_VIEW_PADDING = 24;
-const FIT_VIEW_MIN_SCALE = 0.28;
 const VIEWPORT_GEOMETRY_SCALE = 1;
 const VIEWPORT_PADDING_LOGICAL = 24;
 const MAP_AREA_RATIO_W = 0.6;
@@ -244,10 +243,7 @@ export default function OuterFrame({
 
     const contentWidth = Math.max(1, viewport.right - viewport.left);
     const contentHeight = Math.max(1, viewport.bottom - viewport.top);
-    const nextScale = Math.min(
-      CLAMP_SCALE.max,
-      Math.max(FIT_VIEW_MIN_SCALE, Math.min(availableWidth / contentWidth, availableHeight / contentHeight)),
-    );
+    const nextScale = Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight));
     const centerX = (viewport.left + viewport.right) / 2;
     const centerY = (viewport.top + viewport.bottom) / 2;
 
