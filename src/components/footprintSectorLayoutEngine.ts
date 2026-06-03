@@ -917,6 +917,26 @@ function buildOccupiedGeometriesForGroup(
     .map((entry) => resolved.get(entry.id) ?? entry.geometry);
 }
 
+function buildResolvedGeometryMap(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  safeGap = 10,
+) {
+  const entries = groups
+    .map((group) => {
+      const placement = placementById.get(group.placeKey);
+      if (!placement) return null;
+      return {
+        id: group.placeKey,
+        geometry: translateGroupGeometry(group.collisionGeometry, placement.centerX, placement.centerY),
+      };
+    })
+    .filter((entry): entry is { id: string; geometry: GroupGeometry } => entry !== null);
+
+  const resolved = resolveGroupGeometryAsWhole(entries, { gap: safeGap });
+  return resolved;
+}
+
 function resolveCandidateGeometryAgainstOccupied(
   geometry: GroupGeometry,
   occupiedGeometries: GroupGeometry[],
@@ -2080,14 +2100,9 @@ export function refineRadialPlacements(
     {
       buildRadialRefineOrder,
       buildOccupiedGeometries: (allGroups, currentPlacementById, excludePlaceKey) => (
-        allGroups
-          .filter((candidate) => candidate.placeKey !== excludePlaceKey)
-          .map((candidate) => {
-            const placement = currentPlacementById.get(candidate.placeKey);
-            if (!placement) return null;
-            return translateGroupGeometry(candidate.collisionGeometry, placement.centerX, placement.centerY);
-          })
-          .filter((candidate): candidate is GroupGeometry => candidate !== null)
+        Array.from(buildResolvedGeometryMap(allGroups, currentPlacementById, safeGap).entries())
+          .filter(([placeKey]) => placeKey !== excludePlaceKey)
+          .map(([, geometry]) => geometry)
       ),
       findMinimalFeasibleRadius: (group, currentPlacement, basePlacement, occupiedGeometries, localMapRect, localSafeGap, _labelGapBoost, localPlacementById, localGroups) => (
         findMinimalFeasibleRadius(
