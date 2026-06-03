@@ -1001,6 +1001,27 @@ function UserFootprintsPageInner() {
     setHasMovedPhotos(true);
   }, []);
 
+  const buildLocalMapAssetsForSave = useCallback((sourcePhotos: PhotoItem[]) => (
+    sourcePhotos
+      .filter(p => p.sourceType === 'local-mapped')
+      .filter(p => p.relativePath && dirtyLocalAssetPathsRef.current.has(p.relativePath))
+      .filter(p => p.frameX != null && p.frameY != null)
+      .map(p => ({
+        relativePath: p.relativePath,
+        folderName: p.placeTitle,
+        name: p.filename,
+        size: p.size ?? 0,
+        lastModified: p.lastModified ?? 0,
+        matchedPlaceTitle: p.placeTitle,
+        footprintItemId: p.footprintItemId ?? 0,
+        frameX: p.frameX!,
+        frameY: p.frameY!,
+        missing: false,
+        pixelWidth: p.pixelWidth ?? null,
+        pixelHeight: p.pixelHeight ?? null,
+      }))
+  ), []);
+
   const handleSavePositions = useCallback(async () => {
     if (!movedPhotosRef.current) return;
     const uploadedUpdates = photos
