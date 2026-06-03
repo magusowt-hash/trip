@@ -247,7 +247,7 @@ export default function OuterFrameCanvas({
     }
   }, [photos, groupLayouts, width, height, getPhotoLogicalSize, transform.scale]);
 
-  const placeRects = useMemo((): PlaceRect[] => {
+  const buildPlaceRects = useCallback((): PlaceRect[] => {
     const groups = new Map<string, PhotoItem[]>();
     for (const p of photos) {
       if (p.frameX == null || p.frameY == null) continue;
@@ -280,7 +280,8 @@ export default function OuterFrameCanvas({
       });
     }
     return rects;
-  }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale, renderVersion]);
+  }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale]);
+  const placeRects = useMemo(() => buildPlaceRects(), [buildPlaceRects, renderVersion]);
 
   // --- Coordinate helpers ---
   const logicalToScreen = useCallback((lx: number, ly: number): Point => ({
@@ -357,7 +358,7 @@ export default function OuterFrameCanvas({
     ctx.clearRect(0, 0, width, height);
     const overlayScale = getOverlayScale(transform.scale);
 
-    const currentRects = placeRects;
+    const currentRects = dragRef.current ? buildPlaceRects() : placeRects;
     placeRectsRef.current = currentRects;
 
     // --- Draw photos (no per-photo labels) ---
@@ -419,7 +420,7 @@ export default function OuterFrameCanvas({
         }
       }
     }
-  }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, placeRects, getPhotoLogicalSize]);
+  }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, placeRects, buildPlaceRects, getPhotoLogicalSize]);
 
   useEffect(() => {
     renderRef.current = render;

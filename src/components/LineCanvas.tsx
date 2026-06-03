@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useCallback, useMemo } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
@@ -20,6 +20,10 @@ function getOverlayScale(scale: number) {
   return Math.min(scale, MAX_OVERLAY_SCALE);
 }
 
+export type LineCanvasHandle = {
+  renderNow: () => void;
+};
+
 interface Props {
   width: number;
   height: number;
@@ -30,12 +34,13 @@ interface Props {
   lineStyle: LineStyle;
   showPoiLabels: boolean;
   poiLabelColor: string;
-  renderVersion?: string | number;
 }
 
-export default function LineCanvas({ width, height, transform, photos, groupLayouts, poiPoints, lineStyle, showPoiLabels, poiLabelColor, renderVersion }: Props) {
+const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ width, height, transform, photos, groupLayouts, poiPoints, lineStyle, showPoiLabels, poiLabelColor }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasSizeRef = useRef({ width: 0, height: 0, dpr: 0 });
+  const renderRef = useRef<() => void>(() => {});
+  const forceFreshGeometryRef = useRef(false);
 
   const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
     const sourceWidth = photo.pixelWidth ?? 0;
@@ -69,9 +74,9 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
       groups.set(photo.placeKey, arr);
     }
     return groups;
-  }, [photos, renderVersion]);
+  }, [photos]);
 
-  const resolvedGeometryMap = useMemo(() => {
+  const buildResolvedGeometryMap = useCallback(() => {
     const entries: Array<{ id: string; geometry: NonNullable<ReturnType<typeof buildGroupGeometry>> }> = [];
     for (const [placeKey, groupPhotos] of photosByPlaceKey) {
       const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
@@ -80,6 +85,7 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
     }
     return new Map(entries.map((entry) => [entry.id, entry.geometry]));
   }, [photosByPlaceKey, groupLayouts, getPhotoLogicalSize, transform.scale]);
+  const resolvedGeometryMap = useMemo(() => buildResolvedGeometryMap(), [buildResolvedGeometryMap]);
 
   const getGroupAnchorPoint = useCallback((resolvedGeometryMap: Map<string, NonNullable<ReturnType<typeof buildGroupGeometry>>>, groupPhotos: PhotoItem[], poi: PoiPoint) => {
     const placeKey = groupPhotos[0]?.placeKey || '';
@@ -118,13 +124,15 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
     ctx.clearRect(0, 0, width, height);
     const overlayScale = getOverlayScale(transform.scale);
 
+    const currentResolvedGeometryMap = forceFreshGeometryRef.current ? buildResolvedGeometryMap() : resolvedGeometryMap;
+
     for (const poi of poiPoints) {
       const poiScreen = logicalToScreen(poi.logicalX, poi.logicalY);
 
       const poiPhotos = photosByPlaceKey.get(poi.placeKey) ?? [];
       if (poiPhotos.length === 0) continue;
 
-      const groupAnchor = getGroupAnchorPoint(resolvedGeometryMap, poiPhotos, poi);
+      const groupAnchor = getGroupAnchorPoint(currentResolvedGeometryMap, poiPhotos, poi);
       const photoCenter = logicalToScreen(groupAnchor.x, groupAnchor.y);
 
       ctx.beginPath();
@@ -160,12 +168,21 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
         ctx.fillText(poi.placeTitle, poiScreen.x, poiScreen.y + offset);
       }
     }
-  }, [width, height, transform, poiPoints, lineStyle, showPoiLabels, poiLabelColor, logicalToScreen, getGroupAnchorPoint, photosByPlaceKey, resolvedGeometryMap]);
+  }, [width, height, transform, poiPoints, lineStyle, showPoiLabels, poiLabelColor, logicalToScreen, getGroupAnchorPoint, photosByPlaceKey, resolvedGeometryMap, buildResolvedGeometryMap]);
 
   useEffect(() => {
+    renderRef.current = render;
     const rafId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(rafId);
-  }, [render, renderVersion]);
+  }, [render]);
+
+  useImperativeHandle(ref, () => ({
+    renderNow: () => {
+      forceFreshGeometryRef.current = true;
+      renderRef.current();
+      forceFreshGeometryRef.current = false;
+    },
+  }), []);
 
   return (
     <canvas
@@ -176,4 +193,6 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
       }}
     />
   );
-}
+});
+
+export default LineCanvas;

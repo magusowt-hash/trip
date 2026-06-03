@@ -4,7 +4,7 @@ import { useRef, useCallback, useState, useEffect } from 'react';
 import { useOuterFrame } from '@/hooks/useOuterFrame';
 import { CLAMP_SCALE, logicalViewport, type Viewport } from '@/lib/outerFrameCoords';
 import OuterFrameCanvas from './OuterFrameCanvas';
-import LineCanvas from './LineCanvas';
+import LineCanvas, { type LineCanvasHandle } from './LineCanvas';
 import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
 import type { MapMarker } from './PlanMap';
@@ -86,8 +86,8 @@ export default function OuterFrame({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstanceRef = useRef<any>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const lineCanvasRef = useRef<LineCanvasHandle | null>(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
-  const [dragRenderVersion, setDragRenderVersion] = useState(0);
   const dragRenderFrameRef = useRef<number | null>(null);
 
   // Measure container + pass to useOuterFrame
@@ -115,7 +115,7 @@ export default function OuterFrame({
     if (dragRenderFrameRef.current != null) return;
     dragRenderFrameRef.current = requestAnimationFrame(() => {
       dragRenderFrameRef.current = null;
-      setDragRenderVersion((value) => value + 1);
+      lineCanvasRef.current?.renderNow();
     });
   }, []);
 
@@ -334,12 +334,12 @@ export default function OuterFrame({
       {/* Lines (z:2, between map and photos) */}
       {showLines && (
         <LineCanvas
+          ref={lineCanvasRef}
           width={containerSize.w || 1200}
           height={containerSize.h || 800}
           transform={transform}
           photos={photos}
           groupLayouts={groupLayouts}
-          renderVersion={dragRenderVersion}
           poiPoints={poiPoints}
           lineStyle={lineStyle}
           showPoiLabels={showPoiLabels}
@@ -357,7 +357,7 @@ export default function OuterFrame({
           groupLayouts={groupLayouts}
           scale={transform.scale}
           showLabels={showLabels}
-          renderVersion={`${fitViewKey}:${dragRenderVersion}`}
+          renderVersion={fitViewKey}
           onPhotoDragFrame={handlePhotoDragFrame}
           onPhotoDragEnd={onPhotoDragEnd}
           onPhotoClick={onPhotoClick}
