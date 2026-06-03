@@ -27,6 +27,8 @@ const GLOBAL_SECTOR_COUNT = 16;
 const INITIAL_ASSIGNMENT_PASSES = 3;
 const REBALANCE_ITERATION_COUNT = 8;
 const MAX_CANDIDATES_PER_GROUP = 48;
+const CORRIDOR_REPAIR_GROUP_LIMIT = 4;
+const CORRIDOR_REPAIR_CANDIDATE_LIMIT = 8;
 
 const ANGLE_OFFSETS_DEGREES = [-24, -16, -10, -6, 0, 6, 10, 16, 24];
 const RADIUS_FACTORS = [0.78, 0.86, 0.94, 1, 1.08, 1.18];
@@ -213,7 +215,17 @@ function compareGroupOrder(
   left: PendingPlaceGroup,
   right: PendingPlaceGroup,
   basePlacementById: Map<string, FootprintPlacement>,
+  sectorDensityById?: Map<string, number>,
+  candidateCountById?: Map<string, number>,
 ) {
+  const leftSectorDensity = sectorDensityById?.get(left.placeKey) ?? 0;
+  const rightSectorDensity = sectorDensityById?.get(right.placeKey) ?? 0;
+  if (leftSectorDensity !== rightSectorDensity) return rightSectorDensity - leftSectorDensity;
+
+  const leftCandidateCount = candidateCountById?.get(left.placeKey) ?? Number.POSITIVE_INFINITY;
+  const rightCandidateCount = candidateCountById?.get(right.placeKey) ?? Number.POSITIVE_INFINITY;
+  if (leftCandidateCount !== rightCandidateCount) return leftCandidateCount - rightCandidateCount;
+
   const leftPlacement = basePlacementById.get(left.placeKey);
   const rightPlacement = basePlacementById.get(right.placeKey);
   const leftRadius = leftPlacement ? Math.hypot(leftPlacement.centerX, leftPlacement.centerY) : 0;
@@ -657,16 +669,23 @@ function improveCorridorRisk(
     safeGap,
     lockedGroups,
   );
+  if (corridorRisk === 0) return;
   let envelopeScore = scoreFinalLayoutEnvelope(orderedGroups, geometryById);
 
   for (let iteration = 0; iteration < REBALANCE_ITERATION_COUNT; iteration++) {
     let changed = false;
+    const targetKeys = new Set(
+      selectCorridorRepairTargets(orderedGroups, geometryById, safeGap, lockedGroups),
+    );
+    if (targetKeys.size === 0) break;
 
     for (const group of orderedGroups) {
+      if (!targetKeys.has(group.placeKey)) continue;
       const currentPlacement = state.placementById.get(group.placeKey);
       if (!currentPlacement) continue;
 
-      const candidates = candidatePoolById.get(group.placeKey) ?? [];
+      const candidates = (candidatePoolById.get(group.placeKey) ?? [])
+        .slice(0, CORRIDOR_REPAIR_CANDIDATE_LIMIT);
       let bestPlacement = currentPlacement;
       let bestIndex = state.candidateIndexById.get(group.placeKey) ?? 0;
       let bestGeometry = geometryById;
@@ -874,6 +893,79 @@ function countCorridorRiskConflicts(
   return risk;
 }
 
+function buildCorridorRiskByGroup(
+  groups: PendingPlaceGroup[],
+  geometryById: Map<string, GroupGeometry>,
+  safeGap: number,
+  lockedGroups: LockedPlaceGroup[] = [],
+) {
+  const riskByGroup = new Map<string, number>();
+  const groupGap = Math.max(48, safeGap * 0.5);
+  const labelGap = Math.max(LABEL_GAP, safeGap + 16);
+
+  const addRisk = (placeKey: string, amount: number) => {
+    riskByGroup.set(placeKey, (riskByGroup.get(placeKey) ?? 0) + amount);
+  };
+
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const geometry = geometryById.get(group.placeKey);
+    if (!geometry) {
+      addRisk(group.placeKey, 1);
+      continue;
+    }
+
+    for (let neighborIndex = index + 1; neighborIndex < groups.length; neighborIndex++) {
+      const neighbor = groups[neighborIndex];
+      const neighborGeometry = geometryById.get(neighbor.placeKey);
+      if (!neighborGeometry) {
+        addRisk(group.placeKey, 1);
+        addRisk(neighbor.placeKey, 1);
+        continue;
+      }
+
+      let pairRisk = 0;
+      if (rectsOverlap(geometry.groupRect, neighborGeometry.groupRect, groupGap)) pairRisk += 1;
+      if (rectsOverlap(geometry.labelRect, neighborGeometry.photoRect, labelGap)) pairRisk += 1;
+      if (rectsOverlap(neighborGeometry.labelRect, geometry.photoRect, labelGap)) pairRisk += 1;
+      if (rectsOverlap(geometry.labelRect, neighborGeometry.labelRect, labelGap)) pairRisk += 1;
+      if (pairRisk > 0) {
+        addRisk(group.placeKey, pairRisk);
+        addRisk(neighbor.placeKey, pairRisk);
+      }
+    }
+
+    for (const locked of lockedGroups) {
+      let lockedRisk = 0;
+      if (rectsOverlap(geometry.groupRect, locked.geometry.groupRect, groupGap)) lockedRisk += 1;
+      if (rectsOverlap(geometry.labelRect, locked.geometry.photoRect, labelGap)) lockedRisk += 1;
+      if (rectsOverlap(locked.geometry.labelRect, geometry.photoRect, labelGap)) lockedRisk += 1;
+      if (rectsOverlap(geometry.labelRect, locked.geometry.labelRect, labelGap)) lockedRisk += 1;
+      if (lockedRisk > 0) addRisk(group.placeKey, lockedRisk);
+    }
+  }
+
+  return riskByGroup;
+}
+
+function selectCorridorRepairTargets(
+  groups: PendingPlaceGroup[],
+  geometryById: Map<string, GroupGeometry>,
+  safeGap: number,
+  lockedGroups: LockedPlaceGroup[] = [],
+) {
+  const riskByGroup = buildCorridorRiskByGroup(groups, geometryById, safeGap, lockedGroups);
+  return [...groups]
+    .map((group) => ({
+      placeKey: group.placeKey,
+      risk: riskByGroup.get(group.placeKey) ?? 0,
+    }))
+    .filter((entry) => entry.risk > 0)
+    .sort((left, right) => right.risk - left.risk || left.placeKey.localeCompare(right.placeKey, 'zh-CN'))
+    .slice(0, CORRIDOR_REPAIR_GROUP_LIMIT)
+    .map((entry) => entry.placeKey);
+}
+
 function scoreFinalLayoutEnvelope(
   groups: PendingPlaceGroup[],
   geometryById: Map<string, GroupGeometry>,
@@ -954,13 +1046,24 @@ export function solvePendingGroupPlacements(
     baseSectorCounts[computeSectorIndex(Math.atan2(placement.centerY, placement.centerX))] += 1;
   });
 
-  const orderedGroups = [...groups].sort((left, right) => compareGroupOrder(left, right, basePlacementById));
   const candidatePoolById = new Map<string, PlacementCandidate[]>();
-  for (const group of orderedGroups) {
+  const sectorDensityById = new Map<string, number>();
+  const candidateCountById = new Map<string, number>();
+  for (const group of groups) {
     const basePlacement = basePlacementById.get(group.placeKey) ?? { centerX: 0, centerY: 0 };
     const sectorDensity = baseSectorCounts[computeSectorIndex(Math.atan2(basePlacement.centerY, basePlacement.centerX))] ?? 0;
-    candidatePoolById.set(group.placeKey, buildCandidatePool(group, basePlacement, mapRect, sectorDensity));
+    sectorDensityById.set(group.placeKey, sectorDensity);
+    const candidates = buildCandidatePool(group, basePlacement, mapRect, sectorDensity);
+    candidatePoolById.set(group.placeKey, candidates);
+    candidateCountById.set(group.placeKey, candidates.length);
   }
+  const orderedGroups = [...groups].sort((left, right) => compareGroupOrder(
+    left,
+    right,
+    basePlacementById,
+    sectorDensityById,
+    candidateCountById,
+  ));
 
   const assignedState = assignInitialPlacements(orderedGroups, candidatePoolById, lockedGroups, safeGap);
   const workingState = assignedState ?? buildFallbackState(orderedGroups, basePlacementById, mapRect);
@@ -1056,3 +1159,7 @@ export function solvePendingGroupPlacements(
     geometries: finalGeometries,
   };
 }
+
+export const __layoutSolverInternals = {
+  selectCorridorRepairTargets,
+};

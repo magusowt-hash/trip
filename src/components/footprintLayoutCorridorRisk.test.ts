@@ -6,7 +6,10 @@ import {
   rectsOverlap,
   translateGroupGeometry,
 } from './localMapGroupGeometry.ts';
-import { solvePendingGroupPlacements } from './footprintLayoutSolver.ts';
+import {
+  __layoutSolverInternals,
+  solvePendingGroupPlacements,
+} from './footprintLayoutSolver.ts';
 import { refineRadialPlacements } from './footprintSectorLayoutEngine.ts';
 
 function rect(left: number, top: number, right: number, bottom: number) {
@@ -88,18 +91,25 @@ function countCorridorRisk(
   return risk;
 }
 
-test('refineRadialPlacements does not increase corridor risk in a crowded southern cluster', () => {
+function buildCrowdedSouthernGroups() {
   const mapRect = rect(-220, -180, 220, 180);
-  const groups = [
-    buildGroup('haikou', '海口市', rect(-30, 120, 90, 200), 20, 165, mapRect),
-    buildGroup('guangzhou', '广州市', rect(10, 110, 130, 190), 70, 150, mapRect),
-    buildGroup('zhanjiang', '湛江市', rect(-70, 100, 50, 180), -10, 140, mapRect),
-    buildGroup('dongguan', '东莞市', rect(55, 165, 175, 245), 125, 220, mapRect),
-    buildGroup('zhuhai', '珠海市', rect(20, 180, 140, 260), 90, 240, mapRect),
-    buildGroup('xianggang', '香港', rect(90, 220, 210, 300), 160, 290, mapRect),
-    buildGroup('xiamen', '厦门市', rect(180, 190, 300, 270), 250, 240, mapRect),
-    buildGroup('fuzhou', '福州市', rect(110, 120, 230, 200), 180, 155, mapRect),
-  ];
+  return {
+    mapRect,
+    groups: [
+      buildGroup('haikou', '海口市', rect(-30, 120, 90, 200), 20, 165, mapRect),
+      buildGroup('guangzhou', '广州市', rect(10, 110, 130, 190), 70, 150, mapRect),
+      buildGroup('zhanjiang', '湛江市', rect(-70, 100, 50, 180), -10, 140, mapRect),
+      buildGroup('dongguan', '东莞市', rect(55, 165, 175, 245), 125, 220, mapRect),
+      buildGroup('zhuhai', '珠海市', rect(20, 180, 140, 260), 90, 240, mapRect),
+      buildGroup('xianggang', '香港', rect(90, 220, 210, 300), 160, 290, mapRect),
+      buildGroup('xiamen', '厦门市', rect(180, 190, 300, 270), 250, 240, mapRect),
+      buildGroup('fuzhou', '福州市', rect(110, 120, 230, 200), 180, 155, mapRect),
+    ],
+  };
+}
+
+test('refineRadialPlacements does not increase corridor risk in a crowded southern cluster', () => {
+  const { mapRect, groups } = buildCrowdedSouthernGroups();
 
   const seededPlacements = new Map(groups.map((group, index) => {
     const angle = Math.atan2(group.logicalY, group.logicalX);
@@ -121,17 +131,7 @@ test('refineRadialPlacements does not increase corridor risk in a crowded southe
 });
 
 test('solvePendingGroupPlacements does not increase corridor risk over the base radial layout', () => {
-  const mapRect = rect(-220, -180, 220, 180);
-  const groups = [
-    buildGroup('haikou', '海口市', rect(-30, 120, 90, 200), 20, 165, mapRect),
-    buildGroup('guangzhou', '广州市', rect(10, 110, 130, 190), 70, 150, mapRect),
-    buildGroup('zhanjiang', '湛江市', rect(-70, 100, 50, 180), -10, 140, mapRect),
-    buildGroup('dongguan', '东莞市', rect(55, 165, 175, 245), 125, 220, mapRect),
-    buildGroup('zhuhai', '珠海市', rect(20, 180, 140, 260), 90, 240, mapRect),
-    buildGroup('xianggang', '香港', rect(90, 220, 210, 300), 160, 290, mapRect),
-    buildGroup('xiamen', '厦门市', rect(180, 190, 300, 270), 250, 240, mapRect),
-    buildGroup('fuzhou', '福州市', rect(110, 120, 230, 200), 180, 155, mapRect),
-  ];
+  const { mapRect, groups } = buildCrowdedSouthernGroups();
 
   const basePlacements = new Map(groups.map((group, index) => {
     const angle = Math.atan2(group.logicalY, group.logicalX);
@@ -149,4 +149,19 @@ test('solvePendingGroupPlacements does not increase corridor risk over the base 
     solvedRisk <= baseRisk,
     `expected solver not to increase corridor risk over the base layout, base ${baseRisk}, solved ${solvedRisk}`,
   );
+});
+
+test('corridor cleanup targets only a bounded subset of the highest-risk groups', () => {
+  const { mapRect, groups } = buildCrowdedSouthernGroups();
+  const solved = solvePendingGroupPlacements(groups, mapRect, 96, 0, []);
+  const selectedKeys = __layoutSolverInternals.selectCorridorRepairTargets(
+    groups,
+    solved.geometries,
+    96,
+    [],
+  );
+
+  assert.ok(selectedKeys.length > 0, 'expected at least one corridor repair target');
+  assert.ok(selectedKeys.length < groups.length, 'expected bounded corridor repair target list');
+  assert.ok(selectedKeys.includes('zhuhai') || selectedKeys.includes('xianggang'));
 });
