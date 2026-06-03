@@ -254,6 +254,30 @@ function dedupeCandidates(candidates: PlacementCandidate[]) {
   });
 }
 
+function hasStrictGroupFootprintCollision(
+  candidate: GroupGeometry,
+  occupiedGeometries: GroupGeometry[],
+  safeGap: number,
+) {
+  const footprintGap = Math.max(48, safeGap * 0.5);
+  return occupiedGeometries.some((occupied) => rectsOverlap(candidate.groupRect, occupied.groupRect, footprintGap));
+}
+
+function hasStrictGeometryConflict(
+  left: GroupGeometry,
+  right: GroupGeometry,
+  safeGap: number,
+) {
+  const footprintGap = Math.max(48, safeGap * 0.5);
+  const labelGap = safeGap + 16;
+  return (
+    rectsOverlap(left.groupRect, right.groupRect, footprintGap) ||
+    rectsOverlap(left.labelRect, right.photoRect, labelGap) ||
+    rectsOverlap(right.labelRect, left.photoRect, labelGap) ||
+    rectsOverlap(left.labelRect, right.labelRect, labelGap)
+  );
+}
+
 function averageAngle(placements: FootprintPlacement[]) {
   const vector = placements.reduce((sum, placement) => ({
     x: sum.x + Math.cos(Math.atan2(placement.centerY, placement.centerX)),
@@ -310,13 +334,14 @@ function evaluatePlacementCandidate(
   const labelOverlap = hasLabelCollisions(resolvedGeometry, occupiedGeometries, safeGap);
   const photoOverlap = rectOverlapsOccupiedPhotos(resolvedGeometry.photoRect, occupiedGeometries, safeGap);
   const photoLabelOverlap = hasPhotoAgainstLabelCollisions(resolvedGeometry, occupiedGeometries, safeGap);
+  const groupFootprintOverlap = hasStrictGroupFootprintCollision(resolvedGeometry, occupiedGeometries, safeGap);
   const angleExceeded = (angleDeltaFromBase * 180) / Math.PI > policy.maxAngleDeviation + 1e-6;
   const lateralExceeded = lateralOffset > policy.maxLateralOffset + 1e-6;
   const pressureScore = computeGroupPressureScore(resolvedGeometry, occupiedGeometries, safeGap);
   const labelClearanceScore = computeLabelClearanceScore(resolvedGeometry, occupiedGeometries, mapRect, safeGap);
   const strictLabelClearanceLimit = safeGap * STRICT_LABEL_CLEARANCE_FACTOR;
   const labelClearanceRisk = labelClearanceScore > strictLabelClearanceLimit * strictLabelClearanceLimit;
-  const isValid = !mapOverlap && !lineIntersected && !labelOverlap && !photoOverlap && !photoLabelOverlap && !labelClearanceRisk;
+  const isValid = !mapOverlap && !lineIntersected && !labelOverlap && !photoOverlap && !photoLabelOverlap && !groupFootprintOverlap && !labelClearanceRisk;
   const sectorCrowdingScore = computeSectorCrowdingScore(
     placeKey,
     resolvedGeometry.photoCenterX,
@@ -336,6 +361,7 @@ function evaluatePlacementCandidate(
     mapOverlap,
     labelOverlap,
     labelClearanceRisk,
+    groupFootprintOverlap,
     angleDelta: angleDeltaFromBase,
     radiusDelta: radiusDeltaFromBase,
     lateralOffset,
@@ -1455,6 +1481,175 @@ function computeTotalRadius(
   }, 0);
 }
 
+function buildStrictConflictPairs(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  safeGap: number,
+) {
+  const conflicts: Array<{
+    left: PendingPlaceGroup;
+    right: PendingPlaceGroup;
+    distance: number;
+  }> = [];
+
+  for (let index = 0; index < groups.length; index++) {
+    const left = groups[index]!;
+    const leftPlacement = placementById.get(left.placeKey);
+    if (!leftPlacement) continue;
+    const leftGeometry = translateGroupGeometry(
+      left.collisionGeometry,
+      leftPlacement.centerX,
+      leftPlacement.centerY,
+    );
+
+    for (let neighborIndex = index + 1; neighborIndex < groups.length; neighborIndex++) {
+      const right = groups[neighborIndex]!;
+      const rightPlacement = placementById.get(right.placeKey);
+      if (!rightPlacement) continue;
+      const rightGeometry = translateGroupGeometry(
+        right.collisionGeometry,
+        rightPlacement.centerX,
+        rightPlacement.centerY,
+      );
+      if (!hasStrictGeometryConflict(leftGeometry, rightGeometry, safeGap)) continue;
+      conflicts.push({
+        left,
+        right,
+        distance: Math.hypot(
+          leftPlacement.centerX - rightPlacement.centerX,
+          leftPlacement.centerY - rightPlacement.centerY,
+        ),
+      });
+    }
+  }
+
+  return conflicts.sort((left, right) => left.distance - right.distance);
+}
+
+function countStrictConflicts(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  safeGap: number,
+) {
+  return buildStrictConflictPairs(groups, placementById, safeGap).length;
+}
+
+function tryResolveStrictConflictByPushingOutward(
+  target: PendingPlaceGroup,
+  placementById: Map<string, FootprintPlacement>,
+  groups: PendingPlaceGroup[],
+  mapRect: LogicalRect,
+  safeGap: number,
+) {
+  const currentPlacement = placementById.get(target.placeKey);
+  if (!currentPlacement) return null;
+
+  const currentRadius = Math.hypot(currentPlacement.centerX, currentPlacement.centerY);
+  const currentAngle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
+  const occupiedGeometries = buildOccupiedGeometriesForGroup(groups, placementById, target.placeKey, safeGap);
+  const steps = [48, 96, 144, 192, 256, 320];
+  const angleOffsets = [0, -4, 4, -8, 8, -12, 12];
+  let best: null | { placement: FootprintPlacement; energy: number } = null;
+
+  for (const step of steps) {
+    for (const angleOffset of angleOffsets) {
+      const angle = currentAngle + (angleOffset * Math.PI) / 180;
+      const radius = currentRadius + step;
+      const candidatePlacement = {
+        centerX: Math.cos(angle) * radius,
+        centerY: Math.sin(angle) * radius,
+      };
+      const candidateGeometry = translateGroupGeometry(
+        target.collisionGeometry,
+        candidatePlacement.centerX,
+        candidatePlacement.centerY,
+      );
+      const evaluation = evaluatePlacementCandidate(
+        target.placeKey,
+        candidateGeometry,
+        candidatePlacement.centerX,
+        candidatePlacement.centerY,
+        occupiedGeometries,
+        mapRect,
+        safeGap,
+        currentPlacement,
+        currentPlacement,
+        placementById,
+        groups,
+      );
+      if (!evaluation.isValid) continue;
+
+      const trialPlacementById = new Map(placementById);
+      trialPlacementById.set(target.placeKey, candidatePlacement);
+      const trialEnergy = scoreGlobalLayoutEnergy(groups, trialPlacementById, mapRect, safeGap);
+      if (!Number.isFinite(trialEnergy)) continue;
+      if (!best || trialEnergy < best.energy - 1e-6) {
+        best = { placement: candidatePlacement, energy: trialEnergy };
+      }
+    }
+  }
+
+  return best;
+}
+
+function resolveResidualStrictConflicts(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  mapRect: LogicalRect,
+  safeGap: number,
+) {
+  const nextPlacementById = new Map(placementById);
+
+  for (let pass = 0; pass < 3; pass++) {
+    const conflicts = buildStrictConflictPairs(groups, nextPlacementById, safeGap);
+    if (conflicts.length === 0) break;
+
+    let changed = false;
+    for (const conflict of conflicts) {
+      const leftPlacement = nextPlacementById.get(conflict.left.placeKey);
+      const rightPlacement = nextPlacementById.get(conflict.right.placeKey);
+      if (!leftPlacement || !rightPlacement) continue;
+
+      const leftRadius = Math.hypot(leftPlacement.centerX, leftPlacement.centerY);
+      const rightRadius = Math.hypot(rightPlacement.centerX, rightPlacement.centerY);
+      const outer = rightRadius >= leftRadius ? conflict.right : conflict.left;
+      const inner = outer.placeKey === conflict.right.placeKey ? conflict.left : conflict.right;
+
+      const outerResolved = tryResolveStrictConflictByPushingOutward(
+        outer,
+        nextPlacementById,
+        groups,
+        mapRect,
+        safeGap,
+      );
+      const innerResolved = tryResolveStrictConflictByPushingOutward(
+        inner,
+        nextPlacementById,
+        groups,
+        mapRect,
+        safeGap,
+      );
+
+      const chosen =
+        outerResolved && innerResolved
+          ? (outerResolved.energy <= innerResolved.energy ? { group: outer, result: outerResolved } : { group: inner, result: innerResolved })
+          : outerResolved
+            ? { group: outer, result: outerResolved }
+            : innerResolved
+              ? { group: inner, result: innerResolved }
+              : null;
+
+      if (!chosen) continue;
+      nextPlacementById.set(chosen.group.placeKey, chosen.result.placement);
+      changed = true;
+    }
+
+    if (!changed) break;
+  }
+
+  return nextPlacementById;
+}
+
 function buildClusterActionCandidates(
   group: PendingPlaceGroup,
   placement: FootprintPlacement,
@@ -2145,6 +2340,19 @@ export function refineRadialPlacements(
     mapRect,
     safeGap,
   );
+
+  refinedPlacementById = resolveResidualStrictConflicts(
+    groups,
+    refinedPlacementById,
+    mapRect,
+    safeGap,
+  );
+
+  const baselineStrictConflicts = countStrictConflicts(groups, placementById, safeGap);
+  const refinedStrictConflicts = countStrictConflicts(groups, refinedPlacementById, safeGap);
+  if (refinedStrictConflicts > baselineStrictConflicts) {
+    return placementById;
+  }
 
   return refinedPlacementById;
 }
