@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import OuterFrame from '@/components/OuterFrame';
+import { CLAMP_SCALE } from '@/lib/outerFrameCoords';
 import type { PhotoItem, PoiPoint } from '@/components/OuterFrameCanvas';
 import FootprintGroupPanel from '@/components/FootprintGroupPanel';
 import PhotoAlbumModal from '@/components/PhotoAlbumModal';
@@ -816,7 +817,6 @@ function UserFootprintsPageInner() {
     options: {
       poiPoints?: PoiPoint[];
       groupLayouts?: GroupLayoutSnapshot[];
-      outerScale?: number;
     } = {},
   ): GroupLayoutSnapshot[] {
     const activeGroupLayouts = options.groupLayouts ?? groupLayouts;
@@ -836,7 +836,7 @@ function UserFootprintsPageInner() {
     }
 
     const cardSize = 80;
-    const collisionScale = Math.max(options.outerScale ?? outerScale, 0.1);
+    const collisionScale = CLAMP_SCALE.max;
     const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
     const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
     const mapRect = getFootprintMapRect(viewportWidth, viewportHeight);
@@ -1397,7 +1397,6 @@ function UserFootprintsPageInner() {
         const currentPhotos = photosRef.current;
         const currentGroupLayouts = groupLayoutsRef.current;
         const currentPoiPoints = poiPointsRef.current;
-        const currentOuterScale = outerScaleRef.current;
         const itemByTitle = new Map(currentItems.map((item) => [item.title, item]));
         const poiPlaceKeys = new Set(currentPoiPoints.map((point) => point.placeKey));
         const targetPoiKeys = new Set(
@@ -1474,7 +1473,6 @@ function UserFootprintsPageInner() {
             {
               poiPoints: currentPoiPoints,
               groupLayouts: currentGroupLayouts,
-              outerScale: currentOuterScale,
             },
           );
           if (unplaced.every((photo) => photo.frameX != null && photo.frameY != null)) {

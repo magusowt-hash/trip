@@ -30,7 +30,6 @@ const MAX_CANDIDATES_PER_GROUP = 48;
 const ANGLE_OFFSETS_DEGREES = [-24, -16, -10, -6, 0, 6, 10, 16, 24];
 const RADIUS_FACTORS = [0.86, 0.94, 1, 1.08, 1.18, 1.3];
 const OUTER_RING_RADIUS_FACTORS = [1.36, 1.52];
-const FINAL_COMPACTION_RADIAL_STEPS = [520, 420, 320, 240, 180, 120, 80, 40];
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -651,85 +650,6 @@ function scoreFinalLayoutEnvelope(
   return (right - left) * 0.72 + (bottom - top) * 0.72 + (count > 0 ? radiusSum / count : 0);
 }
 
-function compactFinalPlacementsInward(
-  groups: PendingPlaceGroup[],
-  placementById: Map<string, FootprintPlacement>,
-  mapRect: LogicalRect,
-  labelGapBoost: number,
-  lockedGroups: LockedPlaceGroup[],
-) {
-  let nextPlacementById = new Map(placementById);
-  let nextGeometryById = buildGeometryMapForPlacements(
-    groups,
-    nextPlacementById,
-    mapRect,
-    labelGapBoost,
-    lockedGroups,
-  );
-  if (hasHardConflicts(groups, nextPlacementById, nextGeometryById, mapRect, lockedGroups)) {
-    return { placements: nextPlacementById, geometries: nextGeometryById };
-  }
-
-  let currentScore = scoreFinalLayoutEnvelope(groups, nextGeometryById);
-  const orderedGroups = [...groups].sort((left, right) => {
-    const leftPlacement = nextPlacementById.get(left.placeKey);
-    const rightPlacement = nextPlacementById.get(right.placeKey);
-    const leftRadius = leftPlacement ? Math.hypot(leftPlacement.centerX, leftPlacement.centerY) : 0;
-    const rightRadius = rightPlacement ? Math.hypot(rightPlacement.centerX, rightPlacement.centerY) : 0;
-    return rightRadius - leftRadius;
-  });
-
-  for (const group of orderedGroups) {
-    const currentPlacement = nextPlacementById.get(group.placeKey);
-    if (!currentPlacement) continue;
-
-    const currentRadius = Math.hypot(currentPlacement.centerX, currentPlacement.centerY);
-    if (currentRadius <= 0) continue;
-    const angle = Math.atan2(currentPlacement.centerY, currentPlacement.centerX);
-    let bestPlacement = currentPlacement;
-    let bestGeometryById = nextGeometryById;
-    let bestScore = currentScore;
-    let bestRadius = currentRadius;
-
-    for (const step of FINAL_COMPACTION_RADIAL_STEPS) {
-      const candidateRadius = Math.max(0, currentRadius - step);
-      if (candidateRadius >= bestRadius - 1e-6) continue;
-
-      const trialPlacementById = new Map(nextPlacementById);
-      trialPlacementById.set(group.placeKey, {
-        centerX: Math.cos(angle) * candidateRadius,
-        centerY: Math.sin(angle) * candidateRadius,
-      });
-      const candidatePlacement = trialPlacementById.get(group.placeKey);
-      if (!candidatePlacement) continue;
-      const candidateGeometry = chooseBestGeometryForPlacement(group, candidatePlacement, mapRect);
-      const trialGeometryById = new Map(nextGeometryById);
-      trialGeometryById.set(group.placeKey, candidateGeometry);
-      if (hasHardConflicts(groups, trialPlacementById, trialGeometryById, mapRect, lockedGroups)) continue;
-
-      const trialScore = scoreFinalLayoutEnvelope(groups, trialGeometryById);
-      if (trialScore <= bestScore + 1e-6) {
-        bestPlacement = trialPlacementById.get(group.placeKey) ?? bestPlacement;
-        bestGeometryById = trialGeometryById;
-        bestScore = trialScore;
-        bestRadius = candidateRadius;
-      }
-    }
-
-    if (bestPlacement !== currentPlacement) {
-      nextPlacementById = new Map(nextPlacementById);
-      nextPlacementById.set(group.placeKey, bestPlacement);
-      nextGeometryById = bestGeometryById;
-      currentScore = bestScore;
-    }
-  }
-
-  return {
-    placements: nextPlacementById,
-    geometries: nextGeometryById,
-  };
-}
-
 function buildFallbackState(
   orderedGroups: PendingPlaceGroup[],
   basePlacementById: Map<string, FootprintPlacement>,
@@ -831,28 +751,12 @@ export function solvePendingGroupPlacements(
     (!refinedHasHardConflicts && optimizedHasHardConflicts) ||
     (!refinedHasHardConflicts && !optimizedHasHardConflicts && refinedEnvelopeScore <= optimizedEnvelopeScore * 1.04) ||
     (refinedHasHardConflicts && optimizedHasHardConflicts && refinedEnvelopeScore < optimizedEnvelopeScore);
-  const selectedPlacements = shouldUseRefined
+  const finalPlacements = shouldUseRefined
     ? refinedPlacementById
     : workingState.placementById;
-  const selectedGeometries = selectedPlacements === refinedPlacementById
+  const finalGeometries = finalPlacements === refinedPlacementById
     ? refinedGeometryById
     : optimizedGeometryById;
-  const compacted = compactFinalPlacementsInward(
-    orderedGroups,
-    selectedPlacements,
-    mapRect,
-    labelGapBoost,
-    lockedGroups,
-  );
-  const compactedHasHardConflicts = hasHardConflicts(
-    orderedGroups,
-    compacted.placements,
-    compacted.geometries,
-    mapRect,
-    lockedGroups,
-  );
-  const finalPlacements = compactedHasHardConflicts ? selectedPlacements : compacted.placements;
-  const finalGeometries = compactedHasHardConflicts ? selectedGeometries : compacted.geometries;
 
   return {
     placements: finalPlacements,
