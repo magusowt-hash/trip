@@ -16,6 +16,7 @@ import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import {
   buildGroupGeometryFromLayout,
+  createGroupLayoutSnapshot,
   buildGroupGeometryFromPhotoRect,
   expandPhotoRect,
   resolveGroupLabelLayouts,
@@ -23,6 +24,11 @@ import {
 } from '@/components/localMapGroupGeometry';
 import type { GroupGeometry } from '@/components/localMapGroupGeometry';
 import { FOOTPRINT_MAP_SAFE_GAP, getFootprintMapRect } from '@/components/footprintMapGeometry';
+import {
+  applyGroupDragToPhotos,
+  applyPhotoDragToPhotos,
+  mergeGroupLayoutSnapshot,
+} from '@/components/footprintManualLayout';
 import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 import styles from './footprints.module.css';
 
@@ -493,6 +499,8 @@ function UserFootprintsPageInner() {
   const outerScaleRef = useRef(1);
   const localMapApplyRunIdRef = useRef(0);
   const actionNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const dirtyUploadedPhotoIdsRef = useRef<Set<number | string>>(new Set());
+  const dirtyLocalAssetPathsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => { itemsRef.current = items; }, [items]);
   useEffect(() => { photosRef.current = photos; }, [photos]);
@@ -951,46 +959,58 @@ function UserFootprintsPageInner() {
 
   // --- Photo handlers ---
 
-  const handlePhotoDragEnd = useCallback(async (photoId: number | string, x: number, y: number) => {
+  const handlePhotoDragEnd = useCallback((photoId: number | string, x: number, y: number) => {
+    const target = photosRef.current.find((photo) => photo.id === photoId);
+    if (target?.sourceType === 'local-mapped' && target.relativePath) {
+      dirtyLocalAssetPathsRef.current.add(target.relativePath);
+    } else {
+      dirtyUploadedPhotoIdsRef.current.add(photoId);
+    }
+    setPhotos((current) => applyPhotoDragToPhotos(current, photoId, x, y));
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
   }, []);
 
-  const handleGroupLabelDragEnd = useCallback((_placeKey: string, dx: number, dy: number) => {
+  const handleGroupLabelDragEnd = useCallback((placeKey: string, dx: number, dy: number) => {
     if (dx === 0 && dy === 0) return;
+    for (const photo of photosRef.current) {
+      if (photo.placeKey !== placeKey) continue;
+      if (photo.sourceType === 'local-mapped' && photo.relativePath) {
+        dirtyLocalAssetPathsRef.current.add(photo.relativePath);
+      } else {
+        dirtyUploadedPhotoIdsRef.current.add(photo.id);
+      }
+    }
+    const nextPhotos = applyGroupDragToPhotos(photosRef.current, placeKey, dx, dy);
+    setPhotos(nextPhotos);
+
+    const groupPhotos = nextPhotos.filter((photo) => photo.placeKey === placeKey);
+    if (groupPhotos.length > 0) {
+      const geometry = buildGroupGeometryFromLayout(
+        placeKey,
+        groupPhotos,
+        getPhotoLogicalSize,
+        outerScaleRef.current,
+        groupLayoutsRef.current,
+      );
+      if (geometry) {
+        setGroupLayouts((current) => mergeGroupLayoutSnapshot(current, createGroupLayoutSnapshot(placeKey, geometry)));
+      }
+    }
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
   }, []);
-
-  const buildLocalMapAssetsForSave = useCallback((sourcePhotos: PhotoItem[]) => (
-    sourcePhotos
-      .filter(p => p.sourceType === 'local-mapped')
-      .filter(p => p.frameX != null && p.frameY != null)
-      .map(p => ({
-        relativePath: p.relativePath,
-        folderName: p.placeTitle,
-        name: p.filename,
-        size: p.size ?? 0,
-        lastModified: p.lastModified ?? 0,
-        matchedPlaceTitle: p.placeTitle,
-        footprintItemId: p.footprintItemId ?? 0,
-        frameX: p.frameX!,
-        frameY: p.frameY!,
-        missing: false,
-        pixelWidth: p.pixelWidth ?? null,
-        pixelHeight: p.pixelHeight ?? null,
-      }))
-  ), []);
 
   const handleSavePositions = useCallback(async () => {
     if (!movedPhotosRef.current) return;
     const uploadedUpdates = photos
-      .filter(p => p.sourceType !== 'local-mapped')
+      .filter(p => p.sourceType !== 'local-mapped' && dirtyUploadedPhotoIdsRef.current.has(p.id))
       .filter(p => p.frameX != null && p.frameY != null)
       .map(p => ({ id: p.id, frameX: p.frameX!, frameY: p.frameY! }));
     const localAssets = buildLocalMapAssetsForSave(photos);
+    const deletedRelativePaths = localMissingAssets.map((asset) => asset.relativePath);
 
-    if (uploadedUpdates.length === 0 && localAssets.length === 0 && !localRootName) return;
+    if (uploadedUpdates.length === 0 && localAssets.length === 0 && deletedRelativePaths.length === 0 && !localRootName) return;
     if (localRootName && localMissingAssets.length > 0) {
       const ok = window.confirm(`本次保存会删除 ${localMissingAssets.length} 个本地映射缺失文件的位置记录，是否继续？`);
       if (!ok) return;
@@ -1023,6 +1043,7 @@ function UserFootprintsPageInner() {
             rootName: localRootName,
             groupId: selectedGroupId,
             assets: localAssets,
+            deletedRelativePaths,
             unmatchedFolders: localUnmatchedFolders,
             layout: localLayout,
           }),
@@ -1037,6 +1058,8 @@ function UserFootprintsPageInner() {
           setKnownLocalRoots(data.knownRootNames);
         }
       }
+      dirtyUploadedPhotoIdsRef.current.clear();
+      dirtyLocalAssetPathsRef.current.clear();
       movedPhotosRef.current = false;
       setHasMovedPhotos(false);
       setLocalMissingAssets([]);
@@ -1512,6 +1535,11 @@ function UserFootprintsPageInner() {
         setLocalLayout(payload.layout);
         setShowPhotos(true);
         setShowLabels(true);
+        dirtyLocalAssetPathsRef.current = new Set(
+          mappedPhotos
+            .map((photo) => photo.relativePath)
+            .filter((value): value is string => Boolean(value)),
+        );
         movedPhotosRef.current = true;
         setHasMovedPhotos(true);
         setFitViewEnabled(true);
