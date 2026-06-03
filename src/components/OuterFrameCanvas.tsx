@@ -127,6 +127,7 @@ export default function OuterFrameCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
   const renderRef = useRef<() => void>(() => {});
+  const canvasSizeRef = useRef({ width: 0, height: 0, dpr: 0 });
   const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
   const dragRef = useRef<{
     photoId: number | string;
@@ -337,10 +338,20 @@ export default function OuterFrameCanvas({
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = width + 'px';
-    canvas.style.height = height + 'px';
+    const nextCanvasWidth = Math.round(width * dpr);
+    const nextCanvasHeight = Math.round(height * dpr);
+    const cachedSize = canvasSizeRef.current;
+    if (
+      cachedSize.width !== nextCanvasWidth ||
+      cachedSize.height !== nextCanvasHeight ||
+      cachedSize.dpr !== dpr
+    ) {
+      canvas.width = nextCanvasWidth;
+      canvas.height = nextCanvasHeight;
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+      canvasSizeRef.current = { width: nextCanvasWidth, height: nextCanvasHeight, dpr };
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     ctx.clearRect(0, 0, width, height);

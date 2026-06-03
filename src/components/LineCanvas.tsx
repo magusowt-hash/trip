@@ -35,6 +35,7 @@ interface Props {
 
 export default function LineCanvas({ width, height, transform, photos, groupLayouts, poiPoints, lineStyle, showPoiLabels, poiLabelColor, renderVersion }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasSizeRef = useRef({ width: 0, height: 0, dpr: 0 });
 
   const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
     const sourceWidth = photo.pixelWidth ?? 0;
@@ -98,10 +99,20 @@ export default function LineCanvas({ width, height, transform, photos, groupLayo
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = width + 'px';
-    canvas.style.height = height + 'px';
+    const nextCanvasWidth = Math.round(width * dpr);
+    const nextCanvasHeight = Math.round(height * dpr);
+    const cachedSize = canvasSizeRef.current;
+    if (
+      cachedSize.width !== nextCanvasWidth ||
+      cachedSize.height !== nextCanvasHeight ||
+      cachedSize.dpr !== dpr
+    ) {
+      canvas.width = nextCanvasWidth;
+      canvas.height = nextCanvasHeight;
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+      canvasSizeRef.current = { width: nextCanvasWidth, height: nextCanvasHeight, dpr };
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     ctx.clearRect(0, 0, width, height);
