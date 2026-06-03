@@ -15,6 +15,7 @@ import {
   rectDistanceToMap,
   rectOverlapsOccupiedPhotos,
 } from './footprintLayoutConstraints';
+import { scoreMapDistanceBand } from './footprintLayoutHeuristics';
 import { refineRadialPlacements } from './footprintSectorLayoutEngine';
 
 const GROUP_GAP = 14;
@@ -47,6 +48,32 @@ type CandidateEvaluation = {
   valid: boolean;
   score: number;
 };
+
+export function scorePendingGroupsForBalance(radii: number[]) {
+  if (radii.length <= 1) return 0;
+  const sorted = [...radii].sort((left, right) => left - right);
+  const average = sorted.reduce((sum, radius) => sum + radius, 0) / sorted.length;
+  const variancePenalty = sorted.reduce((sum, radius) => {
+    const delta = radius - average;
+    return sum + delta * delta;
+  }, 0) / sorted.length;
+
+  let spacingPenalty = 0;
+  const gaps: number[] = [];
+  for (let index = 1; index < sorted.length; index++) {
+    gaps.push(sorted[index] - sorted[index - 1]);
+  }
+  if (gaps.length > 1) {
+    const averageGap = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length;
+    spacingPenalty = gaps.reduce((sum, gap) => {
+      const delta = gap - averageGap;
+      return sum + delta * delta;
+    }, 0) / gaps.length;
+  }
+
+  const outerDriftPenalty = Math.max(0, sorted[sorted.length - 1] - average) ** 2;
+  return variancePenalty * 0.7 + spacingPenalty * 1.15 + outerDriftPenalty * 1.35;
+}
 
 function normalizeAngle(angle: number) {
   const fullTurn = Math.PI * 2;
@@ -209,7 +236,7 @@ function scoreBaseCandidate(
   const radiusPenalty = Math.abs(radius - baseRadius) * 0.85;
   const outwardPenalty = Math.max(0, radius - baseRadius) * 1.15;
   const mapDistance = rectDistanceToMap(geometry.groupRect, mapRect);
-  const mapDistancePenalty = Math.max(0, mapDistance - 180) * 0.55;
+  const mapDistancePenalty = scoreMapDistanceBand(mapDistance, MAP_GAP);
   return driftPenalty + radiusPenalty + outwardPenalty + mapDistancePenalty;
 }
 
@@ -631,6 +658,7 @@ function scoreFinalLayoutEnvelope(
   let bottom = -Infinity;
   let radiusSum = 0;
   let count = 0;
+  const radii: number[] = [];
 
   for (const group of groups) {
     const geometry = geometryById.get(group.placeKey);
@@ -639,7 +667,9 @@ function scoreFinalLayoutEnvelope(
     right = Math.max(right, geometry.groupRect.right);
     top = Math.min(top, geometry.groupRect.top);
     bottom = Math.max(bottom, geometry.groupRect.bottom);
-    radiusSum += Math.hypot(geometry.photoCenterX, geometry.photoCenterY);
+    const radius = Math.hypot(geometry.photoCenterX, geometry.photoCenterY);
+    radiusSum += radius;
+    radii.push(radius);
     count += 1;
   }
 
@@ -647,7 +677,13 @@ function scoreFinalLayoutEnvelope(
     return Number.POSITIVE_INFINITY;
   }
 
-  return (right - left) * 0.82 + (bottom - top) * 0.82 + (count > 0 ? radiusSum / count : 0) * 1.18;
+  const balancePenalty = scorePendingGroupsForBalance(radii);
+  return (
+    (right - left) * 0.52 +
+    (bottom - top) * 0.52 +
+    (count > 0 ? radiusSum / count : 0) * 0.94 +
+    balancePenalty * 0.11
+  );
 }
 
 function buildFallbackState(

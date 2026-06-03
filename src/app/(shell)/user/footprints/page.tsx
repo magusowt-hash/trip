@@ -16,7 +16,6 @@ import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import {
   buildGroupGeometryFromLayout,
-  createGroupLayoutSnapshot,
   buildGroupGeometryFromPhotoRect,
   expandPhotoRect,
   resolveGroupLabelLayouts,
@@ -29,7 +28,6 @@ import {
   applyGroupPhotoPositions,
   applyPhotoDragToPhotos,
   type FootprintLayoutInteractionMode,
-  mergeGroupLayoutSnapshot,
 } from '@/components/footprintManualLayout';
 import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
 import styles from './footprints.module.css';
@@ -992,20 +990,6 @@ function UserFootprintsPageInner() {
     }
     const nextPhotos = applyGroupPhotoPositions(photosRef.current, placeKey, nextGroupPhotos);
     setPhotos(nextPhotos);
-
-    const groupPhotos = nextPhotos.filter((photo) => photo.placeKey === placeKey);
-    if (groupPhotos.length > 0) {
-      const geometry = buildGroupGeometryFromLayout(
-        placeKey,
-        groupPhotos,
-        getPhotoLogicalSize,
-        outerScaleRef.current,
-        groupLayoutsRef.current,
-      );
-      if (geometry) {
-        setGroupLayouts((current) => mergeGroupLayoutSnapshot(current, createGroupLayoutSnapshot(placeKey, geometry)));
-      }
-    }
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
   }, []);

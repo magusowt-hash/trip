@@ -9,6 +9,7 @@ import type { LineStyle } from './LegendPanel';
 import type { MapMarker } from './PlanMap';
 import PlanMap from './PlanMap';
 import { buildGroupGeometryFromLayout, type GroupLayoutSnapshot } from './localMapGroupGeometry';
+import { FOOTPRINT_MAP_SAFE_GAP, getFootprintMapRect } from './footprintMapGeometry';
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
@@ -148,6 +149,11 @@ export default function OuterFrame({
     let right = -Infinity;
     let top = Infinity;
     let bottom = -Infinity;
+    let fallbackLeft = Infinity;
+    let fallbackRight = -Infinity;
+    let fallbackTop = Infinity;
+    let fallbackBottom = -Infinity;
+    const mapRect = getFootprintMapRect(containerSize.w || 1200, containerSize.h || 800);
 
     for (const [, groupPhotos] of groups) {
       const geometry = buildGroupGeometryFromLayout(
@@ -158,6 +164,18 @@ export default function OuterFrame({
         groupLayouts ?? [],
       );
       if (!geometry) continue;
+      fallbackLeft = Math.min(fallbackLeft, geometry.groupRect.left);
+      fallbackRight = Math.max(fallbackRight, geometry.groupRect.right);
+      fallbackTop = Math.min(fallbackTop, geometry.groupRect.top);
+      fallbackBottom = Math.max(fallbackBottom, geometry.groupRect.bottom);
+      const intrudesProtectedMap =
+        geometry.groupRect.right > mapRect.left - FOOTPRINT_MAP_SAFE_GAP &&
+        geometry.groupRect.left < mapRect.right + FOOTPRINT_MAP_SAFE_GAP &&
+        geometry.groupRect.bottom > mapRect.top - FOOTPRINT_MAP_SAFE_GAP &&
+        geometry.groupRect.top < mapRect.bottom + FOOTPRINT_MAP_SAFE_GAP;
+      if (intrudesProtectedMap) {
+        continue;
+      }
       left = Math.min(left, geometry.groupRect.left);
       right = Math.max(right, geometry.groupRect.right);
       top = Math.min(top, geometry.groupRect.top);
@@ -165,7 +183,20 @@ export default function OuterFrame({
     }
 
     if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
-      return null;
+      if (
+        !Number.isFinite(fallbackLeft) ||
+        !Number.isFinite(fallbackRight) ||
+        !Number.isFinite(fallbackTop) ||
+        !Number.isFinite(fallbackBottom)
+      ) {
+        return null;
+      }
+      return {
+        left: fallbackLeft - padding,
+        right: fallbackRight + padding,
+        top: fallbackTop - padding,
+        bottom: fallbackBottom + padding,
+      };
     }
 
     return {
@@ -174,7 +205,7 @@ export default function OuterFrame({
       top: top - padding,
       bottom: bottom + padding,
     };
-  }, [photos, getPhotoLogicalSize, groupLayouts]);
+  }, [photos, getPhotoLogicalSize, groupLayouts, containerSize]);
 
   const computePoiPoints = useCallback(() => {
     const map = mapInstanceRef.current;
