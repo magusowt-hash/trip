@@ -1,6 +1,7 @@
 import type { GroupGeometry } from './localMapGroupGeometry';
 import type { LogicalRect } from './footprintLayoutTypes';
 import { rectDistance, rectDistanceToMap } from './footprintLayoutConstraints';
+import { scoreMapDistanceBand } from './footprintLayoutHeuristics';
 
 export function computeGroupPressureScore(
   candidate: GroupGeometry,
@@ -35,7 +36,9 @@ export function computeLabelClearanceScore(
     if (labelDistance < preferredGap) score += (preferredGap - labelDistance) ** 2;
   }
   const mapDistance = rectDistanceToMap(candidate.labelRect, mapRect);
-  if (mapDistance < preferredGap) score += (preferredGap - mapDistance) ** 2;
+  const groupMapDistance = rectDistanceToMap(candidate.groupRect, mapRect);
+  score += scoreMapDistanceBand(mapDistance, safeGap);
+  score += scoreMapDistanceBand(groupMapDistance, safeGap) * 0.65;
   return score;
 }
 

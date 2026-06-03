@@ -12,6 +12,11 @@ import {
   type GroupLayoutSnapshot,
 } from './localMapGroupGeometry';
 import type { LineStyle } from './LegendPanel';
+import {
+  clampRectOutsideMap,
+  translatePlaceRect,
+  type ManualPlaceRect,
+} from './footprintManualLayout';
 
 export interface PhotoItem {
   id: number | string;
@@ -159,6 +164,8 @@ export default function OuterFrameCanvas({
     placeTitle: string;
     placeKey: string;
     dragKind: 'photo' | 'group';
+    groupPhotoOrigins?: Array<{ id: number | string; frameX: number; frameY: number }>;
+    groupRectOrigin?: ManualPlaceRect;
   } | null>(null);
   const hoveredPhotoRef = useRef<number | string | null>(null);
   const placeRectsRef = useRef<PlaceRect[]>([]);
@@ -238,45 +245,15 @@ export default function OuterFrameCanvas({
     };
   }, [getPhotoLogicalSize]);
 
-  const clampGroupAwayFromMap = useCallback((placeKey: string) => {
-    const group = photosByPlaceKey.get(placeKey) ?? [];
-    if (group.length === 0) return;
-
+  const clampGroupRectAwayFromMap = useCallback((rect: PlaceRect): PlaceRect => {
     const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height);
-
-    const geometry = buildGroupGeometryFromLayout(placeKey, group, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
-    if (!geometry) return;
-    const left = geometry.groupRect.left;
-    const right = geometry.groupRect.right;
-    const top = geometry.groupRect.top;
-    const bottom = geometry.groupRect.bottom;
-
-    const overlapsMap =
-      right > -mapHalfW &&
-      left < mapHalfW &&
-      bottom > -mapHalfH &&
-      top < mapHalfH;
-
-    if (!overlapsMap) return;
-
-    const dl = right - (-mapHalfW);
-    const dr = mapHalfW - left;
-    const dt = bottom - (-mapHalfH);
-    const db = mapHalfH - top;
-    const minD = Math.min(dl, dr, dt, db);
-
-    let shiftX = 0;
-    let shiftY = 0;
-    if (minD === dl) shiftX = -dl;
-    else if (minD === dr) shiftX = dr;
-    else if (minD === dt) shiftY = -dt;
-    else shiftY = db;
-
-    for (const photo of group) {
-      photo.frameX = (photo.frameX ?? 0) + shiftX;
-      photo.frameY = (photo.frameY ?? 0) + shiftY;
-    }
-  }, [photosByPlaceKey, groupLayouts, width, height, getPhotoLogicalSize, transform.scale]);
+    return clampRectOutsideMap(rect, {
+      left: -mapHalfW,
+      right: mapHalfW,
+      top: -mapHalfH,
+      bottom: mapHalfH,
+    });
+  }, [width, height]);
 
   const buildPlaceRectForGroup = useCallback((placeKey: string, items: PhotoItem[]): PlaceRect | null => {
     const geometry = buildGroupGeometryFromLayout(placeKey, items, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
@@ -586,6 +563,14 @@ export default function OuterFrameCanvas({
             placeKey: rect.placeKey,
             placeTitle: rect.placeTitle,
             dragKind: 'group',
+            groupPhotoOrigins: (photosByPlaceKey.get(rect.placeKey) ?? [])
+              .filter((photo) => photo.frameX != null && photo.frameY != null)
+              .map((photo) => ({
+                id: photo.id,
+                frameX: photo.frameX!,
+                frameY: photo.frameY!,
+              })),
+            groupRectOrigin: { ...rect },
           };
           dragPlaceKeyRef.current = rect.placeKey;
           (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -608,15 +593,22 @@ export default function OuterFrameCanvas({
       const newY = dragRef.current.origFrameY + dy;
 
       if (dragRef.current.dragKind === 'group') {
-        for (const photo of photos) {
-          if (photo.placeKey !== dragRef.current.placeKey) continue;
-          if (photo.frameX == null || photo.frameY == null) continue;
-          photo.frameX += dx - ((dragRef.current as any)._lastDx ?? 0);
-          photo.frameY += dy - ((dragRef.current as any)._lastDy ?? 0);
+        const originRect = dragRef.current.groupRectOrigin;
+        const originPhotos = dragRef.current.groupPhotoOrigins ?? [];
+        if (originRect) {
+          const translatedRect = translatePlaceRect(originRect, dx, dy);
+          const clampedRect = clampGroupRectAwayFromMap(translatedRect);
+          const actualDx = clampedRect.overallLeft - originRect.overallLeft;
+          const actualDy = clampedRect.overallTop - originRect.overallTop;
+          const originById = new Map(originPhotos.map((photo) => [photo.id, photo]));
+          for (const photo of photos) {
+            if (photo.placeKey !== dragRef.current.placeKey) continue;
+            const origin = originById.get(photo.id);
+            if (!origin) continue;
+            photo.frameX = origin.frameX + actualDx;
+            photo.frameY = origin.frameY + actualDy;
+          }
         }
-        clampGroupAwayFromMap(dragRef.current.placeKey);
-        (dragRef.current as any)._lastDx = dx;
-        (dragRef.current as any)._lastDy = dy;
       } else {
         const photo = photos.find(p => p.id === dragRef.current!.photoId);
         if (photo) {
@@ -653,7 +645,7 @@ export default function OuterFrameCanvas({
         scheduleRender();
       }
     }
-  }, [getCanvasPos, hitTest, transform, photos, width, height, clampGroupAwayFromMap, getPhotoBounds, scheduleRender]);
+  }, [getCanvasPos, hitTest, transform, photos, width, height, clampGroupRectAwayFromMap, getPhotoBounds, scheduleRender, photosByPlaceKey]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) {

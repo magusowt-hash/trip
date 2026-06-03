@@ -5,8 +5,10 @@ import {
   applyGroupDragToPhotos,
   applyGroupPhotoPositions,
   applyPhotoDragToPhotos,
+  clampRectOutsideMap,
   type FootprintLayoutInteractionMode,
   mergeGroupLayoutSnapshot,
+  translatePlaceRect,
 } from './footprintManualLayout.ts';
 
 type PhotoItem = {
@@ -119,4 +121,104 @@ test('mergeGroupLayoutSnapshot replaces only the changed place snapshot', () => 
 test('manual mode is the terminal state after preset mode', () => {
   const modeFlow: FootprintLayoutInteractionMode[] = ['preset', 'manual'];
   assert.equal(modeFlow.at(-1), 'manual');
+});
+
+test('manual group drag should not require a new layout snapshot', () => {
+  const current = { placeKey: 'alpha', labelSide: 'top' as const, labelOffset: 24 };
+  const moved = applyGroupPhotoPositions(
+    [buildPhoto('a', 'alpha', 10, 20)],
+    'alpha',
+    [{ id: 'a', frameX: 18, frameY: 28 }],
+  );
+
+  assert.equal(moved[0].frameX, 18);
+  assert.equal(moved[0].frameY, 28);
+  assert.deepEqual(current, { placeKey: 'alpha', labelSide: 'top', labelOffset: 24 });
+});
+
+test('translatePlaceRect keeps photo, label, and line anchors rigid during manual drag', () => {
+  const rect = {
+    placeKey: 'alpha',
+    placeTitle: 'alpha',
+    photoLeft: 10,
+    photoTop: 20,
+    photoRight: 70,
+    photoBottom: 80,
+    overallLeft: 0,
+    overallTop: 8,
+    overallRight: 90,
+    overallBottom: 96,
+    labelLeft: 4,
+    labelTop: 8,
+    labelRight: 84,
+    labelBottom: 24,
+    labelSide: 'top' as const,
+    labelAnchorX: 40,
+    labelAnchorY: 16,
+    lineAnchorX: 42,
+    lineAnchorY: 32,
+  };
+
+  const shifted = translatePlaceRect(rect, 18, -6);
+
+  assert.deepEqual(shifted, {
+    ...rect,
+    photoLeft: 28,
+    photoTop: 14,
+    photoRight: 88,
+    photoBottom: 74,
+    overallLeft: 18,
+    overallTop: 2,
+    overallRight: 108,
+    overallBottom: 90,
+    labelLeft: 22,
+    labelTop: 2,
+    labelRight: 102,
+    labelBottom: 18,
+    labelAnchorX: 58,
+    labelAnchorY: 10,
+    lineAnchorX: 60,
+    lineAnchorY: 26,
+  });
+});
+
+test('clampRectOutsideMap applies one stable corrective shift without cumulative drift', () => {
+  const rect = {
+    placeKey: 'alpha',
+    placeTitle: 'alpha',
+    photoLeft: -36,
+    photoTop: -22,
+    photoRight: 24,
+    photoBottom: 38,
+    overallLeft: -44,
+    overallTop: -30,
+    overallRight: 32,
+    overallBottom: 52,
+    labelLeft: -44,
+    labelTop: -30,
+    labelRight: 24,
+    labelBottom: -10,
+    labelSide: 'top' as const,
+    labelAnchorX: -10,
+    labelAnchorY: -20,
+    lineAnchorX: -8,
+    lineAnchorY: -2,
+  };
+
+  const clampedOnce = clampRectOutsideMap(rect, {
+    left: -30,
+    right: 30,
+    top: -40,
+    bottom: 40,
+  });
+  const clampedTwice = clampRectOutsideMap(clampedOnce, {
+    left: -30,
+    right: 30,
+    top: -40,
+    bottom: 40,
+  });
+
+  assert.equal(clampedOnce.overallLeft, -106);
+  assert.equal(clampedOnce.overallRight, -30);
+  assert.deepEqual(clampedTwice, clampedOnce);
 });
