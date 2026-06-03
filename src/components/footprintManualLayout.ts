@@ -35,6 +35,24 @@ export function applyGroupDragToPhotos(
   });
 }
 
+export function applyGroupPhotoPositions(
+  photos: PhotoItem[],
+  placeKey: string,
+  nextGroupPhotos: Array<Pick<PhotoItem, 'id' | 'frameX' | 'frameY'>>,
+) {
+  const nextById = new Map(nextGroupPhotos.map((photo) => [photo.id, photo]));
+  return photos.map((photo) => {
+    if (photo.placeKey !== placeKey) return photo;
+    const next = nextById.get(photo.id);
+    if (!next) return photo;
+    return {
+      ...photo,
+      frameX: next.frameX,
+      frameY: next.frameY,
+    };
+  });
+}
+
 export function mergeGroupLayoutSnapshot(
   layouts: GroupLayoutSnapshot[],
   nextLayout: GroupLayoutSnapshot,

@@ -4,7 +4,7 @@ import { useRef, useCallback, useState, useEffect } from 'react';
 import { useOuterFrame } from '@/hooks/useOuterFrame';
 import { CLAMP_SCALE, logicalViewport, type Viewport } from '@/lib/outerFrameCoords';
 import OuterFrameCanvas from './OuterFrameCanvas';
-import type { PhotoItem, PoiPoint } from './OuterFrameCanvas';
+import type { DraggedGroupPhotoPosition, PhotoItem, PoiPoint } from './OuterFrameCanvas';
 import type { LineStyle } from './LegendPanel';
 import type { MapMarker } from './PlanMap';
 import PlanMap from './PlanMap';
@@ -27,7 +27,7 @@ interface Props {
   onMarkerClick?: (marker: MapMarker) => void;
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
   onPhotoClick?: (photoId: number | string) => void;
-  onGroupLabelDragEnd?: (placeKey: string, dx: number, dy: number) => void;
+  onGroupLabelDragEnd?: (placeKey: string, nextGroupPhotos: DraggedGroupPhotoPosition[]) => void;
   mapRef?: React.MutableRefObject<unknown>;
   showPhotos: boolean;
   showLines: boolean;

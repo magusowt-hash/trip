@@ -63,6 +63,12 @@ export interface PlaceRect {
   lineAnchorY: number;
 }
 
+export interface DraggedGroupPhotoPosition {
+  id: number | string;
+  frameX: number | undefined;
+  frameY: number | undefined;
+}
+
 interface Props {
   width: number;
   height: number;
@@ -79,7 +85,7 @@ interface Props {
   renderVersion?: string | number;
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
   onPhotoClick?: (photoId: number | string) => void;
-  onGroupLabelDragEnd?: (placeKey: string, dx: number, dy: number) => void;
+  onGroupLabelDragEnd?: (placeKey: string, nextGroupPhotos: DraggedGroupPhotoPosition[]) => void;
 }
 
 const PHOTO_MAX_EDGE = 120;
@@ -652,9 +658,14 @@ export default function OuterFrameCanvas({
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) {
       if (dragRef.current.dragKind === 'group') {
-        const dx = (dragRef.current as any)._lastDx ?? 0;
-        const dy = (dragRef.current as any)._lastDy ?? 0;
-        onGroupLabelDragEnd?.(dragRef.current.placeKey, dx, dy);
+        const nextGroupPhotos = photos
+          .filter((photo) => photo.placeKey === dragRef.current!.placeKey)
+          .map((photo) => ({
+            id: photo.id,
+            frameX: photo.frameX,
+            frameY: photo.frameY,
+          }));
+        onGroupLabelDragEnd?.(dragRef.current.placeKey, nextGroupPhotos);
       } else {
         const photo = photos.find(p => p.id === dragRef.current!.photoId);
         if (photo && photo.frameX != null && photo.frameY != null) {
