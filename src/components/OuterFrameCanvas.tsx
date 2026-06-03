@@ -70,7 +70,7 @@ interface Props {
   renderVersion?: string | number;
   onPhotoDragEnd?: (photoId: number | string, x: number, y: number) => void;
   onPhotoClick?: (photoId: number | string) => void;
-  onPhotoDragFrame?: () => void;
+  onPhotoDragFrame?: (placeKey: string) => void;
   onGroupLabelDragEnd?: (placeKey: string, dx: number, dy: number) => void;
 }
 
@@ -142,6 +142,18 @@ export default function OuterFrameCanvas({
   const hoveredPhotoRef = useRef<number | string | null>(null);
   const placeRectsRef = useRef<PlaceRect[]>([]);
   const didDragRef = useRef(false);
+  const dragPlaceKeyRef = useRef<string | null>(null);
+
+  const photosByPlaceKey = useMemo(() => {
+    const groups = new Map<string, PhotoItem[]>();
+    for (const photo of photos) {
+      if (photo.frameX == null || photo.frameY == null) continue;
+      const arr = groups.get(photo.placeKey) || [];
+      arr.push(photo);
+      groups.set(photo.placeKey, arr);
+    }
+    return groups;
+  }, [photos]);
 
   const scheduleRender = useCallback(() => {
     if (rafRef.current != null) return;
@@ -206,9 +218,7 @@ export default function OuterFrameCanvas({
   }, [getPhotoLogicalSize]);
 
   const clampGroupAwayFromMap = useCallback((placeKey: string) => {
-    const group = photos.filter(
-      (photo) => photo.placeKey === placeKey && photo.frameX != null && photo.frameY != null,
-    );
+    const group = photosByPlaceKey.get(placeKey) ?? [];
     if (group.length === 0) return;
 
     const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height);
@@ -245,43 +255,46 @@ export default function OuterFrameCanvas({
       photo.frameX = (photo.frameX ?? 0) + shiftX;
       photo.frameY = (photo.frameY ?? 0) + shiftY;
     }
-  }, [photos, groupLayouts, width, height, getPhotoLogicalSize, transform.scale]);
+  }, [photosByPlaceKey, groupLayouts, width, height, getPhotoLogicalSize, transform.scale]);
+
+  const buildPlaceRectForGroup = useCallback((placeKey: string, items: PhotoItem[]): PlaceRect | null => {
+    const geometry = buildGroupGeometryFromLayout(placeKey, items, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
+    if (!geometry) return null;
+    return {
+      placeKey,
+      placeTitle: items[0]?.placeTitle || '',
+      photoLeft: geometry.photoRect.left,
+      photoTop: geometry.photoRect.top,
+      photoRight: geometry.photoRect.right,
+      photoBottom: geometry.photoRect.bottom,
+      overallLeft: geometry.overallRect.left,
+      overallTop: geometry.overallRect.top,
+      overallRight: geometry.overallRect.right,
+      overallBottom: geometry.overallRect.bottom,
+      labelLeft: geometry.labelRect.left,
+      labelTop: geometry.labelRect.top,
+      labelRight: geometry.labelRect.right,
+      labelBottom: geometry.labelRect.bottom,
+      labelSide: geometry.labelSide,
+      labelAnchorX: geometry.labelAnchorX,
+      labelAnchorY: geometry.labelAnchorY,
+    };
+  }, [getPhotoLogicalSize, transform.scale, groupLayouts]);
 
   const buildPlaceRects = useCallback((): PlaceRect[] => {
-    const groups = new Map<string, PhotoItem[]>();
-    for (const p of photos) {
-      if (p.frameX == null || p.frameY == null) continue;
-      const arr = groups.get(p.placeKey) || [];
-      arr.push(p);
-      groups.set(p.placeKey, arr);
-    }
     const rects: PlaceRect[] = [];
-    for (const [placeKey, items] of groups) {
-      const geometry = buildGroupGeometryFromLayout(placeKey, items, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
-      if (!geometry) continue;
-      rects.push({
-        placeKey,
-        placeTitle: items[0]?.placeTitle || '',
-        photoLeft: geometry.photoRect.left,
-        photoTop: geometry.photoRect.top,
-        photoRight: geometry.photoRect.right,
-        photoBottom: geometry.photoRect.bottom,
-        overallLeft: geometry.overallRect.left,
-        overallTop: geometry.overallRect.top,
-        overallRight: geometry.overallRect.right,
-        overallBottom: geometry.overallRect.bottom,
-        labelLeft: geometry.labelRect.left,
-        labelTop: geometry.labelRect.top,
-        labelRight: geometry.labelRect.right,
-        labelBottom: geometry.labelRect.bottom,
-        labelSide: geometry.labelSide,
-        labelAnchorX: geometry.labelAnchorX,
-        labelAnchorY: geometry.labelAnchorY,
-      });
+    for (const [placeKey, items] of photosByPlaceKey) {
+      const rect = buildPlaceRectForGroup(placeKey, items);
+      if (rect) rects.push(rect);
     }
     return rects;
-  }, [photos, groupLayouts, getPhotoLogicalSize, transform.scale]);
+  }, [photosByPlaceKey, buildPlaceRectForGroup]);
   const placeRects = useMemo(() => buildPlaceRects(), [buildPlaceRects, renderVersion]);
+  const placeRectMap = useMemo(() => {
+    const next = new Map<string, PlaceRect>();
+    for (const rect of placeRects) next.set(rect.placeKey, rect);
+    return next;
+  }, [placeRects]);
 
   // --- Coordinate helpers ---
   const logicalToScreen = useCallback((lx: number, ly: number): Point => ({
@@ -358,7 +371,18 @@ export default function OuterFrameCanvas({
     ctx.clearRect(0, 0, width, height);
     const overlayScale = getOverlayScale(transform.scale);
 
-    const currentRects = dragRef.current ? buildPlaceRects() : placeRects;
+    let currentRects = placeRects;
+    if (dragRef.current) {
+      const activePlaceKey = dragPlaceKeyRef.current;
+      if (activePlaceKey) {
+        const nextRectMap = new Map(placeRectMap);
+        const activeGroup = photosByPlaceKey.get(activePlaceKey) ?? [];
+        const nextRect = buildPlaceRectForGroup(activePlaceKey, activeGroup);
+        if (nextRect) nextRectMap.set(activePlaceKey, nextRect);
+        else nextRectMap.delete(activePlaceKey);
+        currentRects = Array.from(nextRectMap.values());
+      }
+    }
     placeRectsRef.current = currentRects;
 
     // --- Draw photos (no per-photo labels) ---
@@ -420,7 +444,7 @@ export default function OuterFrameCanvas({
         }
       }
     }
-  }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, placeRects, buildPlaceRects, getPhotoLogicalSize]);
+  }, [width, height, transform, photos, showLabels, logicalToScreen, loadImage, placeRects, placeRectMap, photosByPlaceKey, buildPlaceRectForGroup, getPhotoLogicalSize]);
 
   useEffect(() => {
     renderRef.current = render;
@@ -466,6 +490,7 @@ export default function OuterFrameCanvas({
           placeTitle: photo.placeTitle,
           dragKind: 'photo',
         };
+        dragPlaceKeyRef.current = photo.placeKey;
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
       }
       return;
@@ -493,6 +518,7 @@ export default function OuterFrameCanvas({
             placeTitle: rect.placeTitle,
             dragKind: 'group',
           };
+          dragPlaceKeyRef.current = rect.placeKey;
           (e.target as HTMLElement).setPointerCapture(e.pointerId);
           return;
         }
@@ -549,7 +575,7 @@ export default function OuterFrameCanvas({
           }
         }
       }
-      onPhotoDragFrame?.();
+      onPhotoDragFrame?.(dragRef.current.placeKey);
       scheduleRender();
     } else {
       const pos = getCanvasPos(e);
@@ -574,6 +600,7 @@ export default function OuterFrameCanvas({
         }
       }
       dragRef.current = null;
+      dragPlaceKeyRef.current = null;
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     }
   }, [photos, onPhotoDragEnd, onGroupLabelDragEnd]);

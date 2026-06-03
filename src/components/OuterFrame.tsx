@@ -111,11 +111,11 @@ export default function OuterFrame({
     setMapReady(true);
   }, [mapRef]);
 
-  const handlePhotoDragFrame = useCallback(() => {
+  const handlePhotoDragFrame = useCallback((placeKey: string) => {
     if (dragRenderFrameRef.current != null) return;
     dragRenderFrameRef.current = requestAnimationFrame(() => {
       dragRenderFrameRef.current = null;
-      lineCanvasRef.current?.renderNow();
+      lineCanvasRef.current?.renderNow(placeKey);
     });
   }, []);
 

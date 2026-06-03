@@ -21,7 +21,7 @@ function getOverlayScale(scale: number) {
 }
 
 export type LineCanvasHandle = {
-  renderNow: () => void;
+  renderNow: (placeKey?: string) => void;
 };
 
 interface Props {
@@ -41,6 +41,7 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
   const canvasSizeRef = useRef({ width: 0, height: 0, dpr: 0 });
   const renderRef = useRef<() => void>(() => {});
   const forceFreshGeometryRef = useRef(false);
+  const freshGeometryPlaceKeyRef = useRef<string | null>(null);
 
   const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
     const sourceWidth = photo.pixelWidth ?? 0;
@@ -124,7 +125,25 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
     ctx.clearRect(0, 0, width, height);
     const overlayScale = getOverlayScale(transform.scale);
 
-    const currentResolvedGeometryMap = forceFreshGeometryRef.current ? buildResolvedGeometryMap() : resolvedGeometryMap;
+    let currentResolvedGeometryMap = resolvedGeometryMap;
+    if (forceFreshGeometryRef.current) {
+      const activePlaceKey = freshGeometryPlaceKeyRef.current;
+      if (activePlaceKey) {
+        currentResolvedGeometryMap = new Map(resolvedGeometryMap);
+        const activeGroupPhotos = photosByPlaceKey.get(activePlaceKey) ?? [];
+        const geometry = buildGroupGeometryFromLayout(
+          activePlaceKey,
+          activeGroupPhotos,
+          getPhotoLogicalSize,
+          transform.scale,
+          groupLayouts ?? [],
+        );
+        if (geometry) currentResolvedGeometryMap.set(activePlaceKey, geometry);
+        else currentResolvedGeometryMap.delete(activePlaceKey);
+      } else {
+        currentResolvedGeometryMap = buildResolvedGeometryMap();
+      }
+    }
 
     for (const poi of poiPoints) {
       const poiScreen = logicalToScreen(poi.logicalX, poi.logicalY);
@@ -177,10 +196,12 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
   }, [render]);
 
   useImperativeHandle(ref, () => ({
-    renderNow: () => {
+    renderNow: (placeKey?: string) => {
       forceFreshGeometryRef.current = true;
+      freshGeometryPlaceKeyRef.current = placeKey ?? null;
       renderRef.current();
       forceFreshGeometryRef.current = false;
+      freshGeometryPlaceKeyRef.current = null;
     },
   }), []);
 
