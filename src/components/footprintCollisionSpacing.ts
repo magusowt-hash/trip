@@ -21,8 +21,8 @@ export type OccupiedGeometryGapPolicy = {
 export function buildOccupiedGeometryGapPolicy(safeGap: number): OccupiedGeometryGapPolicy {
   return {
     photoGap: Math.max(10, safeGap),
-    labelPhotoGap: Math.max(14, safeGap + 4),
-    labelGap: Math.max(12, safeGap + 2),
+    labelPhotoGap: Math.max(18, safeGap + 16),
+    labelGap: Math.max(16, safeGap + 16),
   };
 }
 

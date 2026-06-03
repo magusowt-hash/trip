@@ -112,3 +112,39 @@ test('solvePendingGroupPlacements keeps neighboring groups apart when label foot
     'expected full group footprints to remain separated',
   );
 });
+
+test('solvePendingGroupPlacements preserves a strict safe gap between dense neighboring groups', () => {
+  const mapRect = rect(-220, -180, 220, 180);
+  const groups = [
+    buildGroup('a', 'aaa', rect(-140, -40, -20, 40), -80, 10, mapRect),
+    buildGroup('b', 'bbb', rect(-60, -30, 60, 50), 0, 20, mapRect),
+    buildGroup('c', 'ccc', rect(20, -40, 140, 40), 80, 10, mapRect),
+    buildGroup('d', 'ddd', rect(-40, 40, 80, 120), 20, 90, mapRect),
+  ];
+
+  const safeGap = 96;
+  const solved = solvePendingGroupPlacements(groups, mapRect, safeGap, 0, []);
+  const geometries = groups.map((group) => solved.geometries.get(group.placeKey)).filter(Boolean);
+
+  for (let index = 0; index < geometries.length; index++) {
+    for (let neighborIndex = index + 1; neighborIndex < geometries.length; neighborIndex++) {
+      const geometry = geometries[index]!;
+      const neighbor = geometries[neighborIndex]!;
+      assert.equal(
+        rectsOverlap(geometry.photoRect, neighbor.photoRect, safeGap),
+        false,
+        `expected photo safe gap between group ${index} and ${neighborIndex}`,
+      );
+      assert.equal(
+        rectsOverlap(geometry.labelRect, neighbor.photoRect, safeGap + 16),
+        false,
+        `expected label-photo safe gap between group ${index} and ${neighborIndex}`,
+      );
+      assert.equal(
+        rectsOverlap(geometry.labelRect, neighbor.labelRect, safeGap + 16),
+        false,
+        `expected label-label safe gap between group ${index} and ${neighborIndex}`,
+      );
+    }
+  }
+});

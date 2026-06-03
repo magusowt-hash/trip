@@ -19,10 +19,19 @@ test('occupied geometry gap policy scales with safe gap instead of fixed small c
   assert.ok(roomy.labelGap > compact.labelGap);
 });
 
+test('occupied geometry gap policy keeps strict label clearance in dense layouts', () => {
+  const safeGap = 80;
+  const policy = buildOccupiedGeometryGapPolicy(safeGap);
+
+  assert.equal(policy.photoGap, safeGap);
+  assert.equal(policy.labelPhotoGap, safeGap + 16);
+  assert.equal(policy.labelGap, safeGap + 16);
+});
+
 test('geometry overlap check respects the requested safe gap for label to photo clearance', () => {
   const candidate = {
     photoRect: rect(0, 0, 80, 80),
-    labelRect: rect(96, 0, 176, 24),
+    labelRect: rect(88, 0, 168, 24),
   };
   const occupied = [{
     photoRect: rect(200, 0, 280, 80),
