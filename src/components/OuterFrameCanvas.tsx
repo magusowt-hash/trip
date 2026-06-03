@@ -123,7 +123,6 @@ export default function OuterFrameCanvas({
   onGroupLabelDragEnd,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const dirtyRef = useRef(true);
   const rafRef = useRef<number | null>(null);
   const renderRef = useRef<() => void>(() => {});
   const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -142,13 +141,10 @@ export default function OuterFrameCanvas({
   const didDragRef = useRef(false);
 
   const scheduleRender = useCallback(() => {
-    dirtyRef.current = true;
     if (rafRef.current != null) return;
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null;
-      if (!dirtyRef.current) return;
       renderRef.current();
-      dirtyRef.current = false;
     });
   }, []);
 
@@ -540,7 +536,6 @@ export default function OuterFrameCanvas({
           }
         }
       }
-      dirtyRef.current = true;
       scheduleRender();
     } else {
       const pos = getCanvasPos(e);
