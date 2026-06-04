@@ -823,7 +823,7 @@ function UserFootprintsPageInner() {
     const unplaced = allPhotos.filter(p => p.frameX == null || p.frameY == null);
     let nextGroupLayouts = groupLayouts;
     if (unplaced.length > 0) {
-      nextGroupLayouts = autoPlacePhotos(unplaced);
+      nextGroupLayouts = autoPlacePhotos(unplaced, allPhotos);
       movedPhotosRef.current = true;
       setHasMovedPhotos(true);
     }
@@ -1131,15 +1131,30 @@ function UserFootprintsPageInner() {
         arr.push(photo);
         allGroups.set(photo.placeKey, arr);
       }
+      const conflictingSavedPlaceKeys = collectConflictingSavedPlaceKeys(
+        allGroups,
+        collisionScale,
+        groupLayouts,
+        getPhotoLogicalSize,
+        logicalPointByPlaceKey,
+        cardSize,
+      );
 
       const lockedGroups: LockedPlaceGroup[] = [];
       const pendingGroups: PendingPlaceGroup[] = [];
 
-      for (const [placeKey, placePhotos] of allGroups) {
+      const sortedGroups = Array.from(allGroups.entries()).sort(([leftKey], [rightKey]) => (
+        leftKey.localeCompare(rightKey, 'zh-CN')
+      ));
+
+      for (const [placeKey, placePhotos] of sortedGroups) {
         const logicalPoint = logicalPointByPlaceKey.get(placeKey);
         if (!logicalPoint) continue;
 
-        if (placePhotos.every((photo) => photo.frameX != null && photo.frameY != null)) {
+        const canConsiderLocked =
+          !conflictingSavedPlaceKeys.has(placeKey) &&
+          placePhotos.every((photo) => photo.frameX != null && photo.frameY != null);
+        if (canConsiderLocked) {
           const lockedGeometry = buildGroupGeometryFromLayout(
             placeKey,
             placePhotos,
@@ -1148,12 +1163,14 @@ function UserFootprintsPageInner() {
             groupLayouts,
           );
           if (lockedGeometry) {
-            lockedGroups.push({
-              placeKey,
-              logicalX: logicalPoint.x,
-              logicalY: logicalPoint.y,
-              geometry: lockedGeometry,
-            });
+            if (!geometryConflictsWithLockedGroups(lockedGeometry, lockedGroups, cardSize)) {
+              lockedGroups.push({
+                placeKey,
+                logicalX: logicalPoint.x,
+                logicalY: logicalPoint.y,
+                geometry: lockedGeometry,
+              });
+            }
           }
         }
 
