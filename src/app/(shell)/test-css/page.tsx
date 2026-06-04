@@ -114,11 +114,22 @@ export default function TestCssPage() {
   const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? null;
   const poiJson = useMemo(() => JSON.stringify(poiItems, null, 2), [poiItems]);
 
-  async function copyPoiJson() {
+  function downloadPoiJson() {
     try {
-      await navigator.clipboard.writeText(poiJson);
+      const blob = new Blob([poiJson], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      const safeGroupName = (selectedGroup?.name || 'footprint-poi')
+        .replace(/[\\\\/:*?\"<>|]+/g, '-')
+        .trim();
+      anchor.href = url;
+      anchor.download = `${safeGroupName || 'footprint-poi'}-poi.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
     } catch {
-      setError('复制失败，请检查浏览器权限');
+      setError('下载失败，请稍后重试');
     }
   }
 
@@ -165,8 +176,8 @@ export default function TestCssPage() {
             <button type="button" className={styles.actionButton} onClick={() => location.reload()}>
               刷新
             </button>
-            <button type="button" className={styles.actionButton} onClick={copyPoiJson}>
-              复制 POI JSON
+            <button type="button" className={styles.actionButton} onClick={downloadPoiJson}>
+              下载 POI JSON
             </button>
           </div>
         </div>
