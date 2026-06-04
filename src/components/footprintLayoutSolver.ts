@@ -30,6 +30,12 @@ const REBALANCE_ITERATION_COUNT = 8;
 const MAX_CANDIDATES_PER_GROUP = 48;
 const CORRIDOR_REPAIR_GROUP_LIMIT = 4;
 const CORRIDOR_REPAIR_CANDIDATE_LIMIT = 8;
+const CORRIDOR_REPAIR_NEAR_TAIL_LIMIT = 8;
+const CORRIDOR_REPAIR_SPREAD_SAMPLE_COUNT = 6;
+const PAIR_REPAIR_GROUP_LIMIT = 8;
+const PAIR_REPAIR_PASS_LIMIT = 3;
+const GROUP_RECT_ONLY_PAIR_LIMIT = 4;
+const GROUP_RECT_ONLY_CANDIDATE_LIMIT = 4;
 
 const ANGLE_OFFSETS_DEGREES = [-24, -16, -10, -6, 0, 6, 10, 16, 24];
 const RADIUS_FACTORS = [0.78, 0.86, 0.94, 1, 1.08, 1.18];
@@ -157,6 +163,38 @@ function buildLine(group: PendingPlaceGroup, geometry: GroupGeometry) {
     start: { x: group.logicalX, y: group.logicalY },
     end: { x: geometry.lineAnchorX, y: geometry.lineAnchorY },
   };
+}
+
+function countPlacementLineCrossings(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+) {
+  let crossingCount = 0;
+
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const placement = placementById.get(group.placeKey);
+    if (!placement) continue;
+
+    for (let neighborIndex = index + 1; neighborIndex < groups.length; neighborIndex++) {
+      const neighbor = groups[neighborIndex];
+      const neighborPlacement = placementById.get(neighbor.placeKey);
+      if (!neighborPlacement) continue;
+
+      if (
+        segmentsIntersect(
+          { x: group.logicalX, y: group.logicalY },
+          { x: placement.centerX, y: placement.centerY },
+          { x: neighbor.logicalX, y: neighbor.logicalY },
+          { x: neighborPlacement.centerX, y: neighborPlacement.centerY },
+        )
+      ) {
+        crossingCount += 1;
+      }
+    }
+  }
+
+  return crossingCount;
 }
 
 function computeSectorIndex(angle: number) {
@@ -617,6 +655,7 @@ function reassignGroup(
   const currentIndex = state.candidateIndexById.get(group.placeKey) ?? 0;
   const candidates = candidatePoolById.get(group.placeKey) ?? [];
   if (candidates.length === 0) return false;
+  const currentPlacementCrossings = countPlacementLineCrossings(groups, state.placementById);
 
   const currentCandidate = candidates[currentIndex];
   const currentScore = currentCandidate
@@ -633,6 +672,12 @@ function reassignGroup(
     const candidate = candidates[index];
     const evaluation = evaluateCandidate(group, candidate, groups, state, lockedGroups, safeGap);
     if (!evaluation.valid) continue;
+    const placementById = new Map(state.placementById);
+    placementById.set(group.placeKey, candidate.placement);
+    const candidatePlacementCrossings = countPlacementLineCrossings(groups, placementById);
+    if (groups.length >= 20 && candidatePlacementCrossings > currentPlacementCrossings) {
+      continue;
+    }
     if (evaluation.score < bestScore - 1e-6) {
       bestScore = evaluation.score;
       bestIndex = index;
@@ -657,10 +702,23 @@ function optimizeAssignments(
   safeGap: number,
 ) {
   for (let iteration = 0; iteration < REBALANCE_ITERATION_COUNT; iteration++) {
+    const placementSnapshot = new Map(state.placementById);
+    const geometrySnapshot = new Map(state.geometryById);
+    const candidateIndexSnapshot = new Map(state.candidateIndexById);
     let changed = false;
+    const beforeIterationCrossings = countPlacementLineCrossings(orderedGroups, state.placementById);
     for (const group of orderedGroups) {
       if (reassignGroup(group, orderedGroups, candidatePoolById, state, lockedGroups, safeGap)) {
         changed = true;
+      }
+    }
+    if (orderedGroups.length >= 20) {
+      const afterIterationCrossings = countPlacementLineCrossings(orderedGroups, state.placementById);
+      if (afterIterationCrossings > beforeIterationCrossings) {
+        state.placementById = placementSnapshot;
+        state.geometryById = geometrySnapshot;
+        state.candidateIndexById = candidateIndexSnapshot;
+        break;
       }
     }
     if (!changed) break;
@@ -700,6 +758,9 @@ function improveCorridorRisk(
   );
   if (corridorRisk === 0) return;
   let envelopeScore = scoreFinalLayoutEnvelope(orderedGroups, geometryById);
+  let placementLineCrossings = countPlacementLineCrossings(orderedGroups, state.placementById);
+  let riskByGroup = buildCorridorRiskByGroup(orderedGroups, geometryById, safeGap, lockedGroups);
+  let groupRectRiskByGroup = buildGroupRectRiskByGroup(orderedGroups, geometryById, safeGap, lockedGroups);
 
   for (let iteration = 0; iteration < REBALANCE_ITERATION_COUNT; iteration++) {
     let changed = false;
@@ -713,14 +774,17 @@ function improveCorridorRisk(
       const currentPlacement = state.placementById.get(group.placeKey);
       if (!currentPlacement) continue;
 
-      const candidates = (candidatePoolById.get(group.placeKey) ?? [])
-        .slice(0, CORRIDOR_REPAIR_CANDIDATE_LIMIT);
+      const candidates = buildCorridorRepairCandidateSubset(
+        candidatePoolById.get(group.placeKey) ?? [],
+      );
       let bestPlacement = currentPlacement;
       let bestIndex = state.candidateIndexById.get(group.placeKey) ?? 0;
       let bestGeometry = geometryById;
       let bestHardConflicts = hardConflicts;
       let bestCorridorRisk = corridorRisk;
       let bestEnvelopeScore = envelopeScore;
+      let bestTargetGroupRisk = riskByGroup.get(group.placeKey) ?? 0;
+      let bestTargetGroupRectRisk = groupRectRiskByGroup.get(group.placeKey) ?? 0;
 
       for (let index = 0; index < candidates.length; index++) {
         const candidate = candidates[index];
@@ -750,16 +814,55 @@ function improveCorridorRisk(
           safeGap,
           lockedGroups,
         );
+        const candidateRiskByGroup = buildCorridorRiskByGroup(
+          orderedGroups,
+          candidateGeometryById,
+          safeGap,
+          lockedGroups,
+        );
+        const candidateTargetGroupRisk = candidateRiskByGroup.get(group.placeKey) ?? 0;
+        const candidateGroupRectRiskByGroup = buildGroupRectRiskByGroup(
+          orderedGroups,
+          candidateGeometryById,
+          safeGap,
+          lockedGroups,
+        );
+        const candidateTargetGroupRectRisk = candidateGroupRectRiskByGroup.get(group.placeKey) ?? 0;
+        const candidatePlacementLineCrossings = countPlacementLineCrossings(
+          orderedGroups,
+          placementById,
+        );
         const candidateEnvelopeScore = scoreFinalLayoutEnvelope(
           orderedGroups,
           candidateGeometryById,
         );
+        const increasesLineCrossings = (
+          orderedGroups.length >= 20 &&
+          candidatePlacementLineCrossings > placementLineCrossings
+        );
+
+        if (increasesLineCrossings) continue;
 
         const isBetter =
           (!candidateHardConflicts && bestHardConflicts) ||
           (candidateHardConflicts === bestHardConflicts &&
+            candidatePlacementLineCrossings < placementLineCrossings) ||
+          (candidateHardConflicts === bestHardConflicts &&
+            candidatePlacementLineCrossings === placementLineCrossings &&
+            candidateTargetGroupRectRisk < bestTargetGroupRectRisk) ||
+          (candidateHardConflicts === bestHardConflicts &&
+            candidatePlacementLineCrossings === placementLineCrossings &&
+            candidateTargetGroupRectRisk === bestTargetGroupRectRisk &&
+            candidateTargetGroupRisk < bestTargetGroupRisk) ||
+          (candidateHardConflicts === bestHardConflicts &&
+            candidatePlacementLineCrossings === placementLineCrossings &&
+            candidateTargetGroupRectRisk === bestTargetGroupRectRisk &&
+            candidateTargetGroupRisk === bestTargetGroupRisk &&
             candidateCorridorRisk < bestCorridorRisk) ||
           (candidateHardConflicts === bestHardConflicts &&
+            candidatePlacementLineCrossings === placementLineCrossings &&
+            candidateTargetGroupRectRisk === bestTargetGroupRectRisk &&
+            candidateTargetGroupRisk === bestTargetGroupRisk &&
             candidateCorridorRisk === bestCorridorRisk &&
             candidateEnvelopeScore < bestEnvelopeScore - 1e-6);
 
@@ -770,6 +873,9 @@ function improveCorridorRisk(
         bestGeometry = candidateGeometryById;
         bestHardConflicts = candidateHardConflicts;
         bestCorridorRisk = candidateCorridorRisk;
+        bestTargetGroupRectRisk = candidateTargetGroupRectRisk;
+        bestTargetGroupRisk = candidateTargetGroupRisk;
+        placementLineCrossings = candidatePlacementLineCrossings;
         bestEnvelopeScore = candidateEnvelopeScore;
       }
 
@@ -782,6 +888,8 @@ function improveCorridorRisk(
         geometryById = bestGeometry;
         hardConflicts = bestHardConflicts;
         corridorRisk = bestCorridorRisk;
+        riskByGroup = buildCorridorRiskByGroup(orderedGroups, geometryById, safeGap, lockedGroups);
+        groupRectRiskByGroup = buildGroupRectRiskByGroup(orderedGroups, geometryById, safeGap, lockedGroups);
         envelopeScore = bestEnvelopeScore;
         changed = true;
       }
@@ -977,6 +1085,395 @@ function buildCorridorRiskByGroup(
   return riskByGroup;
 }
 
+function buildGroupRectRiskByGroup(
+  groups: PendingPlaceGroup[],
+  geometryById: Map<string, GroupGeometry>,
+  safeGap: number,
+  lockedGroups: LockedPlaceGroup[] = [],
+) {
+  const riskByGroup = new Map<string, number>();
+  const groupGap = Math.max(48, safeGap * 0.5);
+
+  const addRisk = (placeKey: string, amount: number) => {
+    riskByGroup.set(placeKey, (riskByGroup.get(placeKey) ?? 0) + amount);
+  };
+
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const geometry = geometryById.get(group.placeKey);
+    if (!geometry) {
+      addRisk(group.placeKey, 1);
+      continue;
+    }
+
+    for (let neighborIndex = index + 1; neighborIndex < groups.length; neighborIndex++) {
+      const neighbor = groups[neighborIndex];
+      const neighborGeometry = geometryById.get(neighbor.placeKey);
+      if (!neighborGeometry) {
+        addRisk(group.placeKey, 1);
+        addRisk(neighbor.placeKey, 1);
+        continue;
+      }
+      if (rectsOverlap(geometry.groupRect, neighborGeometry.groupRect, groupGap)) {
+        addRisk(group.placeKey, 1);
+        addRisk(neighbor.placeKey, 1);
+      }
+    }
+
+    for (const locked of lockedGroups) {
+      if (rectsOverlap(geometry.groupRect, locked.geometry.groupRect, groupGap)) {
+        addRisk(group.placeKey, 1);
+      }
+    }
+  }
+
+  return riskByGroup;
+}
+
+function buildPairRepairTargets(
+  groups: PendingPlaceGroup[],
+  geometryById: Map<string, GroupGeometry>,
+  safeGap: number,
+  lockedGroups: LockedPlaceGroup[] = [],
+) {
+  const targets: Array<{ leftKey: string; rightKey: string; score: number }> = [];
+  const groupGap = Math.max(48, safeGap * 0.5);
+  const labelGap = Math.max(LABEL_GAP, safeGap + 16);
+
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const geometry = geometryById.get(group.placeKey);
+    if (!geometry) continue;
+
+    for (let neighborIndex = index + 1; neighborIndex < groups.length; neighborIndex++) {
+      const neighbor = groups[neighborIndex];
+      const neighborGeometry = geometryById.get(neighbor.placeKey);
+      if (!neighborGeometry) continue;
+
+      let score = 0;
+      if (rectsOverlap(geometry.groupRect, neighborGeometry.groupRect, groupGap)) score += 4;
+      if (rectsOverlap(geometry.labelRect, neighborGeometry.photoRect, labelGap)) score += 2;
+      if (rectsOverlap(neighborGeometry.labelRect, geometry.photoRect, labelGap)) score += 2;
+      if (rectsOverlap(geometry.labelRect, neighborGeometry.labelRect, labelGap)) score += 1;
+      if (score > 0) {
+        targets.push({
+          leftKey: group.placeKey,
+          rightKey: neighbor.placeKey,
+          score,
+        });
+      }
+    }
+
+    for (const locked of lockedGroups) {
+      let score = 0;
+      if (rectsOverlap(geometry.groupRect, locked.geometry.groupRect, groupGap)) score += 4;
+      if (rectsOverlap(geometry.labelRect, locked.geometry.photoRect, labelGap)) score += 2;
+      if (rectsOverlap(locked.geometry.labelRect, geometry.photoRect, labelGap)) score += 2;
+      if (rectsOverlap(geometry.labelRect, locked.geometry.labelRect, labelGap)) score += 1;
+      if (score > 0) {
+        targets.push({
+          leftKey: group.placeKey,
+          rightKey: locked.placeKey,
+          score,
+        });
+      }
+    }
+  }
+
+  return targets
+    .sort((left, right) => right.score - left.score || left.leftKey.localeCompare(right.leftKey, 'zh-CN') || left.rightKey.localeCompare(right.rightKey, 'zh-CN'))
+    .slice(0, PAIR_REPAIR_GROUP_LIMIT);
+}
+
+function buildGroupRectOnlyPairTargets(
+  groups: PendingPlaceGroup[],
+  geometryById: Map<string, GroupGeometry>,
+  safeGap: number,
+) {
+  const targets: Array<{ leftKey: string; rightKey: string }> = [];
+  const groupGap = Math.max(48, safeGap * 0.5);
+  const labelGap = Math.max(LABEL_GAP, safeGap + 16);
+
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const geometry = geometryById.get(group.placeKey);
+    if (!geometry) continue;
+
+    for (let neighborIndex = index + 1; neighborIndex < groups.length; neighborIndex++) {
+      const neighbor = groups[neighborIndex];
+      const neighborGeometry = geometryById.get(neighbor.placeKey);
+      if (!neighborGeometry) continue;
+
+      const groupRect = rectsOverlap(geometry.groupRect, neighborGeometry.groupRect, groupGap);
+      const leftLabelToRightPhoto = rectsOverlap(geometry.labelRect, neighborGeometry.photoRect, labelGap);
+      const rightLabelToLeftPhoto = rectsOverlap(neighborGeometry.labelRect, geometry.photoRect, labelGap);
+      const labelLabel = rectsOverlap(geometry.labelRect, neighborGeometry.labelRect, labelGap);
+
+      if (groupRect && !leftLabelToRightPhoto && !rightLabelToLeftPhoto && !labelLabel) {
+        targets.push({
+          leftKey: group.placeKey,
+          rightKey: neighbor.placeKey,
+        });
+      }
+    }
+  }
+
+  return targets.slice(0, GROUP_RECT_ONLY_PAIR_LIMIT);
+}
+
+function improveGroupRectOnlyPairs(
+  orderedGroups: PendingPlaceGroup[],
+  candidatePoolById: Map<string, PlacementCandidate[]>,
+  state: PlacementState,
+  mapRect: LogicalRect,
+  safeGap: number,
+  labelGapBoost: number,
+  lockedGroups: LockedPlaceGroup[],
+) {
+  let geometryById = buildGeometryMapForPlacements(
+    orderedGroups,
+    state.placementById,
+    mapRect,
+    safeGap,
+    labelGapBoost,
+    lockedGroups,
+  );
+  let corridorRisk = countCorridorRiskConflicts(
+    orderedGroups,
+    geometryById,
+    safeGap,
+    lockedGroups,
+  );
+  let hardConflicts = hasHardConflicts(
+    orderedGroups,
+    state.placementById,
+    geometryById,
+    mapRect,
+    safeGap,
+    lockedGroups,
+  );
+  let placementLineCrossings = countPlacementLineCrossings(orderedGroups, state.placementById);
+  const pairTargets = buildGroupRectOnlyPairTargets(orderedGroups, geometryById, safeGap);
+
+  for (const pair of pairTargets) {
+    const leftCandidates = (candidatePoolById.get(pair.leftKey) ?? []).slice(0, GROUP_RECT_ONLY_CANDIDATE_LIMIT);
+    const rightCandidates = (candidatePoolById.get(pair.rightKey) ?? []).slice(0, GROUP_RECT_ONLY_CANDIDATE_LIMIT);
+    let bestPlacementById: Map<string, FootprintPlacement> | null = null;
+    let bestGeometryById: Map<string, GroupGeometry> | null = null;
+    let bestCorridorRisk = corridorRisk;
+    let bestHardConflicts = hardConflicts;
+    let bestLineCrossings = placementLineCrossings;
+    let foundResolved = false;
+
+    for (const leftCandidate of leftCandidates) {
+      for (const rightCandidate of rightCandidates) {
+        const placementById = new Map(state.placementById);
+        placementById.set(pair.leftKey, leftCandidate.placement);
+        placementById.set(pair.rightKey, rightCandidate.placement);
+        const candidateLineCrossings = countPlacementLineCrossings(
+          orderedGroups,
+          placementById,
+        );
+        if (orderedGroups.length >= 20 && candidateLineCrossings > placementLineCrossings) continue;
+
+        const candidateGeometryById = buildGeometryMapForPlacements(
+          orderedGroups,
+          placementById,
+          mapRect,
+          safeGap,
+          labelGapBoost,
+          lockedGroups,
+        );
+        const candidateCorridorRisk = countCorridorRiskConflicts(
+          orderedGroups,
+          candidateGeometryById,
+          safeGap,
+          lockedGroups,
+        );
+        const candidateHardConflicts = hasHardConflicts(
+          orderedGroups,
+          placementById,
+          candidateGeometryById,
+          mapRect,
+          safeGap,
+          lockedGroups,
+        );
+        const groupGap = Math.max(48, safeGap * 0.5);
+        const leftGeometry = candidateGeometryById.get(pair.leftKey);
+        const rightGeometry = candidateGeometryById.get(pair.rightKey);
+        if (!leftGeometry || !rightGeometry) continue;
+        const resolvesGroupRect = !rectsOverlap(leftGeometry.groupRect, rightGeometry.groupRect, groupGap);
+        if (!resolvesGroupRect) continue;
+
+        const isBetter =
+          !foundResolved ||
+          (!candidateHardConflicts && bestHardConflicts) ||
+          candidateLineCrossings < bestLineCrossings ||
+          (
+            candidateHardConflicts === bestHardConflicts &&
+            candidateLineCrossings === bestLineCrossings &&
+            candidateCorridorRisk < bestCorridorRisk
+          );
+
+        if (!isBetter) continue;
+
+        bestPlacementById = placementById;
+        bestGeometryById = candidateGeometryById;
+        bestCorridorRisk = candidateCorridorRisk;
+        bestHardConflicts = candidateHardConflicts;
+        bestLineCrossings = candidateLineCrossings;
+        foundResolved = true;
+      }
+    }
+
+    if (!bestPlacementById || !bestGeometryById) continue;
+    state.placementById = bestPlacementById;
+    geometryById = bestGeometryById;
+    corridorRisk = bestCorridorRisk;
+    hardConflicts = bestHardConflicts;
+    placementLineCrossings = bestLineCrossings;
+  }
+}
+
+function improvePairCorridorRisk(
+  orderedGroups: PendingPlaceGroup[],
+  candidatePoolById: Map<string, PlacementCandidate[]>,
+  state: PlacementState,
+  mapRect: LogicalRect,
+  safeGap: number,
+  labelGapBoost: number,
+  lockedGroups: LockedPlaceGroup[],
+) {
+  let geometryById = buildGeometryMapForPlacements(
+    orderedGroups,
+    state.placementById,
+    mapRect,
+    safeGap,
+    labelGapBoost,
+    lockedGroups,
+  );
+  let hardConflicts = hasHardConflicts(
+    orderedGroups,
+    state.placementById,
+    geometryById,
+    mapRect,
+    safeGap,
+    lockedGroups,
+  );
+  let corridorRisk = countCorridorRiskConflicts(
+    orderedGroups,
+    geometryById,
+    safeGap,
+    lockedGroups,
+  );
+  let placementLineCrossings = countPlacementLineCrossings(orderedGroups, state.placementById);
+
+  for (let pass = 0; pass < PAIR_REPAIR_PASS_LIMIT; pass++) {
+    let changed = false;
+    const pairTargets = buildPairRepairTargets(orderedGroups, geometryById, safeGap, lockedGroups);
+    if (pairTargets.length === 0) break;
+
+    for (const pair of pairTargets) {
+      const leftCandidates = buildCorridorRepairCandidateSubset(
+        candidatePoolById.get(pair.leftKey) ?? [],
+      );
+      const rightCandidates = buildCorridorRepairCandidateSubset(
+        candidatePoolById.get(pair.rightKey) ?? [],
+      );
+      let bestPlacementById: Map<string, FootprintPlacement> | null = null;
+      let bestGeometryById: Map<string, GroupGeometry> | null = null;
+      let bestHardConflicts = hardConflicts;
+      let bestCorridorRisk = corridorRisk;
+      let bestLineCrossings = placementLineCrossings;
+      let bestPairScore = pair.score;
+
+      for (const leftCandidate of leftCandidates) {
+        for (const rightCandidate of rightCandidates) {
+          const placementById = new Map(state.placementById);
+          placementById.set(pair.leftKey, leftCandidate.placement);
+          placementById.set(pair.rightKey, rightCandidate.placement);
+
+          const candidateGeometryById = buildGeometryMapForPlacements(
+            orderedGroups,
+            placementById,
+            mapRect,
+            safeGap,
+            labelGapBoost,
+            lockedGroups,
+          );
+          const candidateHardConflicts = hasHardConflicts(
+            orderedGroups,
+            placementById,
+            candidateGeometryById,
+            mapRect,
+            safeGap,
+            lockedGroups,
+          );
+          const candidateCorridorRisk = countCorridorRiskConflicts(
+            orderedGroups,
+            candidateGeometryById,
+            safeGap,
+            lockedGroups,
+          );
+          const candidateLineCrossings = countPlacementLineCrossings(
+            orderedGroups,
+            placementById,
+          );
+          if (orderedGroups.length >= 20 && candidateLineCrossings > placementLineCrossings) continue;
+
+          const groupGap = Math.max(48, safeGap * 0.5);
+          const labelGap = Math.max(LABEL_GAP, safeGap + 16);
+          const leftGeometry = candidateGeometryById.get(pair.leftKey);
+          const rightGeometry = candidateGeometryById.get(pair.rightKey);
+          if (!leftGeometry || !rightGeometry) continue;
+          let candidatePairScore = 0;
+          if (rectsOverlap(leftGeometry.groupRect, rightGeometry.groupRect, groupGap)) candidatePairScore += 4;
+          if (rectsOverlap(leftGeometry.labelRect, rightGeometry.photoRect, labelGap)) candidatePairScore += 2;
+          if (rectsOverlap(rightGeometry.labelRect, leftGeometry.photoRect, labelGap)) candidatePairScore += 2;
+          if (rectsOverlap(leftGeometry.labelRect, rightGeometry.labelRect, labelGap)) candidatePairScore += 1;
+
+          const isBetter =
+            (!candidateHardConflicts && bestHardConflicts) ||
+            (candidateHardConflicts === bestHardConflicts &&
+              candidateLineCrossings < bestLineCrossings) ||
+            (candidateHardConflicts === bestHardConflicts &&
+              candidateLineCrossings === bestLineCrossings &&
+              candidatePairScore < bestPairScore) ||
+            (candidateHardConflicts === bestHardConflicts &&
+              candidateLineCrossings === bestLineCrossings &&
+              candidatePairScore === bestPairScore &&
+              candidateCorridorRisk < bestCorridorRisk);
+
+          if (!isBetter) continue;
+
+          bestPlacementById = placementById;
+          bestGeometryById = candidateGeometryById;
+          bestHardConflicts = candidateHardConflicts;
+          bestCorridorRisk = candidateCorridorRisk;
+          bestLineCrossings = candidateLineCrossings;
+          bestPairScore = candidatePairScore;
+        }
+      }
+
+      if (!bestPlacementById || !bestGeometryById) continue;
+      if (
+        bestPairScore < pair.score ||
+        bestCorridorRisk < corridorRisk ||
+        bestLineCrossings < placementLineCrossings
+      ) {
+        state.placementById = bestPlacementById;
+        geometryById = bestGeometryById;
+        hardConflicts = bestHardConflicts;
+        corridorRisk = bestCorridorRisk;
+        placementLineCrossings = bestLineCrossings;
+        changed = true;
+      }
+    }
+
+    if (!changed) break;
+  }
+}
+
 function selectCorridorRepairTargets(
   groups: PendingPlaceGroup[],
   geometryById: Map<string, GroupGeometry>,
@@ -993,6 +1490,46 @@ function selectCorridorRepairTargets(
     .sort((left, right) => right.risk - left.risk || left.placeKey.localeCompare(right.placeKey, 'zh-CN'))
     .slice(0, CORRIDOR_REPAIR_GROUP_LIMIT)
     .map((entry) => entry.placeKey);
+}
+
+function buildCorridorRepairCandidateSubset(candidates: PlacementCandidate[]) {
+  if (candidates.length <= CORRIDOR_REPAIR_CANDIDATE_LIMIT) {
+    return candidates;
+  }
+
+  const subset: PlacementCandidate[] = [];
+  const usedIndexes = new Set<number>();
+  const addByIndex = (index: number) => {
+    if (index < 0 || index >= candidates.length || usedIndexes.has(index)) return;
+    usedIndexes.add(index);
+    subset.push(candidates[index]!);
+  };
+
+  for (let index = 0; index < Math.min(CORRIDOR_REPAIR_CANDIDATE_LIMIT, candidates.length); index++) {
+    addByIndex(index);
+  }
+
+  for (
+    let index = CORRIDOR_REPAIR_CANDIDATE_LIMIT;
+    index < Math.min(candidates.length, CORRIDOR_REPAIR_CANDIDATE_LIMIT + CORRIDOR_REPAIR_NEAR_TAIL_LIMIT);
+    index++
+  ) {
+    addByIndex(index);
+  }
+
+  const tailStart = Math.min(
+    candidates.length,
+    CORRIDOR_REPAIR_CANDIDATE_LIMIT + CORRIDOR_REPAIR_NEAR_TAIL_LIMIT,
+  );
+  const tailCount = candidates.length - tailStart;
+  const sampleCount = Math.min(CORRIDOR_REPAIR_SPREAD_SAMPLE_COUNT, tailCount);
+  for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex++) {
+    const ratio = sampleCount === 1 ? 1 : sampleIndex / (sampleCount - 1);
+    const index = tailStart + Math.round(ratio * (tailCount - 1));
+    addByIndex(index);
+  }
+
+  return subset;
 }
 
 function scoreFinalLayoutEnvelope(
@@ -1106,6 +1643,24 @@ export function solvePendingGroupPlacements(
     labelGapBoost,
     lockedGroups,
   );
+  improvePairCorridorRisk(
+    orderedGroups,
+    candidatePoolById,
+    workingState,
+    mapRect,
+    safeGap,
+    labelGapBoost,
+    lockedGroups,
+  );
+  improveGroupRectOnlyPairs(
+    orderedGroups,
+    candidatePoolById,
+    workingState,
+    mapRect,
+    safeGap,
+    labelGapBoost,
+    lockedGroups,
+  );
 
   const refinedPlacementById = refineRadialPlacements(
     orderedGroups,
@@ -1172,18 +1727,40 @@ export function solvePendingGroupPlacements(
   const finalPlacements = finalVariant === 'refined'
     ? refinedPlacementById
     : workingState.placementById;
-  const finalGeometries = finalPlacements === refinedPlacementById
+  const finalGeometryById = finalPlacements === refinedPlacementById
     ? refinedGeometryById
     : optimizedGeometryById;
+  const baseGeometryById = buildGeometryMapForPlacements(
+    orderedGroups,
+    basePlacementById,
+    mapRect,
+    safeGap,
+    labelGapBoost,
+    lockedGroups,
+  );
+  const baseLineCrossings = countPlacementLineCrossings(orderedGroups, basePlacementById);
+  const finalLineCrossings = countPlacementLineCrossings(orderedGroups, finalPlacements);
+
+  if (orderedGroups.length >= 20 && baseLineCrossings === 0 && finalLineCrossings > 0) {
+    return {
+      placements: basePlacementById,
+      geometries: baseGeometryById,
+    };
+  }
 
   return {
     placements: finalPlacements,
-    geometries: finalGeometries,
+    geometries: finalGeometryById,
   };
 }
 
 export const __layoutSolverInternals = {
   angleDelta,
   buildCandidatePool,
+  buildCorridorRepairCandidateSubset,
   selectCorridorRepairTargets,
+  countPlacementLineCrossings,
+  assignInitialPlacements,
+  optimizeAssignments,
+  improveCorridorRisk,
 };

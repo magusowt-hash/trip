@@ -122,6 +122,37 @@ function hasIntersectingLines(
   ));
 }
 
+function countIntersectingLines(
+  placementById: Map<string, FootprintPlacement>,
+  groups: PendingPlaceGroup[],
+) {
+  const links = groups
+    .map((group) => {
+      const placement = placementById.get(group.placeKey);
+      if (!placement) return null;
+      return {
+        placeKey: group.placeKey,
+        start: { x: group.logicalX, y: group.logicalY },
+        end: { x: placement.centerX, y: placement.centerY },
+      };
+    })
+    .filter((item): item is { placeKey: string; start: { x: number; y: number }; end: { x: number; y: number } } => item !== null);
+
+  let count = 0;
+  for (let leftIndex = 0; leftIndex < links.length; leftIndex++) {
+    for (let rightIndex = leftIndex + 1; rightIndex < links.length; rightIndex++) {
+      const left = links[leftIndex]!;
+      const right = links[rightIndex]!;
+      if (left.placeKey === right.placeKey) continue;
+      if (segmentsIntersect(left.start, left.end, right.start, right.end)) {
+        count += 1;
+      }
+    }
+  }
+
+  return count;
+}
+
 function getGroupArea(rect: LogicalRect) {
   return Math.max(1, (rect.right - rect.left) * (rect.bottom - rect.top));
 }
@@ -2390,6 +2421,14 @@ export function refineRadialPlacements(
   const baselineStrictConflicts = countStrictConflicts(groups, placementById, safeGap);
   const refinedStrictConflicts = countStrictConflicts(groups, refinedPlacementById, safeGap);
   if (refinedStrictConflicts > baselineStrictConflicts) {
+    return placementById;
+  }
+
+  if (
+    groups.length >= 20 &&
+    countIntersectingLines(placementById, groups) === 0 &&
+    countIntersectingLines(refinedPlacementById, groups) > 0
+  ) {
     return placementById;
   }
 

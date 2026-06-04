@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   buildGroupGeometryFromPhotoRect,
@@ -12,6 +15,22 @@ import {
 } from './footprintLayoutSolver.ts';
 import { buildRadialLayout } from './localMapLayoutEngine.ts';
 import { refineRadialPlacements } from './footprintSectorLayoutEngine.ts';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+type ReplayFixture = {
+  solverInputSnapshot: {
+    pendingGroups: Array<ReturnType<typeof buildGroup>>;
+    mapRect: { left: number; top: number; right: number; bottom: number };
+    safeGap: number;
+    labelGapBoost: number;
+  };
+};
+
+const fixture = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures/3-mapped-layout.json'), 'utf8'),
+) as ReplayFixture;
 
 function rect(left: number, top: number, right: number, bottom: number) {
   return { left, top, right, bottom };
@@ -90,6 +109,62 @@ function countCorridorRisk(
   }
 
   return risk;
+}
+
+function cross(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  c: { x: number; y: number },
+) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+function segmentsIntersect(
+  a1: { x: number; y: number },
+  a2: { x: number; y: number },
+  b1: { x: number; y: number },
+  b2: { x: number; y: number },
+) {
+  const ab1 = cross(a1, a2, b1);
+  const ab2 = cross(a1, a2, b2);
+  const ba1 = cross(b1, b2, a1);
+  const ba2 = cross(b1, b2, a2);
+  return ab1 * ab2 < -1e-6 && ba1 * ba2 < -1e-6;
+}
+
+function countPlacementLineCrossings(
+  groups: Array<{
+    placeKey: string;
+    logicalX: number;
+    logicalY: number;
+  }>,
+  placementById: Map<string, { centerX: number; centerY: number }>,
+) {
+  let crossingCount = 0;
+
+  for (let index = 0; index < groups.length; index++) {
+    for (let neighborIndex = index + 1; neighborIndex < groups.length; neighborIndex++) {
+      const group = groups[index]!;
+      const neighbor = groups[neighborIndex]!;
+      const placement = placementById.get(group.placeKey);
+      const neighborPlacement = placementById.get(neighbor.placeKey);
+      assert.ok(placement, `missing placement for ${group.placeKey}`);
+      assert.ok(neighborPlacement, `missing placement for ${neighbor.placeKey}`);
+
+      if (
+        segmentsIntersect(
+          { x: group.logicalX, y: group.logicalY },
+          { x: placement.centerX, y: placement.centerY },
+          { x: neighbor.logicalX, y: neighbor.logicalY },
+          { x: neighborPlacement.centerX, y: neighborPlacement.centerY },
+        )
+      ) {
+        crossingCount += 1;
+      }
+    }
+  }
+
+  return crossingCount;
 }
 
 function buildCrowdedSouthernGroups() {
@@ -187,5 +262,44 @@ test('dense map-adjacent groups get cross-sector escape candidates before refine
   assert.ok(
     maxAngleDelta >= Math.PI / 3,
     `expected dense map-adjacent candidate pool to include cross-sector escape angles, got max delta ${(maxAngleDelta * 180) / Math.PI}deg`,
+  );
+});
+
+test('refineRadialPlacements keeps real fixture connector lines uncrossed', () => {
+  const { pendingGroups, mapRect, safeGap, labelGapBoost } = fixture.solverInputSnapshot;
+  const basePlacements = new Map(
+    buildRadialLayout(
+      pendingGroups.map((group) => ({
+        id: group.placeKey,
+        x: group.logicalX,
+        y: group.logicalY,
+        rect: group.collisionRect,
+      })),
+      mapRect,
+      { mapGap: 128 },
+    ).map((placement) => [
+      placement.id,
+      { centerX: placement.centerX, centerY: placement.centerY },
+    ] as const),
+  );
+
+  assert.equal(
+    countPlacementLineCrossings(pendingGroups, basePlacements),
+    0,
+    'expected base radial layout to start uncrossed for the real fixture',
+  );
+
+  const refined = refineRadialPlacements(
+    pendingGroups,
+    new Map(basePlacements),
+    mapRect,
+    Math.max(safeGap, 128),
+    labelGapBoost,
+  );
+
+  assert.equal(
+    countPlacementLineCrossings(pendingGroups, refined),
+    0,
+    'expected refinement not to introduce connector crossings for the real fixture',
   );
 });
