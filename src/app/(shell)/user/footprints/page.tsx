@@ -795,23 +795,13 @@ function UserFootprintsPageInner() {
       }
     }
 
-    // Auto-place photos without existing positions and persist
+    // Auto-place photos without existing positions.
     const unplaced = allPhotos.filter(p => p.frameX == null || p.frameY == null);
     let nextGroupLayouts = groupLayouts;
     if (unplaced.length > 0) {
       nextGroupLayouts = autoPlacePhotos(unplaced);
-      // Persist auto-placed positions
-      const uploadedUnplaced = unplaced
-        .filter((photo) => photo.sourceType !== 'local-mapped')
-        .map(p => ({ id: p.id, frameX: p.frameX, frameY: p.frameY }));
-      if (uploadedUnplaced.length > 0) {
-        fetch('/api/storage/photos/0/position', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ updates: uploadedUnplaced }),
-        }).catch(() => {});
-      }
+      movedPhotosRef.current = true;
+      setHasMovedPhotos(true);
     }
 
     setPhotos((current) => [
