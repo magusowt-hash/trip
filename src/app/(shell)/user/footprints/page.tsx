@@ -428,6 +428,20 @@ function getFootprintItemPlaceKey(item: Pick<FootprintItem, 'id' | 'listItemId' 
   return item.albumScopeKey || (item.listItemId ? buildFootprintPhotoScopeKey(item.id) : buildMapFootprintPhotoScopeKey(item.poiId ?? item.id));
 }
 
+function downloadJsonFile(filename: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: 'application/json;charset=utf-8',
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
 export default function UserFootprintsPage() {
   return (
     <Suspense fallback={<div style={{ position: 'fixed', inset: 0, background: '#0f172a' }} />}>
@@ -1080,6 +1094,114 @@ function UserFootprintsPageInner() {
     } catch { alert('保存失败'); }
   }, [buildLocalMapAssetsForSave, photos, localLayout, localMissingAssets, localRootName, localUnmatchedFolders, selectedGroupId]);
 
+  const handleDownloadMappedLayoutJson = useCallback(() => {
+    try {
+      const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+      const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
+      const mapRect = getFootprintMapRect(viewportWidth, viewportHeight);
+      const collisionScale = CLAMP_SCALE.max;
+      const cardSize = 80;
+      const layout = localLayout ?? { enabled: true, mode: 'grid' as const, gapX: 20, gapY: 20, staggerAxis: 'horizontal' as const };
+      const logicalPointByPlaceKey = new Map<string, { x: number; y: number }>(
+        poiPoints.map((point) => [point.placeKey, { x: point.logicalX, y: point.logicalY }]),
+      );
+      const allGroups = new Map<string, PhotoItem[]>();
+      for (const photo of photos) {
+        const arr = allGroups.get(photo.placeKey) || [];
+        arr.push(photo);
+        allGroups.set(photo.placeKey, arr);
+      }
+
+      const lockedGroups: LockedPlaceGroup[] = [];
+      const pendingGroups: PendingPlaceGroup[] = [];
+
+      for (const [placeKey, placePhotos] of allGroups) {
+        const logicalPoint = logicalPointByPlaceKey.get(placeKey);
+        if (!logicalPoint) continue;
+
+        if (placePhotos.every((photo) => photo.frameX != null && photo.frameY != null)) {
+          const lockedGeometry = buildGroupGeometryFromLayout(
+            placeKey,
+            placePhotos,
+            getPhotoLogicalSize,
+            collisionScale,
+            groupLayouts,
+          );
+          if (lockedGeometry) {
+            lockedGroups.push({
+              placeKey,
+              logicalX: logicalPoint.x,
+              logicalY: logicalPoint.y,
+              geometry: lockedGeometry,
+            });
+          }
+        }
+
+        const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
+        const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
+        const reservedLabelOffset = estimateReservedLabelOffset(
+          placeKey,
+          placePhotos,
+          collisionScale,
+          mapRect,
+          groupLayouts,
+        );
+        const baseOffsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale);
+        const offsetGeometry = baseOffsetGeometry
+          ? buildGroupGeometryFromPhotoRect(
+              baseOffsetGeometry.photoRect,
+              placePhotos[0]?.placeTitle || '',
+              placePhotos.length,
+              collisionScale,
+              baseOffsetGeometry.labelSide,
+              reservedLabelOffset,
+            )
+          : null;
+        if (!offsetGeometry) continue;
+
+        pendingGroups.push({
+          placeKey,
+          placePhotos,
+          collisionGeometry: offsetGeometry,
+          collisionRect: offsetGeometry.groupRect,
+          reservedLabelOffset,
+          logicalX: logicalPoint.x,
+          logicalY: logicalPoint.y,
+          mapRect,
+          offsets,
+        });
+      }
+
+      const selectedGroupName = groups.find((group) => group.id === selectedGroupId)?.name || '我的足迹';
+      const safeGroupName = selectedGroupName.replace(/[\\\\/:*?\"<>|]+/g, '-').trim() || '我的足迹';
+
+      downloadJsonFile(`${safeGroupName}-mapped-layout.json`, {
+        exportedAt: new Date().toISOString(),
+        selectedGroupId,
+        selectedGroupName,
+        pageState: {
+          items,
+          poiPoints,
+          groupLayouts,
+          photos,
+        },
+        solverInputSnapshot: {
+          viewportWidth,
+          viewportHeight,
+          mapRect,
+          safeGap: cardSize,
+          labelGapBoost: computeLabelGapBoost(collisionScale),
+          collisionScale,
+          layout,
+          lockedGroups,
+          pendingGroups,
+        },
+      });
+    } catch {
+      setActionNotice('导出映射 JSON 失败，请稍后重试');
+    }
+  }, [groups, selectedGroupId, items, poiPoints, groupLayouts, photos, localLayout]);
+
   const handlePhotoClick = useCallback((photoId: number | string) => {
     const p = photos.find(x => x.id === photoId);
     if (p) setViewerPhoto({ url: p.url, title: p.filename });
@@ -1726,6 +1848,7 @@ function UserFootprintsPageInner() {
       {hasMovedPhotos && (
         <button className={styles.saveBtn} onClick={handleSavePositions}>保存修改</button>
       )}
+      <button className={styles.exportBtn} onClick={handleDownloadMappedLayoutJson}>导出映射 JSON</button>
 
       {/* Photo album modal */}
       <PhotoAlbumModal
