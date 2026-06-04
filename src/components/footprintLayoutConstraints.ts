@@ -1,6 +1,6 @@
-import type { GroupGeometry } from './localMapGroupGeometry';
-import { rectsOverlap } from './localMapGroupGeometry';
-import type { LogicalRect } from './footprintLayoutTypes';
+import type { GroupGeometry } from './localMapGroupGeometry.ts';
+import { rectsOverlap } from './localMapGroupGeometry.ts';
+import type { LogicalRect } from './footprintLayoutTypes.ts';
 
 export function fitsPhotoRectAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
   const photoGap = gap + 12;

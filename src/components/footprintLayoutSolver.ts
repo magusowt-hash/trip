@@ -17,6 +17,7 @@ import {
   rectOverlapsOccupiedPhotos,
 } from './footprintLayoutConstraints';
 import { refineRadialPlacements } from './footprintSectorLayoutEngine';
+import { chooseFinalPlacementVariant } from './footprintLayoutSelection';
 
 const GROUP_GAP = 14;
 const LABEL_GAP = 22;
@@ -1160,22 +1161,15 @@ export function solvePendingGroupPlacements(
   );
   const refinedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, refinedGeometryById);
   const optimizedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, optimizedGeometryById);
-  const shouldUseRefined =
-    (!refinedHasHardConflicts && optimizedHasHardConflicts) ||
-    (refinedCorridorRisk < optimizedCorridorRisk) ||
-    (
-      refinedCorridorRisk === optimizedCorridorRisk &&
-      !refinedHasHardConflicts &&
-      !optimizedHasHardConflicts &&
-      refinedEnvelopeScore <= optimizedEnvelopeScore * 1.04
-    ) ||
-    (
-      refinedCorridorRisk === optimizedCorridorRisk &&
-      refinedHasHardConflicts &&
-      optimizedHasHardConflicts &&
-      refinedEnvelopeScore < optimizedEnvelopeScore
-    );
-  const finalPlacements = shouldUseRefined
+  const finalVariant = chooseFinalPlacementVariant({
+    refinedHasHardConflicts,
+    optimizedHasHardConflicts,
+    refinedCorridorRisk,
+    optimizedCorridorRisk,
+    refinedEnvelopeScore,
+    optimizedEnvelopeScore,
+  });
+  const finalPlacements = finalVariant === 'refined'
     ? refinedPlacementById
     : workingState.placementById;
   const finalGeometries = finalPlacements === refinedPlacementById

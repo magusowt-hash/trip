@@ -1,4 +1,4 @@
-import type { PhotoItem } from './OuterFrameCanvas';
+import type { PhotoItem } from './OuterFrameCanvas.tsx';
 
 export type GroupLabelSide = 'top' | 'bottom';
 export type GroupLayoutSnapshot = {

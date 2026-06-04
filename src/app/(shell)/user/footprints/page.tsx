@@ -23,6 +23,7 @@ import {
 } from '@/components/localMapGroupGeometry';
 import type { GroupGeometry } from '@/components/localMapGroupGeometry';
 import { FOOTPRINT_MAP_SAFE_GAP, getFootprintMapRect } from '@/components/footprintMapGeometry';
+import { collectConflictingSavedPlaceKeys, geometryConflictsWithLockedGroups } from '@/components/footprintSavedGroupRecovery';
 import {
   applyGroupDragToPhotos,
   applyGroupPhotoPositions,
@@ -795,6 +796,29 @@ function UserFootprintsPageInner() {
       }
     }
 
+    const logicalPointByPlaceKey = new Map<string, { x: number; y: number }>(
+      poiPoints.map((point) => [point.placeKey, { x: point.logicalX, y: point.logicalY }]),
+    );
+    const savedPhotosByPlaceKey = new Map<string, PhotoItem[]>();
+    for (const photo of allPhotos) {
+      const current = savedPhotosByPlaceKey.get(photo.placeKey) ?? [];
+      current.push(photo);
+      savedPhotosByPlaceKey.set(photo.placeKey, current);
+    }
+    const conflictingSavedPlaceKeys = collectConflictingSavedPlaceKeys(
+      savedPhotosByPlaceKey,
+      CLAMP_SCALE.max,
+      groupLayouts,
+      logicalPointByPlaceKey,
+    );
+    if (conflictingSavedPlaceKeys.size > 0) {
+      for (const photo of allPhotos) {
+        if (!conflictingSavedPlaceKeys.has(photo.placeKey)) continue;
+        photo.frameX = undefined;
+        photo.frameY = undefined;
+      }
+    }
+
     // Auto-place photos without existing positions.
     const unplaced = allPhotos.filter(p => p.frameX == null || p.frameY == null);
     let nextGroupLayouts = groupLayouts;
@@ -868,11 +892,15 @@ function UserFootprintsPageInner() {
     const lockedGroups: LockedPlaceGroup[] = [];
     const pendingGroups: PendingPlaceGroup[] = [];
 
-    for (const [placeKey, placePhotos] of allGroups) {
-      if (
+    const sortedGroups = Array.from(allGroups.entries()).sort(([leftKey], [rightKey]) => (
+      leftKey.localeCompare(rightKey, 'zh-CN')
+    ));
+
+    for (const [placeKey, placePhotos] of sortedGroups) {
+      const canConsiderLocked =
         !targetKeys.has(placeKey) &&
-        placePhotos.every((photo) => photo.frameX != null && photo.frameY != null)
-      ) {
+        placePhotos.every((photo) => photo.frameX != null && photo.frameY != null);
+      if (canConsiderLocked) {
         const lockedGeometry = buildGroupGeometryFromLayout(
           placeKey,
           placePhotos,
@@ -883,13 +911,15 @@ function UserFootprintsPageInner() {
         if (lockedGeometry) {
           const logicalPoint = logicalPointByPlaceKey.get(placeKey);
           if (!logicalPoint) continue;
-          lockedGroups.push({
-            placeKey,
-            logicalX: logicalPoint.x,
-            logicalY: logicalPoint.y,
-            geometry: lockedGeometry,
-          });
-          continue;
+          if (!geometryConflictsWithLockedGroups(lockedGeometry, lockedGroups, cardSize)) {
+            lockedGroups.push({
+              placeKey,
+              logicalX: logicalPoint.x,
+              logicalY: logicalPoint.y,
+              geometry: lockedGeometry,
+            });
+            continue;
+          }
         }
       }
 
