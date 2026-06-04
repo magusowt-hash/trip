@@ -518,6 +518,7 @@ function UserFootprintsPageInner() {
   const dirtyUploadedPhotoIdsRef = useRef<Set<number | string>>(new Set());
   const dirtyLocalAssetPathsRef = useRef<Set<string>>(new Set());
   const layoutInteractionModeRef = useRef<FootprintLayoutInteractionMode>('manual');
+  const conflictRecoverySignatureRef = useRef('');
 
   useEffect(() => { itemsRef.current = items; }, [items]);
   useEffect(() => { photosRef.current = photos; }, [photos]);
@@ -625,6 +626,7 @@ function UserFootprintsPageInner() {
       setPhotosLoaded(false);
       setFitViewEnabled(false);
       setLayoutInteractionMode('manual');
+      conflictRecoverySignatureRef.current = '';
     } else {
       setItems([]);
       setPhotos([]);
@@ -635,6 +637,7 @@ function UserFootprintsPageInner() {
       setLocalLayout(null);
       setFitViewEnabled(false);
       setLayoutInteractionMode('manual');
+      conflictRecoverySignatureRef.current = '';
     }
   }, [selectedGroupId]);
 
@@ -850,6 +853,53 @@ function UserFootprintsPageInner() {
       loadAllPhotos();
     }
   }, [items, poiPoints, photosLoaded, loadAllPhotos]);
+
+  useEffect(() => {
+    if (!photosLoaded || photos.length === 0 || poiPoints.length === 0) return;
+    const photosByPlaceKey = new Map<string, PhotoItem[]>();
+    for (const photo of photos) {
+      const current = photosByPlaceKey.get(photo.placeKey) ?? [];
+      current.push(photo);
+      photosByPlaceKey.set(photo.placeKey, current);
+    }
+    const logicalPointByPlaceKey = new Map<string, { x: number; y: number }>(
+      poiPoints.map((point) => [point.placeKey, { x: point.logicalX, y: point.logicalY }]),
+    );
+    const conflictingSavedPlaceKeys = collectConflictingSavedPlaceKeys(
+      photosByPlaceKey,
+      CLAMP_SCALE.max,
+      groupLayouts,
+      getPhotoLogicalSize,
+      logicalPointByPlaceKey,
+    );
+    const signature = Array.from(conflictingSavedPlaceKeys).sort().join('|');
+    if (!signature) {
+      conflictRecoverySignatureRef.current = '';
+      return;
+    }
+    if (conflictRecoverySignatureRef.current === signature) return;
+    conflictRecoverySignatureRef.current = signature;
+
+    const nextPhotos = photos.map((photo) => (
+      conflictingSavedPlaceKeys.has(photo.placeKey)
+        ? { ...photo, frameX: undefined, frameY: undefined }
+        : { ...photo }
+    ));
+    const unplaced = nextPhotos.filter((photo) => photo.frameX == null || photo.frameY == null);
+    const nextGroupLayouts = autoPlacePhotos(
+      unplaced,
+      nextPhotos,
+      localLayout ?? { enabled: true, mode: 'grid', gapX: 20, gapY: 20, staggerAxis: 'horizontal' },
+      {
+        poiPoints,
+        groupLayouts,
+      },
+    );
+    movedPhotosRef.current = true;
+    setHasMovedPhotos(true);
+    setPhotos(nextPhotos);
+    setGroupLayouts(nextGroupLayouts);
+  }, [autoPlacePhotos, groupLayouts, localLayout, photos, photosLoaded, poiPoints]);
 
   function autoPlacePhotos(
     unplaced: PhotoItem[],
