@@ -30,6 +30,7 @@ import {
   geometryOverlapsOccupiedWithGapPolicy,
 } from './footprintCollisionSpacing';
 import { refineRadialPlacementsWithDeps } from './footprintLayoutRefiner';
+import { chooseCoordinationVariant } from './footprintCoordinationPriority';
 
 const GROUP_SAFE_GAP = 11;
 const LOCAL_SEARCH_ANGLE_STEPS = [0, -10, 10, -20, 20, -30, 30];
@@ -2026,6 +2027,7 @@ function refineSectorClusters(
 
     for (const windowGroups of windows) {
       const baseline = scoreClusterCompaction(windowGroups, nextPlacementById, groups, mapRect, safeGap);
+      const baselineStrictConflicts = countStrictConflicts(windowGroups, nextPlacementById, safeGap);
       const baselineGlobalEnergy = scoreGlobalLayoutEnergy(groups, nextPlacementById, mapRect, safeGap);
       const baselineTotalRadius = computeTotalRadius(groups, nextPlacementById);
       const baselineOuterShellEnvelope = computeOuterShellEnvelope(nextPlacementById, outerShellPlaceKeys);
@@ -2033,6 +2035,7 @@ function refineSectorClusters(
       let bestPlacementById: Map<string, FootprintPlacement> | null = null;
       let bestGlobalEnergy = baselineGlobalEnergy;
       let bestTotalRadius = baselineTotalRadius;
+      let bestStrictConflicts = baselineStrictConflicts;
 
       for (const variant of generateWindowJointCompactionVariants(windowGroups, groups, nextPlacementById)) {
         const trialPlacementById = new Map(nextPlacementById);
@@ -2048,15 +2051,24 @@ function refineSectorClusters(
         const trialGlobalEnergy = scoreGlobalLayoutEnergy(groups, trialPlacementById, mapRect, safeGap);
         const trialTotalRadius = computeTotalRadius(groups, trialPlacementById);
         const trialOuterShellEnvelope = computeOuterShellEnvelope(trialPlacementById, outerShellPlaceKeys);
-        if (
-          trialScore < bestScore - 1e-6 &&
-          trialGlobalEnergy < bestGlobalEnergy - 0.5 &&
-          trialTotalRadius < bestTotalRadius - 4 &&
-          isOuterShellEnvelopeImproved(baselineOuterShellEnvelope, trialOuterShellEnvelope)
-        ) {
+        const trialStrictConflicts = countStrictConflicts(windowGroups, trialPlacementById, safeGap);
+        if (chooseCoordinationVariant({
+          baselineStrictConflicts,
+          bestStrictConflicts,
+          trialStrictConflicts,
+          bestScore,
+          trialScore,
+          bestGlobalEnergy,
+          trialGlobalEnergy,
+          bestTotalRadius,
+          trialTotalRadius,
+          baselineOuterShellImproved: true,
+          trialOuterShellImproved: isOuterShellEnvelopeImproved(baselineOuterShellEnvelope, trialOuterShellEnvelope),
+        })) {
           bestScore = trialScore;
           bestGlobalEnergy = trialGlobalEnergy;
           bestTotalRadius = trialTotalRadius;
+          bestStrictConflicts = trialStrictConflicts;
           bestPlacementById = trialPlacementById;
         }
       }
@@ -2075,15 +2087,24 @@ function refineSectorClusters(
         const trialGlobalEnergy = scoreGlobalLayoutEnergy(groups, trialPlacementById, mapRect, safeGap);
         const trialTotalRadius = computeTotalRadius(groups, trialPlacementById);
         const trialOuterShellEnvelope = computeOuterShellEnvelope(trialPlacementById, outerShellPlaceKeys);
-        if (
-          trialScore < bestScore - 1e-6 &&
-          trialGlobalEnergy < bestGlobalEnergy - 0.5 &&
-          trialTotalRadius < bestTotalRadius - 2 &&
-          isOuterShellEnvelopeImproved(baselineOuterShellEnvelope, trialOuterShellEnvelope)
-        ) {
+        const trialStrictConflicts = countStrictConflicts(windowGroups, trialPlacementById, safeGap);
+        if (chooseCoordinationVariant({
+          baselineStrictConflicts,
+          bestStrictConflicts,
+          trialStrictConflicts,
+          bestScore,
+          trialScore,
+          bestGlobalEnergy,
+          trialGlobalEnergy,
+          bestTotalRadius,
+          trialTotalRadius,
+          baselineOuterShellImproved: true,
+          trialOuterShellImproved: isOuterShellEnvelopeImproved(baselineOuterShellEnvelope, trialOuterShellEnvelope),
+        })) {
           bestScore = trialScore;
           bestGlobalEnergy = trialGlobalEnergy;
           bestTotalRadius = trialTotalRadius;
+          bestStrictConflicts = trialStrictConflicts;
           bestPlacementById = trialPlacementById;
         }
       }
@@ -2102,15 +2123,24 @@ function refineSectorClusters(
         const trialGlobalEnergy = scoreGlobalLayoutEnergy(groups, trialPlacementById, mapRect, safeGap);
         const trialTotalRadius = computeTotalRadius(groups, trialPlacementById);
         const trialOuterShellEnvelope = computeOuterShellEnvelope(trialPlacementById, outerShellPlaceKeys);
-        if (
-          trialScore < bestScore - 1e-6 &&
-          trialGlobalEnergy < bestGlobalEnergy - 1.5 &&
-          trialTotalRadius < bestTotalRadius - 4 &&
-          isOuterShellEnvelopeImproved(baselineOuterShellEnvelope, trialOuterShellEnvelope)
-        ) {
+        const trialStrictConflicts = countStrictConflicts(windowGroups, trialPlacementById, safeGap);
+        if (chooseCoordinationVariant({
+          baselineStrictConflicts,
+          bestStrictConflicts,
+          trialStrictConflicts,
+          bestScore,
+          trialScore,
+          bestGlobalEnergy,
+          trialGlobalEnergy,
+          bestTotalRadius,
+          trialTotalRadius,
+          baselineOuterShellImproved: true,
+          trialOuterShellImproved: isOuterShellEnvelopeImproved(baselineOuterShellEnvelope, trialOuterShellEnvelope),
+        })) {
           bestScore = trialScore;
           bestGlobalEnergy = trialGlobalEnergy;
           bestTotalRadius = trialTotalRadius;
+          bestStrictConflicts = trialStrictConflicts;
           bestPlacementById = trialPlacementById;
         }
       }
@@ -2135,15 +2165,24 @@ function refineSectorClusters(
           const trialGlobalEnergy = scoreGlobalLayoutEnergy(groups, trialPlacementById, mapRect, safeGap);
           const trialTotalRadius = computeTotalRadius(groups, trialPlacementById);
           const trialOuterShellEnvelope = computeOuterShellEnvelope(trialPlacementById, outerShellPlaceKeys);
-          if (
-            trialScore < bestScore - 1e-6 &&
-            trialGlobalEnergy < bestGlobalEnergy - 0.5 &&
-            trialTotalRadius < bestTotalRadius - 1 &&
-            isOuterShellEnvelopeImproved(baselineOuterShellEnvelope, trialOuterShellEnvelope)
-          ) {
+          const trialStrictConflicts = countStrictConflicts(windowGroups, trialPlacementById, safeGap);
+          if (chooseCoordinationVariant({
+            baselineStrictConflicts,
+            bestStrictConflicts,
+            trialStrictConflicts,
+            bestScore,
+            trialScore,
+            bestGlobalEnergy,
+            trialGlobalEnergy,
+            bestTotalRadius,
+            trialTotalRadius,
+            baselineOuterShellImproved: true,
+            trialOuterShellImproved: isOuterShellEnvelopeImproved(baselineOuterShellEnvelope, trialOuterShellEnvelope),
+          })) {
             bestScore = trialScore;
             bestGlobalEnergy = trialGlobalEnergy;
             bestTotalRadius = trialTotalRadius;
+            bestStrictConflicts = trialStrictConflicts;
             bestPlacementById = trialPlacementById;
           }
         }
