@@ -35,6 +35,8 @@ const RADIUS_FACTORS = [0.78, 0.86, 0.94, 1, 1.08, 1.18];
 const OUTER_RING_RADIUS_FACTORS = [1.24, 1.36];
 const DENSE_SECTOR_ANGLE_OFFSETS_DEGREES = [-32, -24, 24, 32];
 const DENSE_SECTOR_RADIUS_FACTORS = [1.08, 1.18, 1.28];
+const DENSE_MAP_ADJACENT_ESCAPE_ANGLE_OFFSETS_DEGREES = [-72, -56, 56, 72];
+const DENSE_MAP_ADJACENT_ESCAPE_RADIUS_FACTORS = [1.18, 1.32, 1.46];
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -250,10 +252,11 @@ function scoreBaseCandidate(
   baseRadius: number,
   geometry: GroupGeometry,
   mapRect: LogicalRect,
+  allowWideEscape = false,
 ) {
-  const driftPenalty = Math.abs(angleDelta(angle, baseAngle)) * 46;
+  const driftPenalty = Math.abs(angleDelta(angle, baseAngle)) * (allowWideEscape ? 28 : 46);
   const radiusPenalty = Math.abs(radius - baseRadius) * 0.85;
-  const outwardPenalty = Math.max(0, radius - baseRadius) * 1.15;
+  const outwardPenalty = Math.max(0, radius - baseRadius) * (allowWideEscape ? 0.78 : 1.15);
   const mapDistance = rectDistanceToMap(geometry.groupRect, mapRect);
   const mapDistancePenalty = Math.max(0, mapDistance - 180) * 0.55;
   return driftPenalty + radiusPenalty + outwardPenalty + mapDistancePenalty;
@@ -282,9 +285,17 @@ function buildCandidatePool(
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
   const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
   const safeBaseRadius = Math.max(baseRadius, 180);
+  const mapExpandedRect = {
+    left: mapRect.left - MAP_GAP,
+    right: mapRect.right + MAP_GAP,
+    top: mapRect.top - MAP_GAP,
+    bottom: mapRect.bottom + MAP_GAP,
+  };
+  const nearProtectedMapBand = rectDistanceToMap(group.collisionRect, mapExpandedRect) < 96;
+  const allowWideEscape = sectorDensity >= 3 && nearProtectedMapBand;
   const seeds: PlacementCandidate[] = [];
 
-  const addCandidate = (angle: number, radius: number) => {
+  const addCandidate = (angle: number, radius: number, useWideEscapePenalty = false) => {
     const placement = {
       centerX: Math.cos(angle) * radius,
       centerY: Math.sin(angle) * radius,
@@ -294,7 +305,15 @@ function buildCandidatePool(
     seeds.push({
       placement,
       geometry,
-      basePenalty: scoreBaseCandidate(normalizeAngle(angle), radius, baseAngle, safeBaseRadius, geometry, mapRect),
+      basePenalty: scoreBaseCandidate(
+        normalizeAngle(angle),
+        radius,
+        baseAngle,
+        safeBaseRadius,
+        geometry,
+        mapRect,
+        useWideEscapePenalty,
+      ),
     });
   };
 
@@ -317,6 +336,15 @@ function buildCandidatePool(
       const radius = safeBaseRadius * radiusFactor;
       for (const angleOffset of DENSE_SECTOR_ANGLE_OFFSETS_DEGREES) {
         addCandidate(baseAngle + (angleOffset * Math.PI) / 180, radius);
+      }
+    }
+  }
+
+  if (allowWideEscape) {
+    for (const radiusFactor of DENSE_MAP_ADJACENT_ESCAPE_RADIUS_FACTORS) {
+      const radius = safeBaseRadius * radiusFactor;
+      for (const angleOffset of DENSE_MAP_ADJACENT_ESCAPE_ANGLE_OFFSETS_DEGREES) {
+        addCandidate(baseAngle + (angleOffset * Math.PI) / 180, radius, true);
       }
     }
   }
@@ -1161,5 +1189,7 @@ export function solvePendingGroupPlacements(
 }
 
 export const __layoutSolverInternals = {
+  angleDelta,
+  buildCandidatePool,
   selectCorridorRepairTargets,
 };

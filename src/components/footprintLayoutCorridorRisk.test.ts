@@ -10,6 +10,7 @@ import {
   __layoutSolverInternals,
   solvePendingGroupPlacements,
 } from './footprintLayoutSolver.ts';
+import { buildRadialLayout } from './localMapLayoutEngine.ts';
 import { refineRadialPlacements } from './footprintSectorLayoutEngine.ts';
 
 function rect(left: number, top: number, right: number, bottom: number) {
@@ -151,17 +152,40 @@ test('solvePendingGroupPlacements does not increase corridor risk over the base 
   );
 });
 
-test('corridor cleanup targets only a bounded subset of the highest-risk groups', () => {
+test('dense map-adjacent groups get cross-sector escape candidates before refinement', () => {
   const { mapRect, groups } = buildCrowdedSouthernGroups();
-  const solved = solvePendingGroupPlacements(groups, mapRect, 96, 0, []);
-  const selectedKeys = __layoutSolverInternals.selectCorridorRepairTargets(
-    groups,
-    solved.geometries,
-    96,
-    [],
+  const basePlacements = buildRadialLayout(
+    groups.map((group) => ({
+      id: group.placeKey,
+      x: group.logicalX,
+      y: group.logicalY,
+      rect: group.collisionRect,
+    })),
+    mapRect,
+    { mapGap: 128 },
   );
+  const basePlacementById = new Map(basePlacements.map((placement) => [
+    placement.id,
+    { centerX: placement.centerX, centerY: placement.centerY },
+  ]));
+  const zhuhaiBase = basePlacementById.get('zhuhai');
+  assert.ok(zhuhaiBase, 'expected base placement for zhuhai');
 
-  assert.ok(selectedKeys.length > 0, 'expected at least one corridor repair target');
-  assert.ok(selectedKeys.length < groups.length, 'expected bounded corridor repair target list');
-  assert.ok(selectedKeys.includes('zhuhai') || selectedKeys.includes('xianggang'));
+  const candidates = __layoutSolverInternals.buildCandidatePool(
+    groups.find((group) => group.placeKey === 'zhuhai')!,
+    zhuhaiBase,
+    mapRect,
+    4,
+  );
+  const baseAngle = Math.atan2(zhuhaiBase.centerY, zhuhaiBase.centerX);
+  const maxAngleDelta = candidates.reduce((max, candidate) => {
+    const candidateAngle = Math.atan2(candidate.placement.centerY, candidate.placement.centerX);
+    const delta = Math.abs(__layoutSolverInternals.angleDelta(candidateAngle, baseAngle));
+    return Math.max(max, delta);
+  }, 0);
+
+  assert.ok(
+    maxAngleDelta >= Math.PI / 3,
+    `expected dense map-adjacent candidate pool to include cross-sector escape angles, got max delta ${(maxAngleDelta * 180) / Math.PI}deg`,
+  );
 });
