@@ -1,6 +1,8 @@
 import {
+  buildGroupGeometryFromPhotoRect,
   rectsOverlap,
   resolveGroupGeometryAsWhole,
+  resolvePreferredLabelSideForMap,
   translateGroupGeometry,
   type GroupGeometry,
 } from './localMapGroupGeometry';
@@ -386,6 +388,12 @@ function computeSectorIndex(angle: number) {
   );
 }
 
+function getGeometryLabelOffset(geometry: GroupGeometry) {
+  return geometry.labelSide === 'top'
+    ? Math.max(0, geometry.photoRect.top - geometry.lineAnchorY)
+    : Math.max(0, geometry.lineAnchorY - geometry.photoRect.bottom);
+}
+
 function isPointInLowerPartition(pointX: number, pointY: number, mapRect: LogicalRect) {
   if (pointY > mapRect.bottom) return true;
   if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
@@ -404,10 +412,10 @@ function applyPlanningEnvelope(
   if (!mapRect) return geometry;
 
   const rect = geometry.groupRect;
-  const sampleY = rect.bottom;
   const sampleXs = [rect.left, (rect.left + rect.right) * 0.5, rect.right];
-  const inLowerRegion = sampleXs.some((sampleX) => (
-    isPointInLowerPartition(sampleX, sampleY, mapRect)
+  const sampleYs = [rect.top, (rect.top + rect.bottom) * 0.5, rect.bottom];
+  const inLowerRegion = sampleYs.some((sampleY) => (
+    sampleXs.some((sampleX) => isPointInLowerPartition(sampleX, sampleY, mapRect))
   ));
   const planningRect = {
     ...rect,
@@ -453,25 +461,44 @@ function chooseBestGeometryForPlacement(
 
 function buildPlanningGeometry(
   group: PendingPlaceGroup,
+  absoluteCenterX: number,
+  absoluteCenterY: number,
 ) {
+  const preferredLabelSide = group.mapRect
+    ? resolvePreferredLabelSideForMap(absoluteCenterX, absoluteCenterY, group.mapRect)
+    : group.collisionGeometry.labelSide;
+  const relativeGeometry = buildGroupGeometryFromPhotoRect(
+    group.collisionGeometry.photoRect,
+    group.placePhotos[0]?.placeTitle || '',
+    group.placePhotos.length,
+    1,
+    preferredLabelSide,
+    getGeometryLabelOffset(group.collisionGeometry),
+  );
   const absoluteGeometry = translateGroupGeometry(
-    group.collisionGeometry,
-    group.logicalX,
-    group.logicalY,
+    relativeGeometry,
+    absoluteCenterX,
+    absoluteCenterY,
   );
   const plannedAbsoluteGeometry = applyPlanningEnvelope(absoluteGeometry, group.mapRect);
   return translateGroupGeometry(
     plannedAbsoluteGeometry,
-    -group.logicalX,
-    -group.logicalY,
+    -absoluteCenterX,
+    -absoluteCenterY,
   );
 }
 
 function buildPlanningGroups(
   groups: PendingPlaceGroup[],
+  placementById?: Map<string, FootprintPlacement>,
 ) {
   return groups.map((group) => {
-    const planningGeometry = buildPlanningGeometry(group);
+    const placement = placementById?.get(group.placeKey);
+    const planningGeometry = buildPlanningGeometry(
+      group,
+      placement?.centerX ?? group.logicalX,
+      placement?.centerY ?? group.logicalY,
+    );
     return {
       ...group,
       collisionGeometry: planningGeometry,
@@ -1040,12 +1067,29 @@ export function solvePendingGroupPlacements(
   reportStage?: SolverStageReporter,
   reportMetric?: SolverMetricReporter,
 ) {
-  const planningGroups = buildPlanningGroups(groups);
   const solverStartedAt = performance.now();
   const markMetric = (name: string) => {
     reportMetric?.(name, Number((performance.now() - solverStartedAt).toFixed(1)));
   };
   reportStage?.('生成基座外环');
+  const initialBasePlacements = buildRadialLayout(
+    groups.map((group) => ({
+      id: group.placeKey,
+      x: group.logicalX,
+      y: group.logicalY,
+      rect: group.collisionRect,
+    })),
+    mapRect,
+    { mapGap: MAP_GAP },
+  );
+  const initialBasePlacementById = new Map<string, FootprintPlacement>();
+  initialBasePlacements.forEach((placement) => {
+    initialBasePlacementById.set(placement.id, {
+      centerX: placement.centerX,
+      centerY: placement.centerY,
+    });
+  });
+  const planningGroups = buildPlanningGroups(groups, initialBasePlacementById);
   const basePlacements = buildRadialLayout(
     planningGroups.map((group) => ({
       id: group.placeKey,
