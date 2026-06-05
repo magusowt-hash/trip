@@ -69,6 +69,7 @@ const DENSE_SECTOR_ANGLE_OFFSETS_DEGREES = [-32, -24, 24, 32];
 const DENSE_SECTOR_RADIUS_FACTORS = [1.08, 1.18, 1.28];
 const DENSE_MAP_ADJACENT_ESCAPE_ANGLE_OFFSETS_DEGREES = [-72, -56, 56, 72];
 const DENSE_MAP_ADJACENT_ESCAPE_RADIUS_FACTORS = [1.18, 1.32, 1.46];
+const FINAL_VARIANT_REFINEMENT_GROUP_LIMIT = 20;
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -841,6 +842,21 @@ function finalizePlacementVariant(
   const markFinalizeMetric = (name: string) => {
     reportMetric?.(name, Number((performance.now() - finalizeStartedAt).toFixed(1)));
   };
+  if (orderedGroups.length >= FINAL_VARIANT_REFINEMENT_GROUP_LIMIT) {
+    markFinalizeMetric('finalize.skipLargeRefinementMs');
+    return {
+      placements: workingState.placementById,
+      geometries: buildGeometryMapForPlacements(
+        repairDeps,
+        orderedGroups,
+        workingState.placementById,
+        mapRect,
+        safeGap,
+        labelGapBoost,
+        lockedGroups,
+      ),
+    };
+  }
   const refinedPlacementById = refineRadialPlacements(
     orderedGroups,
     new Map(workingState.placementById),
