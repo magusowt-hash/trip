@@ -21,22 +21,15 @@ export function ChinaNatureMapRightPanel({ styles: shellStyles }: ChinaNatureMap
   if (viewState.mode === 'topic' && activeTopic) {
     return (
       <section className={styles.topicShell}>
-        <button
-          type="button"
-          className={styles.backButton}
-          onClick={() => setViewState({ mode: 'list', activeTopicSlug: null })}
-        >
-          返回专题列表
-        </button>
         <div className={styles.topicShellCard}>
-          <p className={styles.topicEyebrow}>当前专题</p>
           <h2 className={styles.topicTitle}>{activeTopic.title}</h2>
-          <p className={styles.topicShellCopy}>
-            当前仅展示专题地图壳，真实标注与专题图层还没有接入。
-          </p>
-          <p className={styles.topicShellHint}>
-            后续会在这里承接专题简介、筛选器和地图联动能力。
-          </p>
+          <button
+            type="button"
+            className={styles.backButton}
+            onClick={() => setViewState({ mode: 'list', activeTopicSlug: null })}
+          >
+            切换专题
+          </button>
         </div>
       </section>
     );

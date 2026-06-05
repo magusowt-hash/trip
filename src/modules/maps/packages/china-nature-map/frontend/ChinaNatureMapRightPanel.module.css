@@ -41,15 +41,14 @@
 
 .heroOverlay {
   position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 14px;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   align-items: center;
   min-height: 60px;
-  padding: 14px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 18px;
+  padding: 16px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.24);
   background: rgba(247, 250, 247, 0.16);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
   backdrop-filter: blur(18px);
@@ -65,19 +64,16 @@
 }
 
 .topicShell {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  display: block;
 }
 
 .backButton {
-  align-self: flex-start;
   border: 0;
   border-radius: 999px;
   padding: 10px 14px;
   background: rgba(35, 74, 55, 0.1);
   color: #234a37;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 160ms ease, color 160ms ease;
@@ -94,45 +90,23 @@
 
 .topicShellCard {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  padding: 22px 20px;
+  padding: 16px 18px;
   border: 1px solid rgba(68, 103, 82, 0.16);
-  border-radius: 24px;
+  border-radius: 18px;
   background:
     linear-gradient(180deg, rgba(246, 248, 243, 0.98), rgba(235, 241, 233, 0.96)),
     linear-gradient(135deg, rgba(208, 223, 207, 0.3), rgba(255, 255, 255, 0));
-  box-shadow: 0 18px 40px rgba(20, 42, 30, 0.08);
-}
-
-.topicEyebrow {
-  margin: 0;
-  color: #58715f;
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  box-shadow: 0 12px 28px rgba(20, 42, 30, 0.06);
 }
 
 .topicTitle {
   margin: 0;
   color: #193426;
-  font-size: 1.7rem;
+  font-size: 1.2rem;
   line-height: 1.15;
-}
-
-.topicShellCopy {
-  margin: 0;
-  color: #284033;
-  font-size: 1rem;
-  line-height: 1.65;
-}
-
-.topicShellHint {
-  margin: 0;
-  color: #58715f;
-  font-size: 0.92rem;
-  line-height: 1.6;
 }
 
 .emptyState {
@@ -170,11 +144,8 @@
   }
 
   .heroOverlay {
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
     min-height: 54px;
-    padding: 12px 14px;
+    padding: 13px 14px;
   }
 
   .heroTitle {
@@ -182,11 +153,7 @@
   }
 
   .topicShellCard {
-    padding: 18px 16px;
-    border-radius: 20px;
-  }
-
-  .topicTitle {
-    font-size: 1.45rem;
+    padding: 14px 16px;
+    border-radius: 16px;
   }
 }
