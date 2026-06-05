@@ -621,3 +621,92 @@ test('solver optimized branch keeps real fixture connector lines uncrossed befor
     'expected optimized branch to remain uncrossed before refinement fallback',
   );
 });
+
+test('assignInitialPlacements finds a usable real-fixture initial solution before fallback repair', () => {
+  const { pendingGroups, mapRect, safeGap } = fixture.solverInputSnapshot;
+  const basePlacements = buildRadialLayout(
+    pendingGroups.map((group) => ({
+      id: group.placeKey,
+      x: group.logicalX,
+      y: group.logicalY,
+      rect: group.collisionRect,
+    })),
+    mapRect,
+    { mapGap: 128 },
+  );
+  const basePlacementById = new Map(basePlacements.map((placement) => [
+    placement.id,
+    { centerX: placement.centerX, centerY: placement.centerY },
+  ]));
+  const baseSectorCounts = Array.from({ length: 16 }, () => 0);
+  basePlacementById.forEach((placement) => {
+    const angle = Math.atan2(placement.centerY, placement.centerX);
+    const index = Math.min(
+      15,
+      Math.floor((((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2) * 16),
+    );
+    baseSectorCounts[index] += 1;
+  });
+
+  const candidatePoolById = new Map();
+  const sectorDensityById = new Map();
+  const candidateCountById = new Map();
+  for (const group of pendingGroups) {
+    const basePlacement = basePlacementById.get(group.placeKey) ?? { centerX: 0, centerY: 0 };
+    const sectorIndex = Math.min(
+      15,
+      Math.floor((((Math.atan2(basePlacement.centerY, basePlacement.centerX) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2) * 16),
+    );
+    const sectorDensity = baseSectorCounts[sectorIndex] ?? 0;
+    sectorDensityById.set(group.placeKey, sectorDensity);
+    const candidates = __layoutSolverInternals.buildCandidatePool(group, basePlacement, mapRect, sectorDensity);
+    candidatePoolById.set(group.placeKey, candidates);
+    candidateCountById.set(group.placeKey, candidates.length);
+  }
+
+  const orderedGroups = [...pendingGroups].sort((left, right) => {
+    const leftSectorDensity = sectorDensityById.get(left.placeKey) ?? 0;
+    const rightSectorDensity = sectorDensityById.get(right.placeKey) ?? 0;
+    if (leftSectorDensity !== rightSectorDensity) return rightSectorDensity - leftSectorDensity;
+
+    const leftCandidateCount = candidateCountById.get(left.placeKey) ?? Number.POSITIVE_INFINITY;
+    const rightCandidateCount = candidateCountById.get(right.placeKey) ?? Number.POSITIVE_INFINITY;
+    if (leftCandidateCount !== rightCandidateCount) return leftCandidateCount - rightCandidateCount;
+
+    const leftPlacement = basePlacementById.get(left.placeKey);
+    const rightPlacement = basePlacementById.get(right.placeKey);
+    const leftRadius = leftPlacement ? Math.hypot(leftPlacement.centerX, leftPlacement.centerY) : 0;
+    const rightRadius = rightPlacement ? Math.hypot(rightPlacement.centerX, rightPlacement.centerY) : 0;
+    if (Math.abs(rightRadius - leftRadius) > 1e-6) return rightRadius - leftRadius;
+
+    const leftArea =
+      Math.max(1, left.collisionRect.right - left.collisionRect.left) *
+      Math.max(1, left.collisionRect.bottom - left.collisionRect.top);
+    const rightArea =
+      Math.max(1, right.collisionRect.right - right.collisionRect.left) *
+      Math.max(1, right.collisionRect.bottom - right.collisionRect.top);
+    if (Math.abs(rightArea - leftArea) > 1e-6) return rightArea - leftArea;
+
+    return left.placeKey.localeCompare(right.placeKey, 'zh-CN');
+  });
+
+  const assignedState = __layoutSolverInternals.assignInitialPlacements(
+    orderedGroups,
+    candidatePoolById,
+    [],
+    safeGap,
+  );
+
+  assert.ok(
+    assignedState,
+    'expected initial assignment to find a real-fixture solution instead of falling back immediately',
+  );
+  assert.equal(
+    __layoutSolverInternals.countPlacementLineCrossings(
+      orderedGroups,
+      assignedState!.placementById,
+    ),
+    0,
+    'expected initial assignment result to keep real-fixture connector lines uncrossed',
+  );
+});
