@@ -25,7 +25,7 @@
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(8, 17, 13, 0.04) 22%, rgba(8, 17, 13, 0.18) 58%, rgba(8, 17, 13, 0.6) 100%),
+    linear-gradient(180deg, rgba(8, 17, 13, 0.06) 30%, rgba(8, 17, 13, 0.2) 68%, rgba(8, 17, 13, 0.72) 100%),
     linear-gradient(135deg, rgba(234, 243, 233, 0.18), rgba(234, 243, 233, 0));
 }
 
@@ -48,11 +48,7 @@
   align-items: center;
   min-height: 60px;
   padding: 16px 18px;
-  border-top: 1px solid rgba(255, 255, 255, 0.24);
-  background: rgba(247, 250, 247, 0.16);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: linear-gradient(180deg, rgba(8, 17, 13, 0) 0%, rgba(8, 17, 13, 0.38) 52%, rgba(8, 17, 13, 0.78) 100%);
 }
 
 .heroTitle {
@@ -61,52 +57,6 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   text-align: left;
-}
-
-.topicShell {
-  display: block;
-}
-
-.backButton {
-  border: 0;
-  border-radius: 999px;
-  padding: 10px 14px;
-  background: rgba(35, 74, 55, 0.1);
-  color: #234a37;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 160ms ease, color 160ms ease;
-}
-
-.backButton:hover {
-  background: rgba(35, 74, 55, 0.16);
-}
-
-.backButton:focus-visible {
-  outline: 3px solid rgba(47, 111, 81, 0.28);
-  outline-offset: 3px;
-}
-
-.topicShellCard {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 18px;
-  border: 1px solid rgba(68, 103, 82, 0.16);
-  border-radius: 18px;
-  background:
-    linear-gradient(180deg, rgba(246, 248, 243, 0.98), rgba(235, 241, 233, 0.96)),
-    linear-gradient(135deg, rgba(208, 223, 207, 0.3), rgba(255, 255, 255, 0));
-  box-shadow: 0 12px 28px rgba(20, 42, 30, 0.06);
-}
-
-.topicTitle {
-  margin: 0;
-  color: #193426;
-  font-size: 1.2rem;
-  line-height: 1.15;
 }
 
 .emptyState {
@@ -150,10 +100,5 @@
 
   .heroTitle {
     font-size: 1.12rem;
-  }
-
-  .topicShellCard {
-    padding: 14px 16px;
-    border-radius: 16px;
   }
 }

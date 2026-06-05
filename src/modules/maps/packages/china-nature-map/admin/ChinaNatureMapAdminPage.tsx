@@ -39,7 +39,7 @@ export function ChinaNatureMapAdminPage() {
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data?.error ?? '加载专题失败');
+          throw new Error(data?.error ?? '加载项失败');
         }
 
         if (!cancelled) {
@@ -50,7 +50,7 @@ export function ChinaNatureMapAdminPage() {
         if (!cancelled) {
           setStatus({
             kind: 'error',
-            text: error instanceof Error ? error.message : '加载专题失败',
+            text: error instanceof Error ? error.message : '加载项失败',
           });
           setRequestState('idle');
         }
@@ -86,15 +86,15 @@ export function ChinaNatureMapAdminPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data?.error ?? '保存专题失败');
+        throw new Error(data?.error ?? '保存项失败');
       }
 
       setTopics(Array.isArray(data?.topics) ? cloneTopics(data.topics) : []);
-      setStatus({ kind: 'info', text: '专题已保存' });
+      setStatus({ kind: 'info', text: '项已保存' });
     } catch (error) {
       setStatus({
         kind: 'error',
-        text: error instanceof Error ? error.message : '保存专题失败',
+        text: error instanceof Error ? error.message : '保存项失败',
       });
     } finally {
       setRequestState('idle');
@@ -104,7 +104,7 @@ export function ChinaNatureMapAdminPage() {
   return (
     <section className={styles.page}>
       <header className={styles.header}>
-        <h1 className={styles.title}>中国自然地图专题管理</h1>
+        <h1 className={styles.title}>中国自然地图项管理</h1>
         <p className={styles.subtitle}>轻量维护标题、封面图、排序和启停状态。</p>
       </header>
 
@@ -115,7 +115,7 @@ export function ChinaNatureMapAdminPage() {
           onClick={handleSave}
           disabled={requestState !== 'idle'}
         >
-          {requestState === 'saving' ? '保存中...' : '保存专题'}
+          {requestState === 'saving' ? '保存中...' : '保存项'}
         </button>
         <div
           className={`${styles.status} ${status.kind === 'error' ? styles.statusError : ''}`.trim()}
@@ -125,7 +125,7 @@ export function ChinaNatureMapAdminPage() {
       </div>
 
       {topics.length === 0 && requestState !== 'loading' ? (
-        <div className={styles.empty}>当前没有可管理的专题。</div>
+        <div className={styles.empty}>当前没有可管理的项。</div>
       ) : (
         <div className={styles.grid}>
           {topics.map((topic) => (
@@ -180,7 +180,7 @@ export function ChinaNatureMapAdminPage() {
                       checked={topic.isEnabled}
                       onChange={(event) => updateTopic(topic.topicSlug, { isEnabled: event.target.checked })}
                     />
-                    启用专题
+                    启用项
                   </label>
                 </div>
               </div>
