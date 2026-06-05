@@ -91,8 +91,10 @@ export default function MapsPage() {
 
   const standardMapPackage = getMapPackage('standard');
   const railMapPackage = getMapPackage('rail');
+  const chinaNatureMapPackage = getMapPackage('china-nature');
   const StandardRightPanel = standardMapPackage?.frontend?.rightPanel;
   const RailRightPanel = railMapPackage?.frontend?.rightPanel;
+  const ChinaNatureRightPanel = chinaNatureMapPackage?.frontend?.rightPanel;
   const activePackage = packageItems.find((item) => item.slug === activeTab) ?? null;
 
   return (
@@ -135,8 +137,10 @@ export default function MapsPage() {
                   />
                 )}
               </div>
+            ) : activeTab === 'china-nature' ? (
+              <PlanMap autoLoadMarkers={false} />
             ) : (
-              <div className={styles.emptyState}>暂无可用地图类型，请先在后台启用地图包。</div>
+              <div className={styles.emptyState}>加载中……</div>
             )}
           </div>
         </section>
@@ -169,7 +173,7 @@ export default function MapsPage() {
               </button>
             </div>
 
-            {packageLoading ? <div className={styles.panelState}>加载中</div> : null}
+            {packageLoading ? <div className={styles.panelLoading}>加载中……</div> : null}
             {activeTab === 'rail' ? (
               RailRightPanel ? (
                 <RailRightPanel
@@ -178,6 +182,10 @@ export default function MapsPage() {
                   query={railController.query}
                   onQueryChange={railController.setQuery}
                 />
+              ) : null
+            ) : activeTab === 'china-nature' ? (
+              ChinaNatureRightPanel ? (
+                <ChinaNatureRightPanel styles={styles} />
               ) : null
             ) : (
               StandardRightPanel ? (

@@ -1,0 +1,1 @@
+export { ChinaNatureMapRightPanel } from './ChinaNatureMapRightPanel';

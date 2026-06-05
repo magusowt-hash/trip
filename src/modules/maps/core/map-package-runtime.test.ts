@@ -36,6 +36,20 @@ const registeredPackages: MapPackage[] = [
       rightPanel: (() => null) as any,
     },
   },
+  {
+    slug: 'china-nature',
+    packageName: 'china-nature-map',
+    name: '中国自然地图',
+    description: '自然主题图层、专题浏览与管理。',
+    admin: {
+      enabled: true,
+      entryPath: '/management/maps/china-nature',
+      page: (() => null) as any,
+    },
+    frontend: {
+      rightPanel: (() => null) as any,
+    },
+  },
 ];
 
 const storedRecords: MapPackageRecord[] = [
@@ -60,6 +74,13 @@ const storedRecords: MapPackageRecord[] = [
     isEnabled: 1,
     sortOrder: 3,
   },
+  {
+    slug: 'china-nature',
+    name: '中国自然地图',
+    description: '自然主题图层、专题浏览与管理。',
+    isEnabled: 1,
+    sortOrder: 4,
+  },
 ];
 
 test('buildMapPackageRuntimeList keeps admin entries while exposing only enabled registered frontend packages', () => {
@@ -67,6 +88,10 @@ test('buildMapPackageRuntimeList keeps admin entries while exposing only enabled
     registeredPackages,
     storedRecords,
   });
+
+  assert.ok(
+    runtime.adminPackages.some((item) => item.slug === 'china-nature'),
+  );
 
   assert.deepEqual(
     runtime.adminPackages.map((item) => ({
@@ -79,12 +104,18 @@ test('buildMapPackageRuntimeList keeps admin entries while exposing only enabled
       { slug: 'standard', isEnabled: false, hasFrontend: true, hasAdmin: true },
       { slug: 'rail', isEnabled: true, hasFrontend: true, hasAdmin: true },
       { slug: 'ghost', isEnabled: true, hasFrontend: false, hasAdmin: false },
+      {
+        slug: 'china-nature',
+        isEnabled: true,
+        hasFrontend: true,
+        hasAdmin: true,
+      },
     ],
   );
 
   assert.deepEqual(
     runtime.frontendPackages.map((item) => item.slug),
-    ['rail'],
+    ['rail', 'china-nature'],
   );
 });
 
@@ -110,7 +141,6 @@ test('buildMapPackageRuntimeList falls back to registered defaults when storage 
 
   assert.deepEqual(
     runtime.frontendPackages.map((item) => item.slug),
-    ['standard', 'rail'],
+    ['standard', 'rail', 'china-nature'],
   );
 });
-

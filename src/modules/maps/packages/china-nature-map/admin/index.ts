@@ -1,0 +1,1 @@
+export { ChinaNatureMapAdminPage } from './ChinaNatureMapAdminPage';

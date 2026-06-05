@@ -1,0 +1,192 @@
+.topicList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.heroCard {
+  position: relative;
+  min-height: 220px;
+  width: 100%;
+  border: 0;
+  border-radius: 24px;
+  padding: 0;
+  overflow: hidden;
+  background-color: #284033;
+  background-position: center;
+  background-size: cover;
+  box-shadow: 0 18px 44px rgba(14, 31, 24, 0.2);
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.heroCard::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(8, 17, 13, 0.04) 22%, rgba(8, 17, 13, 0.18) 58%, rgba(8, 17, 13, 0.6) 100%),
+    linear-gradient(135deg, rgba(234, 243, 233, 0.18), rgba(234, 243, 233, 0));
+}
+
+.heroCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 52px rgba(14, 31, 24, 0.26);
+}
+
+.heroCard:focus-visible {
+  outline: 3px solid rgba(47, 111, 81, 0.45);
+  outline-offset: 3px;
+}
+
+.heroOverlay {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  min-height: 60px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 18px;
+  background: rgba(247, 250, 247, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.heroTitle {
+  color: #f7fbf7;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: left;
+}
+
+.topicShell {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.backButton {
+  align-self: flex-start;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: rgba(35, 74, 55, 0.1);
+  color: #234a37;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.backButton:hover {
+  background: rgba(35, 74, 55, 0.16);
+}
+
+.backButton:focus-visible {
+  outline: 3px solid rgba(47, 111, 81, 0.28);
+  outline-offset: 3px;
+}
+
+.topicShellCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px 20px;
+  border: 1px solid rgba(68, 103, 82, 0.16);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(246, 248, 243, 0.98), rgba(235, 241, 233, 0.96)),
+    linear-gradient(135deg, rgba(208, 223, 207, 0.3), rgba(255, 255, 255, 0));
+  box-shadow: 0 18px 40px rgba(20, 42, 30, 0.08);
+}
+
+.topicEyebrow {
+  margin: 0;
+  color: #58715f;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.topicTitle {
+  margin: 0;
+  color: #193426;
+  font-size: 1.7rem;
+  line-height: 1.15;
+}
+
+.topicShellCopy {
+  margin: 0;
+  color: #284033;
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.topicShellHint {
+  margin: 0;
+  color: #58715f;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px;
+  border: 1px dashed rgba(88, 113, 95, 0.35);
+  border-radius: 20px;
+  background: rgba(246, 248, 243, 0.9);
+}
+
+.emptyTitle {
+  margin: 0;
+  color: #193426;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.emptyCopy {
+  margin: 0;
+  color: #58715f;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.shellContractProbe {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .heroCard {
+    min-height: 196px;
+    border-radius: 20px;
+  }
+
+  .heroOverlay {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    min-height: 54px;
+    padding: 12px 14px;
+  }
+
+  .heroTitle {
+    font-size: 1.12rem;
+  }
+
+  .topicShellCard {
+    padding: 18px 16px;
+    border-radius: 20px;
+  }
+
+  .topicTitle {
+    font-size: 1.45rem;
+  }
+}
