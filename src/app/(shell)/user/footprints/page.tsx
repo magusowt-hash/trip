@@ -37,6 +37,9 @@ const LOCAL_THUMB_MAX_EDGE = 320;
 const LOCAL_THUMB_CONCURRENCY = 4;
 const LOCAL_THUMB_TIMEOUT_MS = 2500;
 const LOCAL_THUMB_TOTAL_TIMEOUT_MS = 3500;
+const LOCAL_THUMB_INITIAL_BATCH_LIMIT = 24;
+const LOCAL_THUMB_BACKGROUND_BATCH_LIMIT = 32;
+const LOCAL_THUMB_BACKGROUND_TOTAL_TIMEOUT_MS = 20000;
 const LOCAL_MAP_LOADING_MIN_DELAY_MS = 120;
 
 interface FootprintGroup {
@@ -78,6 +81,11 @@ type SolverStageTiming = {
   elapsedMs: number;
 };
 
+type SolverMetricTiming = {
+  name: string;
+  elapsedMs: number;
+};
+
 type MappedLayoutExportSnapshot = {
   viewportWidth: number;
   viewportHeight: number;
@@ -92,6 +100,8 @@ type MappedLayoutExportSnapshot = {
     version: 'solver-stage-v1';
     solverTotalMs: number;
     solverStages: SolverStageTiming[];
+    solverMetrics: SolverMetricTiming[];
+    applyMetrics?: SolverMetricTiming[];
   };
 };
 
@@ -140,16 +150,33 @@ function createThumbnailFromUrl(url: string, maxEdge = LOCAL_THUMB_MAX_EDGE, tim
   });
 }
 
-async function attachLocalThumbnails(photos: PhotoItem[]): Promise<PhotoItem[]> {
+type LocalThumbnailAttachOptions = {
+  maxPhotos?: number;
+  totalTimeoutMs?: number;
+};
+
+async function attachLocalThumbnails(
+  photos: PhotoItem[],
+  options: LocalThumbnailAttachOptions = {},
+): Promise<PhotoItem[]> {
   const nextPhotos = photos.map((photo) => ({ ...photo }));
-  const deadline = Date.now() + LOCAL_THUMB_TOTAL_TIMEOUT_MS;
+  const pendingIndexes = nextPhotos
+    .map((photo, index) => ({ photo, index }))
+    .filter(({ photo }) => photo.sourceType === 'local-mapped' && !photo.thumbnailUrl)
+    .slice(0, options.maxPhotos ?? Number.POSITIVE_INFINITY)
+    .map(({ index }) => index);
+  if (pendingIndexes.length === 0) return nextPhotos;
+
+  const totalTimeoutMs = options.totalTimeoutMs ?? LOCAL_THUMB_TOTAL_TIMEOUT_MS;
+  const deadline = Date.now() + totalTimeoutMs;
   let cursor = 0;
   async function worker() {
-    while (cursor < nextPhotos.length) {
+    while (cursor < pendingIndexes.length) {
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) return;
-      const index = cursor;
+      const pendingIndex = cursor;
       cursor += 1;
+      const index = pendingIndexes[pendingIndex];
       const photo = nextPhotos[index];
       if (!photo || photo.sourceType !== 'local-mapped' || photo.thumbnailUrl) continue;
       const thumb = await createThumbnailFromUrl(photo.url, LOCAL_THUMB_MAX_EDGE, Math.min(LOCAL_THUMB_TIMEOUT_MS, remainingMs));
@@ -541,6 +568,7 @@ function UserFootprintsPageInner() {
   const dirtyLocalAssetPathsRef = useRef<Set<string>>(new Set());
   const layoutInteractionModeRef = useRef<FootprintLayoutInteractionMode>('manual');
   const mappedLayoutExportSnapshotRef = useRef<MappedLayoutExportSnapshot | null>(null);
+  const localThumbBackfillRunningRef = useRef(false);
 
   useEffect(() => { itemsRef.current = items; }, [items]);
   useEffect(() => { photosRef.current = photos; }, [photos]);
@@ -548,6 +576,54 @@ function UserFootprintsPageInner() {
   useEffect(() => { poiPointsRef.current = poiPoints; }, [poiPoints]);
   useEffect(() => { outerScaleRef.current = outerScale; }, [outerScale]);
   useEffect(() => { layoutInteractionModeRef.current = layoutInteractionMode; }, [layoutInteractionMode]);
+
+  useEffect(() => {
+    if (localThumbBackfillRunningRef.current) return;
+    const missingLocalThumbs = photos.filter((photo) => photo.sourceType === 'local-mapped' && !photo.thumbnailUrl);
+    if (missingLocalThumbs.length === 0) return;
+
+    let cancelled = false;
+    localThumbBackfillRunningRef.current = true;
+
+    const runBackfill = async () => {
+      try {
+        while (!cancelled) {
+          const currentPhotos = photosRef.current;
+          const stillMissing = currentPhotos.filter((photo) => photo.sourceType === 'local-mapped' && !photo.thumbnailUrl);
+          if (stillMissing.length === 0) break;
+          const nextPhotos = await attachLocalThumbnails(currentPhotos, {
+            maxPhotos: LOCAL_THUMB_BACKGROUND_BATCH_LIMIT,
+            totalTimeoutMs: LOCAL_THUMB_BACKGROUND_TOTAL_TIMEOUT_MS,
+          });
+          if (cancelled) break;
+
+          let generatedCount = 0;
+          for (let index = 0; index < nextPhotos.length; index++) {
+            const previous = currentPhotos[index];
+            const next = nextPhotos[index];
+            if (
+              previous?.sourceType === 'local-mapped' &&
+              !previous.thumbnailUrl &&
+              next?.thumbnailUrl
+            ) {
+              generatedCount += 1;
+            }
+          }
+          if (generatedCount === 0) break;
+
+          setPhotos(nextPhotos);
+          await new Promise((resolve) => window.setTimeout(resolve, 50));
+        }
+      } finally {
+        localThumbBackfillRunningRef.current = false;
+      }
+    };
+
+    void runBackfill();
+    return () => {
+      cancelled = true;
+    };
+  }, [photos]);
 
   // Load settings
   useEffect(() => {
@@ -978,6 +1054,7 @@ function UserFootprintsPageInner() {
     }
 
     const solverStageTimings: Array<{ stage: string; elapsedMs: number }> = [];
+    const solverMetricTimings: SolverMetricTiming[] = [];
     const solverStartedAt = performance.now();
     const solvedPendingGroups = solvePendingGroupPlacements(
       pendingGroups,
@@ -991,6 +1068,9 @@ function UserFootprintsPageInner() {
           elapsedMs: Number((performance.now() - solverStartedAt).toFixed(1)),
         });
         options.onSolverStage?.(stage);
+      },
+      (name, elapsedMs) => {
+        solverMetricTimings.push({ name, elapsedMs });
       },
     );
     const solverTotalMs = Number((performance.now() - solverStartedAt).toFixed(1));
@@ -1010,6 +1090,7 @@ function UserFootprintsPageInner() {
         version: 'solver-stage-v1',
         solverTotalMs,
         solverStages: solverStageTimings,
+        solverMetrics: solverMetricTimings,
       },
     };
 
@@ -1562,6 +1643,14 @@ function UserFootprintsPageInner() {
 
     const runApply = async (attempt = 0) => {
       if (!isCurrentRun()) return;
+      const applyStartedAt = performance.now();
+      const applyMetrics: SolverMetricTiming[] = [];
+      const markApplyMetric = (name: string) => {
+        applyMetrics.push({
+          name,
+          elapsedMs: Number((performance.now() - applyStartedAt).toFixed(1)),
+        });
+      };
       try {
         setLocalMapApplyStage('检查地图点位');
         setLocalMapApplyProgress(12);
@@ -1588,6 +1677,7 @@ function UserFootprintsPageInner() {
           finishApplying();
           return;
         }
+        markApplyMetric('apply.poiReadyCheckMs');
 
         setLocalMapApplyStage('生成本地图片映射');
         const currentItemKeys = new Set(currentItems.map(getFootprintItemPlaceKey));
@@ -1623,6 +1713,7 @@ function UserFootprintsPageInner() {
           finishApplying();
           return;
         }
+        markApplyMetric('apply.buildMappedPhotosMs');
         setLocalMapApplyProgress(24);
 
         if (payload.layout.enabled) {
@@ -1651,6 +1742,7 @@ function UserFootprintsPageInner() {
               },
             },
           );
+          markApplyMetric('apply.autoPlacePhotosMs');
           if (unplaced.every((photo) => photo.frameX != null && photo.frameY != null)) {
             movedPhotosRef.current = true;
             setHasMovedPhotos(true);
@@ -1667,8 +1759,12 @@ function UserFootprintsPageInner() {
         setLocalMapApplyProgress(66);
 
         setLocalMapApplyStage('生成本地缩略图');
-        const mappedPhotosWithThumbnails = await attachLocalThumbnails(mappedPhotos);
+        const mappedPhotosWithThumbnails = await attachLocalThumbnails(mappedPhotos, {
+          maxPhotos: LOCAL_THUMB_INITIAL_BATCH_LIMIT,
+          totalTimeoutMs: LOCAL_THUMB_TOTAL_TIMEOUT_MS,
+        });
         if (!isCurrentRun()) return;
+        markApplyMetric('apply.attachLocalThumbnailsMs');
         setLocalMapApplyProgress(78);
 
         setLocalMapApplyStage('写入前端状态');
@@ -1689,6 +1785,7 @@ function UserFootprintsPageInner() {
           return [...uploaded, ...mappedPhotosWithThumbnails];
         });
         setGroupLayouts(nextGroupLayouts);
+        markApplyMetric('apply.stateWriteMs');
         setLocalMapApplyProgress(88);
         setLocalRootName(payload.rootName);
         setLocalUnmatchedFolders(payload.unmatchedFolders);
@@ -1709,6 +1806,9 @@ function UserFootprintsPageInner() {
         }
         if (payload.missingAssets.length > 0) {
           alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。当前只在前端移除；点击“保存修改”时会再次确认是否删除这些位置记录。`);
+        }
+        if (mappedLayoutExportSnapshotRef.current) {
+          mappedLayoutExportSnapshotRef.current.timings.applyMetrics = applyMetrics;
         }
         setLocalMapApplyStage(`完成映射，已写入 ${mappedPhotosWithThumbnails.length} 张本地图片`);
         setLocalMapApplyProgress(100);
