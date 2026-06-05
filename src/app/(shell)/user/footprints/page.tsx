@@ -1222,6 +1222,22 @@ function UserFootprintsPageInner() {
 
       const selectedGroupName = groups.find((group) => group.id === selectedGroupId)?.name || '我的足迹';
       const safeGroupName = selectedGroupName.replace(/[\\\\/:*?\"<>|]+/g, '-').trim() || '我的足迹';
+      const solverStageTimings: Array<{ stage: string; elapsedMs: number }> = [];
+      const solverStartedAt = performance.now();
+      solvePendingGroupPlacements(
+        pendingGroups,
+        mapRect,
+        cardSize,
+        computeLabelGapBoost(collisionScale),
+        lockedGroups,
+        (stage) => {
+          solverStageTimings.push({
+            stage,
+            elapsedMs: Number((performance.now() - solverStartedAt).toFixed(1)),
+          });
+        },
+      );
+      const solverTotalMs = Number((performance.now() - solverStartedAt).toFixed(1));
 
       downloadJsonFile(`${safeGroupName}-mapped-layout.json`, {
         exportedAt: new Date().toISOString(),
