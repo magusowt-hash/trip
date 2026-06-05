@@ -73,6 +73,7 @@ const DENSE_MAP_ADJACENT_ESCAPE_RADIUS_FACTORS = [1.18, 1.32, 1.46];
 const FINAL_VARIANT_REFINEMENT_GROUP_LIMIT = 20;
 const UPPER_REGION_BOTTOM_CLEARANCE = 132;
 const LOWER_REGION_TOP_CLEARANCE = 132;
+const LOWER_TRANSITION_BAND_DEGREES = 10;
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -429,6 +430,18 @@ function isPointInLowerPartition(pointX: number, pointY: number, mapRect: Logica
   return verticalDistance >= pointX - mapRect.right;
 }
 
+function isPointInLowerTransitionBand(pointX: number, pointY: number, mapRect: LogicalRect) {
+  if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
+  if (pointY <= mapRect.bottom) return false;
+
+  const boundaryAngle =
+    pointX < mapRect.left
+      ? Math.atan2(mapRect.bottom - pointY, mapRect.left - pointX)
+      : Math.atan2(mapRect.bottom - pointY, pointX - mapRect.right);
+  const bandRadians = (LOWER_TRANSITION_BAND_DEGREES * Math.PI) / 180;
+  return Math.abs(Math.abs(boundaryAngle) - Math.PI / 4) <= bandRadians;
+}
+
 function applyPlanningEnvelope(
   geometry: GroupGeometry,
   mapRect?: LogicalRect,
@@ -441,10 +454,13 @@ function applyPlanningEnvelope(
   const inLowerRegion = sampleYs.some((sampleY) => (
     sampleXs.some((sampleX) => isPointInLowerPartition(sampleX, sampleY, mapRect))
   ));
+  const inLowerTransitionBand = sampleYs.some((sampleY) => (
+    sampleXs.some((sampleX) => isPointInLowerTransitionBand(sampleX, sampleY, mapRect))
+  ));
   const planningRect = {
     ...rect,
-    top: rect.top - (inLowerRegion ? LOWER_REGION_TOP_CLEARANCE : 0),
-    bottom: rect.bottom + (inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
+    top: rect.top - (inLowerRegion || inLowerTransitionBand ? LOWER_REGION_TOP_CLEARANCE : 0),
+    bottom: rect.bottom + (inLowerTransitionBand ? UPPER_REGION_BOTTOM_CLEARANCE : inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
   };
 
   return {
