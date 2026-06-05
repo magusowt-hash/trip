@@ -12,26 +12,26 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
 }
 
 .cardShell {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .card {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 14px;
-  padding: 20px 22px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 22px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.92));
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.05);
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
   transition:
     transform 0.18s ease,
     border-color 0.18s ease,
@@ -43,9 +43,9 @@
 }
 
 .card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(14, 165, 233, 0.2);
-  box-shadow: 0 20px 42px rgba(14, 165, 233, 0.1);
+  transform: translateY(-1px);
+  border-color: rgba(14, 165, 233, 0.18);
+  box-shadow: 0 14px 26px rgba(15, 23, 42, 0.06);
 }
 
 .cardText {
@@ -116,26 +116,18 @@
 
 .fieldInput {
   width: 100%;
-  height: 38px;
+  height: 36px;
   border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 0 12px;
   background: rgba(255, 255, 255, 0.96);
   font-size: 13px;
   color: #0f172a;
 }
 
-.cardDesc {
-  display: block;
-  margin-top: 6px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #475569;
-}
-
 .cardHint {
   display: block;
-  margin-top: 8px;
+  margin-top: 4px;
   font-size: 12px;
   line-height: 1.5;
   color: #b45309;
@@ -164,9 +156,9 @@
 }
 
 .toggleButton {
-  height: 40px;
+  height: 36px;
   border: 1px solid rgba(148, 163, 184, 0.26);
-  border-radius: 14px;
+  border-radius: 12px;
   background: #ffffff;
   font-size: 13px;
   font-weight: 700;
@@ -175,9 +167,9 @@
 }
 
 .saveButton {
-  height: 40px;
+  height: 36px;
   border: 1px solid rgba(14, 165, 233, 0.24);
-  border-radius: 14px;
+  border-radius: 12px;
   background: rgba(14, 165, 233, 0.08);
   font-size: 13px;
   font-weight: 700;
@@ -197,6 +189,6 @@
 
 @media (max-width: 640px) {
   .card {
-    padding: 18px;
+    padding: 14px;
   }
 }

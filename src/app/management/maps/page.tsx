@@ -168,7 +168,7 @@ export default function MapsManagementPage() {
 
   return (
     <div className={styles.page}>
-      {loading ? <div className={styles.state}>地图包加载中...</div> : null}
+      {loading ? <div className={styles.state}>加载中</div> : null}
       <div className={styles.grid}>
         {cards.map((item) => {
           const draft = drafts[item.slug] ?? { name: item.name, sortOrder: String(item.sortOrder) };
@@ -206,7 +206,6 @@ export default function MapsManagementPage() {
                       onChange={(event) => handleDraftChange(item.slug, 'sortOrder', event.target.value)}
                     />
                   </label>
-                  <span className={styles.cardDesc}>{item.description}</span>
                   {!item.hasFrontend || !item.hasAdmin ? (
                     <span className={styles.cardHint}>代码注册不完整，前台会自动忽略该地图包。</span>
                   ) : null}
@@ -239,7 +238,7 @@ export default function MapsManagementPage() {
           );
         })}
       </div>
-      {!loading && cards.length === 0 ? <div className={styles.state}>暂无地图包。</div> : null}
+      {!loading && cards.length === 0 ? <div className={styles.state}>暂无地图包</div> : null}
     </div>
   );
 }

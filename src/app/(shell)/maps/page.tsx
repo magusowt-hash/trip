@@ -169,7 +169,7 @@ export default function MapsPage() {
               </button>
             </div>
 
-            {packageLoading ? <div className={styles.panelState}>地图列表加载中...</div> : null}
+            {packageLoading ? <div className={styles.panelState}>加载中</div> : null}
             {activeTab === 'rail' ? (
               RailRightPanel ? (
                 <RailRightPanel
