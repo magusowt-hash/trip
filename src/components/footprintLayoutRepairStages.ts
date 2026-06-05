@@ -2207,6 +2207,29 @@ export function repairPlacementIfNeeded(
     return optimizedAnalysis;
   }
   if (shouldSkipDeepRepair) {
+    deps.improveGroupRectOnlyPairs(
+      orderedGroups,
+      candidatePoolById,
+      state,
+      mapRect,
+      safeGap,
+      labelGapBoost,
+      lockedGroups,
+    );
+    markMetric('repair.improveGroupRectOnlyPairsMs');
+    optimizedAnalysis = deps.analyzePlacementState(
+      orderedGroups,
+      state.placementById,
+      mapRect,
+      safeGap,
+      labelGapBoost,
+      lockedGroups,
+      {
+        includeCorridorRisk: false,
+        includeLineCrossings: true,
+      },
+    );
+    markMetric('repair.postGroupRectOnlyAnalysisMs');
     markMetric('repair.skipDeepRepairMs');
     return optimizedAnalysis;
   }
