@@ -290,12 +290,7 @@ function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1) {
 function buildOffsetGroupGeometry(placePhotos: PhotoItem[], offsets: LogicalOffset[], scale = 1) {
   if (placePhotos.length === 0 || offsets.length !== placePhotos.length) return null;
 
-  const photoRect = expandPhotoRect({
-    left: Math.min(...offsets.map((item, index) => item.offsetX - getPhotoLogicalSize(placePhotos[index]).width / 2)),
-    right: Math.max(...offsets.map((item, index) => item.offsetX + getPhotoLogicalSize(placePhotos[index]).width / 2)),
-    top: Math.min(...offsets.map((item, index) => item.offsetY - getPhotoLogicalSize(placePhotos[index]).height / 2)),
-    bottom: Math.max(...offsets.map((item, index) => item.offsetY + getPhotoLogicalSize(placePhotos[index]).height / 2)),
-  });
+  const photoRect = buildOffsetPhotoRect(placePhotos, offsets);
 
   return buildGroupGeometryFromPhotoRect(
     photoRect,
@@ -305,6 +300,15 @@ function buildOffsetGroupGeometry(placePhotos: PhotoItem[], offsets: LogicalOffs
     undefined,
     0,
   );
+}
+
+function buildOffsetPhotoRect(placePhotos: PhotoItem[], offsets: LogicalOffset[]) {
+  return expandPhotoRect({
+    left: Math.min(...offsets.map((item, index) => item.offsetX - getPhotoLogicalSize(placePhotos[index]).width / 2)),
+    right: Math.max(...offsets.map((item, index) => item.offsetX + getPhotoLogicalSize(placePhotos[index]).width / 2)),
+    top: Math.min(...offsets.map((item, index) => item.offsetY - getPhotoLogicalSize(placePhotos[index]).height / 2)),
+    bottom: Math.max(...offsets.map((item, index) => item.offsetY + getPhotoLogicalSize(placePhotos[index]).height / 2)),
+  });
 }
 
 function solveFrozenGroupLayouts(
@@ -1027,15 +1031,16 @@ function UserFootprintsPageInner() {
       const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
 
       const reservedLabelOffset = estimateReservedLabelOffset(placeKey, placePhotos, collisionScale, mapRect, activeGroupLayouts);
-      const baseOffsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale);
-      const offsetGeometry = baseOffsetGeometry
+      const offsetPhotoRect = buildOffsetPhotoRect(placePhotos, offsets);
+      const offsetGeometry = offsetPhotoRect
         ? buildGroupGeometryFromPhotoRect(
-            baseOffsetGeometry.photoRect,
+            offsetPhotoRect,
             placePhotos[0]?.placeTitle || '',
             placePhotos.length,
             collisionScale,
-            baseOffsetGeometry.labelSide,
+            undefined,
             reservedLabelOffset,
+            mapRect,
           )
         : null;
       if (!offsetGeometry) continue;
