@@ -1084,8 +1084,8 @@ export function solvePendingGroupPlacements(
         orderedGroups,
         placementLayers,
         mapRect,
-        lockedGroups,
         safeGap,
+        lockedGroups,
       );
     markMetric('placeGroupsLayerByLayerMs');
     reportStage?.(layeredState ? '完成分层放置' : '进入兼容候选回退');
@@ -1193,17 +1193,19 @@ export function solvePendingGroupPlacements(
     return result;
   };
 
-  reportStage?.('预跑最大视图');
-  const previewResult = runSolvePass(null);
-  const previewBounds = computeMaxViewBounds(groups, previewResult.geometries);
-  reportMetric?.(
-    'previewMaxViewRadius',
-    Number((previewBounds?.radius ?? 0).toFixed(1)),
-  );
-  reportStage?.('根据最大视图正式排布');
-  const finalResult = runSolvePass(previewBounds);
-  activeMaxViewBounds = null;
-  return finalResult;
+  try {
+    reportStage?.('预跑最大视图');
+    const previewResult = runSolvePass(null);
+    const previewBounds = computeMaxViewBounds(groups, previewResult.geometries);
+    reportMetric?.(
+      'previewMaxViewRadius',
+      Number((previewBounds?.radius ?? 0).toFixed(1)),
+    );
+    reportStage?.('根据最大视图正式排布');
+    return runSolvePass(previewBounds);
+  } finally {
+    activeMaxViewBounds = null;
+  }
 }
 
 export const __layoutSolverInternals = {
