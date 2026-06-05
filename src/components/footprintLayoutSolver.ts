@@ -70,8 +70,8 @@ const DENSE_SECTOR_RADIUS_FACTORS = [1.08, 1.18, 1.28];
 const DENSE_MAP_ADJACENT_ESCAPE_ANGLE_OFFSETS_DEGREES = [-72, -56, 56, 72];
 const DENSE_MAP_ADJACENT_ESCAPE_RADIUS_FACTORS = [1.18, 1.32, 1.46];
 const FINAL_VARIANT_REFINEMENT_GROUP_LIMIT = 20;
-const LOWER_REGION_TOP_LABEL_EXTRA_OFFSET = 38;
-const LOWER_SIDE_REGION_BOTTOM_LABEL_EXTRA_OFFSET = 52;
+const LOWER_REGION_TOP_LABEL_EXTRA_OFFSET = 92;
+const LOWER_SIDE_REGION_BOTTOM_LABEL_EXTRA_OFFSET = 132;
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -415,8 +415,8 @@ function buildGeometryForPlacement(
   const normalizedY = group.mapRect
     ? (placement.centerY - (group.mapRect.top + group.mapRect.bottom) * 0.5) / (mapHeight * 0.5)
     : 0;
-  const inLowerRegion = normalizedY > 0.22;
-  const inLowerSideRegion = normalizedY > 0.08 && Math.abs(normalizedX) > 0.52;
+  const inLowerRegion = normalizedY > 0.02;
+  const inLowerSideRegion = normalizedY > -0.08 && Math.abs(normalizedX) > 0.34;
   const preferredLabelSide = resolvePreferredLabelSideForMap(
     placement.centerX,
     placement.centerY,
