@@ -417,24 +417,13 @@ function buildPlanningGeometry(
   group: PendingPlaceGroup,
 ) {
   const baseGeometry = group.collisionGeometry;
-  const mapCenterX = group.mapRect ? (group.mapRect.left + group.mapRect.right) * 0.5 : 0;
-  const mapCenterY = group.mapRect ? (group.mapRect.top + group.mapRect.bottom) * 0.5 : 0;
-  const mapWidth = group.mapRect ? Math.max(1, group.mapRect.right - group.mapRect.left) : 1;
-  const mapHeight = group.mapRect ? Math.max(1, group.mapRect.bottom - group.mapRect.top) : 1;
-  const outwardAngle = Math.atan2(group.logicalY - mapCenterY, group.logicalX - mapCenterX);
-  const probeRadius = Math.max(
-    Math.hypot(group.logicalX - mapCenterX, group.logicalY - mapCenterY),
-    Math.hypot(mapWidth, mapHeight) * 0.7,
+  const probeX = group.logicalX;
+  const probeY = group.logicalY;
+  const inLowerRegion = !!group.mapRect && (
+    probeY > group.mapRect.bottom ||
+    (probeX < group.mapRect.left && probeY - group.mapRect.bottom >= group.mapRect.left - probeX) ||
+    (probeX > group.mapRect.right && probeY - group.mapRect.bottom >= probeX - group.mapRect.right)
   );
-  const probeX = mapCenterX + Math.cos(outwardAngle) * probeRadius;
-  const probeY = mapCenterY + Math.sin(outwardAngle) * probeRadius;
-  const normalizedX = group.mapRect
-    ? (probeX - mapCenterX) / (mapWidth * 0.5)
-    : 0;
-  const normalizedY = group.mapRect
-    ? (probeY - mapCenterY) / (mapHeight * 0.5)
-    : 0;
-  const inLowerRegion = normalizedY > 0.02;
   const planningRect = {
     ...baseGeometry.groupRect,
     top: baseGeometry.groupRect.top - (inLowerRegion ? LOWER_REGION_TOP_CLEARANCE : 0),
