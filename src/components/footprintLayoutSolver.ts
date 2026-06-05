@@ -3,6 +3,7 @@ import {
   rectsOverlap,
   resolveGroupGeometryAsWhole,
   resolvePreferredLabelSideForMap,
+  translateGroupGeometry,
   type GroupGeometry,
 } from './localMapGroupGeometry';
 import { buildRadialLayout } from './localMapLayoutEngine';
@@ -391,52 +392,10 @@ function buildGeometryForPlacement(
   group: PendingPlaceGroup,
   placement: FootprintPlacement,
 ) {
-  const translatedPhotoRect = {
-    left: group.collisionGeometry.photoRect.left + placement.centerX,
-    right: group.collisionGeometry.photoRect.right + placement.centerX,
-    top: group.collisionGeometry.photoRect.top + placement.centerY,
-    bottom: group.collisionGeometry.photoRect.bottom + placement.centerY,
-  };
-
-  const labelPartitionRect = group.mapRect
-    ? {
-        left: group.mapRect.left - MAP_GAP,
-        right: group.mapRect.right + MAP_GAP,
-        top: group.mapRect.top - MAP_GAP,
-        bottom: group.mapRect.bottom + MAP_GAP,
-      }
-    : undefined;
-
-  const mapWidth = group.mapRect ? Math.max(1, group.mapRect.right - group.mapRect.left) : 1;
-  const mapHeight = group.mapRect ? Math.max(1, group.mapRect.bottom - group.mapRect.top) : 1;
-  const normalizedX = group.mapRect
-    ? (placement.centerX - (group.mapRect.left + group.mapRect.right) * 0.5) / (mapWidth * 0.5)
-    : 0;
-  const normalizedY = group.mapRect
-    ? (placement.centerY - (group.mapRect.top + group.mapRect.bottom) * 0.5) / (mapHeight * 0.5)
-    : 0;
-  const inLowerRegion = normalizedY > 0.02;
-  const inLowerSideRegion = normalizedY > -0.08 && Math.abs(normalizedX) > 0.34;
-  const preferredLabelSide = resolvePreferredLabelSideForMap(
+  return translateGroupGeometry(
+    group.collisionGeometry,
     placement.centerX,
     placement.centerY,
-    labelPartitionRect,
-  );
-  const regionExtraOffset =
-    preferredLabelSide === 'top' && inLowerRegion
-      ? LOWER_REGION_TOP_LABEL_EXTRA_OFFSET
-      : preferredLabelSide === 'bottom' && inLowerSideRegion
-        ? LOWER_SIDE_REGION_BOTTOM_LABEL_EXTRA_OFFSET
-        : 0;
-
-  return buildGroupGeometryFromPhotoRect(
-    translatedPhotoRect,
-    group.placePhotos[0]?.placeTitle || '',
-    group.placePhotos.length,
-    1,
-    preferredLabelSide,
-    group.reservedLabelOffset + regionExtraOffset,
-    labelPartitionRect,
   );
 }
 
@@ -454,6 +413,72 @@ function chooseBestGeometryForPlacement(
   mapRect: LogicalRect,
 ) {
   return buildGeometryForPlacement(group, placement);
+}
+
+function buildPlanningGeometry(
+  group: PendingPlaceGroup,
+) {
+  const labelPartitionRect = group.mapRect
+    ? {
+        left: group.mapRect.left - MAP_GAP,
+        right: group.mapRect.right + MAP_GAP,
+        top: group.mapRect.top - MAP_GAP,
+        bottom: group.mapRect.bottom + MAP_GAP,
+      }
+    : undefined;
+  const mapCenterX = group.mapRect ? (group.mapRect.left + group.mapRect.right) * 0.5 : 0;
+  const mapCenterY = group.mapRect ? (group.mapRect.top + group.mapRect.bottom) * 0.5 : 0;
+  const mapWidth = group.mapRect ? Math.max(1, group.mapRect.right - group.mapRect.left) : 1;
+  const mapHeight = group.mapRect ? Math.max(1, group.mapRect.bottom - group.mapRect.top) : 1;
+  const outwardAngle = Math.atan2(group.logicalY - mapCenterY, group.logicalX - mapCenterX);
+  const probeRadius = Math.max(
+    Math.hypot(group.logicalX - mapCenterX, group.logicalY - mapCenterY),
+    Math.hypot(mapWidth, mapHeight) * 0.7,
+  );
+  const probeX = mapCenterX + Math.cos(outwardAngle) * probeRadius;
+  const probeY = mapCenterY + Math.sin(outwardAngle) * probeRadius;
+  const normalizedX = group.mapRect
+    ? (probeX - mapCenterX) / (mapWidth * 0.5)
+    : 0;
+  const normalizedY = group.mapRect
+    ? (probeY - mapCenterY) / (mapHeight * 0.5)
+    : 0;
+  const inLowerRegion = normalizedY > 0.02;
+  const inLowerSideRegion = normalizedY > -0.08 && Math.abs(normalizedX) > 0.34;
+  const preferredLabelSide = resolvePreferredLabelSideForMap(
+    probeX,
+    probeY,
+    labelPartitionRect,
+  );
+  const regionExtraOffset =
+    preferredLabelSide === 'top' && inLowerRegion
+      ? LOWER_REGION_TOP_LABEL_EXTRA_OFFSET
+      : preferredLabelSide === 'bottom' && inLowerSideRegion
+        ? LOWER_SIDE_REGION_BOTTOM_LABEL_EXTRA_OFFSET
+        : 0;
+
+  return buildGroupGeometryFromPhotoRect(
+    group.collisionGeometry.photoRect,
+    group.placePhotos[0]?.placeTitle || '',
+    group.placePhotos.length,
+    1,
+    preferredLabelSide,
+    group.reservedLabelOffset + regionExtraOffset,
+    labelPartitionRect,
+  );
+}
+
+function buildPlanningGroups(
+  groups: PendingPlaceGroup[],
+) {
+  return groups.map((group) => {
+    const planningGeometry = buildPlanningGeometry(group);
+    return {
+      ...group,
+      collisionGeometry: planningGeometry,
+      collisionRect: planningGeometry.groupRect,
+    };
+  });
 }
 
 function compareLegacyGroupOrder(
@@ -1016,13 +1041,14 @@ export function solvePendingGroupPlacements(
   reportStage?: SolverStageReporter,
   reportMetric?: SolverMetricReporter,
 ) {
+  const planningGroups = buildPlanningGroups(groups);
   const solverStartedAt = performance.now();
   const markMetric = (name: string) => {
     reportMetric?.(name, Number((performance.now() - solverStartedAt).toFixed(1)));
   };
   reportStage?.('生成基座外环');
   const basePlacements = buildRadialLayout(
-    groups.map((group) => ({
+    planningGroups.map((group) => ({
       id: group.placeKey,
       x: group.logicalX,
       y: group.logicalY,
@@ -1040,7 +1066,7 @@ export function solvePendingGroupPlacements(
       centerY: placement.centerY,
     });
   });
-  const orderedGroups = [...groups].sort(compareLayerPlacementOrder);
+  const orderedGroups = [...planningGroups].sort(compareLayerPlacementOrder);
   reportStage?.('构建自动分层');
   const placementLayers = buildPlacementLayers(orderedGroups, basePlacementById);
   markMetric('buildPlacementLayersMs');
@@ -1057,7 +1083,7 @@ export function solvePendingGroupPlacements(
   reportStage?.(layeredState ? '完成分层放置' : '进入兼容候选回退');
   const legacyInputs = layeredState
     ? null
-    : buildLegacySolverInputs(legacyDeps, groups, basePlacementById, mapRect);
+    : buildLegacySolverInputs(legacyDeps, planningGroups, basePlacementById, mapRect);
   if (!layeredState) {
     markMetric('buildLegacySolverInputsMs');
   }
@@ -1125,7 +1151,7 @@ export function solvePendingGroupPlacements(
       reportMetric,
     );
   } else if (needsRepair) {
-    const layeredLegacyInputs = buildLegacySolverInputs(legacyDeps, groups, basePlacementById, mapRect);
+    const layeredLegacyInputs = buildLegacySolverInputs(legacyDeps, planningGroups, basePlacementById, mapRect);
     markMetric('buildLayeredLegacySolverInputsMs');
     reportStage?.('执行连续修复');
     repairPlacementIfNeeded(
@@ -1161,6 +1187,7 @@ export function solvePendingGroupPlacements(
 
 export const __layoutSolverInternals = {
   angleDelta,
+  buildPlanningGroups,
   buildCandidatePool,
   buildCorridorRepairCandidateSubset: (candidates: PlacementCandidate[]) => (
     buildCorridorRepairCandidateSubset(repairDeps, candidates)
