@@ -57,8 +57,8 @@ const CORRIDOR_REPAIR_GROUP_LIMIT = 4;
 const CORRIDOR_REPAIR_CANDIDATE_LIMIT = 8;
 const CORRIDOR_REPAIR_NEAR_TAIL_LIMIT = 8;
 const CORRIDOR_REPAIR_SPREAD_SAMPLE_COUNT = 6;
-const PAIR_REPAIR_GROUP_LIMIT = 8;
-const PAIR_REPAIR_PASS_LIMIT = 3;
+const PAIR_REPAIR_GROUP_LIMIT = 6;
+const PAIR_REPAIR_PASS_LIMIT = 2;
 const PAIR_REPAIR_DEEP_SEARCH_LIMIT = 16;
 const GROUP_RECT_ONLY_PAIR_LIMIT = 4;
 const GROUP_RECT_ONLY_CANDIDATE_LIMIT = 4;
@@ -80,6 +80,8 @@ type CandidateEvaluation = {
   valid: boolean;
   score: number;
 };
+
+export type SolverStageReporter = (stage: string) => void;
 
 const layeredDeps = {
   angleDelta,
@@ -933,7 +935,9 @@ export function solvePendingGroupPlacements(
   safeGap: number,
   labelGapBoost: number,
   lockedGroups: LockedPlaceGroup[] = [],
+  reportStage?: SolverStageReporter,
 ) {
+  reportStage?.('生成基座外环');
   const basePlacements = buildRadialLayout(
     groups.map((group) => ({
       id: group.placeKey,
@@ -953,6 +957,7 @@ export function solvePendingGroupPlacements(
     });
   });
   const orderedGroups = [...groups].sort(compareLayerPlacementOrder);
+  reportStage?.('构建自动分层');
   const placementLayers = buildPlacementLayers(orderedGroups, basePlacementById);
   const layeredState =
     placeGroupsLayerByLayer(
@@ -963,6 +968,7 @@ export function solvePendingGroupPlacements(
       safeGap,
       lockedGroups,
     );
+  reportStage?.(layeredState ? '完成分层放置' : '进入兼容候选回退');
   const legacyInputs = layeredState
     ? null
     : buildLegacySolverInputs(legacyDeps, groups, basePlacementById, mapRect);
@@ -983,6 +989,7 @@ export function solvePendingGroupPlacements(
     : legacyInputs!.orderedGroups;
 
   if (layeredState) {
+    reportStage?.('微调角度与线长');
     refineAnglesAndRadii(
       layeredDeps,
       repairOrderedGroups,
@@ -992,6 +999,7 @@ export function solvePendingGroupPlacements(
       lockedGroups,
     );
   }
+  reportStage?.('分析冲突并决定修复链');
   const preRepairAnalysis = analyzePlacementState(
     repairDeps,
     repairOrderedGroups,
@@ -1006,6 +1014,7 @@ export function solvePendingGroupPlacements(
     preRepairAnalysis.corridorRisk > 0;
 
   if (legacyInputs && needsRepair) {
+    reportStage?.('执行连续修复');
     repairPlacementIfNeeded(
       repairDeps,
       repairOrderedGroups,
@@ -1018,6 +1027,7 @@ export function solvePendingGroupPlacements(
     );
   } else if (needsRepair) {
     const layeredLegacyInputs = buildLegacySolverInputs(legacyDeps, groups, basePlacementById, mapRect);
+    reportStage?.('执行连续修复');
     repairPlacementIfNeeded(
       repairDeps,
       repairOrderedGroups,
@@ -1030,6 +1040,7 @@ export function solvePendingGroupPlacements(
     );
   }
 
+  reportStage?.('收敛最终排布');
   return finalizePlacementVariant(
     repairOrderedGroups,
     workingState,

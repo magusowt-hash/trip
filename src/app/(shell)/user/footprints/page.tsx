@@ -858,6 +858,7 @@ function UserFootprintsPageInner() {
     options: {
       poiPoints?: PoiPoint[];
       groupLayouts?: GroupLayoutSnapshot[];
+      onSolverStage?: (stage: string) => void;
     } = {},
   ): GroupLayoutSnapshot[] {
     const activeGroupLayouts = options.groupLayouts ?? groupLayouts;
@@ -953,13 +954,23 @@ function UserFootprintsPageInner() {
       });
     }
 
+    const solverStageTimings: Array<{ stage: string; elapsedMs: number }> = [];
+    const solverStartedAt = performance.now();
     const solvedPendingGroups = solvePendingGroupPlacements(
       pendingGroups,
       mapRect,
       cardSize,
       computeLabelGapBoost(collisionScale),
       lockedGroups,
+      (stage) => {
+        solverStageTimings.push({
+          stage,
+          elapsedMs: Number((performance.now() - solverStartedAt).toFixed(1)),
+        });
+        options.onSolverStage?.(stage);
+      },
     );
+    const solverTotalMs = Number((performance.now() - solverStartedAt).toFixed(1));
     const placementById = solvedPendingGroups.placements;
 
     for (const group of pendingGroups) {
@@ -1232,6 +1243,11 @@ function UserFootprintsPageInner() {
           layout,
           lockedGroups,
           pendingGroups,
+        },
+        timings: {
+          version: 'solver-stage-v1',
+          solverTotalMs,
+          solverStages: solverStageTimings,
         },
       });
     } catch {
@@ -1664,6 +1680,10 @@ function UserFootprintsPageInner() {
             {
               poiPoints: currentPoiPoints,
               groupLayouts: currentGroupLayouts,
+              onSolverStage: (stage) => {
+                if (!isCurrentRun()) return;
+                setLocalMapApplyStage(`安全排布中：${stage}`);
+              },
             },
           );
           if (unplaced.every((photo) => photo.frameX != null && photo.frameY != null)) {
