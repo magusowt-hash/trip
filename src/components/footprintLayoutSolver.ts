@@ -82,6 +82,7 @@ type CandidateEvaluation = {
 };
 
 export type SolverStageReporter = (stage: string) => void;
+export type SolverMetricReporter = (name: string, elapsedMs: number) => void;
 
 const layeredDeps = {
   angleDelta,
@@ -941,7 +942,12 @@ export function solvePendingGroupPlacements(
   labelGapBoost: number,
   lockedGroups: LockedPlaceGroup[] = [],
   reportStage?: SolverStageReporter,
+  reportMetric?: SolverMetricReporter,
 ) {
+  const solverStartedAt = performance.now();
+  const markMetric = (name: string) => {
+    reportMetric?.(name, Number((performance.now() - solverStartedAt).toFixed(1)));
+  };
   reportStage?.('生成基座外环');
   const basePlacements = buildRadialLayout(
     groups.map((group) => ({
@@ -953,6 +959,7 @@ export function solvePendingGroupPlacements(
     mapRect,
     { mapGap: MAP_GAP },
   );
+  markMetric('baseRadialLayoutMs');
 
   const basePlacementById = new Map<string, FootprintPlacement>();
   basePlacements.forEach((placement) => {
@@ -964,6 +971,7 @@ export function solvePendingGroupPlacements(
   const orderedGroups = [...groups].sort(compareLayerPlacementOrder);
   reportStage?.('构建自动分层');
   const placementLayers = buildPlacementLayers(orderedGroups, basePlacementById);
+  markMetric('buildPlacementLayersMs');
   const layeredState =
     placeGroupsLayerByLayer(
       layeredDeps,
@@ -973,10 +981,14 @@ export function solvePendingGroupPlacements(
       safeGap,
       lockedGroups,
     );
+  markMetric('placeGroupsLayerByLayerMs');
   reportStage?.(layeredState ? '完成分层放置' : '进入兼容候选回退');
   const legacyInputs = layeredState
     ? null
     : buildLegacySolverInputs(legacyDeps, groups, basePlacementById, mapRect);
+  if (!layeredState) {
+    markMetric('buildLegacySolverInputsMs');
+  }
   const workingState = layeredState
     ? layeredState
     : buildLegacyFallbackState(
@@ -989,6 +1001,9 @@ export function solvePendingGroupPlacements(
         safeGap,
         buildFallbackState,
       );
+  if (!layeredState) {
+    markMetric('buildLegacyFallbackStateMs');
+  }
   const repairOrderedGroups = layeredState
     ? orderedGroups
     : legacyInputs!.orderedGroups;
@@ -1003,6 +1018,7 @@ export function solvePendingGroupPlacements(
       safeGap,
       lockedGroups,
     );
+    markMetric('refineAnglesAndRadiiMs');
   }
   reportStage?.('分析冲突并决定修复链');
   const preRepairAnalysis = analyzePlacementState(
@@ -1018,6 +1034,7 @@ export function solvePendingGroupPlacements(
       includeLineCrossings: true,
     },
   );
+  markMetric('preRepairAnalysisMs');
   const needsRepair =
     preRepairAnalysis.hasHardConflicts ||
     preRepairAnalysis.lineCrossings > 0;
@@ -1033,9 +1050,11 @@ export function solvePendingGroupPlacements(
       safeGap,
       labelGapBoost,
       lockedGroups,
+      reportMetric,
     );
   } else if (needsRepair) {
     const layeredLegacyInputs = buildLegacySolverInputs(legacyDeps, groups, basePlacementById, mapRect);
+    markMetric('buildLayeredLegacySolverInputsMs');
     reportStage?.('执行连续修复');
     repairPlacementIfNeeded(
       repairDeps,
@@ -1046,11 +1065,15 @@ export function solvePendingGroupPlacements(
       safeGap,
       labelGapBoost,
       lockedGroups,
+      reportMetric,
     );
+  }
+  if (needsRepair) {
+    markMetric('repairPlacementIfNeededMs');
   }
 
   reportStage?.('收敛最终排布');
-  return finalizePlacementVariant(
+  const result = finalizePlacementVariant(
     repairOrderedGroups,
     workingState,
     basePlacementById,
@@ -1059,6 +1082,8 @@ export function solvePendingGroupPlacements(
     labelGapBoost,
     lockedGroups,
   );
+  markMetric('finalizePlacementVariantMs');
+  return result;
 }
 
 export const __layoutSolverInternals = {

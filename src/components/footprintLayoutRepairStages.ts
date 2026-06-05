@@ -1,6 +1,7 @@
 import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
 import type { GroupGeometry } from './localMapGroupGeometry';
 import type { PlacementState } from './footprintLayoutLayeredPlacement';
+import type { SolverMetricReporter } from './footprintLayoutSolver';
 
 type LineGroup = Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'> | LockedPlaceGroup;
 
@@ -68,6 +69,8 @@ type RepairDeps = {
     lockedGroups: LockedPlaceGroup[],
   ) => void;
 };
+
+type RepairMetricReporter = SolverMetricReporter;
 
 type RepairCoreDeps = {
   buildLine: (
@@ -2146,7 +2149,12 @@ export function repairPlacementIfNeeded(
   safeGap: number,
   labelGapBoost: number,
   lockedGroups: LockedPlaceGroup[],
+  reportMetric?: RepairMetricReporter,
 ) {
+  const repairStartedAt = performance.now();
+  const markMetric = (name: string) => {
+    reportMetric?.(name, Number((performance.now() - repairStartedAt).toFixed(1)));
+  };
   let optimizedAnalysis = deps.analyzePlacementState(
     orderedGroups,
     state.placementById,
@@ -2159,6 +2167,7 @@ export function repairPlacementIfNeeded(
       includeLineCrossings: true,
     },
   );
+  markMetric('repair.initialAnalysisMs');
   const canSkipHeavyRepair =
     !optimizedAnalysis.hasHardConflicts &&
     optimizedAnalysis.lineCrossings === 0;
@@ -2175,6 +2184,7 @@ export function repairPlacementIfNeeded(
     labelGapBoost,
     lockedGroups,
   );
+  markMetric('repair.relaxRadialSpacingPass1Ms');
   optimizedAnalysis = deps.analyzePlacementState(
     orderedGroups,
     state.placementById,
@@ -2187,6 +2197,7 @@ export function repairPlacementIfNeeded(
       includeLineCrossings: true,
     },
   );
+  markMetric('repair.postRelaxAnalysis1Ms');
   if (!optimizedAnalysis.hasHardConflicts && optimizedAnalysis.corridorRisk === 0) {
     return optimizedAnalysis;
   }
@@ -2203,6 +2214,7 @@ export function repairPlacementIfNeeded(
     labelGapBoost,
     lockedGroups,
   );
+  markMetric('repair.improveCorridorRiskMs');
   optimizedAnalysis = deps.analyzePlacementState(
     orderedGroups,
     state.placementById,
@@ -2211,6 +2223,7 @@ export function repairPlacementIfNeeded(
     labelGapBoost,
     lockedGroups,
   );
+  markMetric('repair.postCorridorAnalysisMs');
   if (!optimizedAnalysis.hasHardConflicts) {
     return optimizedAnalysis;
   }
@@ -2223,6 +2236,7 @@ export function repairPlacementIfNeeded(
       labelGapBoost,
       lockedGroups,
     );
+    markMetric('repair.relaxRadialSpacingPass2Ms');
     optimizedAnalysis = deps.analyzePlacementState(
       orderedGroups,
       state.placementById,
@@ -2231,6 +2245,7 @@ export function repairPlacementIfNeeded(
       labelGapBoost,
       lockedGroups,
     );
+    markMetric('repair.postRelaxAnalysis2Ms');
   }
   if (!optimizedAnalysis.hasHardConflicts) {
     return optimizedAnalysis;
@@ -2246,6 +2261,7 @@ export function repairPlacementIfNeeded(
       labelGapBoost,
       lockedGroups,
     );
+    markMetric('repair.improvePairCorridorRiskMs');
     optimizedAnalysis = deps.analyzePlacementState(
       orderedGroups,
       state.placementById,
@@ -2254,6 +2270,7 @@ export function repairPlacementIfNeeded(
       labelGapBoost,
       lockedGroups,
     );
+    markMetric('repair.postPairAnalysisMs');
   }
 
   return optimizedAnalysis;
