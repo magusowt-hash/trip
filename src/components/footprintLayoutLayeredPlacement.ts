@@ -15,6 +15,12 @@ type EvaluatePlacementResult = {
   geometry: GroupGeometry | null;
 };
 
+type RefineCandidate = {
+  placement: FootprintPlacement;
+  geometry: GroupGeometry;
+  score: number;
+};
+
 type LayeredGroupEntry = {
   group: PendingPlaceGroup;
   sizeScore: number;
@@ -551,6 +557,7 @@ export function refineAnglesAndRadii(
     let bestPlacement = currentPlacement;
     let bestGeometry = state.geometryById.get(group.placeKey) ?? deps.chooseBestGeometryForPlacement(group, currentPlacement, mapRect);
     let bestScore = Number.POSITIVE_INFINITY;
+    const viableCandidates: RefineCandidate[] = [];
 
     state.placementById.delete(group.placeKey);
     state.geometryById.delete(group.placeKey);
@@ -575,17 +582,41 @@ export function refineAnglesAndRadii(
           baseRadius,
         );
         if (!evaluation.valid || !evaluation.geometry) continue;
-        const lineCrossings = deps.countPlacementLineCrossings(
-          groups,
-          new Map(state.placementById).set(group.placeKey, placement),
-        );
-        if (groups.length >= 20 && lineCrossings > 0) continue;
+        viableCandidates.push({
+          placement,
+          geometry: evaluation.geometry,
+          score: evaluation.score,
+        });
         if (evaluation.score < bestScore) {
           bestScore = evaluation.score;
           bestPlacement = placement;
           bestGeometry = evaluation.geometry;
         }
       }
+    }
+
+    if (groups.length >= 20 && viableCandidates.length > 1) {
+      const narrowedCandidates = [...viableCandidates]
+        .sort((left, right) => left.score - right.score)
+        .slice(0, Math.min(3, viableCandidates.length));
+      let bestCandidate = narrowedCandidates[0];
+      let bestLineCrossings = Number.POSITIVE_INFINITY;
+      for (const candidate of narrowedCandidates) {
+        const lineCrossings = deps.countPlacementLineCrossings(
+          groups,
+          new Map(state.placementById).set(group.placeKey, candidate.placement),
+        );
+        if (
+          lineCrossings < bestLineCrossings ||
+          (lineCrossings === bestLineCrossings && candidate.score < bestCandidate.score)
+        ) {
+          bestLineCrossings = lineCrossings;
+          bestCandidate = candidate;
+        }
+      }
+      bestPlacement = bestCandidate.placement;
+      bestGeometry = bestCandidate.geometry;
+      bestScore = bestCandidate.score;
     }
 
     state.placementById.set(group.placeKey, bestPlacement);

@@ -17,6 +17,11 @@ type PlacementAnalysis = {
   lineCrossings: number;
 };
 
+type PlacementAnalysisOptions = {
+  includeCorridorRisk?: boolean;
+  includeLineCrossings?: boolean;
+};
+
 type RepairDeps = {
   analyzePlacementState: (
     groups: PendingPlaceGroup[],
@@ -25,6 +30,7 @@ type RepairDeps = {
     safeGap: number,
     labelGapBoost: number,
     lockedGroups: LockedPlaceGroup[],
+    options?: PlacementAnalysisOptions,
   ) => PlacementAnalysis;
   relaxRadialSpacing: (
     orderedGroups: PendingPlaceGroup[],
@@ -275,7 +281,12 @@ export function analyzePlacementState(
   safeGap: number,
   labelGapBoost: number,
   lockedGroups: LockedPlaceGroup[],
+  options: PlacementAnalysisOptions = {},
 ) : PlacementAnalysis {
+  const {
+    includeCorridorRisk = true,
+    includeLineCrossings = true,
+  } = options;
   const geometryById = buildGeometryMapForPlacements(
     deps,
     groups,
@@ -296,14 +307,18 @@ export function analyzePlacementState(
       safeGap,
       lockedGroups,
     ),
-    corridorRisk: countCorridorRiskConflicts(
-      deps,
-      groups,
-      geometryById,
-      safeGap,
-      lockedGroups,
-    ),
-    lineCrossings: deps.countPlacementLineCrossings(groups, placementById),
+    corridorRisk: includeCorridorRisk
+      ? countCorridorRiskConflicts(
+          deps,
+          groups,
+          geometryById,
+          safeGap,
+          lockedGroups,
+        )
+      : 0,
+    lineCrossings: includeLineCrossings
+      ? deps.countPlacementLineCrossings(groups, placementById)
+      : 0,
   };
 }
 
@@ -2139,10 +2154,14 @@ export function repairPlacementIfNeeded(
     safeGap,
     labelGapBoost,
     lockedGroups,
+    {
+      includeCorridorRisk: false,
+      includeLineCrossings: true,
+    },
   );
   const canSkipHeavyRepair =
     !optimizedAnalysis.hasHardConflicts &&
-    optimizedAnalysis.corridorRisk === 0;
+    optimizedAnalysis.lineCrossings === 0;
 
   if (canSkipHeavyRepair) {
     return optimizedAnalysis;
@@ -2163,8 +2182,15 @@ export function repairPlacementIfNeeded(
     safeGap,
     labelGapBoost,
     lockedGroups,
+    {
+      includeCorridorRisk: false,
+      includeLineCrossings: true,
+    },
   );
   if (!optimizedAnalysis.hasHardConflicts && optimizedAnalysis.corridorRisk === 0) {
+    return optimizedAnalysis;
+  }
+  if (!optimizedAnalysis.hasHardConflicts) {
     return optimizedAnalysis;
   }
 
@@ -2185,6 +2211,9 @@ export function repairPlacementIfNeeded(
     labelGapBoost,
     lockedGroups,
   );
+  if (!optimizedAnalysis.hasHardConflicts) {
+    return optimizedAnalysis;
+  }
   if (optimizedAnalysis.hasHardConflicts || optimizedAnalysis.corridorRisk > 0) {
     deps.relaxRadialSpacing(
       orderedGroups,
@@ -2202,6 +2231,9 @@ export function repairPlacementIfNeeded(
       labelGapBoost,
       lockedGroups,
     );
+  }
+  if (!optimizedAnalysis.hasHardConflicts) {
+    return optimizedAnalysis;
   }
 
   if (optimizedAnalysis.hasHardConflicts || optimizedAnalysis.corridorRisk > 0) {

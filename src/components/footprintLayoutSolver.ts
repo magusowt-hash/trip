@@ -140,6 +140,10 @@ const repairDeps = {
     safeGap: number,
     labelGapBoost: number,
     lockedGroups: LockedPlaceGroup[],
+    options?: {
+      includeCorridorRisk?: boolean;
+      includeLineCrossings?: boolean;
+    },
   ) => analyzePlacementState(
     {
       buildLine,
@@ -162,6 +166,7 @@ const repairDeps = {
     safeGap,
     labelGapBoost,
     lockedGroups,
+    options,
   ),
   improveCorridorRisk: (
     orderedGroups: PendingPlaceGroup[],
@@ -1008,10 +1013,14 @@ export function solvePendingGroupPlacements(
     safeGap,
     labelGapBoost,
     lockedGroups,
+    {
+      includeCorridorRisk: false,
+      includeLineCrossings: true,
+    },
   );
   const needsRepair =
     preRepairAnalysis.hasHardConflicts ||
-    preRepairAnalysis.corridorRisk > 0;
+    preRepairAnalysis.lineCrossings > 0;
 
   if (legacyInputs && needsRepair) {
     reportStage?.('执行连续修复');

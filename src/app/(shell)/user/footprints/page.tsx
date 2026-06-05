@@ -73,6 +73,28 @@ type LocalMapApplyPayload = {
   layout: LocalMapLayoutSettings;
 };
 
+type SolverStageTiming = {
+  stage: string;
+  elapsedMs: number;
+};
+
+type MappedLayoutExportSnapshot = {
+  viewportWidth: number;
+  viewportHeight: number;
+  mapRect: LogicalRect;
+  safeGap: number;
+  labelGapBoost: number;
+  collisionScale: number;
+  layout: LocalMapLayoutSettings;
+  lockedGroups: LockedPlaceGroup[];
+  pendingGroups: PendingPlaceGroup[];
+  timings: {
+    version: 'solver-stage-v1';
+    solverTotalMs: number;
+    solverStages: SolverStageTiming[];
+  };
+};
+
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
 function randomInt(min: number, max: number): number {
@@ -518,6 +540,7 @@ function UserFootprintsPageInner() {
   const dirtyUploadedPhotoIdsRef = useRef<Set<number | string>>(new Set());
   const dirtyLocalAssetPathsRef = useRef<Set<string>>(new Set());
   const layoutInteractionModeRef = useRef<FootprintLayoutInteractionMode>('manual');
+  const mappedLayoutExportSnapshotRef = useRef<MappedLayoutExportSnapshot | null>(null);
 
   useEffect(() => { itemsRef.current = items; }, [items]);
   useEffect(() => { photosRef.current = photos; }, [photos]);
@@ -973,6 +996,23 @@ function UserFootprintsPageInner() {
     const solverTotalMs = Number((performance.now() - solverStartedAt).toFixed(1));
     const placementById = solvedPendingGroups.placements;
 
+    mappedLayoutExportSnapshotRef.current = {
+      viewportWidth,
+      viewportHeight,
+      mapRect,
+      safeGap: cardSize,
+      labelGapBoost: computeLabelGapBoost(collisionScale),
+      collisionScale,
+      layout,
+      lockedGroups,
+      pendingGroups,
+      timings: {
+        version: 'solver-stage-v1',
+        solverTotalMs,
+        solverStages: solverStageTimings,
+      },
+    };
+
     for (const group of pendingGroups) {
       const chosenCenter = placementById.get(group.placeKey);
       if (!chosenCenter) continue;
@@ -1127,117 +1167,40 @@ function UserFootprintsPageInner() {
 
   const handleDownloadMappedLayoutJson = useCallback(() => {
     try {
-      const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
-      const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
-      const mapRect = getFootprintMapRect(viewportWidth, viewportHeight);
-      const collisionScale = CLAMP_SCALE.max;
-      const cardSize = 80;
-      const layout = localLayout ?? { enabled: true, mode: 'grid' as const, gapX: 20, gapY: 20, staggerAxis: 'horizontal' as const };
-      const logicalPointByPlaceKey = new Map<string, { x: number; y: number }>(
-        poiPoints.map((point) => [point.placeKey, { x: point.logicalX, y: point.logicalY }]),
-      );
-      const allGroups = new Map<string, PhotoItem[]>();
-      for (const photo of photos) {
-        const arr = allGroups.get(photo.placeKey) || [];
-        arr.push(photo);
-        allGroups.set(photo.placeKey, arr);
-      }
-      const conflictingSavedPlaceKeys = collectConflictingSavedPlaceKeys(
-        allGroups,
-        collisionScale,
-        groupLayouts,
-        getPhotoLogicalSize,
-        logicalPointByPlaceKey,
-        cardSize,
-      );
-
-      const lockedGroups: LockedPlaceGroup[] = [];
-      const pendingGroups: PendingPlaceGroup[] = [];
-
-      const sortedGroups = Array.from(allGroups.entries()).sort(([leftKey], [rightKey]) => (
-        leftKey.localeCompare(rightKey, 'zh-CN')
-      ));
-
-      for (const [placeKey, placePhotos] of sortedGroups) {
-        const logicalPoint = logicalPointByPlaceKey.get(placeKey);
-        if (!logicalPoint) continue;
-
-        const canConsiderLocked =
-          !conflictingSavedPlaceKeys.has(placeKey) &&
-          placePhotos.every((photo) => photo.frameX != null && photo.frameY != null);
-        if (canConsiderLocked) {
-          const lockedGeometry = buildGroupGeometryFromLayout(
-            placeKey,
-            placePhotos,
-            getPhotoLogicalSize,
-            collisionScale,
-            groupLayouts,
-          );
-          if (lockedGeometry) {
-            if (!geometryConflictsWithLockedGroups(lockedGeometry, lockedGroups, cardSize)) {
-              lockedGroups.push({
-                placeKey,
-                logicalX: logicalPoint.x,
-                logicalY: logicalPoint.y,
-                geometry: lockedGeometry,
-              });
-            }
-          }
-        }
-
-        const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
-        const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
-        const reservedLabelOffset = estimateReservedLabelOffset(
-          placeKey,
-          placePhotos,
-          collisionScale,
-          mapRect,
-          groupLayouts,
-        );
-        const baseOffsetGeometry = buildOffsetGroupGeometry(placePhotos, offsets, collisionScale);
-        const offsetGeometry = baseOffsetGeometry
-          ? buildGroupGeometryFromPhotoRect(
-              baseOffsetGeometry.photoRect,
-              placePhotos[0]?.placeTitle || '',
-              placePhotos.length,
-              collisionScale,
-              baseOffsetGeometry.labelSide,
-              reservedLabelOffset,
-            )
-          : null;
-        if (!offsetGeometry) continue;
-
-        pendingGroups.push({
-          placeKey,
-          placePhotos,
-          collisionGeometry: offsetGeometry,
-          collisionRect: offsetGeometry.groupRect,
-          reservedLabelOffset,
-          logicalX: logicalPoint.x,
-          logicalY: logicalPoint.y,
-          mapRect,
-          offsets,
-        });
-      }
-
+      const exportSnapshot = mappedLayoutExportSnapshotRef.current;
       const selectedGroupName = groups.find((group) => group.id === selectedGroupId)?.name || '我的足迹';
       const safeGroupName = selectedGroupName.replace(/[\\\\/:*?\"<>|]+/g, '-').trim() || '我的足迹';
-      const solverStageTimings: Array<{ stage: string; elapsedMs: number }> = [];
-      const solverStartedAt = performance.now();
-      solvePendingGroupPlacements(
-        pendingGroups,
-        mapRect,
-        cardSize,
-        computeLabelGapBoost(collisionScale),
-        lockedGroups,
-        (stage) => {
-          solverStageTimings.push({
-            stage,
-            elapsedMs: Number((performance.now() - solverStartedAt).toFixed(1)),
-          });
-        },
-      );
-      const solverTotalMs = Number((performance.now() - solverStartedAt).toFixed(1));
+      const exportTimings = exportSnapshot?.timings ?? {
+        version: 'solver-stage-v1' as const,
+        solverTotalMs: 0,
+        solverStages: [],
+      };
+      const solverInputSnapshot = exportSnapshot
+        ? {
+            viewportWidth: exportSnapshot.viewportWidth,
+            viewportHeight: exportSnapshot.viewportHeight,
+            mapRect: exportSnapshot.mapRect,
+            safeGap: exportSnapshot.safeGap,
+            labelGapBoost: exportSnapshot.labelGapBoost,
+            collisionScale: exportSnapshot.collisionScale,
+            layout: exportSnapshot.layout,
+            lockedGroups: exportSnapshot.lockedGroups,
+            pendingGroups: exportSnapshot.pendingGroups,
+          }
+        : {
+            viewportWidth: typeof window !== 'undefined' ? window.innerWidth : 1200,
+            viewportHeight: typeof window !== 'undefined' ? window.innerHeight : 800,
+            mapRect: getFootprintMapRect(
+              typeof window !== 'undefined' ? window.innerWidth : 1200,
+              typeof window !== 'undefined' ? window.innerHeight : 800,
+            ),
+            safeGap: 80,
+            labelGapBoost: computeLabelGapBoost(CLAMP_SCALE.max),
+            collisionScale: CLAMP_SCALE.max,
+            layout: localLayout ?? { enabled: true, mode: 'grid' as const, gapX: 20, gapY: 20, staggerAxis: 'horizontal' as const },
+            lockedGroups: [],
+            pendingGroups: [],
+          };
 
       downloadJsonFile(`${safeGroupName}-mapped-layout.json`, {
         exportedAt: new Date().toISOString(),
@@ -1249,22 +1212,8 @@ function UserFootprintsPageInner() {
           groupLayouts,
           photos,
         },
-        solverInputSnapshot: {
-          viewportWidth,
-          viewportHeight,
-          mapRect,
-          safeGap: cardSize,
-          labelGapBoost: computeLabelGapBoost(collisionScale),
-          collisionScale,
-          layout,
-          lockedGroups,
-          pendingGroups,
-        },
-        timings: {
-          version: 'solver-stage-v1',
-          solverTotalMs,
-          solverStages: solverStageTimings,
-        },
+        solverInputSnapshot,
+        timings: exportTimings,
       });
     } catch {
       setActionNotice('导出映射 JSON 失败，请稍后重试');
