@@ -835,7 +835,12 @@ function finalizePlacementVariant(
   safeGap: number,
   labelGapBoost: number,
   lockedGroups: LockedPlaceGroup[],
+  reportMetric?: SolverMetricReporter,
 ) {
+  const finalizeStartedAt = performance.now();
+  const markFinalizeMetric = (name: string) => {
+    reportMetric?.(name, Number((performance.now() - finalizeStartedAt).toFixed(1)));
+  };
   const refinedPlacementById = refineRadialPlacements(
     orderedGroups,
     new Map(workingState.placementById),
@@ -843,6 +848,7 @@ function finalizePlacementVariant(
     Math.max(safeGap, MAP_GAP),
     labelGapBoost,
   );
+  markFinalizeMetric('finalize.refineRadialPlacementsMs');
   const refinedGeometryById = buildGeometryMapForPlacements(
     repairDeps,
     orderedGroups,
@@ -852,6 +858,7 @@ function finalizePlacementVariant(
     labelGapBoost,
     lockedGroups,
   );
+  markFinalizeMetric('finalize.refinedGeometryMs');
   const optimizedGeometryById = buildGeometryMapForPlacements(
     repairDeps,
     orderedGroups,
@@ -861,6 +868,7 @@ function finalizePlacementVariant(
     labelGapBoost,
     lockedGroups,
   );
+  markFinalizeMetric('finalize.optimizedGeometryMs');
 
   const refinedHasHardConflicts = hasHardConflicts(
     repairDeps,
@@ -871,6 +879,7 @@ function finalizePlacementVariant(
     safeGap,
     lockedGroups,
   );
+  markFinalizeMetric('finalize.refinedHardConflictsMs');
   const optimizedHasHardConflicts = hasHardConflicts(
     repairDeps,
     orderedGroups,
@@ -880,6 +889,7 @@ function finalizePlacementVariant(
     safeGap,
     lockedGroups,
   );
+  markFinalizeMetric('finalize.optimizedHardConflictsMs');
   const refinedCorridorRisk = countCorridorRiskConflicts(
     repairDeps,
     orderedGroups,
@@ -887,6 +897,7 @@ function finalizePlacementVariant(
     safeGap,
     lockedGroups,
   );
+  markFinalizeMetric('finalize.refinedCorridorRiskMs');
   const optimizedCorridorRisk = countCorridorRiskConflicts(
     repairDeps,
     orderedGroups,
@@ -894,8 +905,10 @@ function finalizePlacementVariant(
     safeGap,
     lockedGroups,
   );
+  markFinalizeMetric('finalize.optimizedCorridorRiskMs');
   const refinedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, refinedGeometryById);
   const optimizedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, optimizedGeometryById);
+  markFinalizeMetric('finalize.envelopeScoreMs');
   const finalVariant = chooseFinalPlacementVariant({
     refinedHasHardConflicts,
     optimizedHasHardConflicts,
@@ -904,6 +917,7 @@ function finalizePlacementVariant(
     refinedEnvelopeScore,
     optimizedEnvelopeScore,
   });
+  markFinalizeMetric('finalize.chooseVariantMs');
   const finalPlacements = finalVariant === 'refined'
     ? refinedPlacementById
     : workingState.placementById;
@@ -919,8 +933,10 @@ function finalizePlacementVariant(
     labelGapBoost,
     lockedGroups,
   );
+  markFinalizeMetric('finalize.baseGeometryMs');
   const baseLineCrossings = countPlacementLineCrossings(orderedGroups, basePlacementById);
   const finalLineCrossings = countPlacementLineCrossings(orderedGroups, finalPlacements);
+  markFinalizeMetric('finalize.lineCrossingsMs');
 
   if (orderedGroups.length >= 20 && baseLineCrossings === 0 && finalLineCrossings > 0) {
     return {
@@ -1081,6 +1097,7 @@ export function solvePendingGroupPlacements(
     safeGap,
     labelGapBoost,
     lockedGroups,
+    reportMetric,
   );
   markMetric('finalizePlacementVariantMs');
   return result;
