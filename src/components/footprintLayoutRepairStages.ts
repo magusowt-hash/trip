@@ -71,6 +71,7 @@ type RepairDeps = {
 };
 
 type RepairMetricReporter = SolverMetricReporter;
+const LARGE_LAYOUT_REPAIR_GROUP_LIMIT = 20;
 
 type RepairCoreDeps = {
   buildLine: (
@@ -2155,6 +2156,7 @@ export function repairPlacementIfNeeded(
   const markMetric = (name: string) => {
     reportMetric?.(name, Number((performance.now() - repairStartedAt).toFixed(1)));
   };
+  const shouldSkipDeepRepair = orderedGroups.length >= LARGE_LAYOUT_REPAIR_GROUP_LIMIT;
   let optimizedAnalysis = deps.analyzePlacementState(
     orderedGroups,
     state.placementById,
@@ -2202,6 +2204,10 @@ export function repairPlacementIfNeeded(
     return optimizedAnalysis;
   }
   if (!optimizedAnalysis.hasHardConflicts) {
+    return optimizedAnalysis;
+  }
+  if (shouldSkipDeepRepair) {
+    markMetric('repair.skipDeepRepairMs');
     return optimizedAnalysis;
   }
 
