@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { asc } from 'drizzle-orm';
+import { db } from '@/db';
+import { chinaNatureTopics as chinaNatureTopicsTable } from '@/db/schema';
 import { getAdminTokenFromRequest } from '@/server/auth/admin-cookies';
 import { chinaNatureTopics, type NatureTopicItem } from '../frontend/chinaNatureTopics';
 
 export type ChinaNatureAdminTopic = NatureTopicItem;
-
-let topicStore: ChinaNatureAdminTopic[] | null = null;
 
 function verifyAdminToken(request: NextRequest): NextResponse | null {
   const token = getAdminTokenFromRequest(request);
@@ -34,18 +35,27 @@ function cloneTopic(topic: ChinaNatureAdminTopic): ChinaNatureAdminTopic {
   return {
     topicSlug: topic.topicSlug,
     title: topic.title,
-    coverImageUrl: topic.coverImageUrl,
+    icon: topic.icon,
     sortOrder: topic.sortOrder,
     isEnabled: topic.isEnabled,
   };
 }
 
-function getTopicStore(): ChinaNatureAdminTopic[] {
-  if (!topicStore) {
-    topicStore = chinaNatureTopics.map(cloneTopic);
+async function ensureChinaNatureTopics() {
+  const existing = await db.select().from(chinaNatureTopicsTable);
+  if (existing.length > 0) {
+    return;
   }
 
-  return topicStore;
+  await db.insert(chinaNatureTopicsTable).values(
+    chinaNatureTopics.map((topic) => ({
+      topicSlug: topic.topicSlug,
+      title: topic.title,
+      icon: topic.icon,
+      sortOrder: topic.sortOrder,
+      isEnabled: topic.isEnabled ? 1 : 0,
+    })),
+  );
 }
 
 function normalizeTopic(input: Partial<ChinaNatureAdminTopic>, index: number): ChinaNatureAdminTopic {
@@ -61,10 +71,26 @@ function normalizeTopic(input: Partial<ChinaNatureAdminTopic>, index: number): C
   return {
     topicSlug,
     title: typeof input.title === 'string' ? input.title : fallback.title,
-    coverImageUrl: typeof input.coverImageUrl === 'string' ? input.coverImageUrl : fallback.coverImageUrl,
+    icon: typeof input.icon === 'string' && input.icon.trim() ? input.icon.trim() : fallback.icon,
     sortOrder: Number.isFinite(sortOrderValue) ? sortOrderValue : fallback.sortOrder,
     isEnabled: Boolean(input.isEnabled),
   };
+}
+
+async function listTopicsFromDb() {
+  await ensureChinaNatureTopics();
+  const rows = await db
+    .select()
+    .from(chinaNatureTopicsTable)
+    .orderBy(asc(chinaNatureTopicsTable.sortOrder), asc(chinaNatureTopicsTable.id));
+
+  return rows.map((row) => ({
+    topicSlug: row.topicSlug,
+    title: row.title,
+    icon: row.icon,
+    sortOrder: row.sortOrder,
+    isEnabled: row.isEnabled === 1,
+  }));
 }
 
 export async function getChinaNatureAdminTopics(request: NextRequest) {
@@ -74,7 +100,7 @@ export async function getChinaNatureAdminTopics(request: NextRequest) {
   }
 
   return NextResponse.json({
-    topics: getTopicStore().map(cloneTopic),
+    topics: (await listTopicsFromDb()).map(cloneTopic),
   });
 }
 
@@ -92,13 +118,26 @@ export async function putChinaNatureAdminTopics(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid topics payload' }, { status: 400 });
     }
 
-    topicStore = inputTopics.map((topic, index) => normalizeTopic(topic, index));
+    await ensureChinaNatureTopics();
+    const normalized = inputTopics.map((topic, index) => normalizeTopic(topic, index));
+
+    await db.delete(chinaNatureTopicsTable);
+    await db.insert(chinaNatureTopicsTable).values(
+      normalized.map((topic) => ({
+        topicSlug: topic.topicSlug,
+        title: topic.title,
+        icon: topic.icon,
+        sortOrder: topic.sortOrder,
+        isEnabled: topic.isEnabled ? 1 : 0,
+        updatedAt: new Date(),
+      })),
+    );
 
     return NextResponse.json({
-      topics: getTopicStore().map(cloneTopic),
+      topics: (await listTopicsFromDb()).map(cloneTopic),
     });
   } catch (error) {
     console.error('China nature topics PUT error:', error);
-    return NextResponse.json({ error: '更新专题失败' }, { status: 500 });
+    return NextResponse.json({ error: '更新项失败' }, { status: 500 });
   }
 }

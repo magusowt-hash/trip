@@ -105,7 +105,7 @@ export function ChinaNatureMapAdminPage() {
     <section className={styles.page}>
       <header className={styles.header}>
         <h1 className={styles.title}>中国自然地图项管理</h1>
-        <p className={styles.subtitle}>轻量维护标题、排序和启停状态。</p>
+        <p className={styles.subtitle}>轻量维护图标、标题、排序和启停状态。</p>
       </header>
 
       <div className={styles.toolbar}>
@@ -138,6 +138,16 @@ export function ChinaNatureMapAdminPage() {
               </div>
 
               <div className={styles.fields}>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>图标</span>
+                  <input
+                    className={styles.iconInput}
+                    value={topic.icon}
+                    maxLength={4}
+                    onChange={(event) => updateTopic(topic.topicSlug, { icon: event.target.value })}
+                  />
+                </label>
+
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>标题</span>
                   <input

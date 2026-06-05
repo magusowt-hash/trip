@@ -30,6 +30,7 @@ export function ChinaNatureMapRightPanel({ styles: shellStyles }: ChinaNatureMap
           type="button"
           className={styles.topicRow}
         >
+          <span className={styles.topicRowIcon} aria-hidden="true">{topic.icon}</span>
           <span className={styles.topicRowTitle}>{topic.title}</span>
         </button>
       ))}

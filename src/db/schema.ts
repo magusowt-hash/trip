@@ -517,6 +517,24 @@ export const mapPackages = mysqlTable(
   }),
 );
 
+export const chinaNatureTopics = mysqlTable(
+  'china_nature_topics',
+  {
+    id: serial('id').primaryKey(),
+    topicSlug: varchar('topic_slug', { length: 64 }).notNull(),
+    title: varchar('title', { length: 128 }).notNull(),
+    icon: varchar('icon', { length: 32 }).notNull(),
+    sortOrder: int('sort_order').notNull().default(0),
+    isEnabled: tinyint('is_enabled').notNull().default(1),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    topicSlugIdx: uniqueIndex('china_nature_topics_topic_slug_idx').on(t.topicSlug),
+    sortOrderIdx: index('china_nature_topics_sort_order_idx').on(t.sortOrder),
+  }),
+);
+
 // ─── 站点自定义覆盖 ──────────────────────────────────────
 export const stationOverrides = mysqlTable(
   'station_overrides',

@@ -124,7 +124,8 @@
 }
 
 .textInput,
-.numberInput {
+.numberInput,
+.iconInput {
   width: 100%;
   border: 1px solid #cbd5e1;
   border-radius: 10px;
@@ -136,6 +137,11 @@
 
 .numberInput {
   max-width: 120px;
+}
+
+.iconInput {
+  max-width: 88px;
+  text-align: center;
 }
 
 .toggle {

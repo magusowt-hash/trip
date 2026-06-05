@@ -7,7 +7,7 @@
 .topicRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   width: 100%;
   min-height: 54px;
   border: 1px solid rgba(148, 163, 184, 0.18);
@@ -29,6 +29,19 @@
 .topicRow:focus-visible {
   outline: 3px solid rgba(47, 111, 81, 0.45);
   outline-offset: 3px;
+}
+
+.topicRowIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25em;
+  min-width: 1.25em;
+  height: 1.25em;
+  color: #5b6e62;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .topicRowTitle {
