@@ -17,7 +17,7 @@ export function ChinaNatureMapRightPanel({ styles: shellStyles }: ChinaNatureMap
     return (
       <section className={styles.emptyState}>
         <p className={styles.emptyTitle}>暂无可展示项</p>
-        <p className={styles.emptyCopy}>启用项后，这里会以大图卡片流展示入口。</p>
+        <p className={styles.emptyCopy}>启用项后，这里会以列表形式展示入口。</p>
       </section>
     );
   }
@@ -28,13 +28,9 @@ export function ChinaNatureMapRightPanel({ styles: shellStyles }: ChinaNatureMap
         <button
           key={topic.topicSlug}
           type="button"
-          className={styles.heroCard}
-          style={{ backgroundImage: `url(${topic.coverImageUrl})` }}
-          onClick={() => {}}
+          className={styles.topicRow}
         >
-          <span className={styles.heroOverlay}>
-            <span className={styles.heroTitle}>{topic.title}</span>
-          </span>
+          <span className={styles.topicRowTitle}>{topic.title}</span>
         </button>
       ))}
       {shellStyles?.status ? <span className={styles.shellContractProbe} aria-hidden="true" /> : null}

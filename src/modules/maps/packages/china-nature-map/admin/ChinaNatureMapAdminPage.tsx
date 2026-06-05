@@ -105,7 +105,7 @@ export function ChinaNatureMapAdminPage() {
     <section className={styles.page}>
       <header className={styles.header}>
         <h1 className={styles.title}>中国自然地图项管理</h1>
-        <p className={styles.subtitle}>轻量维护标题、封面图、排序和启停状态。</p>
+        <p className={styles.subtitle}>轻量维护标题、排序和启停状态。</p>
       </header>
 
       <div className={styles.toolbar}>
@@ -137,52 +137,36 @@ export function ChinaNatureMapAdminPage() {
                 </span>
               </div>
 
-              <div className={styles.body}>
-                <div
-                  className={styles.preview}
-                  style={{ backgroundImage: `linear-gradient(180deg, rgba(15, 23, 42, 0.10), rgba(15, 23, 42, 0.30)), url(${topic.coverImageUrl})` }}
-                />
+              <div className={styles.fields}>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>标题</span>
+                  <input
+                    className={styles.textInput}
+                    value={topic.title}
+                    onChange={(event) => updateTopic(topic.topicSlug, { title: event.target.value })}
+                  />
+                </label>
 
-                <div className={styles.fields}>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>标题</span>
-                    <input
-                      className={styles.textInput}
-                      value={topic.title}
-                      onChange={(event) => updateTopic(topic.topicSlug, { title: event.target.value })}
-                    />
-                  </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>排序</span>
+                  <input
+                    className={styles.numberInput}
+                    type="number"
+                    value={topic.sortOrder}
+                    onChange={(event) => updateTopic(topic.topicSlug, {
+                      sortOrder: Number.parseInt(event.target.value, 10) || 0,
+                    })}
+                  />
+                </label>
 
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>封面图 URL</span>
-                    <input
-                      className={styles.textInput}
-                      value={topic.coverImageUrl}
-                      onChange={(event) => updateTopic(topic.topicSlug, { coverImageUrl: event.target.value })}
-                    />
-                  </label>
-
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>排序</span>
-                    <input
-                      className={styles.numberInput}
-                      type="number"
-                      value={topic.sortOrder}
-                      onChange={(event) => updateTopic(topic.topicSlug, {
-                        sortOrder: Number.parseInt(event.target.value, 10) || 0,
-                      })}
-                    />
-                  </label>
-
-                  <label className={styles.toggle}>
-                    <input
-                      type="checkbox"
-                      checked={topic.isEnabled}
-                      onChange={(event) => updateTopic(topic.topicSlug, { isEnabled: event.target.checked })}
-                    />
-                    启用项
-                  </label>
-                </div>
+                <label className={styles.toggle}>
+                  <input
+                    type="checkbox"
+                    checked={topic.isEnabled}
+                    onChange={(event) => updateTopic(topic.topicSlug, { isEnabled: event.target.checked })}
+                  />
+                  启用项
+                </label>
               </div>
             </article>
           ))}

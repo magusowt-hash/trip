@@ -1,62 +1,40 @@
 .topicList {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
 }
 
-.heroCard {
-  position: relative;
-  min-height: 220px;
+.topicRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   width: 100%;
-  border: 0;
-  border-radius: 24px;
-  padding: 0;
-  overflow: hidden;
-  background-color: #284033;
-  background-position: center;
-  background-size: cover;
-  box-shadow: 0 18px 44px rgba(14, 31, 24, 0.2);
+  min-height: 54px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
+  padding: 0 16px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+  color: #163022;
+  text-align: left;
   cursor: pointer;
   transition: transform 160ms ease, box-shadow 160ms ease;
 }
 
-.heroCard::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgba(8, 17, 13, 0.06) 30%, rgba(8, 17, 13, 0.2) 68%, rgba(8, 17, 13, 0.72) 100%),
-    linear-gradient(135deg, rgba(234, 243, 233, 0.18), rgba(234, 243, 233, 0));
+.topicRow:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.06);
 }
 
-.heroCard:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 22px 52px rgba(14, 31, 24, 0.26);
-}
-
-.heroCard:focus-visible {
+.topicRow:focus-visible {
   outline: 3px solid rgba(47, 111, 81, 0.45);
   outline-offset: 3px;
 }
 
-.heroOverlay {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  min-height: 60px;
-  padding: 16px 18px;
-  background: linear-gradient(180deg, rgba(8, 17, 13, 0) 0%, rgba(8, 17, 13, 0.38) 52%, rgba(8, 17, 13, 0.78) 100%);
-}
-
-.heroTitle {
-  color: #f7fbf7;
-  font-size: 1.25rem;
+.topicRowTitle {
+  color: #163022;
+  font-size: 1rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-align: left;
 }
 
 .emptyState {
@@ -88,17 +66,9 @@
 }
 
 @media (max-width: 640px) {
-  .heroCard {
-    min-height: 196px;
-    border-radius: 20px;
-  }
-
-  .heroOverlay {
-    min-height: 54px;
-    padding: 13px 14px;
-  }
-
-  .heroTitle {
-    font-size: 1.12rem;
+  .topicRow {
+    min-height: 50px;
+    border-radius: 14px;
+    padding: 0 14px;
   }
 }
