@@ -244,6 +244,25 @@
   padding-right: 4px;
 }
 
+.panelState,
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  padding: 24px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #6b7280;
+  font-size: 13px;
+  text-align: center;
+}
+
+.emptyState {
+  height: 100%;
+  min-height: 240px;
+}
+
 .status {
   padding: 24px 16px;
   border-radius: 16px;

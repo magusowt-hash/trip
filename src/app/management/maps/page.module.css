@@ -1,7 +1,13 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 16px;
+}
+
+.state {
+  padding: 20px 0;
+  font-size: 14px;
+  color: #64748b;
 }
 
 .grid {
@@ -10,20 +16,30 @@
   gap: 16px;
 }
 
+.cardShell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .card {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 14px;
   padding: 20px 22px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 22px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.92));
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.05);
-  text-decoration: none;
   transition:
     transform 0.18s ease,
     border-color 0.18s ease,
     box-shadow 0.18s ease;
+}
+
+.cardStatic {
+  cursor: default;
 }
 
 .card:hover {
@@ -37,6 +53,48 @@
   flex: 1;
 }
 
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: flex-start;
+}
+
+.cardShort {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.12);
+  color: #0369a1;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.badgeEnabled {
+  background: rgba(34, 197, 94, 0.12);
+  color: #166534;
+}
+
+.badgeDisabled {
+  background: rgba(148, 163, 184, 0.16);
+  color: #475569;
+}
+
 .cardTitle {
   display: block;
   font-size: 15px;
@@ -44,11 +102,97 @@
   color: #0f172a;
 }
 
+.fieldBlock {
+  display: block;
+}
+
+.fieldLabel {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.fieldInput {
+  width: 100%;
+  height: 38px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 12px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.96);
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.cardDesc {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #475569;
+}
+
+.cardHint {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b45309;
+}
+
 .cardArrow {
   flex-shrink: 0;
   font-size: 12px;
   font-weight: 700;
   color: #0ea5e9;
+}
+
+.cardArrowLink {
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0ea5e9;
+  text-decoration: none;
+}
+
+.cardArrowMuted {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.toggleButton {
+  height: 40px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 14px;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.saveButton {
+  height: 40px;
+  border: 1px solid rgba(14, 165, 233, 0.24);
+  border-radius: 14px;
+  background: rgba(14, 165, 233, 0.08);
+  font-size: 13px;
+  font-weight: 700;
+  color: #0369a1;
+  cursor: pointer;
+}
+
+.toggleButton:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.saveButton:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 @media (max-width: 640px) {

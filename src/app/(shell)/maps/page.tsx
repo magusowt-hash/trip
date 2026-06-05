@@ -5,19 +5,27 @@ import PlanMap from '@/components/PlanMap';
 import RailCanvas from '@/components/RailCanvas';
 import {
   getMapPackage,
-  type StandardMapSearchResult,
+  pickInitialActiveMapSlug,
   useRailMapPanelController,
+  type StandardMapSearchResult,
   useStandardMapPanelController,
 } from '@/modules/maps';
 import styles from './maps-page.module.css';
 
-type MapTab = 'standard' | 'rail';
-
 type RailRoute = { p: [number, number][]; c: string; w: number; t: string };
 type RailStation = { name: string; lng: number; lat: number };
+type PublicMapPackageItem = {
+  slug: string;
+  name: string;
+  description: string;
+  isEnabled: boolean;
+  sortOrder: number;
+};
 
 export default function MapsPage() {
-  const [activeTab, setActiveTab] = useState<MapTab>('standard');
+  const [packageItems, setPackageItems] = useState<PublicMapPackageItem[]>([]);
+  const [packageLoading, setPackageLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [railRoutes, setRailRoutes] = useState<RailRoute[]>([]);
   const [railStations, setRailStations] = useState<RailStation[]>([]);
@@ -29,6 +37,38 @@ export default function MapsPage() {
   const railMapRef = useRef<any>(null);
   const standardController = useStandardMapPanelController(activeTab === 'standard');
   const railController = useRailMapPanelController();
+
+  useEffect(() => {
+    let active = true;
+
+    fetch('/api/public/maps/packages')
+      .then((response) => response.json())
+      .then((data) => {
+        if (!active) return;
+        const list = Array.isArray(data.list) ? data.list : [];
+        setPackageItems(list);
+        setActiveTab((current) => {
+          if (current && list.some((item: PublicMapPackageItem) => item.slug === current)) {
+            return current;
+          }
+          return pickInitialActiveMapSlug(list);
+        });
+      })
+      .catch(() => {
+        if (!active) return;
+        setPackageItems([]);
+        setActiveTab(null);
+      })
+      .finally(() => {
+        if (active) {
+          setPackageLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (activeTab !== 'rail' || railLoaded) return;
@@ -53,6 +93,7 @@ export default function MapsPage() {
   const railMapPackage = getMapPackage('rail');
   const StandardRightPanel = standardMapPackage?.frontend?.rightPanel;
   const RailRightPanel = railMapPackage?.frontend?.rightPanel;
+  const activePackage = packageItems.find((item) => item.slug === activeTab) ?? null;
 
   return (
     <div className={styles.root}>
@@ -70,7 +111,7 @@ export default function MapsPage() {
                 onMapPoiFootprint={(poi) => standardController.handleMapPoiFootprint(poi as StandardMapSearchResult)}
                 autoLoadMarkers={false}
               />
-            ) : (
+            ) : activeTab === 'rail' ? (
               <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                 <PlanMap
                   autoLoadMarkers={false}
@@ -94,6 +135,8 @@ export default function MapsPage() {
                   />
                 )}
               </div>
+            ) : (
+              <div className={styles.emptyState}>暂无可用地图类型，请先在后台启用地图包。</div>
             )}
           </div>
         </section>
@@ -103,38 +146,30 @@ export default function MapsPage() {
             <div className={styles.topRow}>
               <div className={styles.scrollTabs}>
                 <div className={styles.tabs}>
-                <button
-                  type="button"
-                  className={`${styles.tab} ${activeTab === 'standard' ? styles.tabActive : ''}`}
-                  onClick={() => setActiveTab('standard')}
-                >
-                  普通地图
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.tab} ${activeTab === 'rail' ? styles.tabActive : ''}`}
-                  onClick={() => setActiveTab('rail')}
-                >
-                  中国铁路
-                </button>
-                <button type="button" className={styles.tab}>
-                  种类C
-                </button>
-                <button type="button" className={styles.tab}>
-                  种类D
-                </button>
-              </div>
+                  {packageItems.map((item) => (
+                    <button
+                      key={item.slug}
+                      type="button"
+                      className={`${styles.tab} ${activeTab === item.slug ? styles.tabActive : ''}`}
+                      onClick={() => setActiveTab(item.slug)}
+                    >
+                      {item.name}
+                    </button>
+                  ))}
+                </div>
               </div>
               <button
                 type="button"
                 className={styles.toolButtonDetail}
                 onClick={() => setDetailOpen(true)}
                 aria-label="查看全部地图种类"
+                disabled={packageItems.length === 0}
               >
                 &#x22ef;
               </button>
             </div>
 
+            {packageLoading ? <div className={styles.panelState}>地图列表加载中...</div> : null}
             {activeTab === 'rail' ? (
               RailRightPanel ? (
                 <RailRightPanel
@@ -164,11 +199,14 @@ export default function MapsPage() {
                 />
               ) : null
             )}
+            {!packageLoading && !activePackage ? (
+              <div className={styles.panelState}>当前没有可展示的地图列表。</div>
+            ) : null}
           </div>
         </aside>
       </div>
 
-      {detailOpen ? (
+      {detailOpen && packageItems.length > 0 ? (
         <div className={styles.detailModalOverlay} onClick={() => setDetailOpen(false)}>
           <div className={styles.detailModalCard} onClick={(event) => event.stopPropagation()}>
             <div className={styles.detailModalHeader}>
@@ -178,28 +216,20 @@ export default function MapsPage() {
               </button>
             </div>
             <div className={styles.detailGrid}>
-              <button
-                type="button"
-                className={`${styles.mapTypeCard} ${activeTab === 'standard' ? styles.mapTypeCardActive : ''}`}
-                onClick={() => {
-                  setActiveTab('standard');
-                  setDetailOpen(false);
-                }}
-              >
-                <span className={styles.mapTypeCardName}>普通地图</span>
-                <span className={styles.mapTypeCardDesc}>地点搜索、地图点击识别已有 POI、收藏与已去。</span>
-              </button>
-              <button
-                type="button"
-                className={`${styles.mapTypeCard} ${activeTab === 'rail' ? styles.mapTypeCardActive : ''}`}
-                onClick={() => {
-                  setActiveTab('rail');
-                  setDetailOpen(false);
-                }}
-              >
-                <span className={styles.mapTypeCardName}>中国铁路地图</span>
-                <span className={styles.mapTypeCardDesc}>铁路专题视图入口，后续可接线路、站点和专题筛选。</span>
-              </button>
+              {packageItems.map((item) => (
+                <button
+                  key={item.slug}
+                  type="button"
+                  className={`${styles.mapTypeCard} ${activeTab === item.slug ? styles.mapTypeCardActive : ''}`}
+                  onClick={() => {
+                    setActiveTab(item.slug);
+                    setDetailOpen(false);
+                  }}
+                >
+                  <span className={styles.mapTypeCardName}>{item.name}</span>
+                  <span className={styles.mapTypeCardDesc}>{item.description}</span>
+                </button>
+              ))}
             </div>
           </div>
         </div>

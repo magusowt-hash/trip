@@ -499,6 +499,24 @@ export const railMapSettings = mysqlTable(
   },
 );
 
+export const mapPackages = mysqlTable(
+  'map_packages',
+  {
+    id: serial('id').primaryKey(),
+    slug: varchar('slug', { length: 64 }).notNull(),
+    name: varchar('name', { length: 128 }).notNull(),
+    description: varchar('description', { length: 255 }).notNull(),
+    isEnabled: tinyint('is_enabled').notNull().default(1),
+    sortOrder: int('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    slugIdx: uniqueIndex('map_packages_slug_idx').on(t.slug),
+    sortOrderIdx: index('map_packages_sort_order_idx').on(t.sortOrder),
+  }),
+);
+
 // ─── 站点自定义覆盖 ──────────────────────────────────────
 export const stationOverrides = mysqlTable(
   'station_overrides',

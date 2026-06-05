@@ -16,3 +16,11 @@ export type MapPackage = {
     rightPanel: ComponentType<any>;
   };
 };
+
+export type MapPackageRecord = {
+  slug: string;
+  name: string;
+  description: string;
+  isEnabled: number | boolean;
+  sortOrder: number;
+};

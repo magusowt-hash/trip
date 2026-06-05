@@ -1,6 +1,7 @@
 export type { MapPackage, MapPackageSlug } from './core/contracts/map-package';
 export { getMapPackage } from './core/registry/get-map-package';
 export { mapPackages } from './core/registry/map-packages';
+export { buildMapPackageRuntimeList, pickInitialActiveMapSlug } from './core/map-package-runtime';
 export { standardMapPackage } from './packages/standard-map';
 export { railMapPackage } from './packages/rail-map';
 export {

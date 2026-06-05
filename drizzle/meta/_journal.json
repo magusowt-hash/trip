@@ -92,6 +92,13 @@
       "when": 1780300000000,
       "tag": "0017_local_map_group_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1780400000000,
+      "tag": "0018_map_packages",
+      "breakpoints": true
     }
   ]
 }
