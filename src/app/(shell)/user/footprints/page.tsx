@@ -19,6 +19,7 @@ import {
   buildGroupGeometryFromPhotoRect,
   expandPhotoRect,
   resolveGroupLabelLayouts,
+  resolvePreferredLabelSideForMap,
   type GroupLayoutSnapshot,
 } from '@/components/localMapGroupGeometry';
 import type { GroupGeometry } from '@/components/localMapGroupGeometry';
@@ -1032,15 +1033,20 @@ function UserFootprintsPageInner() {
 
       const reservedLabelOffset = estimateReservedLabelOffset(placeKey, placePhotos, collisionScale, mapRect, activeGroupLayouts);
       const offsetPhotoRect = buildOffsetPhotoRect(placePhotos, offsets);
+      const logicalPoint = logicalPointByPlaceKey.get(placeKey)!;
+      const preferredLabelSide = resolvePreferredLabelSideForMap(
+        logicalPoint.x,
+        logicalPoint.y,
+        mapRect,
+      );
       const offsetGeometry = offsetPhotoRect
         ? buildGroupGeometryFromPhotoRect(
             offsetPhotoRect,
             placePhotos[0]?.placeTitle || '',
             placePhotos.length,
             collisionScale,
-            undefined,
+            preferredLabelSide,
             reservedLabelOffset,
-            mapRect,
           )
         : null;
       if (!offsetGeometry) continue;
@@ -1051,8 +1057,8 @@ function UserFootprintsPageInner() {
         collisionGeometry: offsetGeometry,
         collisionRect: offsetGeometry.groupRect,
         reservedLabelOffset,
-        logicalX: logicalPointByPlaceKey.get(placeKey)!.x,
-        logicalY: logicalPointByPlaceKey.get(placeKey)!.y,
+        logicalX: logicalPoint.x,
+        logicalY: logicalPoint.y,
         mapRect,
         offsets,
       });
