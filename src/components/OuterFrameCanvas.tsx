@@ -198,6 +198,12 @@ export default function OuterFrameCanvas({
     return photo.url;
   }, [scale]);
 
+  const shouldDeferLocalOriginal = useCallback((photo: PhotoItem) => (
+    photo.sourceType === 'local-mapped' &&
+    scale < 4 &&
+    !photo.thumbnailUrl
+  ), [scale]);
+
   const getPhotoLogicalSize = useCallback((photo: PhotoItem) => {
     const sourceWidth = photo.pixelWidth ?? 0;
     const sourceHeight = photo.pixelHeight ?? 0;
@@ -309,6 +315,7 @@ export default function OuterFrameCanvas({
 
   // --- Image loading ---
   const loadImage = useCallback((photo: PhotoItem): HTMLImageElement | null => {
+    if (shouldDeferLocalOriginal(photo)) return null;
     const renderUrl = getRenderUrl(photo);
     const cacheKey = `${photo.id}:${renderUrl}`;
     const cached = imageCache.current.get(cacheKey);
@@ -324,7 +331,7 @@ export default function OuterFrameCanvas({
     };
     imageCache.current.set(cacheKey, img);
     return img;
-  }, [getRenderUrl, scheduleRender]);
+  }, [getRenderUrl, scheduleRender, shouldDeferLocalOriginal]);
 
   // --- Hit test ---
   const hitTest = useCallback((sx: number, sy: number): number | string | null => {
@@ -449,14 +456,13 @@ export default function OuterFrameCanvas({
 
       const color = placeColor(photo.placeTitle);
       const isHovered = hoveredPhotoRef.current === photo.id;
-      const img = loadImage(photo);
+      const shouldUsePlaceholder = shouldDeferLocalOriginal(photo);
+      const img = shouldUsePlaceholder ? null : loadImage(photo);
 
       if (img && img.complete && img.naturalWidth > 0) {
-        const srcW = img.naturalWidth;
-        const srcH = img.naturalHeight;
         ctx.drawImage(img, s.x - displayWidth / 2, s.y - displayHeight / 2, displayWidth, displayHeight);
       } else {
-        ctx.fillStyle = color;
+        ctx.fillStyle = shouldUsePlaceholder ? `${color}99` : color;
         ctx.fillRect(s.x - displayWidth / 2, s.y - displayHeight / 2, displayWidth, displayHeight);
       }
 
