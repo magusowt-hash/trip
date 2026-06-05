@@ -459,8 +459,20 @@ function buildGeometryForPlacement(
   placement: FootprintPlacement,
   mapRect?: LogicalRect,
 ) {
+  const preferredLabelSide = mapRect
+    ? resolvePreferredLabelSideForMap(placement.centerX, placement.centerY, mapRect)
+    : group.collisionGeometry.labelSide;
+  const rebuiltGeometry = buildGroupGeometryFromPhotoRect(
+    group.collisionGeometry.photoRect,
+    group.placePhotos[0]?.placeTitle || '',
+    group.placePhotos.length,
+    1,
+    preferredLabelSide,
+    getGeometryLabelOffset(group.collisionGeometry),
+    mapRect,
+  );
   const translated = translateGroupGeometry(
-    group.collisionGeometry,
+    rebuiltGeometry,
     placement.centerX,
     placement.centerY,
   );

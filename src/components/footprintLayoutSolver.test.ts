@@ -375,6 +375,36 @@ test('solvePendingGroupPlacements expands group spacing for larger map views', (
   );
 });
 
+test('candidate geometry flips label side near the lower side-corner transition when placement crosses the partition', () => {
+  const mapRect = rect(-220, -180, 220, 180);
+  const group = buildGroup(
+    'corner',
+    '左右下交界测试超长标签',
+    rect(150, 150, 270, 230),
+    210,
+    190,
+    mapRect,
+  );
+  const basePlacement = { centerX: 210, centerY: 190 };
+  const baseCandidates = __layoutSolverInternals.buildCandidatePool(group, basePlacement, mapRect, 4);
+  const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
+
+  const crossingCandidate = baseCandidates.find((candidate) => {
+    const candidateAngle = Math.atan2(candidate.placement.centerY, candidate.placement.centerX);
+    const angleDelta = Math.abs(__layoutSolverInternals.angleDelta(candidateAngle, baseAngle));
+    return (
+      angleDelta >= Math.PI / 4 &&
+      candidate.placement.centerY < mapRect.bottom &&
+      candidate.geometry.labelSide === 'bottom'
+    );
+  });
+
+  assert.ok(
+    crossingCandidate,
+    'expected a transition escape candidate that re-evaluates label side after crossing out of the lower corner partition',
+  );
+});
+
 test('solvePendingGroupPlacements keeps real fixture connector lines uncrossed', () => {
   const { pendingGroups, mapRect, safeGap, labelGapBoost } = fixture.solverInputSnapshot;
 
