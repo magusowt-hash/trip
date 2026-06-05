@@ -100,6 +100,23 @@ const FINAL_REFINE_ANGLE_DEGREES = [0, -4, 4, -8, 8];
 const MIN_REQUIRED_ANGULAR_GAP = Math.PI / 20;
 const MAX_REQUIRED_ANGULAR_GAP = Math.PI / 5;
 
+function getMapViewRadius(mapRect: LogicalRect) {
+  return Math.max(
+    Math.hypot(mapRect.left, mapRect.top),
+    Math.hypot(mapRect.left, mapRect.bottom),
+    Math.hypot(mapRect.right, mapRect.top),
+    Math.hypot(mapRect.right, mapRect.bottom),
+  );
+}
+
+function getAdaptiveLayerRadiusBase(mapRect: LogicalRect) {
+  return Math.max(LAYER_RADIUS_BASE, getMapViewRadius(mapRect) + LAYER_RADIUS_PADDING);
+}
+
+function getAdaptiveLayerRadiusStep(mapRect: LogicalRect) {
+  return Math.max(LAYER_RADIUS_STEP, getMapViewRadius(mapRect) * 0.1);
+}
+
 function hasGroupRectConflict(
   candidate: GroupGeometry,
   neighbor: GroupGeometry,
@@ -197,7 +214,10 @@ function findNearestAngularGap(
 export function buildPlacementLayers(
   groups: PendingPlaceGroup[],
   basePlacementById: Map<string, FootprintPlacement>,
+  mapRect: LogicalRect,
 ) {
+  const adaptiveRadiusBase = getAdaptiveLayerRadiusBase(mapRect);
+  const adaptiveRadiusStep = getAdaptiveLayerRadiusStep(mapRect);
   const entries = groups.map((group) => {
     const placement = basePlacementById.get(group.placeKey) ?? { centerX: group.logicalX, centerY: group.logicalY };
     return {
@@ -207,7 +227,7 @@ export function buildPlacementLayers(
       radialDepth: estimateGroupDepth(group),
       angle: Math.atan2(group.logicalY, group.logicalX),
       sourceRadius: Math.max(
-        LAYER_RADIUS_BASE,
+        adaptiveRadiusBase,
         Math.hypot(placement.centerX, placement.centerY),
       ),
     };
@@ -215,8 +235,8 @@ export function buildPlacementLayers(
 
   const layers: PlacementLayer[] = [];
   let currentEntries: LayeredGroupEntry[] = [];
-  let currentRadius = LAYER_RADIUS_BASE;
-  let nextMinRadius = LAYER_RADIUS_BASE;
+  let currentRadius = adaptiveRadiusBase;
+  let nextMinRadius = adaptiveRadiusBase;
 
   const finalizeLayer = (layerEntries: LayeredGroupEntry[]) => {
     if (layerEntries.length === 0) return;
@@ -236,7 +256,7 @@ export function buildPlacementLayers(
     });
     nextMinRadius = Math.max(
       nextMinRadius,
-      Math.max(currentRadius, sourceRadius) + maxDepth + LAYER_RADIUS_STEP,
+      Math.max(currentRadius, sourceRadius) + maxDepth + adaptiveRadiusStep,
     );
   };
 
@@ -248,7 +268,7 @@ export function buildPlacementLayers(
       nextMinRadius,
       projectedEntries.reduce((sum, item) => sum + item.sourceRadius, 0) / projectedEntries.length,
     );
-    const availableCircumference = Math.PI * 2 * Math.max(projectedRadius, LAYER_RADIUS_BASE);
+    const availableCircumference = Math.PI * 2 * Math.max(projectedRadius, adaptiveRadiusBase);
     const exceedsCircumference =
       currentEntries.length > 0 &&
       projectedSpan > availableCircumference * LAYER_FILL_RATIO;

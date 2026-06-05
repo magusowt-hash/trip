@@ -330,6 +330,51 @@ test('solvePendingGroupPlacements preserves a strict safe gap between dense neig
   }
 });
 
+test('solvePendingGroupPlacements expands group spacing for larger map views', () => {
+  const compactMapRect = rect(-220, -180, 220, 180);
+  const largeMapRect = rect(-520, -420, 520, 420);
+  const safeGap = 96;
+  const compactGroups = [
+    buildGroup('left', '超长长标签测试甲乙丙丁戊己庚辛', rect(-180, -30, -60, 50), -120, 10, compactMapRect),
+    buildGroup('center', '超长长标签测试甲乙丙丁戊己庚辛', rect(-60, -30, 60, 50), 0, 10, compactMapRect),
+    buildGroup('right', '超长长标签测试甲乙丙丁戊己庚辛', rect(60, -30, 180, 50), 120, 10, compactMapRect),
+  ];
+  const largeGroups = [
+    buildGroup('left', '超长长标签测试甲乙丙丁戊己庚辛', rect(-180, -30, -60, 50), -120, 10, largeMapRect),
+    buildGroup('center', '超长长标签测试甲乙丙丁戊己庚辛', rect(-60, -30, 60, 50), 0, 10, largeMapRect),
+    buildGroup('right', '超长长标签测试甲乙丙丁戊己庚辛', rect(60, -30, 180, 50), 120, 10, largeMapRect),
+  ];
+
+  const compactSolved = solvePendingGroupPlacements(compactGroups, compactMapRect, safeGap, 0, []);
+  const largeSolved = solvePendingGroupPlacements(largeGroups, largeMapRect, safeGap, 0, []);
+  const compactLeft = compactSolved.geometries.get('left');
+  const compactCenter = compactSolved.geometries.get('center');
+  const largeLeft = largeSolved.geometries.get('left');
+  const largeCenter = largeSolved.geometries.get('center');
+
+  assert.ok(compactLeft);
+  assert.ok(compactCenter);
+  assert.ok(largeLeft);
+  assert.ok(largeCenter);
+  assert.equal(
+    rectsOverlap(largeLeft!.groupRect, largeCenter!.groupRect, Math.max(48, safeGap * 0.5)),
+    false,
+    'expected neighboring groups to stay separated in the larger view',
+  );
+  const compactDistance = Math.hypot(
+    compactSolved.placements.get('left')!.centerX - compactSolved.placements.get('center')!.centerX,
+    compactSolved.placements.get('left')!.centerY - compactSolved.placements.get('center')!.centerY,
+  );
+  const largeDistance = Math.hypot(
+    largeSolved.placements.get('left')!.centerX - largeSolved.placements.get('center')!.centerX,
+    largeSolved.placements.get('left')!.centerY - largeSolved.placements.get('center')!.centerY,
+  );
+  assert.ok(
+    largeDistance > compactDistance,
+    `expected larger map view to allow wider group spacing, got compact=${compactDistance} large=${largeDistance}`,
+  );
+});
+
 test('solvePendingGroupPlacements keeps real fixture connector lines uncrossed', () => {
   const { pendingGroups, mapRect, safeGap, labelGapBoost } = fixture.solverInputSnapshot;
 

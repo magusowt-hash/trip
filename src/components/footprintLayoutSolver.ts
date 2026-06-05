@@ -85,6 +85,30 @@ type CandidateEvaluation = {
   score: number;
 };
 
+function getMapViewRadius(mapRect: LogicalRect) {
+  return Math.max(
+    Math.hypot(mapRect.left, mapRect.top),
+    Math.hypot(mapRect.left, mapRect.bottom),
+    Math.hypot(mapRect.right, mapRect.top),
+    Math.hypot(mapRect.right, mapRect.bottom),
+  );
+}
+
+function getAdaptiveBaseRadius(baseRadius: number, mapRect: LogicalRect) {
+  return Math.max(baseRadius, 180, getMapViewRadius(mapRect) + MAP_GAP);
+}
+
+function getAdaptiveOuterRingFactors(baseRadius: number, mapRect: LogicalRect) {
+  const adaptiveBaseRadius = getAdaptiveBaseRadius(baseRadius, mapRect);
+  const targetRadius = adaptiveBaseRadius + Math.max(96, getMapViewRadius(mapRect) * 0.14);
+  return Array.from(
+    new Set(
+      [...OUTER_RING_RADIUS_FACTORS, Number((targetRadius / adaptiveBaseRadius).toFixed(3))]
+        .filter((factor) => factor > 1),
+    ),
+  ).sort((left, right) => left - right);
+}
+
 export type SolverStageReporter = (stage: string) => void;
 export type SolverMetricReporter = (name: string, elapsedMs: number) => void;
 
@@ -594,7 +618,8 @@ function buildCandidatePool(
 ) {
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
   const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
-  const safeBaseRadius = Math.max(baseRadius, 180);
+  const safeBaseRadius = getAdaptiveBaseRadius(baseRadius, mapRect);
+  const adaptiveOuterRingFactors = getAdaptiveOuterRingFactors(baseRadius, mapRect);
   const mapExpandedRect = {
     left: mapRect.left - MAP_GAP,
     right: mapRect.right + MAP_GAP,
@@ -634,7 +659,7 @@ function buildCandidatePool(
     }
   }
 
-  for (const radiusFactor of OUTER_RING_RADIUS_FACTORS) {
+  for (const radiusFactor of adaptiveOuterRingFactors) {
     const radius = safeBaseRadius * radiusFactor;
     for (const angleOffset of [-18, -10, 0, 10, 18]) {
       addCandidate(baseAngle + (angleOffset * Math.PI) / 180, radius);
@@ -1111,7 +1136,7 @@ export function solvePendingGroupPlacements(
   });
   const orderedGroups = [...planningGroups].sort(compareLayerPlacementOrder);
   reportStage?.('构建自动分层');
-  const placementLayers = buildPlacementLayers(orderedGroups, basePlacementById);
+  const placementLayers = buildPlacementLayers(orderedGroups, basePlacementById, mapRect);
   markMetric('buildPlacementLayersMs');
   const layeredState =
     placeGroupsLayerByLayer(
