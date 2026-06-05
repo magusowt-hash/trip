@@ -643,7 +643,22 @@ function computeEnvelopePenalty(
     return 0;
   }
 
-  return (right - left) * 0.05 + (bottom - top) * 0.04;
+  const width = right - left;
+  const height = bottom - top;
+  const area = width * height;
+  const maxViewRadius = Math.max(
+    Math.hypot(left, top),
+    Math.hypot(left, bottom),
+    Math.hypot(right, top),
+    Math.hypot(right, bottom),
+  );
+
+  return (
+    width * 0.18 +
+    height * 0.16 +
+    area * 0.00006 +
+    maxViewRadius * 0.42
+  );
 }
 
 function computeCorridorRiskPenalty(
