@@ -386,15 +386,53 @@ function computeSectorIndex(angle: number) {
   );
 }
 
+function isPointInLowerPartition(pointX: number, pointY: number, mapRect: LogicalRect) {
+  if (pointY > mapRect.bottom) return true;
+  if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
+
+  const verticalDistance = pointY - mapRect.bottom;
+  if (pointX < mapRect.left) {
+    return verticalDistance >= mapRect.left - pointX;
+  }
+  return verticalDistance >= pointX - mapRect.right;
+}
+
+function applyPlanningEnvelope(
+  geometry: GroupGeometry,
+  mapRect?: LogicalRect,
+) {
+  if (!mapRect) return geometry;
+
+  const rect = geometry.groupRect;
+  const sampleY = rect.bottom;
+  const sampleXs = [rect.left, (rect.left + rect.right) * 0.5, rect.right];
+  const inLowerRegion = sampleXs.some((sampleX) => (
+    isPointInLowerPartition(sampleX, sampleY, mapRect)
+  ));
+  const planningRect = {
+    ...rect,
+    top: rect.top - (inLowerRegion ? LOWER_REGION_TOP_CLEARANCE : 0),
+    bottom: rect.bottom + (inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
+  };
+
+  return {
+    ...geometry,
+    groupRect: planningRect,
+    overallRect: planningRect,
+  };
+}
+
 function buildGeometryForPlacement(
   group: PendingPlaceGroup,
   placement: FootprintPlacement,
+  mapRect?: LogicalRect,
 ) {
-  return translateGroupGeometry(
+  const translated = translateGroupGeometry(
     group.collisionGeometry,
     placement.centerX,
     placement.centerY,
   );
+  return applyPlanningEnvelope(translated, mapRect);
 }
 
 function geometryFitsMap(geometry: GroupGeometry, mapRect: LogicalRect) {
@@ -410,31 +448,23 @@ function chooseBestGeometryForPlacement(
   placement: FootprintPlacement,
   mapRect: LogicalRect,
 ) {
-  return buildGeometryForPlacement(group, placement);
+  return buildGeometryForPlacement(group, placement, mapRect);
 }
 
 function buildPlanningGeometry(
   group: PendingPlaceGroup,
 ) {
-  const baseGeometry = group.collisionGeometry;
-  const probeX = group.logicalX;
-  const probeY = group.logicalY;
-  const inLowerRegion = !!group.mapRect && (
-    probeY > group.mapRect.bottom ||
-    (probeX < group.mapRect.left && probeY - group.mapRect.bottom >= group.mapRect.left - probeX) ||
-    (probeX > group.mapRect.right && probeY - group.mapRect.bottom >= probeX - group.mapRect.right)
+  const absoluteGeometry = translateGroupGeometry(
+    group.collisionGeometry,
+    group.logicalX,
+    group.logicalY,
   );
-  const planningRect = {
-    ...baseGeometry.groupRect,
-    top: baseGeometry.groupRect.top - (inLowerRegion ? LOWER_REGION_TOP_CLEARANCE : 0),
-    bottom: baseGeometry.groupRect.bottom + (inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
-  };
-
-  return {
-    ...baseGeometry,
-    groupRect: planningRect,
-    overallRect: planningRect,
-  };
+  const plannedAbsoluteGeometry = applyPlanningEnvelope(absoluteGeometry, group.mapRect);
+  return translateGroupGeometry(
+    plannedAbsoluteGeometry,
+    -group.logicalX,
+    -group.logicalY,
+  );
 }
 
 function buildPlanningGroups(
