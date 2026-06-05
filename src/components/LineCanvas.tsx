@@ -10,6 +10,7 @@ import {
   GROUP_ENDPOINT_RADIUS_SCREEN,
   type GroupLayoutSnapshot,
 } from './localMapGroupGeometry';
+import { getFootprintMapRect } from './footprintMapGeometry';
 
 const MAX_OVERLAY_SCALE = 2.4;
 const MAX_LINE_WIDTH = 4;
@@ -78,26 +79,42 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
   }, [photos]);
 
   const buildResolvedGeometryMap = useCallback(() => {
+    const mapRect = getFootprintMapRect(width, height);
     const entries: Array<{ id: string; geometry: NonNullable<ReturnType<typeof buildGroupGeometry>> }> = [];
     for (const [placeKey, groupPhotos] of photosByPlaceKey) {
-      const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
+      const geometry = buildGroupGeometryFromLayout(
+        placeKey,
+        groupPhotos,
+        getPhotoLogicalSize,
+        transform.scale,
+        groupLayouts ?? [],
+        mapRect,
+      );
       if (!geometry) continue;
       entries.push({ id: placeKey, geometry });
     }
     return new Map(entries.map((entry) => [entry.id, entry.geometry]));
-  }, [photosByPlaceKey, groupLayouts, getPhotoLogicalSize, transform.scale]);
+  }, [photosByPlaceKey, groupLayouts, getPhotoLogicalSize, transform.scale, width, height]);
   const resolvedGeometryMap = useMemo(() => buildResolvedGeometryMap(), [buildResolvedGeometryMap]);
 
   const getGroupAnchorPoint = useCallback((resolvedGeometryMap: Map<string, NonNullable<ReturnType<typeof buildGroupGeometry>>>, groupPhotos: PhotoItem[], poi: PoiPoint) => {
     const placeKey = groupPhotos[0]?.placeKey || '';
+    const mapRect = getFootprintMapRect(width, height);
     const geometry =
       resolvedGeometryMap.get(placeKey) ??
-      buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, transform.scale, groupLayouts ?? []);
+      buildGroupGeometryFromLayout(
+        placeKey,
+        groupPhotos,
+        getPhotoLogicalSize,
+        transform.scale,
+        groupLayouts ?? [],
+        mapRect,
+      );
     if (!geometry) {
       return { x: poi.logicalX, y: poi.logicalY };
     }
     return { x: geometry.lineAnchorX, y: geometry.lineAnchorY };
-  }, [groupLayouts, getPhotoLogicalSize, transform.scale]);
+  }, [groupLayouts, getPhotoLogicalSize, transform.scale, width, height]);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
@@ -131,12 +148,14 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
       if (activePlaceKey) {
         currentResolvedGeometryMap = new Map(resolvedGeometryMap);
         const activeGroupPhotos = photosByPlaceKey.get(activePlaceKey) ?? [];
+        const mapRect = getFootprintMapRect(width, height);
         const geometry = buildGroupGeometryFromLayout(
           activePlaceKey,
           activeGroupPhotos,
           getPhotoLogicalSize,
           transform.scale,
           groupLayouts ?? [],
+          mapRect,
         );
         if (geometry) currentResolvedGeometryMap.set(activePlaceKey, geometry);
         else currentResolvedGeometryMap.delete(activePlaceKey);

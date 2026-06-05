@@ -29,6 +29,7 @@ import {
   applyGroupDragToPhotos,
   applyGroupPhotoPositions,
   applyPhotoDragToPhotos,
+  mergeGroupLayoutSnapshot,
   type FootprintLayoutInteractionMode,
 } from '@/components/footprintManualLayout';
 import { buildFootprintPhotoScopeKey, buildMapFootprintPhotoScopeKey } from '@/lib/footprintPhotoScope';
@@ -285,6 +286,7 @@ function buildPlaceGeometry(placePhotos: PhotoItem[], scale = 1) {
     getPhotoLogicalSize,
     scale,
     [],
+    undefined,
   );
 }
 
@@ -328,7 +330,7 @@ function solveFrozenGroupLayouts(
 
   const entries: Array<{ placeKey: string; geometry: GroupGeometry; title: string; photoCount: number; scale: number }> = [];
   for (const [placeKey, groupPhotos] of groups) {
-    const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts);
+    const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts, mapRect);
     if (!geometry) continue;
     entries.push({
       placeKey,
@@ -356,7 +358,7 @@ function estimateReservedLabelOffset(
   mapRect: LogicalRect | undefined,
   existingLayouts: GroupLayoutSnapshot[] = [],
 ) {
-  const baseGeometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts);
+  const baseGeometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts, mapRect);
   if (!baseGeometry) return 0;
   const resolved = resolveGroupLabelLayouts([
     {
@@ -375,6 +377,33 @@ function estimateReservedLabelOffset(
     maxOffset: 120,
   });
   return resolved.get(placeKey)?.labelOffset ?? 0;
+}
+
+function rebuildGroupLayoutSnapshotForCurrentPosition(
+  placeKey: string,
+  groupPhotos: PhotoItem[],
+  scale: number,
+  mapRect: LogicalRect,
+  existingLayouts: GroupLayoutSnapshot[] = [],
+) {
+  const geometry = buildGroupGeometryFromLayout(
+    placeKey,
+    groupPhotos,
+    getPhotoLogicalSize,
+    scale,
+    existingLayouts,
+    mapRect,
+  );
+  if (!geometry) return null;
+  const labelOffset =
+    geometry.labelSide === 'top'
+      ? Math.max(0, geometry.photoRect.top - geometry.lineAnchorY)
+      : Math.max(0, geometry.lineAnchorY - geometry.photoRect.bottom);
+  return {
+    placeKey,
+    labelSide: geometry.labelSide,
+    labelOffset,
+  } satisfies GroupLayoutSnapshot;
 }
 
 function buildOffsetsForLayout(
@@ -1012,6 +1041,7 @@ function UserFootprintsPageInner() {
           getPhotoLogicalSize,
           collisionScale,
           activeGroupLayouts,
+          mapRect,
         );
         if (lockedGeometry) {
           const logicalPoint = logicalPointByPlaceKey.get(placeKey);
@@ -1149,7 +1179,25 @@ function UserFootprintsPageInner() {
     } else {
       dirtyUploadedPhotoIdsRef.current.add(photoId);
     }
-    setPhotos((current) => applyPhotoDragToPhotos(current, photoId, x, y));
+    const mapRect = getFootprintMapRect(window.innerWidth, window.innerHeight);
+    setPhotos((current) => {
+      const nextPhotos = applyPhotoDragToPhotos(current, photoId, x, y);
+      const targetPhoto = nextPhotos.find((photo) => photo.id === photoId);
+      if (targetPhoto) {
+        const groupPhotos = nextPhotos.filter((photo) => photo.placeKey === targetPhoto.placeKey);
+        const nextLayout = rebuildGroupLayoutSnapshotForCurrentPosition(
+          targetPhoto.placeKey,
+          groupPhotos,
+          CLAMP_SCALE.max,
+          mapRect,
+          groupLayoutsRef.current,
+        );
+        if (nextLayout) {
+          setGroupLayouts((layouts) => mergeGroupLayoutSnapshot(layouts, nextLayout));
+        }
+      }
+      return nextPhotos;
+    });
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
   }, []);
@@ -1166,7 +1214,19 @@ function UserFootprintsPageInner() {
       }
     }
     const nextPhotos = applyGroupPhotoPositions(photosRef.current, placeKey, nextGroupPhotos);
+    const mapRect = getFootprintMapRect(window.innerWidth, window.innerHeight);
+    const groupPhotos = nextPhotos.filter((photo) => photo.placeKey === placeKey);
+    const nextLayout = rebuildGroupLayoutSnapshotForCurrentPosition(
+      placeKey,
+      groupPhotos,
+      CLAMP_SCALE.max,
+      mapRect,
+      groupLayoutsRef.current,
+    );
     setPhotos(nextPhotos);
+    if (nextLayout) {
+      setGroupLayouts((layouts) => mergeGroupLayoutSnapshot(layouts, nextLayout));
+    }
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
   }, []);
