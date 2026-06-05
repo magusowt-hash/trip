@@ -56,18 +56,12 @@ export const GROUP_ENDPOINT_RADIUS_SCREEN = 4;
 
 const PHOTO_RECT_PADDING = 52;
 const PHOTO_BOTTOM_EXTRA = 28;
-const PHOTO_TO_LINE_SCREEN_GAP_MIN = 1;
-const PHOTO_TO_LINE_SCREEN_GAP_MAX = 4;
-const LINE_TO_LABEL_SCREEN_GAP_MIN = 0;
-const LINE_TO_LABEL_SCREEN_GAP_MAX = 2;
+const PHOTO_TO_LINE_SCREEN_GAP_UNIFORM = 3;
+const LINE_TO_LABEL_SCREEN_GAP_UNIFORM = 1;
 const LABEL_MIN_SCREEN_WIDTH = 56;
 const LABEL_MAX_SCREEN_WIDTH = 132;
 const LABEL_WIDTH_RATIO = 0.9;
 const LABEL_MAX_LINES = 1;
-const GAP_AREA_MIN = 180 * 140;
-const GAP_AREA_MAX = 420 * 260;
-const SMALL_GROUP_COUNT_MAX = 4;
-const SMALL_GROUP_TIGHTEN_MAX = 0.7;
 const HARD_OVERLAP_WEIGHT = 1000;
 const SOFT_GAP_WEIGHT = 20;
 const BOTTOM_SECTOR_HALF_ANGLE = Math.PI / 4;
@@ -161,27 +155,8 @@ export function translateLogicalRect(rect: LogicalRect, offsetX: number, offsetY
   };
 }
 
-function clamp01(value: number) {
-  return Math.max(0, Math.min(1, value));
-}
-
-function lerp(min: number, max: number, t: number) {
-  return min + (max - min) * t;
-}
-
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
-}
-
-function buildAdaptiveGapScreenSize(
-  min: number,
-  max: number,
-  areaFactor: number,
-  photoCount: number,
-) {
-  const smallGroupProgress = clamp01((SMALL_GROUP_COUNT_MAX - photoCount) / Math.max(1, SMALL_GROUP_COUNT_MAX - 1));
-  const tightenedFactor = clamp01(areaFactor - smallGroupProgress * SMALL_GROUP_TIGHTEN_MAX);
-  return lerp(min, max, tightenedFactor);
 }
 
 function estimateCharacterScreenWidth(char: string) {
@@ -317,14 +292,12 @@ export function buildGroupGeometryFromPhotoRect(
   const photoHeight = Math.max(1, photoRect.bottom - photoRect.top);
   const labelLayout = measureGroupLabelLayout(title, photoWidth, safeScale);
   const labelHalfWidth = labelLayout.width / 2;
-  const photoArea = photoWidth * photoHeight;
-  const areaFactor = clamp01((photoArea - GAP_AREA_MIN) / Math.max(1, GAP_AREA_MAX - GAP_AREA_MIN));
   const photoToLineGap = toLogicalScreenSize(
-    buildAdaptiveGapScreenSize(PHOTO_TO_LINE_SCREEN_GAP_MIN, PHOTO_TO_LINE_SCREEN_GAP_MAX, areaFactor, photoCount),
+    PHOTO_TO_LINE_SCREEN_GAP_UNIFORM,
     safeScale,
   );
   const lineToLabelGap = toLogicalScreenSize(
-    buildAdaptiveGapScreenSize(LINE_TO_LABEL_SCREEN_GAP_MIN, LINE_TO_LABEL_SCREEN_GAP_MAX, areaFactor, photoCount),
+    LINE_TO_LABEL_SCREEN_GAP_UNIFORM,
     safeScale,
   );
   const labelHalfHeight = labelLayout.height / 2;
@@ -387,14 +360,12 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   const photoHeight = Math.max(1, photoRect.bottom - photoRect.top);
   const labelLayout = measureGroupLabelLayout(title, photoWidth, safeScale);
   const labelHalfWidth = labelLayout.width / 2;
-  const photoArea = photoWidth * photoHeight;
-  const areaFactor = clamp01((photoArea - GAP_AREA_MIN) / Math.max(1, GAP_AREA_MAX - GAP_AREA_MIN));
   const photoToLineGap = toLogicalScreenSize(
-    buildAdaptiveGapScreenSize(PHOTO_TO_LINE_SCREEN_GAP_MIN, PHOTO_TO_LINE_SCREEN_GAP_MAX, areaFactor, photoCount),
+    PHOTO_TO_LINE_SCREEN_GAP_UNIFORM,
     safeScale,
   );
   const lineToLabelGap = toLogicalScreenSize(
-    buildAdaptiveGapScreenSize(LINE_TO_LABEL_SCREEN_GAP_MIN, LINE_TO_LABEL_SCREEN_GAP_MAX, areaFactor, photoCount),
+    LINE_TO_LABEL_SCREEN_GAP_UNIFORM,
     safeScale,
   );
   const labelHalfHeight = labelLayout.height / 2;

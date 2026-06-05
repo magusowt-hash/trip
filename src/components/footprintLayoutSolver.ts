@@ -1,8 +1,6 @@
 import {
-  buildGroupGeometryFromPhotoRect,
   rectsOverlap,
   resolveGroupGeometryAsWhole,
-  resolvePreferredLabelSideForMap,
   translateGroupGeometry,
   type GroupGeometry,
 } from './localMapGroupGeometry';
@@ -71,8 +69,8 @@ const DENSE_SECTOR_RADIUS_FACTORS = [1.08, 1.18, 1.28];
 const DENSE_MAP_ADJACENT_ESCAPE_ANGLE_OFFSETS_DEGREES = [-72, -56, 56, 72];
 const DENSE_MAP_ADJACENT_ESCAPE_RADIUS_FACTORS = [1.18, 1.32, 1.46];
 const FINAL_VARIANT_REFINEMENT_GROUP_LIMIT = 20;
-const LOWER_REGION_TOP_LABEL_EXTRA_OFFSET = 92;
-const LOWER_SIDE_REGION_BOTTOM_LABEL_EXTRA_OFFSET = 132;
+const UPPER_REGION_BOTTOM_CLEARANCE = 132;
+const LOWER_REGION_TOP_CLEARANCE = 132;
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -418,14 +416,7 @@ function chooseBestGeometryForPlacement(
 function buildPlanningGeometry(
   group: PendingPlaceGroup,
 ) {
-  const labelPartitionRect = group.mapRect
-    ? {
-        left: group.mapRect.left - MAP_GAP,
-        right: group.mapRect.right + MAP_GAP,
-        top: group.mapRect.top - MAP_GAP,
-        bottom: group.mapRect.bottom + MAP_GAP,
-      }
-    : undefined;
+  const baseGeometry = group.collisionGeometry;
   const mapCenterX = group.mapRect ? (group.mapRect.left + group.mapRect.right) * 0.5 : 0;
   const mapCenterY = group.mapRect ? (group.mapRect.top + group.mapRect.bottom) * 0.5 : 0;
   const mapWidth = group.mapRect ? Math.max(1, group.mapRect.right - group.mapRect.left) : 1;
@@ -444,28 +435,17 @@ function buildPlanningGeometry(
     ? (probeY - mapCenterY) / (mapHeight * 0.5)
     : 0;
   const inLowerRegion = normalizedY > 0.02;
-  const inLowerSideRegion = normalizedY > -0.08 && Math.abs(normalizedX) > 0.34;
-  const preferredLabelSide = resolvePreferredLabelSideForMap(
-    probeX,
-    probeY,
-    labelPartitionRect,
-  );
-  const regionExtraOffset =
-    preferredLabelSide === 'top' && inLowerRegion
-      ? LOWER_REGION_TOP_LABEL_EXTRA_OFFSET
-      : preferredLabelSide === 'bottom' && inLowerSideRegion
-        ? LOWER_SIDE_REGION_BOTTOM_LABEL_EXTRA_OFFSET
-        : 0;
+  const planningRect = {
+    ...baseGeometry.groupRect,
+    top: baseGeometry.groupRect.top - (inLowerRegion ? LOWER_REGION_TOP_CLEARANCE : 0),
+    bottom: baseGeometry.groupRect.bottom + (inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
+  };
 
-  return buildGroupGeometryFromPhotoRect(
-    group.collisionGeometry.photoRect,
-    group.placePhotos[0]?.placeTitle || '',
-    group.placePhotos.length,
-    1,
-    preferredLabelSide,
-    group.reservedLabelOffset + regionExtraOffset,
-    labelPartitionRect,
-  );
+  return {
+    ...baseGeometry,
+    groupRect: planningRect,
+    overallRect: planningRect,
+  };
 }
 
 function buildPlanningGroups(
