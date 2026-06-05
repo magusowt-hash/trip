@@ -1,5 +1,6 @@
 import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
 import type { GroupGeometry } from './localMapGroupGeometry';
+import { rectsOverlap } from './localMapGroupGeometry';
 
 type LineGroup = Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'> | LockedPlaceGroup;
 
@@ -98,6 +99,14 @@ const FINAL_REFINE_RADIUS_FACTORS = [1, 0.96, 1.04];
 const FINAL_REFINE_ANGLE_DEGREES = [0, -4, 4, -8, 8];
 const MIN_REQUIRED_ANGULAR_GAP = Math.PI / 20;
 const MAX_REQUIRED_ANGULAR_GAP = Math.PI / 5;
+
+function hasGroupRectConflict(
+  candidate: GroupGeometry,
+  neighbor: GroupGeometry,
+  safeGap: number,
+) {
+  return rectsOverlap(candidate.groupRect, neighbor.groupRect, Math.max(48, safeGap * 0.5));
+}
 
 function compareLayerPlacementOrder(
   left: PendingPlaceGroup,
@@ -330,10 +339,7 @@ export function evaluatePlacementAgainstState(
     const neighborGeometry = state.geometryById.get(neighbor.placeKey);
     if (!neighborPlacement || !neighborGeometry) continue;
 
-    const photoOverlap = deps.rectOverlapsOccupiedPhotos(geometry.photoRect, [neighborGeometry], photoGap);
-    const labelOverlap = deps.hasLabelCollisions(geometry, [neighborGeometry], labelGap);
-    const photoLabelOverlap = deps.hasPhotoAgainstLabelCollisions(geometry, [neighborGeometry], labelGap);
-    if (photoOverlap || labelOverlap || photoLabelOverlap) {
+    if (hasGroupRectConflict(geometry, neighborGeometry, safeGap)) {
       return { valid: false, score: Number.POSITIVE_INFINITY, geometry: null };
     }
 
@@ -373,10 +379,7 @@ export function evaluatePlacementAgainstState(
   }
 
   for (const locked of lockedGroups) {
-    const photoOverlap = deps.rectOverlapsOccupiedPhotos(geometry.photoRect, [locked.geometry], photoGap);
-    const labelOverlap = deps.hasLabelCollisions(geometry, [locked.geometry], labelGap);
-    const photoLabelOverlap = deps.hasPhotoAgainstLabelCollisions(geometry, [locked.geometry], labelGap);
-    if (photoOverlap || labelOverlap || photoLabelOverlap) {
+    if (hasGroupRectConflict(geometry, locked.geometry, safeGap)) {
       return { valid: false, score: Number.POSITIVE_INFINITY, geometry: null };
     }
 

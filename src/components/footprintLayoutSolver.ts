@@ -691,6 +691,14 @@ function computeCorridorRiskPenalty(
   return penalty;
 }
 
+function hasGroupRectConflict(
+  candidate: GroupGeometry,
+  neighbor: GroupGeometry,
+  safeGap: number,
+) {
+  return rectsOverlap(candidate.groupRect, neighbor.groupRect, Math.max(48, safeGap * 0.5));
+}
+
 function evaluateCandidate(
   group: PendingPlaceGroup,
   candidate: PlacementCandidate,
@@ -711,10 +719,7 @@ function evaluateCandidate(
     const neighborGeometry = state.geometryById.get(neighbor.placeKey);
     if (!neighborPlacement || !neighborGeometry) continue;
 
-    const photoOverlap = rectOverlapsOccupiedPhotos(candidate.geometry.photoRect, [neighborGeometry], photoGap);
-    const labelOverlap = hasLabelCollisions(candidate.geometry, [neighborGeometry], labelGap);
-    const photoLabelOverlap = hasPhotoAgainstLabelCollisions(candidate.geometry, [neighborGeometry], labelGap);
-    if (photoOverlap || labelOverlap || photoLabelOverlap) {
+    if (hasGroupRectConflict(candidate.geometry, neighborGeometry, safeGap)) {
       return { valid: false, score: Number.POSITIVE_INFINITY };
     }
 
@@ -742,10 +747,7 @@ function evaluateCandidate(
   }
 
   for (const locked of lockedGroups) {
-    const photoOverlap = rectOverlapsOccupiedPhotos(candidate.geometry.photoRect, [locked.geometry], photoGap);
-    const labelOverlap = hasLabelCollisions(candidate.geometry, [locked.geometry], labelGap);
-    const photoLabelOverlap = hasPhotoAgainstLabelCollisions(candidate.geometry, [locked.geometry], labelGap);
-    if (photoOverlap || labelOverlap || photoLabelOverlap) {
+    if (hasGroupRectConflict(candidate.geometry, locked.geometry, safeGap)) {
       return { valid: false, score: Number.POSITIVE_INFINITY };
     }
 
