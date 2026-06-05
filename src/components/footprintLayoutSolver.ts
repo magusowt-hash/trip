@@ -71,6 +71,13 @@ const DENSE_MAP_ADJACENT_ESCAPE_ANGLE_OFFSETS_DEGREES = [-72, -56, 56, 72];
 const DENSE_MAP_ADJACENT_ESCAPE_RADIUS_FACTORS = [1.18, 1.32, 1.46];
 const FINAL_VARIANT_REFINEMENT_GROUP_LIMIT = 20;
 
+type MaxViewBounds = {
+  width: number;
+  height: number;
+  area: number;
+  radius: number;
+};
+
 type PlacementCandidate = {
   placement: FootprintPlacement;
   geometry: GroupGeometry;
@@ -84,6 +91,8 @@ type CandidateEvaluation = {
 
 export type SolverStageReporter = (stage: string) => void;
 export type SolverMetricReporter = (name: string, elapsedMs: number) => void;
+
+let activeMaxViewBounds: MaxViewBounds | null = null;
 
 const layeredDeps = {
   angleDelta,
@@ -652,12 +661,21 @@ function computeEnvelopePenalty(
     Math.hypot(right, top),
     Math.hypot(right, bottom),
   );
+  const targetBounds = activeMaxViewBounds;
+  const widthOverflow = targetBounds ? Math.max(0, width - targetBounds.width) : 0;
+  const heightOverflow = targetBounds ? Math.max(0, height - targetBounds.height) : 0;
+  const areaOverflow = targetBounds ? Math.max(0, area - targetBounds.area) : 0;
+  const radiusOverflow = targetBounds ? Math.max(0, maxViewRadius - targetBounds.radius) : 0;
 
   return (
     width * 0.18 +
     height * 0.16 +
     area * 0.00006 +
-    maxViewRadius * 0.42
+    maxViewRadius * 0.42 +
+    widthOverflow * 0.9 +
+    heightOverflow * 0.86 +
+    areaOverflow * 0.0002 +
+    radiusOverflow * 1.35
   );
 }
 
@@ -821,6 +839,43 @@ function scoreFinalLayoutEnvelope(
   }
 
   return (right - left) * 0.82 + (bottom - top) * 0.82 + (count > 0 ? radiusSum / count : 0) * 1.18;
+}
+
+function computeMaxViewBounds(
+  groups: PendingPlaceGroup[],
+  geometryById: Map<string, GroupGeometry>,
+): MaxViewBounds | null {
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+
+  for (const group of groups) {
+    const geometry = geometryById.get(group.placeKey);
+    if (!geometry) continue;
+    left = Math.min(left, geometry.groupRect.left);
+    right = Math.max(right, geometry.groupRect.right);
+    top = Math.min(top, geometry.groupRect.top);
+    bottom = Math.max(bottom, geometry.groupRect.bottom);
+  }
+
+  if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
+    return null;
+  }
+
+  const width = right - left;
+  const height = bottom - top;
+  return {
+    width,
+    height,
+    area: width * height,
+    radius: Math.max(
+      Math.hypot(left, top),
+      Math.hypot(left, bottom),
+      Math.hypot(right, top),
+      Math.hypot(right, bottom),
+    ),
+  };
 }
 
 function buildFallbackState(
@@ -993,147 +1048,162 @@ export function solvePendingGroupPlacements(
   reportStage?: SolverStageReporter,
   reportMetric?: SolverMetricReporter,
 ) {
-  const solverStartedAt = performance.now();
-  const markMetric = (name: string) => {
-    reportMetric?.(name, Number((performance.now() - solverStartedAt).toFixed(1)));
-  };
-  reportStage?.('生成基座外环');
-  const basePlacements = buildRadialLayout(
-    groups.map((group) => ({
-      id: group.placeKey,
-      x: group.logicalX,
-      y: group.logicalY,
-      rect: group.collisionRect,
-    })),
-    mapRect,
-    { mapGap: MAP_GAP },
-  );
-  markMetric('baseRadialLayoutMs');
-
-  const basePlacementById = new Map<string, FootprintPlacement>();
-  basePlacements.forEach((placement) => {
-    basePlacementById.set(placement.id, {
-      centerX: placement.centerX,
-      centerY: placement.centerY,
-    });
-  });
-  const orderedGroups = [...groups].sort(compareLayerPlacementOrder);
-  reportStage?.('构建自动分层');
-  const placementLayers = buildPlacementLayers(orderedGroups, basePlacementById);
-  markMetric('buildPlacementLayersMs');
-  const layeredState =
-    placeGroupsLayerByLayer(
-      layeredDeps,
-      orderedGroups,
-      placementLayers,
+  const runSolvePass = (maxViewBounds: MaxViewBounds | null) => {
+    activeMaxViewBounds = maxViewBounds;
+    const solverStartedAt = performance.now();
+    const markMetric = (name: string) => {
+      reportMetric?.(name, Number((performance.now() - solverStartedAt).toFixed(1)));
+    };
+    reportStage?.('生成基座外环');
+    const basePlacements = buildRadialLayout(
+      groups.map((group) => ({
+        id: group.placeKey,
+        x: group.logicalX,
+        y: group.logicalY,
+        rect: group.collisionRect,
+      })),
       mapRect,
-      safeGap,
-      lockedGroups,
+      { mapGap: MAP_GAP },
     );
-  markMetric('placeGroupsLayerByLayerMs');
-  reportStage?.(layeredState ? '完成分层放置' : '进入兼容候选回退');
-  const legacyInputs = layeredState
-    ? null
-    : buildLegacySolverInputs(legacyDeps, groups, basePlacementById, mapRect);
-  if (!layeredState) {
-    markMetric('buildLegacySolverInputsMs');
-  }
-  const workingState = layeredState
-    ? layeredState
-    : buildLegacyFallbackState(
-        legacyDeps,
-        legacyInputs!.orderedGroups,
-        legacyInputs!.candidatePoolById,
-        basePlacementById,
+    markMetric('baseRadialLayoutMs');
+
+    const basePlacementById = new Map<string, FootprintPlacement>();
+    basePlacements.forEach((placement) => {
+      basePlacementById.set(placement.id, {
+        centerX: placement.centerX,
+        centerY: placement.centerY,
+      });
+    });
+    const orderedGroups = [...groups].sort(compareLayerPlacementOrder);
+    reportStage?.('构建自动分层');
+    const placementLayers = buildPlacementLayers(orderedGroups, basePlacementById);
+    markMetric('buildPlacementLayersMs');
+    const layeredState =
+      placeGroupsLayerByLayer(
+        layeredDeps,
+        orderedGroups,
+        placementLayers,
         mapRect,
         lockedGroups,
         safeGap,
-        buildFallbackState,
       );
-  if (!layeredState) {
-    markMetric('buildLegacyFallbackStateMs');
-  }
-  const repairOrderedGroups = layeredState
-    ? orderedGroups
-    : legacyInputs!.orderedGroups;
+    markMetric('placeGroupsLayerByLayerMs');
+    reportStage?.(layeredState ? '完成分层放置' : '进入兼容候选回退');
+    const legacyInputs = layeredState
+      ? null
+      : buildLegacySolverInputs(legacyDeps, groups, basePlacementById, mapRect);
+    if (!layeredState) {
+      markMetric('buildLegacySolverInputsMs');
+    }
+    const workingState = layeredState
+      ? layeredState
+      : buildLegacyFallbackState(
+          legacyDeps,
+          legacyInputs!.orderedGroups,
+          legacyInputs!.candidatePoolById,
+          basePlacementById,
+          mapRect,
+          lockedGroups,
+          safeGap,
+          buildFallbackState,
+        );
+    if (!layeredState) {
+      markMetric('buildLegacyFallbackStateMs');
+    }
+    const repairOrderedGroups = layeredState
+      ? orderedGroups
+      : legacyInputs!.orderedGroups;
 
-  if (layeredState) {
-    reportStage?.('微调角度与线长');
-    refineAnglesAndRadii(
-      layeredDeps,
-      repairOrderedGroups,
-      workingState,
-      mapRect,
-      safeGap,
-      lockedGroups,
-    );
-    markMetric('refineAnglesAndRadiiMs');
-  }
-  reportStage?.('分析冲突并决定修复链');
-  const preRepairAnalysis = analyzePlacementState(
-    repairDeps,
-    repairOrderedGroups,
-    workingState.placementById,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
-    {
-      includeCorridorRisk: false,
-      includeLineCrossings: true,
-    },
-  );
-  markMetric('preRepairAnalysisMs');
-  const needsRepair =
-    preRepairAnalysis.hasHardConflicts ||
-    preRepairAnalysis.lineCrossings > 0;
-
-  if (legacyInputs && needsRepair) {
-    reportStage?.('执行连续修复');
-    repairPlacementIfNeeded(
+    if (layeredState) {
+      reportStage?.('微调角度与线长');
+      refineAnglesAndRadii(
+        layeredDeps,
+        repairOrderedGroups,
+        workingState,
+        mapRect,
+        safeGap,
+        lockedGroups,
+      );
+      markMetric('refineAnglesAndRadiiMs');
+    }
+    reportStage?.('分析冲突并决定修复链');
+    const preRepairAnalysis = analyzePlacementState(
       repairDeps,
       repairOrderedGroups,
-      legacyInputs.candidatePoolById,
+      workingState.placementById,
+      mapRect,
+      safeGap,
+      labelGapBoost,
+      lockedGroups,
+      {
+        includeCorridorRisk: false,
+        includeLineCrossings: true,
+      },
+    );
+    markMetric('preRepairAnalysisMs');
+    const needsRepair =
+      preRepairAnalysis.hasHardConflicts ||
+      preRepairAnalysis.lineCrossings > 0;
+
+    if (legacyInputs && needsRepair) {
+      reportStage?.('执行连续修复');
+      repairPlacementIfNeeded(
+        repairDeps,
+        repairOrderedGroups,
+        legacyInputs.candidatePoolById,
+        workingState,
+        mapRect,
+        safeGap,
+        labelGapBoost,
+        lockedGroups,
+        reportMetric,
+      );
+    } else if (needsRepair) {
+      const layeredLegacyInputs = buildLegacySolverInputs(legacyDeps, groups, basePlacementById, mapRect);
+      markMetric('buildLayeredLegacySolverInputsMs');
+      reportStage?.('执行连续修复');
+      repairPlacementIfNeeded(
+        repairDeps,
+        repairOrderedGroups,
+        layeredLegacyInputs.candidatePoolById,
+        workingState,
+        mapRect,
+        safeGap,
+        labelGapBoost,
+        lockedGroups,
+        reportMetric,
+      );
+    }
+    if (needsRepair) {
+      markMetric('repairPlacementIfNeededMs');
+    }
+
+    reportStage?.('收敛最终排布');
+    const result = finalizePlacementVariant(
+      repairOrderedGroups,
       workingState,
+      basePlacementById,
       mapRect,
       safeGap,
       labelGapBoost,
       lockedGroups,
       reportMetric,
     );
-  } else if (needsRepair) {
-    const layeredLegacyInputs = buildLegacySolverInputs(legacyDeps, groups, basePlacementById, mapRect);
-    markMetric('buildLayeredLegacySolverInputsMs');
-    reportStage?.('执行连续修复');
-    repairPlacementIfNeeded(
-      repairDeps,
-      repairOrderedGroups,
-      layeredLegacyInputs.candidatePoolById,
-      workingState,
-      mapRect,
-      safeGap,
-      labelGapBoost,
-      lockedGroups,
-      reportMetric,
-    );
-  }
-  if (needsRepair) {
-    markMetric('repairPlacementIfNeededMs');
-  }
+    markMetric('finalizePlacementVariantMs');
+    return result;
+  };
 
-  reportStage?.('收敛最终排布');
-  const result = finalizePlacementVariant(
-    repairOrderedGroups,
-    workingState,
-    basePlacementById,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
-    reportMetric,
+  reportStage?.('预跑最大视图');
+  const previewResult = runSolvePass(null);
+  const previewBounds = computeMaxViewBounds(groups, previewResult.geometries);
+  reportMetric?.(
+    'previewMaxViewRadius',
+    Number((previewBounds?.radius ?? 0).toFixed(1)),
   );
-  markMetric('finalizePlacementVariantMs');
-  return result;
+  reportStage?.('根据最大视图正式排布');
+  const finalResult = runSolvePass(previewBounds);
+  activeMaxViewBounds = null;
+  return finalResult;
 }
 
 export const __layoutSolverInternals = {
