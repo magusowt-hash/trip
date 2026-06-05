@@ -1,8 +1,6 @@
 import {
-  buildGroupGeometryFromPhotoRect,
   rectsOverlap,
   resolveGroupGeometryAsWhole,
-  resolvePreferredLabelSideForMap,
   type GroupGeometry,
 } from './localMapGroupGeometry';
 import { buildRadialLayout } from './localMapLayoutEngine';
@@ -389,31 +387,27 @@ function buildGeometryForPlacement(
   group: PendingPlaceGroup,
   placement: FootprintPlacement,
 ) {
-  const translatedPhotoRect = {
-    left: group.collisionGeometry.photoRect.left + placement.centerX,
-    right: group.collisionGeometry.photoRect.right + placement.centerX,
-    top: group.collisionGeometry.photoRect.top + placement.centerY,
-    bottom: group.collisionGeometry.photoRect.bottom + placement.centerY,
+  const translateRect = (rect: LogicalRect): LogicalRect => ({
+    left: rect.left + placement.centerX,
+    right: rect.right + placement.centerX,
+    top: rect.top + placement.centerY,
+    bottom: rect.bottom + placement.centerY,
+  });
+
+  return {
+    ...group.collisionGeometry,
+    photoRect: translateRect(group.collisionGeometry.photoRect),
+    labelRect: translateRect(group.collisionGeometry.labelRect),
+    lineRect: translateRect(group.collisionGeometry.lineRect),
+    groupRect: translateRect(group.collisionGeometry.groupRect),
+    overallRect: translateRect(group.collisionGeometry.overallRect),
+    photoCenterX: group.collisionGeometry.photoCenterX + placement.centerX,
+    photoCenterY: group.collisionGeometry.photoCenterY + placement.centerY,
+    labelAnchorX: group.collisionGeometry.labelAnchorX + placement.centerX,
+    labelAnchorY: group.collisionGeometry.labelAnchorY + placement.centerY,
+    lineAnchorX: group.collisionGeometry.lineAnchorX + placement.centerX,
+    lineAnchorY: group.collisionGeometry.lineAnchorY + placement.centerY,
   };
-
-  const labelPartitionRect = group.mapRect
-    ? {
-        left: group.mapRect.left - MAP_GAP,
-        right: group.mapRect.right + MAP_GAP,
-        top: group.mapRect.top - MAP_GAP,
-        bottom: group.mapRect.bottom + MAP_GAP,
-      }
-    : undefined;
-
-  return buildGroupGeometryFromPhotoRect(
-    translatedPhotoRect,
-    group.placePhotos[0]?.placeTitle || '',
-    group.placePhotos.length,
-    1,
-    resolvePreferredLabelSideForMap(placement.centerX, placement.centerY, labelPartitionRect),
-    group.reservedLabelOffset,
-    labelPartitionRect,
-  );
 }
 
 function geometryFitsMap(geometry: GroupGeometry, mapRect: LogicalRect) {
@@ -429,7 +423,8 @@ function chooseBestGeometryForPlacement(
   placement: FootprintPlacement,
   mapRect: LogicalRect,
 ) {
-  return buildGeometryForPlacement(group, placement);
+  const geometry = buildGeometryForPlacement(group, placement);
+  return geometry;
 }
 
 function compareLegacyGroupOrder(
@@ -454,11 +449,11 @@ function compareLegacyGroupOrder(
   if (Math.abs(rightRadius - leftRadius) > 1e-6) return rightRadius - leftRadius;
 
   const leftArea =
-    Math.max(1, left.collisionRect.right - left.collisionRect.left) *
-    Math.max(1, left.collisionRect.bottom - left.collisionRect.top);
+    Math.max(1, left.collisionGeometry.groupRect.right - left.collisionGeometry.groupRect.left) *
+    Math.max(1, left.collisionGeometry.groupRect.bottom - left.collisionGeometry.groupRect.top);
   const rightArea =
-    Math.max(1, right.collisionRect.right - right.collisionRect.left) *
-    Math.max(1, right.collisionRect.bottom - right.collisionRect.top);
+    Math.max(1, right.collisionGeometry.groupRect.right - right.collisionGeometry.groupRect.left) *
+    Math.max(1, right.collisionGeometry.groupRect.bottom - right.collisionGeometry.groupRect.top);
   if (Math.abs(rightArea - leftArea) > 1e-6) return rightArea - leftArea;
 
   return left.placeKey.localeCompare(right.placeKey, 'zh-CN');
@@ -526,7 +521,7 @@ function buildCandidatePool(
     top: mapRect.top - MAP_GAP,
     bottom: mapRect.bottom + MAP_GAP,
   };
-  const nearProtectedMapBand = rectDistanceToMap(group.collisionRect, mapExpandedRect) < 96;
+  const nearProtectedMapBand = rectDistanceToMap(group.collisionGeometry.groupRect, mapExpandedRect) < 96;
   const allowWideEscape = sectorDensity >= 3 && nearProtectedMapBand;
   const seeds: PlacementCandidate[] = [];
 
@@ -986,7 +981,7 @@ export function solvePendingGroupPlacements(
       id: group.placeKey,
       x: group.logicalX,
       y: group.logicalY,
-      rect: group.collisionRect,
+      rect: group.collisionGeometry.groupRect,
     })),
     mapRect,
     { mapGap: MAP_GAP },

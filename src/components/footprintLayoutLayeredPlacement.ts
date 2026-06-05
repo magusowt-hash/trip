@@ -87,17 +87,17 @@ type LayeredDeps = {
 
 const LINE_BUNDLE_DISTANCE = 34;
 const LOCAL_DENSITY_DISTANCE = 420;
-const LAYER_RADIUS_BASE = 220;
-const LAYER_RADIUS_STEP = 64;
-const LAYER_FILL_RATIO = 0.8;
-const LAYER_RADIUS_PADDING = 28;
+const LAYER_RADIUS_BASE = 260;
+const LAYER_RADIUS_STEP = 92;
+const LAYER_FILL_RATIO = 0.68;
+const LAYER_RADIUS_PADDING = 48;
 const LAYER_SLOT_MIN = 10;
 const LAYER_SLOT_PROBE_LIMIT = 7;
 const LAYER_ANGLE_JITTER_DEGREES = [0, -4, 4];
 const FINAL_REFINE_RADIUS_FACTORS = [1, 0.96, 1.04];
 const FINAL_REFINE_ANGLE_DEGREES = [0, -4, 4, -8, 8];
-const MIN_REQUIRED_ANGULAR_GAP = Math.PI / 20;
-const MAX_REQUIRED_ANGULAR_GAP = Math.PI / 5;
+const MIN_REQUIRED_ANGULAR_GAP = Math.PI / 18;
+const MAX_REQUIRED_ANGULAR_GAP = Math.PI / 4.2;
 
 function compareLayerPlacementOrder(
   left: PendingPlaceGroup,
@@ -115,8 +115,8 @@ function compareLayerPlacementOrder(
 }
 
 export function scoreGroupSize(group: PendingPlaceGroup) {
-  const width = Math.max(1, group.collisionRect.right - group.collisionRect.left);
-  const height = Math.max(1, group.collisionRect.bottom - group.collisionRect.top);
+  const width = Math.max(1, group.collisionGeometry.groupRect.right - group.collisionGeometry.groupRect.left);
+  const height = Math.max(1, group.collisionGeometry.groupRect.bottom - group.collisionGeometry.groupRect.top);
   const area = width * height;
   const labelWidth = Math.max(1, group.collisionGeometry.labelRect.right - group.collisionGeometry.labelRect.left);
   const photoCountWeight = Math.max(0, group.placePhotos.length - 1) * 320;
@@ -167,7 +167,7 @@ function computeRequiredAngularGap(
   spanEstimate: number,
 ) {
   const safeRadius = Math.max(LAYER_RADIUS_BASE, radius);
-  const gap = (spanEstimate / safeRadius) * 1.18;
+  const gap = (spanEstimate / safeRadius) * 1.38;
   return Math.max(MIN_REQUIRED_ANGULAR_GAP, Math.min(MAX_REQUIRED_ANGULAR_GAP, gap));
 }
 
