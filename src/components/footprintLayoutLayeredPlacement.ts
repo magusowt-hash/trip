@@ -1,6 +1,12 @@
 import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
 import type { GroupGeometry } from './localMapGroupGeometry';
 import { rectsOverlap } from './localMapGroupGeometry';
+import {
+  buildBlockedBandFromGeometry,
+  findPlacementInField,
+  resolvePlacementSector,
+  type PolarBlockedBand,
+} from './footprintPlacementField';
 
 type LineGroup = Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'> | LockedPlaceGroup;
 
@@ -99,6 +105,8 @@ const FINAL_REFINE_RADIUS_FACTORS = [1, 0.96, 1.04];
 const FINAL_REFINE_ANGLE_DEGREES = [0, -4, 4, -8, 8];
 const MIN_REQUIRED_ANGULAR_GAP = Math.PI / 20;
 const MAX_REQUIRED_ANGULAR_GAP = Math.PI / 5;
+const FIELD_PADDING_RADIUS = 48;
+const FIELD_IDEAL_RADIUS_FLOOR = 180;
 
 function getMapViewRadius(mapRect: LogicalRect) {
   return Math.max(
@@ -163,6 +171,18 @@ function estimateGroupDepth(group: PendingPlaceGroup) {
   const groupWidth = Math.max(1, geometry.groupRect.right - geometry.groupRect.left);
   const groupHeight = Math.max(1, geometry.groupRect.bottom - geometry.groupRect.top);
   return Math.max(groupWidth, groupHeight);
+}
+
+function estimateGroupIdealRadius(
+  group: PendingPlaceGroup,
+  innerRadiusFloor: number,
+) {
+  const baseRadius = Math.max(
+    FIELD_IDEAL_RADIUS_FLOOR,
+    Math.hypot(group.logicalX, group.logicalY),
+  );
+  const sizeAdjustment = Math.min(96, estimateGroupDepth(group) * 0.18);
+  return Math.max(innerRadiusFloor, baseRadius + sizeAdjustment);
 }
 
 function computePlacementAngularGapPenalty(
@@ -453,6 +473,40 @@ export function placeGroupsLayerByLayer(
     return compareLayerPlacementOrder(left, right);
   });
 
+  const buildBlockedBandsForState = (currentGroupKey: string) => {
+    const blockedBands: PolarBlockedBand[] = [];
+    for (const group of orderedByLayer) {
+      if (group.placeKey === currentGroupKey) continue;
+      const geometry = state.geometryById.get(group.placeKey);
+      if (!geometry) continue;
+      blockedBands.push(buildBlockedBandFromGeometry(geometry, FIELD_PADDING_RADIUS));
+    }
+    for (const locked of lockedGroups) {
+      blockedBands.push(buildBlockedBandFromGeometry(locked.geometry, FIELD_PADDING_RADIUS));
+    }
+    return blockedBands;
+  };
+
+  const computeInnerRadiusFloor = (baseAngle: number) => {
+    const sector = resolvePlacementSector(baseAngle);
+    let maxOccupiedRadius = 0;
+    for (const geometry of state.geometryById.values()) {
+      const geometryAngle = Math.atan2(geometry.photoCenterY, geometry.photoCenterX);
+      const inSameSector = sector.start <= sector.end
+        ? geometryAngle >= sector.start && geometryAngle <= sector.end
+        : geometryAngle >= sector.start || geometryAngle <= sector.end;
+      if (!inSameSector) continue;
+      const centerRadius = Math.hypot(geometry.photoCenterX, geometry.photoCenterY);
+      const radialDepth = Math.max(
+        1,
+        geometry.groupRect.right - geometry.groupRect.left,
+        geometry.groupRect.bottom - geometry.groupRect.top,
+      );
+      maxOccupiedRadius = Math.max(maxOccupiedRadius, centerRadius - radialDepth * 0.35);
+    }
+    return Math.max(FIELD_IDEAL_RADIUS_FLOOR, maxOccupiedRadius);
+  };
+
   const tryPlaceInLayer = (
     group: PendingPlaceGroup,
     layerIndex: number,
@@ -462,6 +516,8 @@ export function placeGroupsLayerByLayer(
     if (!layer) return false;
     const baseAngle = Math.atan2(group.logicalY, group.logicalX);
     const layerRadius = layer.radius;
+    const innerRadiusFloor = computeInnerRadiusFloor(baseAngle);
+    const idealRadius = estimateGroupIdealRadius(group, innerRadiusFloor);
     const angleCandidates = buildLayerAngleCandidates(baseAngle, layer.slotCount);
 
     let best:
@@ -472,36 +528,74 @@ export function placeGroupsLayerByLayer(
         }
       | null = null;
 
-    for (const slotAngle of angleCandidates) {
-      for (const angleOffset of LAYER_ANGLE_JITTER_DEGREES) {
-        const angle = slotAngle + (angleOffset * Math.PI) / 180;
-        for (const radiusFactor of FINAL_REFINE_RADIUS_FACTORS) {
-          const placement = {
-            centerX: Math.cos(angle) * layerRadius * radiusFactor,
-            centerY: Math.sin(angle) * layerRadius * radiusFactor,
-          };
-          const evaluation = evaluatePlacementAgainstState(
-            deps,
-            group,
-            placement,
-            orderedByLayer,
-            state,
-            lockedGroups,
-            safeGap,
-            mapRect,
-            baseAngle,
-            layerRadius,
-            layer.minAngularGap,
-          );
-          if (!evaluation.valid || !evaluation.geometry) continue;
-          const layerPenalty = Math.max(0, layer.index - preferredLayerIndex) * 120;
-          const totalScore = evaluation.score + layerPenalty;
-          if (!best || totalScore < best.score) {
-            best = {
-              placement,
-              geometry: evaluation.geometry,
-              score: totalScore,
+    const fieldSearch = findPlacementInField(
+      group,
+      group.collisionGeometry,
+      buildBlockedBandsForState(group.placeKey),
+      {
+        idealAngle: baseAngle,
+        idealRadius,
+        minRadius: Math.max(FIELD_IDEAL_RADIUS_FLOOR, innerRadiusFloor),
+        radiusStep: Math.max(18, idealRadius * 0.05),
+        radiusScanLimit: 8,
+      },
+    );
+
+    if (fieldSearch.candidate) {
+      const evaluation = evaluatePlacementAgainstState(
+        deps,
+        group,
+        fieldSearch.candidate.placement,
+        orderedByLayer,
+        state,
+        lockedGroups,
+        safeGap,
+        mapRect,
+        baseAngle,
+        idealRadius,
+        layer.minAngularGap,
+      );
+      if (evaluation.valid && evaluation.geometry) {
+        best = {
+          placement: fieldSearch.candidate.placement,
+          geometry: evaluation.geometry,
+          score: evaluation.score + Math.max(0, layer.index - preferredLayerIndex) * 120,
+        };
+      }
+    }
+
+    if (!best) {
+      for (const slotAngle of angleCandidates) {
+        for (const angleOffset of LAYER_ANGLE_JITTER_DEGREES) {
+          const angle = slotAngle + (angleOffset * Math.PI) / 180;
+          for (const radiusFactor of FINAL_REFINE_RADIUS_FACTORS) {
+            const placement = {
+              centerX: Math.cos(angle) * layerRadius * radiusFactor,
+              centerY: Math.sin(angle) * layerRadius * radiusFactor,
             };
+            const evaluation = evaluatePlacementAgainstState(
+              deps,
+              group,
+              placement,
+              orderedByLayer,
+              state,
+              lockedGroups,
+              safeGap,
+              mapRect,
+              baseAngle,
+              layerRadius,
+              layer.minAngularGap,
+            );
+            if (!evaluation.valid || !evaluation.geometry) continue;
+            const layerPenalty = Math.max(0, layer.index - preferredLayerIndex) * 120;
+            const totalScore = evaluation.score + layerPenalty;
+            if (!best || totalScore < best.score) {
+              best = {
+                placement,
+                geometry: evaluation.geometry,
+                score: totalScore,
+              };
+            }
           }
         }
       }
