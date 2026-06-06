@@ -52,12 +52,6 @@ type RefineCandidate = {
   score: number;
 };
 
-type LayerPlacementCandidate = {
-  placement: FootprintPlacement;
-  geometry: GroupGeometry;
-  score: number;
-};
-
 type LayeredGroupEntry = {
   group: PendingPlaceGroup;
   sizeScore: number;
@@ -137,7 +131,6 @@ const MIN_REQUIRED_ANGULAR_GAP = Math.PI / 20;
 const MAX_REQUIRED_ANGULAR_GAP = Math.PI / 5;
 const FIELD_PADDING_RADIUS = 48;
 const FIELD_IDEAL_RADIUS_FLOOR = 180;
-const MAX_LAYER_COMBINATION_CANDIDATES = 5;
 
 function getMapViewRadius(mapRect: LogicalRect) {
   return Math.max(
@@ -524,44 +517,6 @@ function computeSectorBalancePenalty(
   return balancePenalty + squeezePenalty;
 }
 
-function computeSectorOrderPenalty(
-  deps: LayeredDeps,
-  group: PendingPlaceGroup,
-  angle: number,
-  sector: PlacementSector,
-  groups: PendingPlaceGroup[],
-  state: PlacementState,
-) {
-  const sourceAngle = Math.atan2(group.logicalY, group.logicalX);
-  let penalty = 0;
-
-  for (const neighbor of groups) {
-    if (neighbor.placeKey === group.placeKey) continue;
-    const neighborPlacement = state.placementById.get(neighbor.placeKey);
-    if (!neighborPlacement) continue;
-
-    const neighborSourceAngle = Math.atan2(neighbor.logicalY, neighbor.logicalX);
-    if (!isAngleInsideArc(neighborSourceAngle, sector.start, sector.end)) continue;
-
-    const sourceDelta = deps.angleDelta(sourceAngle, neighborSourceAngle);
-    if (Math.abs(sourceDelta) <= 1e-6) continue;
-
-    const placedDelta = deps.angleDelta(angle, Math.atan2(neighborPlacement.centerY, neighborPlacement.centerX));
-    if (Math.abs(placedDelta) <= 1e-6) {
-      penalty += 240;
-      continue;
-    }
-
-    const sourceSign = Math.sign(sourceDelta);
-    const placedSign = Math.sign(placedDelta);
-    if (sourceSign !== placedSign) {
-      penalty += 680 + Math.abs(sourceDelta - placedDelta) * 120;
-    }
-  }
-
-  return penalty;
-}
-
 function isAngleInsideArc(
   angle: number,
   start: number,
@@ -678,187 +633,6 @@ function computeEnclosurePenalty(
   return enclosurePenalty;
 }
 
-function buildGroupPlacementCandidates(
-  deps: LayeredDeps,
-  group: PendingPlaceGroup,
-  layer: PlacementLayer,
-  groups: PendingPlaceGroup[],
-  state: PlacementState,
-  lockedGroups: LockedPlaceGroup[],
-  safeGap: number,
-  mapRect: LogicalRect,
-) {
-  const baseAngle = Math.atan2(group.logicalY, group.logicalX);
-  const layerRadius = layer.radius;
-  const preferredRadius = estimateGroupPreferredRadius(group);
-  const idealRadius = Math.max(layerRadius * 0.9, preferredRadius);
-  const fieldMinRadius = Math.max(FIELD_IDEAL_RADIUS_FLOOR, layerRadius * 0.68);
-  const fieldMaxRadius = Math.max(fieldMinRadius, layerRadius * 1.12);
-
-  const fieldSearch = findPlacementInField(
-    group,
-    group.collisionGeometry,
-    (() => {
-      const blockedBands: PolarBlockedBand[] = [];
-      for (const peer of groups) {
-        if (peer.placeKey === group.placeKey) continue;
-        const geometry = state.geometryById.get(peer.placeKey);
-        if (!geometry) continue;
-        blockedBands.push(buildBlockedBandFromGeometry(geometry, FIELD_PADDING_RADIUS));
-      }
-      for (const locked of lockedGroups) {
-        blockedBands.push(buildBlockedBandFromGeometry(locked.geometry, FIELD_PADDING_RADIUS));
-      }
-      return blockedBands;
-    })(),
-    {
-      idealAngle: baseAngle,
-      idealRadius,
-      minRadius: fieldMinRadius,
-      maxRadius: fieldMaxRadius,
-      radiusStep: Math.max(18, Math.min(64, estimateGroupDepth(group) * 0.45)),
-      radiusScanLimit: 8,
-    },
-  );
-
-  lastLayeredPlacementTrace.push({
-    fn: 'findPlacementInField',
-    stage: 'result',
-    placeKey: group.placeKey,
-    meta: {
-      layerIndex: layer.index,
-      preferredLayerIndex: layer.index,
-      idealRadius,
-      layerRadius,
-      fieldMinRadius,
-      fieldMaxRadius,
-      candidateCount: fieldSearch.candidates.length,
-      scannedRadius: fieldSearch.scannedRadius,
-      trace: fieldSearch.trace,
-    },
-  });
-
-  const candidates: LayerPlacementCandidate[] = [];
-  for (const fieldCandidate of fieldSearch.candidates) {
-    const evaluation = evaluatePlacementAgainstState(
-      deps,
-      group,
-      fieldCandidate.placement,
-      groups,
-      state,
-      lockedGroups,
-      safeGap,
-      mapRect,
-      baseAngle,
-      idealRadius,
-      layer.minAngularGap,
-    );
-    if (!evaluation.valid || !evaluation.geometry) continue;
-    const fieldRadiusPenalty = Math.max(0, fieldCandidate.radius - idealRadius) * 0.18;
-    const occupancyPenalty = computeOccupancyAlignmentPenalty(
-      deps,
-      fieldCandidate,
-      baseAngle,
-    );
-    candidates.push({
-      placement: fieldCandidate.placement,
-      geometry: evaluation.geometry,
-      score: evaluation.score + fieldRadiusPenalty + occupancyPenalty,
-    });
-  }
-
-  return candidates
-    .sort((left, right) => left.score - right.score)
-    .slice(0, MAX_LAYER_COMBINATION_CANDIDATES);
-}
-
-function placeLayerEntriesTogether(
-  deps: LayeredDeps,
-  layer: PlacementLayer,
-  groups: PendingPlaceGroup[],
-  state: PlacementState,
-  lockedGroups: LockedPlaceGroup[],
-  safeGap: number,
-  mapRect: LogicalRect,
-) {
-  const layerGroups = layer.entries.map((entry) => entry.group);
-  if (layerGroups.length <= 1) return null;
-
-  const candidatePool = new Map<string, LayerPlacementCandidate[]>();
-  for (const group of layerGroups) {
-    const candidates = buildGroupPlacementCandidates(
-      deps,
-      group,
-      layer,
-      groups,
-      state,
-      lockedGroups,
-      safeGap,
-      mapRect,
-    );
-    if (candidates.length === 0) return null;
-    candidatePool.set(group.placeKey, candidates);
-  }
-
-  let best:
-    | {
-        score: number;
-        placements: Array<{ group: PendingPlaceGroup; candidate: LayerPlacementCandidate }>;
-      }
-    | null = null;
-
-  const search = (
-    index: number,
-    draftState: PlacementState,
-    placements: Array<{ group: PendingPlaceGroup; candidate: LayerPlacementCandidate }>,
-    score: number,
-  ) => {
-    if (best && score >= best.score) return;
-    if (index >= layerGroups.length) {
-      best = {
-        score,
-        placements: [...placements],
-      };
-      return;
-    }
-
-    const group = layerGroups[index]!;
-    const candidates = candidatePool.get(group.placeKey) ?? [];
-    for (const candidate of candidates) {
-      const evaluation = evaluatePlacementAgainstState(
-        deps,
-        group,
-        candidate.placement,
-        groups,
-        draftState,
-        lockedGroups,
-        safeGap,
-        mapRect,
-        Math.atan2(group.logicalY, group.logicalX),
-        Math.hypot(candidate.placement.centerX, candidate.placement.centerY),
-        layer.minAngularGap,
-      );
-      if (!evaluation.valid || !evaluation.geometry) continue;
-
-      draftState.placementById.set(group.placeKey, candidate.placement);
-      draftState.geometryById.set(group.placeKey, evaluation.geometry);
-      placements.push({ group, candidate });
-      search(index + 1, draftState, placements, score + candidate.score + evaluation.score);
-      placements.pop();
-      draftState.placementById.delete(group.placeKey);
-      draftState.geometryById.delete(group.placeKey);
-    }
-  };
-
-  search(0, {
-    placementById: new Map(state.placementById),
-    geometryById: new Map(state.geometryById),
-    candidateIndexById: new Map(state.candidateIndexById),
-  }, [], 0);
-
-  return best;
-}
-
 export function evaluatePlacementAgainstState(
   deps: LayeredDeps,
   group: PendingPlaceGroup,
@@ -965,14 +739,6 @@ export function evaluatePlacementAgainstState(
     groups,
     state,
   );
-  const sectorOrderPenalty = computeSectorOrderPenalty(
-    deps,
-    group,
-    angle,
-    sector,
-    groups,
-    state,
-  );
   const enclosurePenalty = computeEnclosurePenalty(
     group,
     placement,
@@ -984,7 +750,7 @@ export function evaluatePlacementAgainstState(
 
   return {
     valid: true,
-    score: driftPenalty + radiusPenalty + outwardPenalty + inwardPenalty + spacingPenalty + sectorBalancePenalty + sectorOrderPenalty + enclosurePenalty,
+    score: driftPenalty + radiusPenalty + outwardPenalty + inwardPenalty + spacingPenalty + sectorBalancePenalty + enclosurePenalty,
     geometry,
   };
 }
@@ -1050,10 +816,7 @@ export function placeGroupsLayerByLayer(
     if (!layer) return false;
     const baseAngle = Math.atan2(group.logicalY, group.logicalX);
     const layerRadius = layer.radius;
-    const preferredRadius = estimateGroupPreferredRadius(group);
-    const idealRadius = Math.max(layerRadius * 0.9, preferredRadius);
-    const fieldMinRadius = Math.max(FIELD_IDEAL_RADIUS_FLOOR, layerRadius * 0.68);
-    const fieldMaxRadius = Math.max(fieldMinRadius, layerRadius * 1.12);
+    const idealRadius = estimateGroupPreferredRadius(group);
     let best:
       | {
           placement: FootprintPlacement;
@@ -1069,10 +832,9 @@ export function placeGroupsLayerByLayer(
       {
         idealAngle: baseAngle,
         idealRadius,
-        minRadius: fieldMinRadius,
-        maxRadius: fieldMaxRadius,
-        radiusStep: Math.max(18, Math.min(64, estimateGroupDepth(group) * 0.45)),
-        radiusScanLimit: 8,
+        minRadius: FIELD_IDEAL_RADIUS_FLOOR,
+        radiusStep: Math.max(18, layerRadius * 0.045),
+        radiusScanLimit: 12,
       },
     );
     lastLayeredPlacementTrace.push({
@@ -1084,8 +846,6 @@ export function placeGroupsLayerByLayer(
         preferredLayerIndex,
         idealRadius,
         layerRadius,
-        fieldMinRadius,
-        fieldMaxRadius,
         candidateCount: fieldSearch.candidates.length,
         scannedRadius: fieldSearch.scannedRadius,
         trace: fieldSearch.trace,
@@ -1224,39 +984,7 @@ export function placeGroupsLayerByLayer(
     return true;
   };
 
-  const jointlyPlacedKeys = new Set<string>();
-  for (const layer of layers) {
-    const jointPlacement = placeLayerEntriesTogether(
-      deps,
-      layer,
-      orderedByLayer,
-      state,
-      lockedGroups,
-      safeGap,
-      mapRect,
-    );
-    if (!jointPlacement) continue;
-    for (const item of jointPlacement.placements) {
-      state.placementById.set(item.group.placeKey, item.candidate.placement);
-      state.geometryById.set(item.group.placeKey, item.candidate.geometry);
-      state.candidateIndexById.set(item.group.placeKey, 0);
-      jointlyPlacedKeys.add(item.group.placeKey);
-      lastLayeredPlacementTrace.push({
-        fn: 'placeGroupsLayerByLayer',
-        stage: 'placed-joint-layer',
-        placeKey: item.group.placeKey,
-        meta: {
-          layerIndex: layer.index,
-          placement: item.candidate.placement,
-          score: item.candidate.score,
-          layerGroupCount: jointPlacement.placements.length,
-        },
-      });
-    }
-  }
-
   for (const group of orderedByLayer) {
-    if (jointlyPlacedKeys.has(group.placeKey)) continue;
     const preferredLayerIndex = layerByKey.get(group.placeKey) ?? 0;
     let placed = false;
     const failureRecord: LayeredPlacementFailure = {
