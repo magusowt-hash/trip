@@ -593,6 +593,33 @@ test('buildPlanningGroups keeps lower-transition label envelopes expanded for co
   );
 });
 
+test('candidate pool keeps lower-transition label envelopes expanded in live placement geometry', () => {
+  const mapRect = rect(-220, -180, 220, 180);
+  const group = buildGroup(
+    'corner',
+    '左右下交界测试超长标签',
+    rect(150, 150, 270, 230),
+    210,
+    190,
+    mapRect,
+  );
+  const basePlacement = { centerX: 210, centerY: 190 };
+  const candidates = __layoutSolverInternals.buildCandidatePool(group, basePlacement, mapRect, 4);
+
+  assert.ok(candidates.length > 0, 'expected live candidate pool to produce candidates');
+
+  const originalHeight =
+    group.collisionRect.bottom - group.collisionRect.top;
+  const expandedCandidate = candidates.find((candidate) => (
+    (candidate.geometry.groupRect.bottom - candidate.geometry.groupRect.top) > originalHeight
+  ));
+
+  assert.ok(
+    expandedCandidate,
+    `expected live placement geometry to preserve planning envelope expansion, got original=${originalHeight}`,
+  );
+});
+
 test('solvePendingGroupPlacements returns the main solver placements without post-finalize drift', () => {
   const mapRect = rect(-260, -220, 260, 220);
   const groups = [
