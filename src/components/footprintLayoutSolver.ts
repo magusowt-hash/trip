@@ -32,16 +32,10 @@ import {
   optimizeAssignments,
 } from './footprintLayoutLegacyFallback';
 import {
-  analyzePlacementState,
   buildGeometryMapForPlacements,
   countCorridorRiskConflicts,
   hasHardConflicts,
   buildCorridorRepairCandidateSubset,
-  improveCorridorRisk,
-  improveGroupRectOnlyPairs,
-  improvePairCorridorRisk,
-  relaxRadialSpacing,
-  repairPlacementIfNeeded,
   selectCorridorRepairTargets,
 } from './footprintLayoutRepairStages';
 
@@ -51,18 +45,7 @@ const MAP_GAP = 128;
 const LINE_BUNDLE_DISTANCE = 34;
 const LOCAL_DENSITY_DISTANCE = 420;
 const GLOBAL_SECTOR_COUNT = 16;
-const REBALANCE_ITERATION_COUNT = 8;
-const RADIAL_RELAX_PASS_LIMIT = 6;
 const MAX_CANDIDATES_PER_GROUP = 48;
-const CORRIDOR_REPAIR_GROUP_LIMIT = 4;
-const CORRIDOR_REPAIR_CANDIDATE_LIMIT = 8;
-const CORRIDOR_REPAIR_NEAR_TAIL_LIMIT = 8;
-const CORRIDOR_REPAIR_SPREAD_SAMPLE_COUNT = 6;
-const PAIR_REPAIR_GROUP_LIMIT = 6;
-const PAIR_REPAIR_PASS_LIMIT = 2;
-const PAIR_REPAIR_DEEP_SEARCH_LIMIT = 16;
-const GROUP_RECT_ONLY_PAIR_LIMIT = 4;
-const GROUP_RECT_ONLY_CANDIDATE_LIMIT = 4;
 const ANGLE_OFFSETS_DEGREES = [-24, -16, -10, -6, 0, 6, 10, 16, 24];
 const RADIUS_FACTORS = [0.78, 0.86, 0.94, 1, 1.08, 1.18];
 const OUTER_RING_RADIUS_FACTORS = [1.24, 1.36];
@@ -136,20 +119,7 @@ const legacyDeps = {
   evaluateCandidate,
 };
 
-const repairDeps = {
-  config: {
-    rebalanceIterationCount: REBALANCE_ITERATION_COUNT,
-    radialRelaxPassLimit: RADIAL_RELAX_PASS_LIMIT,
-    corridorRepairGroupLimit: CORRIDOR_REPAIR_GROUP_LIMIT,
-    corridorRepairCandidateLimit: CORRIDOR_REPAIR_CANDIDATE_LIMIT,
-    corridorRepairNearTailLimit: CORRIDOR_REPAIR_NEAR_TAIL_LIMIT,
-    corridorRepairSpreadSampleCount: CORRIDOR_REPAIR_SPREAD_SAMPLE_COUNT,
-    pairRepairGroupLimit: PAIR_REPAIR_GROUP_LIMIT,
-    pairRepairPassLimit: PAIR_REPAIR_PASS_LIMIT,
-    pairRepairDeepSearchLimit: PAIR_REPAIR_DEEP_SEARCH_LIMIT,
-    groupRectOnlyPairLimit: GROUP_RECT_ONLY_PAIR_LIMIT,
-    groupRectOnlyCandidateLimit: GROUP_RECT_ONLY_CANDIDATE_LIMIT,
-  },
+const geometryAnalysisDeps = {
   buildLine,
   chooseBestGeometryForPlacement,
   countPlacementLineCrossings,
@@ -163,111 +133,6 @@ const repairDeps = {
   resolveGroupGeometryAsWhole,
   scoreFinalLayoutEnvelope,
   segmentsIntersect,
-  analyzePlacementState: (
-    groups: PendingPlaceGroup[],
-    placementById: Map<string, FootprintPlacement>,
-    mapRect: LogicalRect,
-    safeGap: number,
-    labelGapBoost: number,
-    lockedGroups: LockedPlaceGroup[],
-    options?: {
-      includeCorridorRisk?: boolean;
-      includeLineCrossings?: boolean;
-    },
-  ) => analyzePlacementState(
-    {
-      buildLine,
-      chooseBestGeometryForPlacement,
-      countPlacementLineCrossings,
-      geometryFitsMap,
-      getGroupGap: (gap: number) => Math.max(GROUP_GAP, gap),
-      getLabelGap,
-      hasLabelCollisions,
-      hasPhotoAgainstLabelCollisions,
-      rectOverlapsOccupiedPhotos,
-      rectsOverlap,
-      scoreFinalLayoutEnvelope,
-      resolveGroupGeometryAsWhole,
-      segmentsIntersect,
-    },
-    groups,
-    placementById,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
-    options,
-  ),
-  improveCorridorRisk: (
-    orderedGroups: PendingPlaceGroup[],
-    candidatePoolById: Map<string, PlacementCandidate[]>,
-    state: PlacementState,
-    mapRect: LogicalRect,
-    safeGap: number,
-    labelGapBoost: number,
-    lockedGroups: LockedPlaceGroup[],
-  ) => improveCorridorRisk(
-    repairDeps,
-    orderedGroups,
-    candidatePoolById,
-    state,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
-  ),
-  relaxRadialSpacing: (
-    orderedGroups: PendingPlaceGroup[],
-    state: PlacementState,
-    mapRect: LogicalRect,
-    safeGap: number,
-    labelGapBoost: number,
-    lockedGroups: LockedPlaceGroup[],
-  ) => relaxRadialSpacing(
-    repairDeps,
-    orderedGroups,
-    state,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
-  ),
-  improveGroupRectOnlyPairs: (
-    orderedGroups: PendingPlaceGroup[],
-    candidatePoolById: Map<string, PlacementCandidate[]>,
-    state: PlacementState,
-    mapRect: LogicalRect,
-    safeGap: number,
-    labelGapBoost: number,
-    lockedGroups: LockedPlaceGroup[],
-  ) => improveGroupRectOnlyPairs(
-    repairDeps,
-    orderedGroups,
-    candidatePoolById,
-    state,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
-  ),
-  improvePairCorridorRisk: (
-    orderedGroups: PendingPlaceGroup[],
-    candidatePoolById: Map<string, PlacementCandidate[]>,
-    state: PlacementState,
-    mapRect: LogicalRect,
-    safeGap: number,
-    labelGapBoost: number,
-    lockedGroups: LockedPlaceGroup[],
-  ) => improvePairCorridorRisk(
-    repairDeps,
-    orderedGroups,
-    candidatePoolById,
-    state,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
-  ),
 };
 
 function getPhotoGap(safeGap: number) {
@@ -991,7 +856,7 @@ function finalizePlacementVariant(
     return {
       placements: workingState.placementById,
       geometries: buildGeometryMapForPlacements(
-        repairDeps,
+        geometryAnalysisDeps,
         orderedGroups,
         workingState.placementById,
         mapRect,
@@ -1010,7 +875,7 @@ function finalizePlacementVariant(
   );
   markFinalizeMetric('finalize.refineRadialPlacementsMs');
   const refinedGeometryById = buildGeometryMapForPlacements(
-    repairDeps,
+    geometryAnalysisDeps,
     orderedGroups,
     refinedPlacementById,
     mapRect,
@@ -1020,7 +885,7 @@ function finalizePlacementVariant(
   );
   markFinalizeMetric('finalize.refinedGeometryMs');
   const optimizedGeometryById = buildGeometryMapForPlacements(
-    repairDeps,
+    geometryAnalysisDeps,
     orderedGroups,
     workingState.placementById,
     mapRect,
@@ -1031,7 +896,7 @@ function finalizePlacementVariant(
   markFinalizeMetric('finalize.optimizedGeometryMs');
 
   const refinedHasHardConflicts = hasHardConflicts(
-    repairDeps,
+    geometryAnalysisDeps,
     orderedGroups,
     refinedPlacementById,
     refinedGeometryById,
@@ -1041,7 +906,7 @@ function finalizePlacementVariant(
   );
   markFinalizeMetric('finalize.refinedHardConflictsMs');
   const optimizedHasHardConflicts = hasHardConflicts(
-    repairDeps,
+    geometryAnalysisDeps,
     orderedGroups,
     workingState.placementById,
     optimizedGeometryById,
@@ -1051,7 +916,7 @@ function finalizePlacementVariant(
   );
   markFinalizeMetric('finalize.optimizedHardConflictsMs');
   const refinedCorridorRisk = countCorridorRiskConflicts(
-    repairDeps,
+    geometryAnalysisDeps,
     orderedGroups,
     refinedGeometryById,
     safeGap,
@@ -1059,7 +924,7 @@ function finalizePlacementVariant(
   );
   markFinalizeMetric('finalize.refinedCorridorRiskMs');
   const optimizedCorridorRisk = countCorridorRiskConflicts(
-    repairDeps,
+    geometryAnalysisDeps,
     orderedGroups,
     optimizedGeometryById,
     safeGap,
@@ -1085,7 +950,7 @@ function finalizePlacementVariant(
     ? refinedGeometryById
     : optimizedGeometryById;
   const baseGeometryById = buildGeometryMapForPlacements(
-    repairDeps,
+    geometryAnalysisDeps,
     orderedGroups,
     basePlacementById,
     mapRect,
@@ -1214,57 +1079,6 @@ export function solvePendingGroupPlacements(
     );
     markMetric('refineAnglesAndRadiiMs');
   }
-  reportStage?.('分析冲突并决定修复链');
-  const preRepairAnalysis = analyzePlacementState(
-    repairDeps,
-    repairOrderedGroups,
-    workingState.placementById,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
-    {
-      includeCorridorRisk: false,
-      includeLineCrossings: true,
-    },
-  );
-  markMetric('preRepairAnalysisMs');
-  const needsRepair =
-    preRepairAnalysis.hasHardConflicts ||
-    preRepairAnalysis.lineCrossings > 0;
-
-  if (legacyInputs && needsRepair) {
-    reportStage?.('执行连续修复');
-    repairPlacementIfNeeded(
-      repairDeps,
-      repairOrderedGroups,
-      legacyInputs.candidatePoolById,
-      workingState,
-      mapRect,
-      safeGap,
-      labelGapBoost,
-      lockedGroups,
-      reportMetric,
-    );
-  } else if (needsRepair) {
-    const layeredLegacyInputs = buildLegacySolverInputs(legacyDeps, planningGroups, basePlacementById, mapRect);
-    markMetric('buildLayeredLegacySolverInputsMs');
-    reportStage?.('执行连续修复');
-    repairPlacementIfNeeded(
-      repairDeps,
-      repairOrderedGroups,
-      layeredLegacyInputs.candidatePoolById,
-      workingState,
-      mapRect,
-      safeGap,
-      labelGapBoost,
-      lockedGroups,
-      reportMetric,
-    );
-  }
-  if (needsRepair) {
-    markMetric('repairPlacementIfNeededMs');
-  }
 
   reportStage?.('收敛最终排布');
   const result = finalizePlacementVariant(
@@ -1286,14 +1100,14 @@ export const __layoutSolverInternals = {
   buildPlanningGroups,
   buildCandidatePool,
   buildCorridorRepairCandidateSubset: (candidates: PlacementCandidate[]) => (
-    buildCorridorRepairCandidateSubset(repairDeps, candidates)
+    buildCorridorRepairCandidateSubset(geometryAnalysisDeps, candidates)
   ),
   selectCorridorRepairTargets: (
     groups: PendingPlaceGroup[],
     geometryById: Map<string, GroupGeometry>,
     safeGap: number,
     lockedGroups: LockedPlaceGroup[] = [],
-  ) => selectCorridorRepairTargets(repairDeps, groups, geometryById, safeGap, lockedGroups),
+  ) => selectCorridorRepairTargets(geometryAnalysisDeps, groups, geometryById, safeGap, lockedGroups),
   countPlacementLineCrossings,
   assignInitialPlacements: (
     orderedGroups: PendingPlaceGroup[],
@@ -1320,23 +1134,5 @@ export const __layoutSolverInternals = {
     state,
     lockedGroups,
     safeGap,
-  ),
-  improveCorridorRisk: (
-    orderedGroups: PendingPlaceGroup[],
-    candidatePoolById: Map<string, PlacementCandidate[]>,
-    state: PlacementState,
-    mapRect: LogicalRect,
-    safeGap: number,
-    labelGapBoost: number,
-    lockedGroups: LockedPlaceGroup[],
-  ) => improveCorridorRisk(
-    repairDeps,
-    orderedGroups,
-    candidatePoolById,
-    state,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
   ),
 };
