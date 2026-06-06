@@ -48,7 +48,7 @@ import {
 
 const GROUP_GAP = 14;
 const LABEL_GAP = 22;
-const MAP_GAP = 128;
+const MAP_GAP = 0;
 const LINE_BUNDLE_DISTANCE = 34;
 const LOCAL_DENSITY_DISTANCE = 420;
 const GLOBAL_SECTOR_COUNT = 16;
@@ -587,13 +587,7 @@ function buildCandidatePool(
   const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
   const safeBaseRadius = getAdaptiveBaseRadius(baseRadius, mapRect);
   const adaptiveOuterRingFactors = getAdaptiveOuterRingFactors(baseRadius, mapRect);
-  const mapExpandedRect = {
-    left: mapRect.left - MAP_GAP,
-    right: mapRect.right + MAP_GAP,
-    top: mapRect.top - MAP_GAP,
-    bottom: mapRect.bottom + MAP_GAP,
-  };
-  const nearProtectedMapBand = rectDistanceToMap(group.collisionRect, mapExpandedRect) < 96;
+  const nearProtectedMapBand = rectDistanceToMap(group.collisionRect, mapRect) < 96;
   const allowWideEscape = sectorDensity >= 3 && nearProtectedMapBand;
   const nearLowerCornerTransition =
     group.logicalY > mapRect.bottom - 28 &&

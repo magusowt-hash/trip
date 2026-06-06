@@ -1006,6 +1006,7 @@ function UserFootprintsPageInner() {
     options: {
       poiPoints?: PoiPoint[];
       groupLayouts?: GroupLayoutSnapshot[];
+      mapRect?: LogicalRect;
       onSolverStage?: (stage: string) => void;
     } = {},
   ): GroupLayoutSnapshot[] {
@@ -1029,7 +1030,7 @@ function UserFootprintsPageInner() {
     const collisionScale = CLAMP_SCALE.max;
     const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
     const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
-    const mapRect = getFootprintMapRect(viewportWidth, viewportHeight);
+    const mapRect = options.mapRect ?? getFootprintMapRect(viewportWidth, viewportHeight);
     const allGroups = new Map<string, PhotoItem[]>();
     for (const photo of referencePhotos) {
       const arr = allGroups.get(photo.placeKey) || [];
