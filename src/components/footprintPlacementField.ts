@@ -371,6 +371,33 @@ export function selectBalancedAngleInFreeArc(
   return bestAngle;
 }
 
+function buildAngleCandidatesInFreeArc(
+  freeArc: PolarFreeArc,
+  idealAngle: number,
+  requiredSpanAngle: number,
+) {
+  const halfSpan = requiredSpanAngle * 0.5;
+  const minAngle = freeArc.angleStart + halfSpan;
+  const maxAngle = freeArc.angleEnd - halfSpan;
+  if (maxAngle < minAngle) return [];
+
+  const center = (freeArc.angleStart + freeArc.angleEnd) * 0.5;
+  const centeredIdeal = clamp(normalizeAngle(idealAngle), minAngle, maxAngle);
+  const quarterLeft = clamp(center - Math.max(requiredSpanAngle * 0.4, (maxAngle - minAngle) * 0.22), minAngle, maxAngle);
+  const quarterRight = clamp(center + Math.max(requiredSpanAngle * 0.4, (maxAngle - minAngle) * 0.22), minAngle, maxAngle);
+  const balanced = selectBalancedAngleInFreeArc(freeArc, idealAngle, requiredSpanAngle);
+
+  return Array.from(new Set([
+    minAngle,
+    quarterLeft,
+    balanced,
+    center,
+    quarterRight,
+    centeredIdeal,
+    maxAngle,
+  ].filter((angle): angle is number => angle != null)));
+}
+
 function buildOccupancyCandidate(
   freeArc: PolarFreeArc,
   angle: number,
@@ -454,14 +481,15 @@ export function findPlacementInField(
     lastFreeArcs = freeArcs;
     const candidatesAtRadius: PlacementFieldCandidate[] = [];
     for (const freeArc of freeArcs) {
-      const angle = selectBalancedAngleInFreeArc(freeArc, idealAngle, requiredSpanAngle);
-      if (angle == null) continue;
-      candidatesAtRadius.push(buildOccupancyCandidate(
-        freeArc,
-        angle,
-        radius,
-        requiredSpanAngle,
-      ));
+      const angleCandidates = buildAngleCandidatesInFreeArc(freeArc, idealAngle, requiredSpanAngle);
+      for (const angle of angleCandidates) {
+        candidatesAtRadius.push(buildOccupancyCandidate(
+          freeArc,
+          angle,
+          radius,
+          requiredSpanAngle,
+        ));
+      }
     }
 
     if (candidatesAtRadius.length > 0) {
@@ -469,7 +497,7 @@ export function findPlacementInField(
         scoreAngleWithinFreeArc(left.freeArc, left.angle, idealAngle) -
         scoreAngleWithinFreeArc(right.freeArc, right.angle, idealAngle)
       ));
-      rankedCandidates.push(...sortedAtRadius.slice(0, Math.min(3, sortedAtRadius.length)));
+      rankedCandidates.push(...sortedAtRadius.slice(0, Math.min(5, sortedAtRadius.length)));
       trace.push({
         radius,
         sectorStart: sector.start,

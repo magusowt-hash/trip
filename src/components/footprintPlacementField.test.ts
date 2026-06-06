@@ -195,6 +195,31 @@ test('findPlacementInField compares multiple free arcs on the same radius instea
   );
 });
 
+test('findPlacementInField preserves multiple angle options within one wide free arc for later layered coordination', () => {
+  const group = buildGroup('wide-arc', '宽弧组', rect(-50, -30, 50, 40), 0, 0);
+  const result = findPlacementInField(group, group.collisionGeometry, [], {
+    idealAngle: Math.PI,
+    idealRadius: 320,
+    minRadius: 320,
+    maxRadius: 320,
+    radiusStep: 20,
+    radiusScanLimit: 0,
+    sectorStart: Math.PI * 0.75,
+    sectorEnd: Math.PI * 1.25,
+  });
+
+  const sameRadiusAngles = [...new Set(
+    result.candidates
+      .filter((candidate) => Math.abs(candidate.radius - 320) < 1e-6)
+      .map((candidate) => Number(candidate.angle.toFixed(6))),
+  )];
+
+  assert.ok(
+    sameRadiusAngles.length >= 3,
+    `expected multiple same-radius angle options inside one free arc, got ${sameRadiusAngles.join(', ')}`,
+  );
+});
+
 test('scoreFreeArcStructure penalizes fragmented and narrow corridor layouts', () => {
   const smooth = scoreFreeArcStructure([
     { angleStart: 0.8, angleEnd: 1.6 },
