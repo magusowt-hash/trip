@@ -970,7 +970,7 @@ function buildOccupiedGeometriesForGroup(
     })
     .filter((candidate): candidate is { id: string; geometry: GroupGeometry } => candidate !== null);
 
-  const resolved = resolveGroupGeometryAsWhole(entries, { gap: safeGap });
+  const resolved = resolveGroupGeometryAsWhole(entries, { gap: safeGap, mapRect, mapGap: 0 });
   return entries
     .map((entry) => resolved.get(entry.id) ?? entry.geometry);
 }

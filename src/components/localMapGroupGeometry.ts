@@ -481,7 +481,11 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   return candidates;
 }
 
-export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry, fixedLabelSide?: GroupLabelSide) {
+export function buildGroupGeometryCandidatesFromGeometry(
+  geometry: GroupGeometry,
+  fixedLabelSide?: GroupLabelSide,
+  mapRect?: LogicalRect,
+) {
   const photoRect = geometry.photoRect;
   const photoCenter = rectCenter(photoRect);
   const labelHalfWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left) / 2;
@@ -539,7 +543,7 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
       labelAnchorY,
       lineAnchorX,
       lineAnchorY,
-    });
+    }, mapRect);
   };
 
   const preferredSide = fixedLabelSide ?? geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
@@ -559,6 +563,7 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
 export function buildSingleSideGroupGeometryFromGeometry(
   geometry: GroupGeometry,
   fixedLabelSide?: GroupLabelSide,
+  mapRect?: LogicalRect,
 ) {
   const photoRect = geometry.photoRect;
   const photoCenter = rectCenter(photoRect);
@@ -617,7 +622,7 @@ export function buildSingleSideGroupGeometryFromGeometry(
     labelAnchorY,
     lineAnchorX,
     lineAnchorY,
-  });
+  }, mapRect);
 }
 
 export function buildGroupGeometry(
@@ -942,9 +947,9 @@ function computeMapClearanceOffset(
 ) {
   if (!mapRect) return 0;
   if (candidate.labelSide === 'top') {
-    return Math.max(0, candidate.overallRect.bottom - (mapRect.top - mapGap));
+    return Math.max(0, candidate.labelRect.bottom - (mapRect.top - mapGap));
   }
-  return Math.max(0, mapRect.bottom + mapGap - candidate.overallRect.top);
+  return Math.max(0, mapRect.bottom + mapGap - candidate.labelRect.top);
 }
 
 function isLabelPlacementHardInvalid(
@@ -960,7 +965,7 @@ function isLabelPlacementHardInvalid(
     return true;
   }
 
-  if (mapRect && rectOverlapsMap(candidate.overallRect, mapRect, gapPolicy.mapGap)) {
+  if (mapRect && rectOverlapsMap(candidate.labelRect, mapRect, gapPolicy.mapGap)) {
     return true;
   }
 
@@ -975,7 +980,7 @@ function scoreLabelPlacementPenalties(
 ) {
   let penalty = 0;
   const overlapsMap = mapRect
-    ? rectOverlapsMap(candidate.overallRect, mapRect, gapPolicy.mapGap)
+    ? rectOverlapsMap(candidate.labelRect, mapRect, gapPolicy.mapGap)
     : false;
 
   for (const neighbor of occupied) {
@@ -995,7 +1000,7 @@ function scoreLabelPlacementPenalties(
 
   if (mapRect) {
     penalty += scorePlacementGapViolation(
-      candidate.overallRect,
+      candidate.labelRect,
       mapRect,
       gapPolicy.mapGap,
       4.2,
@@ -1030,7 +1035,7 @@ function scoreResolvedCandidate(
   }, 0);
   score += nearbySameSidePenalty;
 
-  if (mapRect && mapGap != null && rectOverlapsMap(candidate.overallRect, mapRect, mapGap)) {
+  if (mapRect && mapGap != null && rectOverlapsMap(candidate.labelRect, mapRect, mapGap)) {
     score += 500000;
   }
 
@@ -1268,7 +1273,9 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
   const candidateEntries = sortedEntries.map((entry) => ({
     id: entry.id,
     geometry: entry.geometry,
-    candidates: entry.candidates?.length ? entry.candidates : [buildSingleSideGroupGeometryFromGeometry(entry.geometry)],
+    candidates: entry.candidates?.length
+      ? entry.candidates
+      : buildGroupGeometryCandidatesFromGeometry(entry.geometry, undefined, options?.mapRect),
   }));
   const resolved = new Map<T, GroupGeometry>();
 
