@@ -907,7 +907,7 @@ function buildClusterRelaxPlacements(
 ) {
   const variants: Array<Map<string, FootprintPlacement>> = [];
   const stepMultipliers = [1, 1.5, 2.25, 3.5, 5, 7];
-  const tangentFactors = [0, 0.35, -0.35];
+  const tangentFactors = [0];
 
   for (const stepMultiplier of stepMultipliers) {
     for (const tangentFactor of tangentFactors) {
@@ -917,10 +917,9 @@ function buildClusterRelaxPlacements(
         if (!placement) return;
         const chainFactor = 1 + index * 0.55;
         const radialDelta = analysis.requiredDistance * stepMultiplier * chainFactor;
-        const tangentDelta = analysis.requiredDistance * tangentFactor * analysis.tangentSign * Math.max(1, 0.8 + index * 0.25);
         variant.set(key, {
-          centerX: placement.centerX + analysis.radialDirection.x * radialDelta + analysis.tangentDirection.x * tangentDelta,
-          centerY: placement.centerY + analysis.radialDirection.y * radialDelta + analysis.tangentDirection.y * tangentDelta,
+          centerX: placement.centerX + analysis.radialDirection.x * radialDelta,
+          centerY: placement.centerY + analysis.radialDirection.y * radialDelta,
         });
       });
       variants.push(variant);

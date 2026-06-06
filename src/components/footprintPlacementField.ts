@@ -438,10 +438,20 @@ export function findPlacementInField(
   const rankedCandidates: PlacementFieldCandidate[] = [];
   const trace: PlacementFieldSearchResult['trace'] = [];
   const radii: number[] = [];
-  for (let stepIndex = 0; stepIndex <= radiusScanLimit; stepIndex++) {
-    const radius = minRadius + stepIndex * radiusStep;
-    if (radius > maxRadius) break;
-    radii.push(radius);
+  const preferredStartRadius = clamp(idealRadius, minRadius, maxRadius);
+  radii.push(preferredStartRadius);
+  for (let stepIndex = 1; stepIndex <= radiusScanLimit; stepIndex++) {
+    const inwardRadius = preferredStartRadius - stepIndex * radiusStep;
+    if (inwardRadius >= minRadius) {
+      radii.push(inwardRadius);
+    }
+    const outwardRadius = preferredStartRadius + stepIndex * radiusStep;
+    if (outwardRadius <= maxRadius) {
+      radii.push(outwardRadius);
+    }
+    if (inwardRadius < minRadius && outwardRadius > maxRadius) {
+      break;
+    }
   }
 
   for (const radius of radii) {
@@ -486,7 +496,7 @@ export function findPlacementInField(
           occupancyEnd: candidate.occupancyEnd,
         })),
       });
-      if (rankedCandidates.length >= 12) {
+      if (rankedCandidates.length >= 18) {
         break;
       }
       continue;

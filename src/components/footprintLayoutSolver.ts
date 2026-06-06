@@ -24,14 +24,11 @@ import {
   rectDistanceToMap,
   rectOverlapsOccupiedPhotos,
 } from './footprintLayoutConstraints';
-import { refineRadialPlacements } from './footprintSectorLayoutEngine';
-import { chooseFinalPlacementVariant } from './footprintLayoutSelection';
 import {
   buildPlacementLayers,
   lastLayeredPlacementFailures,
   lastLayeredPlacementTrace,
   placeGroupsLayerByLayer,
-  refineAnglesAndRadii,
 } from './footprintLayoutLayeredPlacement';
 import {
   assignInitialPlacements,
@@ -41,9 +38,11 @@ import {
 } from './footprintLayoutLegacyFallback';
 import {
   buildGeometryMapForPlacements,
-  countCorridorRiskConflicts,
-  hasHardConflicts,
   buildCorridorRepairCandidateSubset,
+  improveCorridorRisk,
+  improveGroupRectOnlyPairs,
+  improvePairCorridorRisk,
+  relaxRadialSpacing,
   selectCorridorRepairTargets,
 } from './footprintLayoutRepairStages';
 
@@ -61,10 +60,23 @@ const DENSE_SECTOR_ANGLE_OFFSETS_DEGREES = [-32, -24, 24, 32];
 const DENSE_SECTOR_RADIUS_FACTORS = [1.08, 1.18, 1.28];
 const DENSE_MAP_ADJACENT_ESCAPE_ANGLE_OFFSETS_DEGREES = [-72, -56, 56, 72];
 const DENSE_MAP_ADJACENT_ESCAPE_RADIUS_FACTORS = [1.18, 1.32, 1.46];
-const FINAL_VARIANT_REFINEMENT_GROUP_LIMIT = 20;
-const UPPER_REGION_BOTTOM_CLEARANCE = 132;
-const LOWER_REGION_TOP_CLEARANCE = 132;
-const LOWER_TRANSITION_BAND_DEGREES = 10;
+const PRESSURE_YIELD_ANGLE_OFFSETS_DEGREES = [-42, -30, 30, 42];
+const PRESSURE_YIELD_RADIUS_FACTORS = [1, 1.08, 1.18];
+const CORNER_TRANSITION_ESCAPE_ANGLE_OFFSETS_DEGREES = [-96, -84, 84, 96];
+const CORNER_TRANSITION_ESCAPE_RADIUS_FACTORS = [1.08, 1.22, 1.38];
+const REPAIR_TEST_CONFIG = {
+  rebalanceIterationCount: 3,
+  radialRelaxPassLimit: 2,
+  corridorRepairGroupLimit: 8,
+  corridorRepairCandidateLimit: 10,
+  corridorRepairNearTailLimit: 6,
+  corridorRepairSpreadSampleCount: 5,
+  pairRepairGroupLimit: 6,
+  pairRepairPassLimit: 2,
+  pairRepairDeepSearchLimit: 8,
+  groupRectOnlyPairLimit: 6,
+  groupRectOnlyCandidateLimit: 6,
+} as const;
 
 type PlacementCandidate = {
   placement: FootprintPlacement;
@@ -326,57 +338,6 @@ function getGeometryLabelOffset(geometry: GroupGeometry) {
     : Math.max(0, geometry.lineAnchorY - geometry.photoRect.bottom);
 }
 
-function isPointInLowerPartition(pointX: number, pointY: number, mapRect: LogicalRect) {
-  if (pointY > mapRect.bottom) return true;
-  if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
-
-  const verticalDistance = pointY - mapRect.bottom;
-  if (pointX < mapRect.left) {
-    return verticalDistance >= mapRect.left - pointX;
-  }
-  return verticalDistance >= pointX - mapRect.right;
-}
-
-function isPointInLowerTransitionBand(pointX: number, pointY: number, mapRect: LogicalRect) {
-  if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
-  if (pointY <= mapRect.bottom) return false;
-
-  const boundaryAngle =
-    pointX < mapRect.left
-      ? Math.atan2(mapRect.bottom - pointY, mapRect.left - pointX)
-      : Math.atan2(mapRect.bottom - pointY, pointX - mapRect.right);
-  const bandRadians = (LOWER_TRANSITION_BAND_DEGREES * Math.PI) / 180;
-  return Math.abs(Math.abs(boundaryAngle) - Math.PI / 4) <= bandRadians;
-}
-
-function applyPlanningEnvelope(
-  geometry: GroupGeometry,
-  mapRect?: LogicalRect,
-) {
-  if (!mapRect) return geometry;
-
-  const rect = geometry.groupRect;
-  const sampleXs = [rect.left, (rect.left + rect.right) * 0.5, rect.right];
-  const sampleYs = [rect.top, (rect.top + rect.bottom) * 0.5, rect.bottom];
-  const inLowerRegion = sampleYs.some((sampleY) => (
-    sampleXs.some((sampleX) => isPointInLowerPartition(sampleX, sampleY, mapRect))
-  ));
-  const inLowerTransitionBand = sampleYs.some((sampleY) => (
-    sampleXs.some((sampleX) => isPointInLowerTransitionBand(sampleX, sampleY, mapRect))
-  ));
-  const planningRect = {
-    ...rect,
-    top: rect.top - (inLowerRegion || inLowerTransitionBand ? LOWER_REGION_TOP_CLEARANCE : 0),
-    bottom: rect.bottom + (inLowerTransitionBand ? UPPER_REGION_BOTTOM_CLEARANCE : inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
-  };
-
-  return {
-    ...geometry,
-    groupRect: planningRect,
-    overallRect: planningRect,
-  };
-}
-
 function buildGeometryForPlacement(
   group: PendingPlaceGroup,
   placement: FootprintPlacement,
@@ -399,7 +360,7 @@ function buildGeometryForPlacement(
     placement.centerX,
     placement.centerY,
   );
-  return applyPlanningEnvelope(translated, mapRect);
+  return translated;
 }
 
 function geometryFitsMap(geometry: GroupGeometry, mapRect: LogicalRect) {
@@ -416,54 +377,6 @@ function chooseBestGeometryForPlacement(
   mapRect: LogicalRect,
 ) {
   return buildGeometryForPlacement(group, placement, mapRect);
-}
-
-function buildPlanningGeometry(
-  group: PendingPlaceGroup,
-  absoluteCenterX: number,
-  absoluteCenterY: number,
-) {
-  const preferredLabelSide = group.mapRect
-    ? resolvePreferredLabelSideForMap(absoluteCenterX, absoluteCenterY, group.mapRect)
-    : group.collisionGeometry.labelSide;
-  const relativeGeometry = buildGroupGeometryFromPhotoRect(
-    group.collisionGeometry.photoRect,
-    group.placePhotos[0]?.placeTitle || '',
-    group.placePhotos.length,
-    1,
-    preferredLabelSide,
-    getGeometryLabelOffset(group.collisionGeometry),
-  );
-  const absoluteGeometry = translateGroupGeometry(
-    relativeGeometry,
-    absoluteCenterX,
-    absoluteCenterY,
-  );
-  const plannedAbsoluteGeometry = applyPlanningEnvelope(absoluteGeometry, group.mapRect);
-  return translateGroupGeometry(
-    plannedAbsoluteGeometry,
-    -absoluteCenterX,
-    -absoluteCenterY,
-  );
-}
-
-function buildPlanningGroups(
-  groups: PendingPlaceGroup[],
-  placementById?: Map<string, FootprintPlacement>,
-) {
-  return groups.map((group) => {
-    const placement = placementById?.get(group.placeKey);
-    const planningGeometry = buildPlanningGeometry(
-      group,
-      placement?.centerX ?? group.logicalX,
-      placement?.centerY ?? group.logicalY,
-    );
-    return {
-      ...group,
-      collisionGeometry: planningGeometry,
-      collisionRect: planningGeometry.groupRect,
-    };
-  });
 }
 
 function compareLegacyGroupOrder(
@@ -563,9 +476,31 @@ function buildCandidatePool(
   };
   const nearProtectedMapBand = rectDistanceToMap(group.collisionRect, mapExpandedRect) < 96;
   const allowWideEscape = sectorDensity >= 3 && nearProtectedMapBand;
+  const nearLowerCornerTransition =
+    group.logicalY > mapRect.bottom - 28 &&
+    Math.abs(group.logicalX) > mapRect.right - 36;
+  const groupWidth = Math.max(1, group.collisionRect.right - group.collisionRect.left);
+  const groupHeight = Math.max(1, group.collisionRect.bottom - group.collisionRect.top);
+  const groupArea = groupWidth * groupHeight;
+  const pressureYieldEnabled = sectorDensity >= 2 || groupArea >= 28_000;
+  const pressureYieldDegrees = Math.min(
+    54,
+    Math.max(
+      18,
+      Math.round(
+        (sectorDensity * 7) +
+        Math.min(16, groupArea / 4_500),
+      ),
+    ),
+  );
   const seeds: PlacementCandidate[] = [];
 
-  const addCandidate = (angle: number, radius: number, useWideEscapePenalty = false) => {
+  const addCandidate = (
+    angle: number,
+    radius: number,
+    useWideEscapePenalty = false,
+    scoreAdjustment = 0,
+  ) => {
     const placement = {
       centerX: Math.cos(angle) * radius,
       centerY: Math.sin(angle) * radius,
@@ -583,7 +518,7 @@ function buildCandidatePool(
         geometry,
         mapRect,
         useWideEscapePenalty,
-      ),
+      ) + scoreAdjustment,
     });
   };
 
@@ -615,6 +550,53 @@ function buildCandidatePool(
       const radius = safeBaseRadius * radiusFactor;
       for (const angleOffset of DENSE_MAP_ADJACENT_ESCAPE_ANGLE_OFFSETS_DEGREES) {
         addCandidate(baseAngle + (angleOffset * Math.PI) / 180, radius, true);
+      }
+    }
+  }
+
+  if (nearLowerCornerTransition) {
+    for (const radiusFactor of CORNER_TRANSITION_ESCAPE_RADIUS_FACTORS) {
+      const radius = safeBaseRadius * radiusFactor;
+      for (const angleOffset of CORNER_TRANSITION_ESCAPE_ANGLE_OFFSETS_DEGREES) {
+        addCandidate(
+          baseAngle + (angleOffset * Math.PI) / 180,
+          radius,
+          true,
+          -36,
+        );
+      }
+    }
+  }
+
+  if (pressureYieldEnabled) {
+    const dynamicOffsets = Array.from(new Set([
+      ...PRESSURE_YIELD_ANGLE_OFFSETS_DEGREES,
+      -pressureYieldDegrees,
+      pressureYieldDegrees,
+      -Math.max(20, Math.round(pressureYieldDegrees * 0.72)),
+      Math.max(20, Math.round(pressureYieldDegrees * 0.72)),
+    ])).sort((left, right) => left - right);
+    for (const radiusFactor of PRESSURE_YIELD_RADIUS_FACTORS) {
+      const radius = safeBaseRadius * radiusFactor;
+      for (const angleOffset of dynamicOffsets) {
+        const normalizedOffset = Math.abs(angleOffset) / Math.max(1, pressureYieldDegrees);
+        const denseYieldBonus = sectorDensity >= 3 ? 42 : 24;
+        const protectedBandBonus = nearProtectedMapBand ? 20 : 0;
+        const areaBonus = Math.min(18, groupArea / 3000);
+        const outwardBonus = Math.max(0, radiusFactor - 1) * 12;
+        const scoreAdjustment = -(
+          denseYieldBonus +
+          protectedBandBonus +
+          areaBonus +
+          normalizedOffset * 18 +
+          outwardBonus
+        );
+        addCandidate(
+          baseAngle + (angleOffset * Math.PI) / 180,
+          radius,
+          true,
+          scoreAdjustment,
+        );
       }
     }
   }
@@ -693,6 +675,34 @@ function computeEnvelopePenalty(
     area * 0.00006 +
     maxViewRadius * 0.42
   );
+}
+
+function scoreFinalLayoutEnvelope(
+  groups: PendingPlaceGroup[],
+  geometryById: Map<string, GroupGeometry>,
+) {
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+  let radiusSum = 0;
+  let count = 0;
+  for (const group of groups) {
+    const geometry = geometryById.get(group.placeKey);
+    if (!geometry) continue;
+    left = Math.min(left, geometry.groupRect.left);
+    right = Math.max(right, geometry.groupRect.right);
+    top = Math.min(top, geometry.groupRect.top);
+    bottom = Math.max(bottom, geometry.groupRect.bottom);
+    radiusSum += Math.hypot(geometry.photoCenterX, geometry.photoCenterY);
+    count += 1;
+  }
+
+  if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return (right - left) * 0.82 + (bottom - top) * 0.82 + (count > 0 ? radiusSum / count : 0) * 1.18;
 }
 
 function computeCorridorRiskPenalty(
@@ -829,34 +839,6 @@ function evaluateCandidate(
   };
 }
 
-function scoreFinalLayoutEnvelope(
-  groups: PendingPlaceGroup[],
-  geometryById: Map<string, GroupGeometry>,
-) {
-  let left = Infinity;
-  let right = -Infinity;
-  let top = Infinity;
-  let bottom = -Infinity;
-  let radiusSum = 0;
-  let count = 0;
-  for (const group of groups) {
-    const geometry = geometryById.get(group.placeKey);
-    if (!geometry) continue;
-    left = Math.min(left, geometry.groupRect.left);
-    right = Math.max(right, geometry.groupRect.right);
-    top = Math.min(top, geometry.groupRect.top);
-    bottom = Math.max(bottom, geometry.groupRect.bottom);
-    radiusSum += Math.hypot(geometry.photoCenterX, geometry.photoCenterY);
-    count += 1;
-  }
-
-  if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  return (right - left) * 0.82 + (bottom - top) * 0.82 + (count > 0 ? radiusSum / count : 0) * 1.18;
-}
-
 function buildFallbackState(
   orderedGroups: PendingPlaceGroup[],
   basePlacementById: Map<string, FootprintPlacement>,
@@ -879,145 +861,6 @@ function buildFallbackState(
   return state;
 }
 
-function finalizePlacementVariant(
-  orderedGroups: PendingPlaceGroup[],
-  workingState: PlacementState,
-  basePlacementById: Map<string, FootprintPlacement>,
-  mapRect: LogicalRect,
-  safeGap: number,
-  labelGapBoost: number,
-  lockedGroups: LockedPlaceGroup[],
-  reportMetric?: SolverMetricReporter,
-) {
-  const finalizeStartedAt = performance.now();
-  const markFinalizeMetric = (name: string) => {
-    reportMetric?.(name, Number((performance.now() - finalizeStartedAt).toFixed(1)));
-  };
-  if (orderedGroups.length >= FINAL_VARIANT_REFINEMENT_GROUP_LIMIT) {
-    markFinalizeMetric('finalize.skipLargeRefinementMs');
-    return {
-      placements: workingState.placementById,
-      geometries: buildGeometryMapForPlacements(
-        geometryAnalysisDeps,
-        orderedGroups,
-        workingState.placementById,
-        mapRect,
-        safeGap,
-        labelGapBoost,
-        lockedGroups,
-      ),
-    };
-  }
-  const refinedPlacementById = refineRadialPlacements(
-    orderedGroups,
-    new Map(workingState.placementById),
-    mapRect,
-    Math.max(safeGap, MAP_GAP),
-    labelGapBoost,
-  );
-  markFinalizeMetric('finalize.refineRadialPlacementsMs');
-  const refinedGeometryById = buildGeometryMapForPlacements(
-    geometryAnalysisDeps,
-    orderedGroups,
-    refinedPlacementById,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
-  );
-  markFinalizeMetric('finalize.refinedGeometryMs');
-  const optimizedGeometryById = buildGeometryMapForPlacements(
-    geometryAnalysisDeps,
-    orderedGroups,
-    workingState.placementById,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
-  );
-  markFinalizeMetric('finalize.optimizedGeometryMs');
-
-  const refinedHasHardConflicts = hasHardConflicts(
-    geometryAnalysisDeps,
-    orderedGroups,
-    refinedPlacementById,
-    refinedGeometryById,
-    mapRect,
-    safeGap,
-    lockedGroups,
-  );
-  markFinalizeMetric('finalize.refinedHardConflictsMs');
-  const optimizedHasHardConflicts = hasHardConflicts(
-    geometryAnalysisDeps,
-    orderedGroups,
-    workingState.placementById,
-    optimizedGeometryById,
-    mapRect,
-    safeGap,
-    lockedGroups,
-  );
-  markFinalizeMetric('finalize.optimizedHardConflictsMs');
-  const refinedCorridorRisk = countCorridorRiskConflicts(
-    geometryAnalysisDeps,
-    orderedGroups,
-    refinedGeometryById,
-    safeGap,
-    lockedGroups,
-  );
-  markFinalizeMetric('finalize.refinedCorridorRiskMs');
-  const optimizedCorridorRisk = countCorridorRiskConflicts(
-    geometryAnalysisDeps,
-    orderedGroups,
-    optimizedGeometryById,
-    safeGap,
-    lockedGroups,
-  );
-  markFinalizeMetric('finalize.optimizedCorridorRiskMs');
-  const refinedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, refinedGeometryById);
-  const optimizedEnvelopeScore = scoreFinalLayoutEnvelope(orderedGroups, optimizedGeometryById);
-  markFinalizeMetric('finalize.envelopeScoreMs');
-  const finalVariant = chooseFinalPlacementVariant({
-    refinedHasHardConflicts,
-    optimizedHasHardConflicts,
-    refinedCorridorRisk,
-    optimizedCorridorRisk,
-    refinedEnvelopeScore,
-    optimizedEnvelopeScore,
-  });
-  markFinalizeMetric('finalize.chooseVariantMs');
-  const finalPlacements = finalVariant === 'refined'
-    ? refinedPlacementById
-    : workingState.placementById;
-  const finalGeometryById = finalPlacements === refinedPlacementById
-    ? refinedGeometryById
-    : optimizedGeometryById;
-  const baseGeometryById = buildGeometryMapForPlacements(
-    geometryAnalysisDeps,
-    orderedGroups,
-    basePlacementById,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
-  );
-  markFinalizeMetric('finalize.baseGeometryMs');
-  const baseLineCrossings = countPlacementLineCrossings(orderedGroups, basePlacementById);
-  const finalLineCrossings = countPlacementLineCrossings(orderedGroups, finalPlacements);
-  markFinalizeMetric('finalize.lineCrossingsMs');
-
-  if (orderedGroups.length >= 20 && baseLineCrossings === 0 && finalLineCrossings > 0) {
-    return {
-      placements: basePlacementById,
-      geometries: baseGeometryById,
-    };
-  }
-
-  return {
-    placements: finalPlacements,
-    geometries: finalGeometryById,
-  };
-}
-
 export function solvePendingGroupPlacements(
   groups: PendingPlaceGroup[],
   mapRect: LogicalRect,
@@ -1037,37 +880,8 @@ export function solvePendingGroupPlacements(
     reportMetric?.(name, Number((performance.now() - solverStartedAt).toFixed(1)));
   };
   reportStage?.('生成基座外环');
-  const initialBasePlacements = buildRadialLayout(
-    groups.map((group) => ({
-      id: group.placeKey,
-      x: group.logicalX,
-      y: group.logicalY,
-      rect: group.collisionRect,
-    })),
-    mapRect,
-    { mapGap: MAP_GAP },
-  );
-  const initialBasePlacementById = new Map<string, FootprintPlacement>();
-  initialBasePlacements.forEach((placement) => {
-    initialBasePlacementById.set(placement.id, {
-      centerX: placement.centerX,
-      centerY: placement.centerY,
-    });
-  });
-  const planningGroups = buildPlanningGroups(groups, initialBasePlacementById);
-  trace.steps.push({
-    step: 'planning-groups',
-    placements: snapshotPlacements(planningGroups, initialBasePlacementById),
-    geometries: planningGroups.map((group) => ({
-      placeKey: group.placeKey,
-      labelSide: group.collisionGeometry.labelSide,
-      lineAnchorX: group.collisionGeometry.lineAnchorX,
-      lineAnchorY: group.collisionGeometry.lineAnchorY,
-      groupRect: group.collisionGeometry.groupRect,
-    })),
-  });
   const basePlacements = buildRadialLayout(
-    planningGroups.map((group) => ({
+    groups.map((group) => ({
       id: group.placeKey,
       x: group.logicalX,
       y: group.logicalY,
@@ -1087,9 +901,9 @@ export function solvePendingGroupPlacements(
   });
   trace.steps.push({
     step: 'base-radial-layout',
-    placements: snapshotPlacements(planningGroups, basePlacementById),
+    placements: snapshotPlacements(groups, basePlacementById),
   });
-  const orderedGroups = [...planningGroups].sort(compareLayerPlacementOrder);
+  const orderedGroups = [...groups].sort(compareLayerPlacementOrder);
   reportStage?.('构建自动分层');
   const placementLayers = buildPlacementLayers(orderedGroups, basePlacementById, mapRect);
   markMetric('buildPlacementLayersMs');
@@ -1141,7 +955,7 @@ export function solvePendingGroupPlacements(
   reportStage?.(layeredState ? '完成分层放置' : '进入兼容候选回退');
   const legacyInputs = layeredState
     ? null
-    : buildLegacySolverInputs(legacyDeps, planningGroups, basePlacementById, mapRect);
+    : buildLegacySolverInputs(legacyDeps, groups, basePlacementById, mapRect);
   if (!layeredState) {
     markMetric('buildLegacySolverInputsMs');
   }
@@ -1170,38 +984,23 @@ export function solvePendingGroupPlacements(
     : legacyInputs!.orderedGroups;
 
   if (layeredState) {
-    reportStage?.('微调角度与线长');
-    refineAnglesAndRadii(
-      layeredDeps,
-      repairOrderedGroups,
-      workingState,
-      mapRect,
-      safeGap,
-      lockedGroups,
-    );
-    markMetric('refineAnglesAndRadiiMs');
-    trace.steps.push({
-      step: 'refine-angles-and-radii',
-      placements: snapshotPlacements(repairOrderedGroups, workingState.placementById),
-      geometries: snapshotGeometries(repairOrderedGroups, workingState.geometryById),
-      meta: {
-        functionTrace,
-      },
-    });
+    reportStage?.('完成主排布');
   }
 
   reportStage?.('收敛最终排布');
-  const result = finalizePlacementVariant(
-    repairOrderedGroups,
-    workingState,
-    basePlacementById,
-    mapRect,
-    safeGap,
-    labelGapBoost,
-    lockedGroups,
-    reportMetric,
-  );
-  markMetric('finalizePlacementVariantMs');
+  const result = {
+    placements: workingState.placementById,
+    geometries: buildGeometryMapForPlacements(
+      geometryAnalysisDeps,
+      repairOrderedGroups,
+      workingState.placementById,
+      mapRect,
+      safeGap,
+      labelGapBoost,
+      lockedGroups,
+    ),
+  };
+  markMetric('finalPlacementGeometryMs');
   trace.steps.push({
     step: 'final-placement',
     placements: snapshotPlacements(repairOrderedGroups, result.placements),
@@ -1218,10 +1017,27 @@ export function solvePendingGroupPlacements(
 
 export const __layoutSolverInternals = {
   angleDelta,
-  buildPlanningGroups,
   buildCandidatePool,
   buildCorridorRepairCandidateSubset: (candidates: PlacementCandidate[]) => (
-    buildCorridorRepairCandidateSubset(geometryAnalysisDeps, candidates)
+    buildCorridorRepairCandidateSubset({ config: REPAIR_TEST_CONFIG }, candidates)
+  ),
+  improveCorridorRisk: (
+    orderedGroups: PendingPlaceGroup[],
+    candidatePoolById: Map<string, PlacementCandidate[]>,
+    state: PlacementState,
+    mapRect: LogicalRect,
+    safeGap: number,
+    labelGapBoost: number,
+    lockedGroups: LockedPlaceGroup[] = [],
+  ) => improveCorridorRisk(
+    { ...geometryAnalysisDeps, config: REPAIR_TEST_CONFIG },
+    orderedGroups,
+    candidatePoolById,
+    state,
+    mapRect,
+    safeGap,
+    labelGapBoost,
+      lockedGroups,
   ),
   selectCorridorRepairTargets: (
     groups: PendingPlaceGroup[],

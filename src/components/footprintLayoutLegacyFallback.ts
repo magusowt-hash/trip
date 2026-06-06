@@ -13,6 +13,12 @@ type CandidateEvaluation = {
   score: number;
 };
 
+type FrontierEntry = {
+  state: PlacementState;
+  score: number;
+  priority: number;
+};
+
 export type LegacySolverInputs = {
   orderedGroups: PendingPlaceGroup[];
   candidatePoolById: Map<string, PlacementCandidate[]>;
@@ -48,11 +54,30 @@ type LegacyDeps = {
 };
 
 const GLOBAL_SECTOR_COUNT = 16;
-const INITIAL_ASSIGNMENT_PASSES = 3;
-const INITIAL_ASSIGNMENT_BEAM_WIDTH = 3;
-const INITIAL_ASSIGNMENT_HEAD_CANDIDATE_LIMIT = 6;
-const INITIAL_ASSIGNMENT_SPREAD_SAMPLE_COUNT = 4;
+const INITIAL_ASSIGNMENT_PASSES = 4;
+const INITIAL_ASSIGNMENT_BEAM_WIDTH = 5;
+const INITIAL_ASSIGNMENT_HEAD_CANDIDATE_LIMIT = 8;
+const INITIAL_ASSIGNMENT_SPREAD_SAMPLE_COUNT = 6;
 const REBALANCE_ITERATION_COUNT = 8;
+
+function estimateFrontierFlexibility(
+  orderedGroups: PendingPlaceGroup[],
+  candidatePoolById: Map<string, PlacementCandidate[]>,
+  placementCount: number,
+) {
+  let remainingCandidateMass = 0;
+  let sampledGroups = 0;
+
+  for (let index = placementCount; index < orderedGroups.length; index++) {
+    const group = orderedGroups[index]!;
+    const candidates = candidatePoolById.get(group.placeKey) ?? [];
+    remainingCandidateMass += Math.min(12, candidates.length);
+    sampledGroups += 1;
+    if (sampledGroups >= 6) break;
+  }
+
+  return remainingCandidateMass;
+}
 
 function buildInitialAssignmentCandidateSubset(
   candidates: PlacementCandidate[],
@@ -138,13 +163,14 @@ export function assignInitialPlacements(
   let bestScore = Number.POSITIVE_INFINITY;
 
   for (let pass = 0; pass < INITIAL_ASSIGNMENT_PASSES; pass++) {
-    let frontier: Array<{ state: PlacementState; score: number }> = [{
+    let frontier: FrontierEntry[] = [{
       state: {
         placementById: new Map<string, FootprintPlacement>(),
         geometryById: new Map<string, GroupGeometry>(),
         candidateIndexById: new Map<string, number>(),
       },
       score: 0,
+      priority: 0,
     }];
 
     for (let groupIndex = 0; groupIndex < orderedGroups.length; groupIndex++) {
@@ -160,10 +186,10 @@ export function assignInitialPlacements(
       let expanded: Array<{ state: PlacementState; score: number }> = [];
 
       const expandFrontier = (
-        frontierToExpand: Array<{ state: PlacementState; score: number }>,
+        frontierToExpand: FrontierEntry[],
         candidatesToUse: Array<{ candidate: PlacementCandidate; originalIndex: number }>,
       ) => {
-        const next: Array<{ state: PlacementState; score: number }> = [];
+        const next: FrontierEntry[] = [];
         for (const beam of frontierToExpand) {
           for (const entry of candidatesToUse) {
             const evaluation = deps.evaluateCandidate(
@@ -176,22 +202,30 @@ export function assignInitialPlacements(
             );
             if (!evaluation.valid) continue;
 
+            const nextState = {
+              placementById: new Map(beam.state.placementById).set(
+                group.placeKey,
+                entry.candidate.placement,
+              ),
+              geometryById: new Map(beam.state.geometryById).set(
+                group.placeKey,
+                entry.candidate.geometry,
+              ),
+              candidateIndexById: new Map(beam.state.candidateIndexById).set(
+                group.placeKey,
+                entry.originalIndex,
+              ),
+            };
+            const nextScore = beam.score + evaluation.score;
+            const flexibilityBonus = estimateFrontierFlexibility(
+              orderedGroups,
+              candidatePoolById,
+              nextState.placementById.size,
+            );
             next.push({
-              state: {
-                placementById: new Map(beam.state.placementById).set(
-                  group.placeKey,
-                  entry.candidate.placement,
-                ),
-                geometryById: new Map(beam.state.geometryById).set(
-                  group.placeKey,
-                  entry.candidate.geometry,
-                ),
-                candidateIndexById: new Map(beam.state.candidateIndexById).set(
-                  group.placeKey,
-                  entry.originalIndex,
-                ),
-              },
-              score: beam.score + evaluation.score,
+              state: nextState,
+              score: nextScore,
+              priority: nextScore - flexibilityBonus * 18,
             });
           }
         }
@@ -213,7 +247,7 @@ export function assignInitialPlacements(
         break;
       }
 
-      expanded.sort((left, right) => left.score - right.score);
+      expanded.sort((left, right) => left.priority - right.priority);
       frontier = expanded.slice(0, INITIAL_ASSIGNMENT_BEAM_WIDTH);
     }
 

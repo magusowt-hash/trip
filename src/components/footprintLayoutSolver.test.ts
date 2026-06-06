@@ -557,6 +557,57 @@ test('solvePendingGroupPlacements scans field radii near the assigned layer inst
   );
 });
 
+test('solvePendingGroupPlacements keeps the main path free of planning-envelope expansion', () => {
+  const mapRect = rect(-240, -180, 240, 180);
+  const groups = [
+    buildGroup('northwest', '西北组', rect(-150, -30, -30, 50), -110, 80, mapRect),
+    buildGroup('south', '南侧组', rect(-40, 40, 80, 120), 20, 100, mapRect),
+  ];
+
+  const solved = solvePendingGroupPlacements(groups, mapRect, 80, 0, []);
+
+  assert.equal(
+    solved.trace.steps.some((step) => step.step === 'planning-groups'),
+    false,
+    'expected solver main path to skip planning envelope expansion',
+  );
+});
+
+test('solvePendingGroupPlacements returns the main solver placements without post-finalize drift', () => {
+  const mapRect = rect(-260, -220, 260, 220);
+  const groups = [
+    buildGroup('a', '甲组', rect(-150, -40, -30, 40), -120, 40, mapRect),
+    buildGroup('b', '乙组', rect(-120, -40, 0, 40), -108, 12, mapRect),
+    buildGroup('c', '丙组', rect(-90, -40, 30, 40), -92, -18, mapRect),
+  ];
+
+  const solved = solvePendingGroupPlacements(groups, mapRect, 84, 0, []);
+  const layeredStep = solved.trace.steps.find((step) => step.step === 'layered-placement');
+  const finalStep = solved.trace.steps.find((step) => step.step === 'final-placement');
+
+  assert.ok(layeredStep, 'expected layered placement trace entry');
+  assert.ok(finalStep, 'expected final placement trace entry');
+
+  const layeredById = new Map(
+    (layeredStep!.placements ?? []).map((placement) => [placement.placeKey, placement] as const),
+  );
+
+  for (const placement of finalStep!.placements ?? []) {
+    const layeredPlacement = layeredById.get(placement.placeKey);
+    assert.ok(layeredPlacement, `missing layered placement for ${placement.placeKey}`);
+    assert.equal(
+      placement.centerX,
+      layeredPlacement!.centerX,
+      `expected final centerX to match main solver output for ${placement.placeKey}`,
+    );
+    assert.equal(
+      placement.centerY,
+      layeredPlacement!.centerY,
+      `expected final centerY to match main solver output for ${placement.placeKey}`,
+    );
+  }
+});
+
 test('corridor repair candidate subset keeps head candidates and samples deeper escapes', () => {
   const candidates = Array.from({ length: 20 }, (_, index) => ({
     placement: { centerX: index, centerY: index },
