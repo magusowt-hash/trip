@@ -65,6 +65,9 @@ const LABEL_MAX_LINES = 1;
 const HARD_OVERLAP_WEIGHT = 1000;
 const SOFT_GAP_WEIGHT = 20;
 const BOTTOM_SECTOR_HALF_ANGLE = Math.PI / 4;
+const UPPER_REGION_BOTTOM_CLEARANCE = 132;
+const LOWER_REGION_TOP_CLEARANCE = 132;
+const LOWER_TRANSITION_BAND_DEGREES = 10;
 
 type LabelPlacementGapPolicy = {
   labelPhotoGap: number;
@@ -162,6 +165,57 @@ export function resolvePreferredLabelSideForMap(centerX: number, centerY: number
   const withinLeftBottomPartition = centerX < mapRect.left && verticalDistance >= leftCornerDistance;
   const withinRightBottomPartition = centerX > mapRect.right && verticalDistance >= rightCornerDistance;
   return withinLeftBottomPartition || withinRightBottomPartition ? 'top' : 'bottom';
+}
+
+function isPointInLowerPartition(pointX: number, pointY: number, mapRect: LogicalRect) {
+  if (pointY > mapRect.bottom) return true;
+  if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
+
+  const verticalDistance = pointY - mapRect.bottom;
+  if (pointX < mapRect.left) {
+    return verticalDistance >= mapRect.left - pointX;
+  }
+  return verticalDistance >= pointX - mapRect.right;
+}
+
+function isPointInLowerTransitionBand(pointX: number, pointY: number, mapRect: LogicalRect) {
+  if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
+  if (pointY <= mapRect.bottom) return false;
+
+  const boundaryAngle =
+    pointX < mapRect.left
+      ? Math.atan2(mapRect.bottom - pointY, mapRect.left - pointX)
+      : Math.atan2(mapRect.bottom - pointY, pointX - mapRect.right);
+  const bandRadians = (LOWER_TRANSITION_BAND_DEGREES * Math.PI) / 180;
+  return Math.abs(Math.abs(boundaryAngle) - Math.PI / 4) <= bandRadians;
+}
+
+export function applyRuntimeEnvelope(
+  geometry: GroupGeometry,
+  mapRect?: LogicalRect,
+): GroupGeometry {
+  if (!mapRect) return geometry;
+
+  const rect = geometry.groupRect;
+  const sampleXs = [rect.left, (rect.left + rect.right) * 0.5, rect.right];
+  const sampleYs = [rect.top, (rect.top + rect.bottom) * 0.5, rect.bottom];
+  const inLowerRegion = sampleYs.some((sampleY) => (
+    sampleXs.some((sampleX) => isPointInLowerPartition(sampleX, sampleY, mapRect))
+  ));
+  const inLowerTransitionBand = sampleYs.some((sampleY) => (
+    sampleXs.some((sampleX) => isPointInLowerTransitionBand(sampleX, sampleY, mapRect))
+  ));
+
+  const overallRect = {
+    ...rect,
+    top: rect.top - (inLowerRegion || inLowerTransitionBand ? LOWER_REGION_TOP_CLEARANCE : 0),
+    bottom: rect.bottom + (inLowerTransitionBand ? UPPER_REGION_BOTTOM_CLEARANCE : inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
+  };
+
+  return {
+    ...geometry,
+    overallRect,
+  };
 }
 
 export function translateLogicalRect(rect: LogicalRect, offsetX: number, offsetY: number): LogicalRect {
@@ -352,7 +406,7 @@ export function buildGroupGeometryFromPhotoRect(
   const groupRect = unionRect(unionRect(photoRect, labelRect), lineRect);
   const overallRect = groupRect;
 
-  return {
+  return applyRuntimeEnvelope({
     photoRect,
     labelRect,
     lineRect,
@@ -365,7 +419,7 @@ export function buildGroupGeometryFromPhotoRect(
     labelAnchorY,
     lineAnchorX,
     lineAnchorY,
-  };
+  }, mapRect);
 }
 
 export function buildGroupGeometryCandidatesFromPhotoRect(
@@ -420,7 +474,7 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
     };
     const groupRect = unionRect(unionRect(photoRect, labelRect), lineRect);
 
-    return {
+    return applyRuntimeEnvelope({
       photoRect,
       labelRect,
       lineRect,
@@ -433,7 +487,7 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
       labelAnchorY,
       lineAnchorX,
       lineAnchorY,
-    };
+    }, mapRect);
   };
 
   const preferredSide = fixedLabelSide ?? resolvePreferredLabelSideForMap(photoCenter.x, photoCenter.y, mapRect);
@@ -495,7 +549,7 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
     };
     const groupRect = unionRect(unionRect(photoRect, labelRect), lineRect);
 
-    return {
+    return applyRuntimeEnvelope({
       ...geometry,
       labelRect,
       lineRect,
@@ -508,7 +562,7 @@ export function buildGroupGeometryCandidatesFromGeometry(geometry: GroupGeometry
       labelAnchorY,
       lineAnchorX,
       lineAnchorY,
-    };
+    });
   };
 
   const preferredSide = fixedLabelSide ?? geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
@@ -573,7 +627,7 @@ export function buildSingleSideGroupGeometryFromGeometry(
   };
   const groupRect = unionRect(unionRect(photoRect, labelRect), lineRect);
 
-  return {
+  return applyRuntimeEnvelope({
     ...geometry,
     labelRect,
     lineRect,
@@ -586,7 +640,7 @@ export function buildSingleSideGroupGeometryFromGeometry(
     labelAnchorY,
     lineAnchorX,
     lineAnchorY,
-  };
+  });
 }
 
 export function buildGroupGeometry(
