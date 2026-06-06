@@ -39,6 +39,7 @@ export type LayeredPlacementFailure = {
 
 export let lastLayeredPlacementFailures: LayeredPlacementFailure[] = [];
 export let lastLayeredPlacementTrace: SolverFunctionTraceEntry[] = [];
+export let lastPartialLayeredPlacementState: PlacementState | null = null;
 
 type EvaluatePlacementResult = {
   valid: boolean;
@@ -998,6 +999,7 @@ export function placeGroupsLayerByLayer(
   lockedGroups: LockedPlaceGroup[],
 ) {
   lastLayeredPlacementFailures = [];
+  lastPartialLayeredPlacementState = null;
   lastLayeredPlacementTrace.push({
     fn: 'placeGroupsLayerByLayer',
     stage: 'start',
@@ -1273,6 +1275,11 @@ export function placeGroupsLayerByLayer(
     if (!placed) {
       failures.push(failureRecord);
       lastLayeredPlacementFailures = [...failures];
+      lastPartialLayeredPlacementState = {
+        placementById: new Map(state.placementById),
+        geometryById: new Map(state.geometryById),
+        candidateIndexById: new Map(state.candidateIndexById),
+      };
       lastLayeredPlacementTrace.push({
         fn: 'placeGroupsLayerByLayer',
         stage: 'group-failed',
@@ -1287,6 +1294,11 @@ export function placeGroupsLayerByLayer(
   }
 
   lastLayeredPlacementFailures = [...failures];
+  lastPartialLayeredPlacementState = {
+    placementById: new Map(state.placementById),
+    geometryById: new Map(state.geometryById),
+    candidateIndexById: new Map(state.candidateIndexById),
+  };
   return state;
 }
 

@@ -29,6 +29,7 @@ import { chooseFinalPlacementVariant } from './footprintLayoutSelection';
 import {
   buildPlacementLayers,
   lastLayeredPlacementFailures,
+  lastPartialLayeredPlacementState,
   lastLayeredPlacementTrace,
   placeGroupsLayerByLayer,
   refineAnglesAndRadii,
@@ -1131,7 +1132,12 @@ export function solvePendingGroupPlacements(
   } else {
     trace.steps.push({
       step: 'layered-placement-failed',
-      placements: [],
+      placements: lastPartialLayeredPlacementState
+        ? snapshotPlacements(orderedGroups, lastPartialLayeredPlacementState.placementById)
+        : [],
+      geometries: lastPartialLayeredPlacementState
+        ? snapshotGeometries(orderedGroups, lastPartialLayeredPlacementState.geometryById)
+        : [],
       meta: {
         failures: lastLayeredPlacementFailures,
         functionTrace,
@@ -1155,6 +1161,7 @@ export function solvePendingGroupPlacements(
         mapRect,
         lockedGroups,
         safeGap,
+        lastPartialLayeredPlacementState,
         buildFallbackState,
       );
   if (!layeredState) {
