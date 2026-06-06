@@ -263,6 +263,32 @@ function scoreAngleWithinFreeArc(
   return balancePenalty * 0.62 + idealPenalty * 0.18 - smallestMargin * 0.2;
 }
 
+function buildArcAngleCandidates(
+  freeArc: PolarFreeArc,
+  idealAngle: number,
+  requiredSpanAngle: number,
+) {
+  const halfSpan = requiredSpanAngle * 0.5;
+  const minAngle = freeArc.angleStart + halfSpan;
+  const maxAngle = freeArc.angleEnd - halfSpan;
+  if (maxAngle < minAngle) return [];
+
+  const center = (freeArc.angleStart + freeArc.angleEnd) * 0.5;
+  const centeredIdeal = clamp(normalizeAngle(idealAngle), minAngle, maxAngle);
+  const quarter = clamp(freeArc.angleStart + (freeArc.angleEnd - freeArc.angleStart) * 0.25, minAngle, maxAngle);
+  const threeQuarter = clamp(freeArc.angleStart + (freeArc.angleEnd - freeArc.angleStart) * 0.75, minAngle, maxAngle);
+
+  return Array.from(new Set([
+    minAngle,
+    quarter,
+    clamp((center * 0.6) + (centeredIdeal * 0.4), minAngle, maxAngle),
+    center,
+    centeredIdeal,
+    threeQuarter,
+    maxAngle,
+  ].map((angle) => Number(angle.toFixed(12)))));
+}
+
 export function scoreFreeArcAccess(
   freeArcs: PolarFreeArc[],
   idealAngle: number,
@@ -341,22 +367,8 @@ export function selectBalancedAngleInFreeArc(
   idealAngle: number,
   requiredSpanAngle: number,
 ) {
-  const halfSpan = requiredSpanAngle * 0.5;
-  const minAngle = freeArc.angleStart + halfSpan;
-  const maxAngle = freeArc.angleEnd - halfSpan;
-  if (maxAngle < minAngle) return null;
-
-  const center = (freeArc.angleStart + freeArc.angleEnd) * 0.5;
-  const leftCandidate = minAngle;
-  const rightCandidate = maxAngle;
-  const centeredIdeal = clamp(normalizeAngle(idealAngle), minAngle, maxAngle);
-  const candidates = Array.from(new Set([
-    leftCandidate,
-    center,
-    rightCandidate,
-    centeredIdeal,
-    clamp((center * 0.6) + (centeredIdeal * 0.4), minAngle, maxAngle),
-  ]));
+  const candidates = buildArcAngleCandidates(freeArc, idealAngle, requiredSpanAngle);
+  if (candidates.length === 0) return null;
 
   let bestAngle: number | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
@@ -416,7 +428,6 @@ export function findPlacementInField(
   const maxRadius = Math.max(minRadius, options?.maxRadius ?? Number.POSITIVE_INFINITY);
   const radiusStep = options?.radiusStep ?? DEFAULT_RADIUS_STEP;
   const radiusScanLimit = options?.radiusScanLimit ?? DEFAULT_RADIUS_SCAN_LIMIT;
-  const requiredSpanAngle = groupSpanAngle(geometry, Math.max(minRadius, idealRadius, 1));
   const sector = (
     options?.sectorStart != null && options?.sectorEnd != null
       ? { start: options.sectorStart, end: options.sectorEnd, isTransition: false }
@@ -426,25 +437,15 @@ export function findPlacementInField(
   let lastFreeArcs: PolarFreeArc[] = [];
   const rankedCandidates: PlacementFieldCandidate[] = [];
   const trace: PlacementFieldSearchResult['trace'] = [];
-  const radiusSeed = clamp(idealRadius, minRadius, maxRadius);
   const radii: number[] = [];
   for (let stepIndex = 0; stepIndex <= radiusScanLimit; stepIndex++) {
-    if (stepIndex === 0) {
-      radii.push(radiusSeed);
-      continue;
-    }
-    const delta = radiusStep * stepIndex;
-    const innerRadius = radiusSeed - delta;
-    const outerRadius = radiusSeed + delta;
-    if (innerRadius >= minRadius) {
-      radii.push(innerRadius);
-    }
-    if (outerRadius <= maxRadius) {
-      radii.push(outerRadius);
-    }
+    const radius = minRadius + stepIndex * radiusStep;
+    if (radius > maxRadius) break;
+    radii.push(radius);
   }
 
   for (const radius of radii) {
+    const requiredSpanAngle = groupSpanAngle(geometry, Math.max(radius, 1));
     const freeArcs = computeFreeArcsAtRadius(
       blockedBands,
       radius,
@@ -454,14 +455,15 @@ export function findPlacementInField(
     lastFreeArcs = freeArcs;
     const candidatesAtRadius: PlacementFieldCandidate[] = [];
     for (const freeArc of freeArcs) {
-      const angle = selectBalancedAngleInFreeArc(freeArc, idealAngle, requiredSpanAngle);
-      if (angle == null) continue;
-      candidatesAtRadius.push(buildOccupancyCandidate(
-        freeArc,
-        angle,
-        radius,
-        requiredSpanAngle,
-      ));
+      const angles = buildArcAngleCandidates(freeArc, idealAngle, requiredSpanAngle);
+      for (const angle of angles) {
+        candidatesAtRadius.push(buildOccupancyCandidate(
+          freeArc,
+          angle,
+          radius,
+          requiredSpanAngle,
+        ));
+      }
     }
 
     if (candidatesAtRadius.length > 0) {
@@ -469,7 +471,7 @@ export function findPlacementInField(
         scoreAngleWithinFreeArc(left.freeArc, left.angle, idealAngle) -
         scoreAngleWithinFreeArc(right.freeArc, right.angle, idealAngle)
       ));
-      rankedCandidates.push(...sortedAtRadius.slice(0, Math.min(3, sortedAtRadius.length)));
+      rankedCandidates.push(...sortedAtRadius.slice(0, Math.min(6, sortedAtRadius.length)));
       trace.push({
         radius,
         sectorStart: sector.start,
@@ -484,7 +486,7 @@ export function findPlacementInField(
           occupancyEnd: candidate.occupancyEnd,
         })),
       });
-      if (rankedCandidates.length >= 6) {
+      if (rankedCandidates.length >= 12) {
         break;
       }
       continue;
@@ -503,8 +505,8 @@ export function findPlacementInField(
 
   if (rankedCandidates.length > 0) {
     const candidate = [...rankedCandidates].sort((left, right) => {
-      const leftRadiusPenalty = Math.abs(left.radius - idealRadius) * 0.08;
-      const rightRadiusPenalty = Math.abs(right.radius - idealRadius) * 0.08;
+      const leftRadiusPenalty = Math.max(0, left.radius - minRadius) * 0.22 + Math.abs(left.radius - idealRadius) * 0.03;
+      const rightRadiusPenalty = Math.max(0, right.radius - minRadius) * 0.22 + Math.abs(right.radius - idealRadius) * 0.03;
       return (
         scoreAngleWithinFreeArc(left.freeArc, left.angle, idealAngle) + leftRadiusPenalty -
         (scoreAngleWithinFreeArc(right.freeArc, right.angle, idealAngle) + rightRadiusPenalty)

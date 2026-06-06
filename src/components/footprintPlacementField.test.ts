@@ -69,7 +69,7 @@ test('findPlacementInField prefers the first feasible inner radius instead of in
   });
 
   assert.ok(result.candidate, 'expected a field placement candidate');
-  assert.equal(result.candidate!.radius, 180, 'expected the first feasible inner radius to win');
+  assert.equal(result.candidate!.radius, 204, 'expected the first feasible inner radius to win');
   assert.ok(result.candidates.length > 0, 'expected ranked field candidates to be returned');
   const freeArcCenter = (result.candidate!.freeArc.angleStart + result.candidate!.freeArc.angleEnd) * 0.5;
   assert.ok(
@@ -217,6 +217,34 @@ test('findPlacementInField preserves multiple angle options within one wide free
   assert.ok(
     sameRadiusAngles.length >= 3,
     `expected multiple same-radius angle options inside one free arc, got ${sameRadiusAngles.join(', ')}`,
+  );
+});
+
+test('findPlacementInField shrinks required occupancy span when scanning outward radii', () => {
+  const group = buildGroup('outward-span', '外扫组', rect(-176.5, -112, 176.5, 144.2), 202.5763379274452, -153.98268040400765);
+  const blockedBands = [
+    { angleStart: 2.795678420149189, angleEnd: 3.393190669189437, radiusInner: 0, radiusOuter: 20000 },
+  ];
+
+  const result = findPlacementInField(group, group.collisionGeometry, blockedBands, {
+    idealAngle: Math.atan2(group.logicalY, group.logicalX),
+    idealRadius: 303.1279658418274,
+    minRadius: 180,
+    maxRadius: 7000,
+    radiusStep: 273.4459748897578,
+    radiusScanLimit: 24,
+    sectorStart: 2.670353755551324,
+    sectorEnd: 3.9269908169872414,
+  });
+
+  assert.ok(
+    result.trace.some((step) => step.radius > 700 && step.candidateCount > 0),
+    'expected the outward scan to eventually produce legal candidates on larger radii',
+  );
+  assert.ok(result.candidate, 'expected a candidate once the outward radius makes the occupancy span small enough');
+  assert.ok(
+    result.candidate!.radius > 700,
+    `expected outward candidate to be found on a larger radius, got ${result.candidate!.radius}`,
   );
 });
 
