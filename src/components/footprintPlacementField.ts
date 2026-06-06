@@ -24,6 +24,7 @@ export type PlacementFieldSearchResult = {
   candidate: PlacementFieldCandidate | null;
   scannedRadius: number;
   freeArcs: PolarFreeArc[];
+  candidates: PlacementFieldCandidate[];
 };
 
 export type EnclosureScore = {
@@ -379,6 +380,7 @@ export function findPlacementInField(
   );
 
   let lastFreeArcs: PolarFreeArc[] = [];
+  const rankedCandidates: PlacementFieldCandidate[] = [];
   for (let stepIndex = 0; stepIndex <= radiusScanLimit; stepIndex++) {
     const radius = minRadius + stepIndex * radiusStep;
     const freeArcs = computeFreeArcsAtRadius(
@@ -404,21 +406,38 @@ export function findPlacementInField(
     }
 
     if (candidatesAtRadius.length > 0) {
-      const bestCandidate = [...candidatesAtRadius].sort((left, right) => (
+      const sortedAtRadius = [...candidatesAtRadius].sort((left, right) => (
         scoreAngleWithinFreeArc(left.freeArc, left.angle, idealAngle) -
         scoreAngleWithinFreeArc(right.freeArc, right.angle, idealAngle)
-      ))[0]!;
-      return {
-        candidate: bestCandidate,
-        scannedRadius: radius,
-        freeArcs,
-      };
+      ));
+      rankedCandidates.push(...sortedAtRadius.slice(0, Math.min(3, sortedAtRadius.length)));
+      if (rankedCandidates.length >= 6) {
+        break;
+      }
     }
+  }
+
+  if (rankedCandidates.length > 0) {
+    const candidate = [...rankedCandidates].sort((left, right) => {
+      const leftRadiusPenalty = Math.abs(left.radius - idealRadius) * 0.08;
+      const rightRadiusPenalty = Math.abs(right.radius - idealRadius) * 0.08;
+      return (
+        scoreAngleWithinFreeArc(left.freeArc, left.angle, idealAngle) + leftRadiusPenalty -
+        (scoreAngleWithinFreeArc(right.freeArc, right.angle, idealAngle) + rightRadiusPenalty)
+      );
+    })[0]!;
+    return {
+      candidate,
+      scannedRadius: candidate.radius,
+      freeArcs: lastFreeArcs,
+      candidates: rankedCandidates,
+    };
   }
 
   return {
     candidate: null,
     scannedRadius: minRadius + radiusScanLimit * radiusStep,
     freeArcs: lastFreeArcs,
+    candidates: [],
   };
 }

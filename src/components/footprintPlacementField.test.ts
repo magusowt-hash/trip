@@ -70,6 +70,7 @@ test('findPlacementInField prefers the first feasible inner radius instead of in
 
   assert.ok(result.candidate, 'expected a field placement candidate');
   assert.equal(result.candidate!.radius, 180, 'expected the first feasible inner radius to win');
+  assert.ok(result.candidates.length > 0, 'expected ranked field candidates to be returned');
   const freeArcCenter = (result.candidate!.freeArc.angleStart + result.candidate!.freeArc.angleEnd) * 0.5;
   assert.ok(
     Math.abs(result.candidate!.angle - freeArcCenter) < Math.PI / 12,
@@ -183,6 +184,10 @@ test('findPlacementInField compares multiple free arcs on the same radius instea
   assert.ok(
     result.candidate!.angle > 1.45 && result.candidate!.angle < 2.2,
     'expected the search to choose the better-balanced later free arc instead of the first legal arc',
+  );
+  assert.ok(
+    result.candidates.length >= 2,
+    'expected same-radius alternatives to remain available for layered evaluation',
   );
 });
 

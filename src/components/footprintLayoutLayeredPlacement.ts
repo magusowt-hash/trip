@@ -748,8 +748,6 @@ export function placeGroupsLayerByLayer(
     const layerRadius = layer.radius;
     const innerRadiusFloor = computeInnerRadiusFloor(baseAngle);
     const idealRadius = estimateGroupIdealRadius(group, innerRadiusFloor);
-    const angleCandidates = buildLayerAngleCandidates(baseAngle, layer.slotCount);
-
     let best:
       | {
           placement: FootprintPlacement;
@@ -771,30 +769,37 @@ export function placeGroupsLayerByLayer(
       },
     );
 
-    if (fieldSearch.candidate) {
-      const evaluation = evaluatePlacementAgainstState(
-        deps,
-        group,
-        fieldSearch.candidate.placement,
-        orderedByLayer,
-        state,
-        lockedGroups,
-        safeGap,
-        mapRect,
-        baseAngle,
-        idealRadius,
-        layer.minAngularGap,
-      );
-      if (evaluation.valid && evaluation.geometry) {
-        best = {
-          placement: fieldSearch.candidate.placement,
-          geometry: evaluation.geometry,
-          score: evaluation.score + Math.max(0, layer.index - preferredLayerIndex) * 120,
-        };
+    if (fieldSearch.candidates.length > 0) {
+      for (const fieldCandidate of fieldSearch.candidates) {
+        const evaluation = evaluatePlacementAgainstState(
+          deps,
+          group,
+          fieldCandidate.placement,
+          orderedByLayer,
+          state,
+          lockedGroups,
+          safeGap,
+          mapRect,
+          baseAngle,
+          idealRadius,
+          layer.minAngularGap,
+        );
+        if (!evaluation.valid || !evaluation.geometry) continue;
+        const layerPenalty = Math.max(0, layer.index - preferredLayerIndex) * 120;
+        const fieldRadiusPenalty = Math.max(0, fieldCandidate.radius - idealRadius) * 0.18;
+        const totalScore = evaluation.score + layerPenalty + fieldRadiusPenalty;
+        if (!best || totalScore < best.score) {
+          best = {
+            placement: fieldCandidate.placement,
+            geometry: evaluation.geometry,
+            score: totalScore,
+          };
+        }
       }
     }
 
-    if (!best) {
+    if (!best && fieldSearch.candidates.length === 0) {
+      const angleCandidates = buildLayerAngleCandidates(baseAngle, layer.slotCount);
       for (const slotAngle of angleCandidates) {
         for (const angleOffset of LAYER_ANGLE_JITTER_DEGREES) {
           const angle = slotAngle + (angleOffset * Math.PI) / 180;
@@ -831,7 +836,7 @@ export function placeGroupsLayerByLayer(
       }
     }
 
-    if (!best) {
+    if (!best && fieldSearch.candidates.length === 0) {
       for (const radiusFactor of FINAL_REFINE_RADIUS_FACTORS) {
         const placement = {
           centerX: Math.cos(baseAngle) * layerRadius * radiusFactor,
