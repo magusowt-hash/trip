@@ -604,6 +604,7 @@ function UserFootprintsPageInner() {
   const layoutInteractionModeRef = useRef<FootprintLayoutInteractionMode>('manual');
   const mappedLayoutExportSnapshotRef = useRef<MappedLayoutExportSnapshot | null>(null);
   const localThumbBackfillRunningRef = useRef(false);
+  const pendingFitViewAfterPresetRef = useRef(false);
 
   useEffect(() => { itemsRef.current = items; }, [items]);
   useEffect(() => { photosRef.current = photos; }, [photos]);
@@ -611,6 +612,19 @@ function UserFootprintsPageInner() {
   useEffect(() => { poiPointsRef.current = poiPoints; }, [poiPoints]);
   useEffect(() => { outerScaleRef.current = outerScale; }, [outerScale]);
   useEffect(() => { layoutInteractionModeRef.current = layoutInteractionMode; }, [layoutInteractionMode]);
+
+  useEffect(() => {
+    if (!pendingFitViewAfterPresetRef.current) return;
+    if (layoutInteractionMode !== 'preset') return;
+    if (photos.length === 0) return;
+
+    const visiblePhotoCount = photos.filter((photo) => photo.frameX != null && photo.frameY != null).length;
+    if (visiblePhotoCount === 0) return;
+
+    pendingFitViewAfterPresetRef.current = false;
+    setFitViewEnabled(true);
+    setFitViewKey((value) => value + 1);
+  }, [photos, groupLayouts, layoutInteractionMode]);
 
   useEffect(() => {
     if (localThumbBackfillRunningRef.current) return;
@@ -1708,6 +1722,7 @@ function UserFootprintsPageInner() {
     const isCurrentRun = () => localMapApplyRunIdRef.current === runId;
     const finishApplying = () => {
       if (!isCurrentRun()) return;
+      pendingFitViewAfterPresetRef.current = false;
       setIsApplyingLocalMap(false);
       setLocalMapApplyProgress(0);
       setLocalMapApplyStage('等待开始');
@@ -1875,8 +1890,7 @@ function UserFootprintsPageInner() {
         movedPhotosRef.current = true;
         setHasMovedPhotos(true);
         if (layoutInteractionModeRef.current === 'preset') {
-          setFitViewEnabled(true);
-          setFitViewKey((value) => value + 1);
+          pendingFitViewAfterPresetRef.current = true;
         }
         if (payload.missingAssets.length > 0) {
           alert(`检测到 ${payload.missingAssets.length} 个原记录文件已缺失。当前只在前端移除；点击“保存修改”时会再次确认是否删除这些位置记录。`);
