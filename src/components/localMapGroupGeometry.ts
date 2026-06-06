@@ -188,7 +188,7 @@ export function applyRuntimeEnvelope(
     sampleXs.some((sampleX) => isPointInLowerTransitionBand(sampleX, sampleY, mapRect))
   ));
 
-  const overallRect = {
+  const envelopeRect = {
     ...rect,
     top: rect.top - (inLowerRegion || inLowerTransitionBand ? LOWER_REGION_TOP_CLEARANCE : 0),
     bottom: rect.bottom + (inLowerTransitionBand ? UPPER_REGION_BOTTOM_CLEARANCE : inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
@@ -196,7 +196,8 @@ export function applyRuntimeEnvelope(
 
   return {
     ...geometry,
-    overallRect,
+    groupRect: envelopeRect,
+    overallRect: envelopeRect,
   };
 }
 
