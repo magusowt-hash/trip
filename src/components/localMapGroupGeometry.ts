@@ -942,9 +942,9 @@ function computeMapClearanceOffset(
 ) {
   if (!mapRect) return 0;
   if (candidate.labelSide === 'top') {
-    return Math.max(0, candidate.labelRect.bottom - (mapRect.top - mapGap));
+    return Math.max(0, candidate.overallRect.bottom - (mapRect.top - mapGap));
   }
-  return Math.max(0, mapRect.bottom + mapGap - candidate.labelRect.top);
+  return Math.max(0, mapRect.bottom + mapGap - candidate.overallRect.top);
 }
 
 function isLabelPlacementHardInvalid(
@@ -960,7 +960,7 @@ function isLabelPlacementHardInvalid(
     return true;
   }
 
-  if (mapRect && rectOverlapsMap(candidate.labelRect, mapRect, gapPolicy.mapGap)) {
+  if (mapRect && rectOverlapsMap(candidate.overallRect, mapRect, gapPolicy.mapGap)) {
     return true;
   }
 
@@ -975,7 +975,7 @@ function scoreLabelPlacementPenalties(
 ) {
   let penalty = 0;
   const overlapsMap = mapRect
-    ? rectOverlapsMap(candidate.labelRect, mapRect, gapPolicy.mapGap)
+    ? rectOverlapsMap(candidate.overallRect, mapRect, gapPolicy.mapGap)
     : false;
 
   for (const neighbor of occupied) {
@@ -995,7 +995,7 @@ function scoreLabelPlacementPenalties(
 
   if (mapRect) {
     penalty += scorePlacementGapViolation(
-      candidate.labelRect,
+      candidate.overallRect,
       mapRect,
       gapPolicy.mapGap,
       4.2,
