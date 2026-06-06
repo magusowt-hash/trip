@@ -4,10 +4,8 @@ import { useRef, useEffect, useCallback, useMemo } from 'react';
 import type { OuterFrameTransform, Point } from '@/lib/outerFrameCoords';
 import {
   buildGroupGeometryFromLayout,
+  getAdaptiveLabelScreenMetrics,
   GROUP_ENDPOINT_RADIUS_SCREEN,
-  GROUP_LABEL_FONT_SCREEN_SIZE,
-  GROUP_LABEL_LINE_HEIGHT_SCREEN,
-  GROUP_LABEL_MIN_FONT_SCREEN_SIZE,
   measureGroupLabelLayout,
   type GroupLayoutSnapshot,
 } from './localMapGroupGeometry';
@@ -486,8 +484,9 @@ export default function OuterFrameCanvas({
           Math.max(1, rect.photoRight - rect.photoLeft),
           transform.scale,
         );
-        const fontSize = Math.max(GROUP_LABEL_MIN_FONT_SCREEN_SIZE, GROUP_LABEL_FONT_SCREEN_SIZE * overlayScale);
-        const lineHeight = GROUP_LABEL_LINE_HEIGHT_SCREEN * overlayScale;
+        const adaptiveMetrics = getAdaptiveLabelScreenMetrics(transform.scale);
+        const fontSize = Math.max(adaptiveMetrics.minFontSize, adaptiveMetrics.fontSize * overlayScale);
+        const lineHeight = adaptiveMetrics.lineHeight * overlayScale;
         ctx.fillStyle = 'rgba(255,255,255,0.65)';
         ctx.font = `${fontSize}px sans-serif`;
         ctx.textAlign = 'center';

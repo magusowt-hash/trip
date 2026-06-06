@@ -72,6 +72,24 @@ type LabelPlacementGapPolicy = {
   mapGap: number;
 };
 
+function getAdaptiveLabelScaleFactor(scale: number) {
+  const safeScale = Math.max(scale, 0.1);
+  if (safeScale >= 0.4) return 1;
+  if (safeScale <= 0.1) return 0.42;
+  return 0.42 + ((safeScale - 0.1) / 0.3) * 0.58;
+}
+
+export function getAdaptiveLabelScreenMetrics(scale: number) {
+  const factor = getAdaptiveLabelScaleFactor(scale);
+  return {
+    fontSize: GROUP_LABEL_FONT_SCREEN_SIZE * factor,
+    minFontSize: Math.max(4, GROUP_LABEL_MIN_FONT_SCREEN_SIZE * factor),
+    lineHeight: Math.max(6, GROUP_LABEL_LINE_HEIGHT_SCREEN * factor),
+    minWidth: Math.max(24, LABEL_MIN_SCREEN_WIDTH * factor),
+    maxWidth: Math.max(52, LABEL_MAX_SCREEN_WIDTH * factor),
+  };
+}
+
 function toLogicalScreenSize(screenSize: number, scale: number) {
   return screenSize / Math.max(scale, 0.1);
 }
@@ -167,6 +185,11 @@ function estimateCharacterScreenWidth(char: string) {
   return GROUP_LABEL_FONT_SCREEN_SIZE * 0.68;
 }
 
+function estimateCharacterWidth(char: string, fontSize: number) {
+  const scaleFactor = fontSize / GROUP_LABEL_FONT_SCREEN_SIZE;
+  return estimateCharacterScreenWidth(char) * scaleFactor;
+}
+
 function splitLabelText(title: string) {
   const compact = title.trim().replace(/\s+/g, ' ');
   if (!compact) return [''];
@@ -180,27 +203,28 @@ export function measureGroupLabelLayout(
 ) {
   const safeScale = Math.max(scale, 0.1);
   const photoWidthScreen = Math.max(1, photoRectWidth * safeScale);
+  const metrics = getAdaptiveLabelScreenMetrics(safeScale);
   const tokens = splitLabelText(title);
 
   if (LABEL_MAX_LINES === 1) {
     const line = tokens.join('');
-    const fullWidth = line.split('').reduce((sum, char) => sum + estimateCharacterScreenWidth(char), 0);
+    const fullWidth = line.split('').reduce((sum, char) => sum + estimateCharacterWidth(char, metrics.fontSize), 0);
     const widthLogical = toLogicalScreenSize(
-      Math.max(LABEL_MIN_SCREEN_WIDTH, fullWidth || LABEL_MIN_SCREEN_WIDTH),
+      Math.max(metrics.minWidth, Math.min(metrics.maxWidth, fullWidth || metrics.minWidth)),
       safeScale,
     );
     return {
       lines: [line],
       width: widthLogical,
-      height: toLogicalScreenSize(GROUP_LABEL_LINE_HEIGHT_SCREEN, safeScale),
+      height: toLogicalScreenSize(metrics.lineHeight, safeScale),
       maxWidth: widthLogical,
     };
   }
 
   const labelMaxWidthScreen = clamp(
     photoWidthScreen * LABEL_WIDTH_RATIO,
-    LABEL_MIN_SCREEN_WIDTH,
-    LABEL_MAX_SCREEN_WIDTH,
+    metrics.minWidth,
+    metrics.maxWidth,
   );
   const lines: string[] = [];
   let currentLine = '';
@@ -208,7 +232,7 @@ export function measureGroupLabelLayout(
   let maxLineWidth = 0;
 
   for (const token of tokens) {
-    const tokenWidth = estimateCharacterScreenWidth(token);
+    const tokenWidth = estimateCharacterWidth(token, metrics.fontSize);
     if (currentLine && currentWidth + tokenWidth > labelMaxWidthScreen + 1e-6) {
       lines.push(currentLine);
       maxLineWidth = Math.max(maxLineWidth, currentWidth);
@@ -230,8 +254,8 @@ export function measureGroupLabelLayout(
     lines.length = LABEL_MAX_LINES;
   }
 
-  const widthLogical = toLogicalScreenSize(Math.max(LABEL_MIN_SCREEN_WIDTH, Math.min(labelMaxWidthScreen, maxLineWidth || LABEL_MIN_SCREEN_WIDTH)), safeScale);
-  const heightLogical = toLogicalScreenSize(lines.length * GROUP_LABEL_LINE_HEIGHT_SCREEN, safeScale);
+  const widthLogical = toLogicalScreenSize(Math.max(metrics.minWidth, Math.min(labelMaxWidthScreen, maxLineWidth || metrics.minWidth)), safeScale);
+  const heightLogical = toLogicalScreenSize(lines.length * metrics.lineHeight, safeScale);
 
   return {
     lines: lines.length > 0 ? lines : [''],
