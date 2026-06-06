@@ -156,7 +156,7 @@ function snapshotGeometries(
 const layeredDeps = {
   angleDelta,
   buildLine,
-  chooseBestGeometryForPlacement,
+  chooseBestGeometryForPlacement: choosePlanningGeometryForPlacement,
   countPlacementLineCrossings,
   geometryFitsMap,
   getLabelGap,
@@ -417,6 +417,15 @@ function buildGeometryForPlacement(
   return translated;
 }
 
+function buildPlanningGeometryForPlacement(
+  group: PendingPlaceGroup,
+  placement: FootprintPlacement,
+  mapRect?: LogicalRect,
+) {
+  const translated = buildGeometryForPlacement(group, placement, mapRect);
+  return applyPlanningEnvelope(translated, mapRect);
+}
+
 function geometryFitsMap(geometry: GroupGeometry, mapRect: LogicalRect) {
   return (
     fitsPhotoRectAroundMap(geometry.photoRect, mapRect, MAP_GAP) &&
@@ -431,6 +440,14 @@ function chooseBestGeometryForPlacement(
   mapRect: LogicalRect,
 ) {
   return buildGeometryForPlacement(group, placement, mapRect);
+}
+
+function choosePlanningGeometryForPlacement(
+  group: PendingPlaceGroup,
+  placement: FootprintPlacement,
+  mapRect: LogicalRect,
+) {
+  return buildPlanningGeometryForPlacement(group, placement, mapRect);
 }
 
 function buildPlanningGeometry(
@@ -954,7 +971,7 @@ function buildFallbackState(
 
   for (const group of orderedGroups) {
     const placement = basePlacementById.get(group.placeKey) ?? { centerX: 0, centerY: 0 };
-    const geometry = chooseBestGeometryForPlacement(group, placement, mapRect);
+    const geometry = choosePlanningGeometryForPlacement(group, placement, mapRect);
     state.placementById.set(group.placeKey, placement);
     state.geometryById.set(group.placeKey, geometry);
     state.candidateIndexById.set(group.placeKey, 0);
