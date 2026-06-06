@@ -318,25 +318,12 @@ export function buildLegacyFallbackState(
   mapRect: LogicalRect,
   lockedGroups: LockedPlaceGroup[],
   safeGap: number,
-  seedState: PlacementState | null,
   buildFallbackState: (
     orderedGroups: PendingPlaceGroup[],
     basePlacementById: Map<string, FootprintPlacement>,
     mapRect: LogicalRect,
   ) => PlacementState,
 ) {
-  if (seedState) {
-    optimizeAssignments(
-      deps,
-      orderedGroups,
-      candidatePoolById,
-      seedState,
-      lockedGroups,
-      safeGap,
-    );
-    return seedState;
-  }
-
   const assignedState = assignInitialPlacements(
     deps,
     orderedGroups,
