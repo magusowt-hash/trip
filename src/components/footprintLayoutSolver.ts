@@ -64,6 +64,9 @@ const PRESSURE_YIELD_ANGLE_OFFSETS_DEGREES = [-42, -30, 30, 42];
 const PRESSURE_YIELD_RADIUS_FACTORS = [1, 1.08, 1.18];
 const CORNER_TRANSITION_ESCAPE_ANGLE_OFFSETS_DEGREES = [-96, -84, 84, 96];
 const CORNER_TRANSITION_ESCAPE_RADIUS_FACTORS = [1.08, 1.22, 1.38];
+const UPPER_REGION_BOTTOM_CLEARANCE = 132;
+const LOWER_REGION_TOP_CLEARANCE = 132;
+const LOWER_TRANSITION_BAND_DEGREES = 10;
 const REPAIR_TEST_CONFIG = {
   rebalanceIterationCount: 3,
   radialRelaxPassLimit: 2,
@@ -338,6 +341,57 @@ function getGeometryLabelOffset(geometry: GroupGeometry) {
     : Math.max(0, geometry.lineAnchorY - geometry.photoRect.bottom);
 }
 
+function isPointInLowerPartition(pointX: number, pointY: number, mapRect: LogicalRect) {
+  if (pointY > mapRect.bottom) return true;
+  if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
+
+  const verticalDistance = pointY - mapRect.bottom;
+  if (pointX < mapRect.left) {
+    return verticalDistance >= mapRect.left - pointX;
+  }
+  return verticalDistance >= pointX - mapRect.right;
+}
+
+function isPointInLowerTransitionBand(pointX: number, pointY: number, mapRect: LogicalRect) {
+  if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
+  if (pointY <= mapRect.bottom) return false;
+
+  const boundaryAngle =
+    pointX < mapRect.left
+      ? Math.atan2(mapRect.bottom - pointY, mapRect.left - pointX)
+      : Math.atan2(mapRect.bottom - pointY, pointX - mapRect.right);
+  const bandRadians = (LOWER_TRANSITION_BAND_DEGREES * Math.PI) / 180;
+  return Math.abs(Math.abs(boundaryAngle) - Math.PI / 4) <= bandRadians;
+}
+
+function applyPlanningEnvelope(
+  geometry: GroupGeometry,
+  mapRect?: LogicalRect,
+) {
+  if (!mapRect) return geometry;
+
+  const rect = geometry.groupRect;
+  const sampleXs = [rect.left, (rect.left + rect.right) * 0.5, rect.right];
+  const sampleYs = [rect.top, (rect.top + rect.bottom) * 0.5, rect.bottom];
+  const inLowerRegion = sampleYs.some((sampleY) => (
+    sampleXs.some((sampleX) => isPointInLowerPartition(sampleX, sampleY, mapRect))
+  ));
+  const inLowerTransitionBand = sampleYs.some((sampleY) => (
+    sampleXs.some((sampleX) => isPointInLowerTransitionBand(sampleX, sampleY, mapRect))
+  ));
+  const planningRect = {
+    ...rect,
+    top: rect.top - (inLowerRegion || inLowerTransitionBand ? LOWER_REGION_TOP_CLEARANCE : 0),
+    bottom: rect.bottom + (inLowerTransitionBand ? UPPER_REGION_BOTTOM_CLEARANCE : inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
+  };
+
+  return {
+    ...geometry,
+    groupRect: planningRect,
+    overallRect: planningRect,
+  };
+}
+
 function buildGeometryForPlacement(
   group: PendingPlaceGroup,
   placement: FootprintPlacement,
@@ -377,6 +431,54 @@ function chooseBestGeometryForPlacement(
   mapRect: LogicalRect,
 ) {
   return buildGeometryForPlacement(group, placement, mapRect);
+}
+
+function buildPlanningGeometry(
+  group: PendingPlaceGroup,
+  absoluteCenterX: number,
+  absoluteCenterY: number,
+) {
+  const preferredLabelSide = group.mapRect
+    ? resolvePreferredLabelSideForMap(absoluteCenterX, absoluteCenterY, group.mapRect)
+    : group.collisionGeometry.labelSide;
+  const relativeGeometry = buildGroupGeometryFromPhotoRect(
+    group.collisionGeometry.photoRect,
+    group.placePhotos[0]?.placeTitle || '',
+    group.placePhotos.length,
+    1,
+    preferredLabelSide,
+    getGeometryLabelOffset(group.collisionGeometry),
+  );
+  const absoluteGeometry = translateGroupGeometry(
+    relativeGeometry,
+    absoluteCenterX,
+    absoluteCenterY,
+  );
+  const plannedAbsoluteGeometry = applyPlanningEnvelope(absoluteGeometry, group.mapRect);
+  return translateGroupGeometry(
+    plannedAbsoluteGeometry,
+    -absoluteCenterX,
+    -absoluteCenterY,
+  );
+}
+
+function buildPlanningGroups(
+  groups: PendingPlaceGroup[],
+  placementById?: Map<string, FootprintPlacement>,
+) {
+  return groups.map((group) => {
+    const placement = placementById?.get(group.placeKey);
+    const planningGeometry = buildPlanningGeometry(
+      group,
+      placement?.centerX ?? group.logicalX,
+      placement?.centerY ?? group.logicalY,
+    );
+    return {
+      ...group,
+      collisionGeometry: planningGeometry,
+      collisionRect: planningGeometry.groupRect,
+    };
+  });
 }
 
 function compareLegacyGroupOrder(
@@ -1017,6 +1119,7 @@ export function solvePendingGroupPlacements(
 
 export const __layoutSolverInternals = {
   angleDelta,
+  buildPlanningGroups,
   buildCandidatePool,
   buildCorridorRepairCandidateSubset: (candidates: PlacementCandidate[]) => (
     buildCorridorRepairCandidateSubset({ config: REPAIR_TEST_CONFIG }, candidates)

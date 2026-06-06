@@ -573,6 +573,26 @@ test('solvePendingGroupPlacements keeps the main path free of planning-envelope 
   );
 });
 
+test('buildPlanningGroups keeps lower-transition label envelopes expanded for collision planning', () => {
+  const mapRect = rect(-220, -180, 220, 180);
+  const groups = [
+    buildGroup('corner', '左右下交界测试超长标签', rect(150, 150, 270, 230), 210, 190, mapRect),
+  ];
+
+  const planningGroups = __layoutSolverInternals.buildPlanningGroups(groups);
+  assert.equal(planningGroups.length, 1);
+
+  const originalHeight =
+    groups[0]!.collisionRect.bottom - groups[0]!.collisionRect.top;
+  const planningHeight =
+    planningGroups[0]!.collisionRect.bottom - planningGroups[0]!.collisionRect.top;
+
+  assert.ok(
+    planningHeight > originalHeight,
+    `expected planning envelope to expand collision height, got original=${originalHeight} planning=${planningHeight}`,
+  );
+});
+
 test('solvePendingGroupPlacements returns the main solver placements without post-finalize drift', () => {
   const mapRect = rect(-260, -220, 260, 220);
   const groups = [
