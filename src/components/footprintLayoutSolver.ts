@@ -27,9 +27,9 @@ import { refineRadialPlacements } from './footprintSectorLayoutEngine';
 import { chooseFinalPlacementVariant } from './footprintLayoutSelection';
 import {
   buildPlacementLayers,
+  lastLayeredPlacementFailures,
   placeGroupsLayerByLayer,
   refineAnglesAndRadii,
-  type PlacementState,
 } from './footprintLayoutLayeredPlacement';
 import {
   assignInitialPlacements,
@@ -1119,6 +1119,14 @@ export function solvePendingGroupPlacements(
       step: 'layered-placement',
       placements: snapshotPlacements(orderedGroups, layeredState.placementById),
       geometries: snapshotGeometries(orderedGroups, layeredState.geometryById),
+    });
+  } else {
+    trace.steps.push({
+      step: 'layered-placement-failed',
+      placements: [],
+      meta: {
+        failures: lastLayeredPlacementFailures,
+      },
     });
   }
   reportStage?.(layeredState ? '完成分层放置' : '进入兼容候选回退');

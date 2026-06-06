@@ -20,6 +20,19 @@ export type PlacementState = {
   candidateIndexById: Map<string, number>;
 };
 
+export type LayeredPlacementFailure = {
+  placeKey: string;
+  preferredLayerIndex: number;
+  attemptedLayers: Array<{
+    layerIndex: number;
+    fieldCandidateCount: number;
+    slotFallbackUsed: boolean;
+    placed: boolean;
+  }>;
+};
+
+export let lastLayeredPlacementFailures: LayeredPlacementFailure[] = [];
+
 type EvaluatePlacementResult = {
   valid: boolean;
   score: number;
@@ -201,11 +214,11 @@ function computePlacementAngularGapPenalty(
 }
 
 function compareLayeredEntryOrder(left: LayeredGroupEntry, right: LayeredGroupEntry) {
+  const angleGap = left.angle - right.angle;
+  if (Math.abs(angleGap) > 1e-6) return angleGap;
   if (Math.abs(left.sizeScore - right.sizeScore) > 1e-6) {
     return left.sizeScore - right.sizeScore;
   }
-  const angleGap = left.angle - right.angle;
-  if (Math.abs(angleGap) > 1e-6) return angleGap;
   return left.group.placeKey.localeCompare(right.group.placeKey, 'zh-CN');
 }
 
@@ -305,7 +318,10 @@ export function buildPlacementLayers(
     if (exceedsCircumference || exceedsDepthBand || exceedsDenseAngularBand) {
       finalizeLayer(currentEntries);
       currentEntries = [entry];
-      currentRadius = nextMinRadius + entry.radialDepth * 0.3 + LAYER_RADIUS_PADDING;
+      currentRadius = Math.max(
+        nextMinRadius,
+        Math.min(entry.sourceRadius, nextMinRadius + entry.radialDepth * 0.18),
+      );
       continue;
     }
 
@@ -740,11 +756,13 @@ export function placeGroupsLayerByLayer(
   safeGap: number,
   lockedGroups: LockedPlaceGroup[],
 ) {
+  lastLayeredPlacementFailures = [];
   const state: PlacementState = {
     placementById: new Map<string, FootprintPlacement>(),
     geometryById: new Map<string, GroupGeometry>(),
     candidateIndexById: new Map<string, number>(),
   };
+  const failures: LayeredPlacementFailure[] = [];
   const layerByKey = new Map<string, number>();
   layers.forEach((layer, index) => {
     layer.entries.forEach((entry) => {
@@ -777,6 +795,7 @@ export function placeGroupsLayerByLayer(
     group: PendingPlaceGroup,
     layerIndex: number,
     preferredLayerIndex: number,
+    failureRecord?: LayeredPlacementFailure,
   ) => {
     const layer = layers[layerIndex];
     if (!layer) return false;
@@ -799,10 +818,17 @@ export function placeGroupsLayerByLayer(
         idealAngle: baseAngle,
         idealRadius,
         minRadius: FIELD_IDEAL_RADIUS_FLOOR,
-        radiusStep: Math.max(18, layerRadius * 0.045),
-        radiusScanLimit: 12,
+        radiusStep: Math.max(18, Math.min(64, estimateGroupDepth(group) * 0.45)),
+        radiusScanLimit: 18,
       },
     );
+    const attemptedLayer = {
+      layerIndex,
+      fieldCandidateCount: fieldSearch.candidates.length,
+      slotFallbackUsed: false,
+      placed: false,
+    };
+    failureRecord?.attemptedLayers.push(attemptedLayer);
 
     if (fieldSearch.candidates.length > 0) {
       for (const fieldCandidate of fieldSearch.candidates) {
@@ -839,6 +865,7 @@ export function placeGroupsLayerByLayer(
     }
 
     if (!best && fieldSearch.candidates.length === 0) {
+      attemptedLayer.slotFallbackUsed = true;
       const angleCandidates = buildLayerAngleCandidates(baseAngle, layer.slotCount);
       for (const slotAngle of angleCandidates) {
         for (const angleOffset of LAYER_ANGLE_JITTER_DEGREES) {
@@ -877,6 +904,7 @@ export function placeGroupsLayerByLayer(
     }
 
     if (!best && fieldSearch.candidates.length === 0) {
+      attemptedLayer.slotFallbackUsed = true;
       for (const radiusFactor of FINAL_REFINE_RADIUS_FACTORS) {
         const placement = {
           centerX: Math.cos(baseAngle) * layerRadius * radiusFactor,
@@ -909,6 +937,7 @@ export function placeGroupsLayerByLayer(
     }
 
     if (!best) return false;
+    attemptedLayer.placed = true;
     state.placementById.set(group.placeKey, best.placement);
     state.geometryById.set(group.placeKey, best.geometry);
     state.candidateIndexById.set(group.placeKey, 0);
@@ -918,17 +947,25 @@ export function placeGroupsLayerByLayer(
   for (const group of orderedByLayer) {
     const preferredLayerIndex = layerByKey.get(group.placeKey) ?? 0;
     let placed = false;
+    const failureRecord: LayeredPlacementFailure = {
+      placeKey: group.placeKey,
+      preferredLayerIndex,
+      attemptedLayers: [],
+    };
     for (let layerIndex = preferredLayerIndex; layerIndex < layers.length; layerIndex++) {
-      if (tryPlaceInLayer(group, layerIndex, preferredLayerIndex)) {
+      if (tryPlaceInLayer(group, layerIndex, preferredLayerIndex, failureRecord)) {
         placed = true;
         break;
       }
     }
     if (!placed) {
+      failures.push(failureRecord);
+      lastLayeredPlacementFailures = [...failures];
       return null;
     }
   }
 
+  lastLayeredPlacementFailures = [...failures];
   return state;
 }
 
