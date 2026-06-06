@@ -403,6 +403,7 @@ export function findPlacementInField(
     idealAngle?: number;
     idealRadius?: number;
     minRadius?: number;
+    maxRadius?: number;
     radiusStep?: number;
     radiusScanLimit?: number;
     sectorStart?: number;
@@ -412,9 +413,10 @@ export function findPlacementInField(
   const idealAngle = options?.idealAngle ?? Math.atan2(group.logicalY, group.logicalX);
   const idealRadius = options?.idealRadius ?? Math.hypot(group.logicalX, group.logicalY);
   const minRadius = Math.max(0, options?.minRadius ?? 0);
+  const maxRadius = Math.max(minRadius, options?.maxRadius ?? Number.POSITIVE_INFINITY);
   const radiusStep = options?.radiusStep ?? DEFAULT_RADIUS_STEP;
   const radiusScanLimit = options?.radiusScanLimit ?? DEFAULT_RADIUS_SCAN_LIMIT;
-  const requiredSpanAngle = groupSpanAngle(geometry, Math.max(minRadius, 1));
+  const requiredSpanAngle = groupSpanAngle(geometry, Math.max(minRadius, idealRadius, 1));
   const sector = (
     options?.sectorStart != null && options?.sectorEnd != null
       ? { start: options.sectorStart, end: options.sectorEnd, isTransition: false }
@@ -424,8 +426,25 @@ export function findPlacementInField(
   let lastFreeArcs: PolarFreeArc[] = [];
   const rankedCandidates: PlacementFieldCandidate[] = [];
   const trace: PlacementFieldSearchResult['trace'] = [];
+  const radiusSeed = clamp(idealRadius, minRadius, maxRadius);
+  const radii: number[] = [];
   for (let stepIndex = 0; stepIndex <= radiusScanLimit; stepIndex++) {
-    const radius = minRadius + stepIndex * radiusStep;
+    if (stepIndex === 0) {
+      radii.push(radiusSeed);
+      continue;
+    }
+    const delta = radiusStep * stepIndex;
+    const innerRadius = radiusSeed - delta;
+    const outerRadius = radiusSeed + delta;
+    if (innerRadius >= minRadius) {
+      radii.push(innerRadius);
+    }
+    if (outerRadius <= maxRadius) {
+      radii.push(outerRadius);
+    }
+  }
+
+  for (const radius of radii) {
     const freeArcs = computeFreeArcsAtRadius(
       blockedBands,
       radius,

@@ -323,13 +323,16 @@ export function buildPlacementLayers(
       nextMinRadius,
       projectedEntries.reduce((sum, item) => sum + item.sourceRadius, 0) / projectedEntries.length,
     );
+    const sourceRadiusValues = projectedEntries.map((item) => item.sourceRadius);
+    const minProjectedSourceRadius = Math.min(...sourceRadiusValues);
+    const maxProjectedSourceRadius = Math.max(...sourceRadiusValues);
     const availableCircumference = Math.PI * 2 * Math.max(projectedRadius, adaptiveRadiusBase);
     const exceedsCircumference =
       currentEntries.length > 0 &&
       projectedSpan > availableCircumference * LAYER_FILL_RATIO;
     const exceedsDepthBand =
       currentEntries.length > 0 &&
-      projectedRadius < currentRadius + projectedMaxDepth * 0.38;
+      maxProjectedSourceRadius - minProjectedSourceRadius > projectedMaxDepth * 1.18 + adaptiveRadiusStep * 0.8;
     const nearestAngularGap = findNearestAngularGap(entry.angle, currentEntries);
     const requiredAngularGap = computeRequiredAngularGap(projectedRadius, entry.spanEstimate);
     const exceedsDenseAngularBand =
@@ -345,6 +348,8 @@ export function buildPlacementLayers(
         projectedSpan,
         projectedMaxDepth,
         projectedRadius,
+        minProjectedSourceRadius,
+        maxProjectedSourceRadius,
         availableCircumference,
         nearestAngularGap,
         requiredAngularGap,
@@ -857,7 +862,10 @@ export function placeGroupsLayerByLayer(
     if (!layer) return false;
     const baseAngle = Math.atan2(group.logicalY, group.logicalX);
     const layerRadius = layer.radius;
-    const idealRadius = estimateGroupPreferredRadius(group);
+    const preferredRadius = estimateGroupPreferredRadius(group);
+    const idealRadius = Math.max(layerRadius * 0.9, preferredRadius);
+    const fieldMinRadius = Math.max(FIELD_IDEAL_RADIUS_FLOOR, layerRadius * 0.68);
+    const fieldMaxRadius = Math.max(fieldMinRadius, layerRadius * 1.12);
     let best:
       | {
           placement: FootprintPlacement;
@@ -873,9 +881,10 @@ export function placeGroupsLayerByLayer(
       {
         idealAngle: baseAngle,
         idealRadius,
-        minRadius: FIELD_IDEAL_RADIUS_FLOOR,
+        minRadius: fieldMinRadius,
+        maxRadius: fieldMaxRadius,
         radiusStep: Math.max(18, Math.min(64, estimateGroupDepth(group) * 0.45)),
-        radiusScanLimit: 18,
+        radiusScanLimit: 8,
       },
     );
     lastLayeredPlacementTrace.push({
@@ -887,6 +896,8 @@ export function placeGroupsLayerByLayer(
         preferredLayerIndex,
         idealRadius,
         layerRadius,
+        fieldMinRadius,
+        fieldMaxRadius,
         candidateCount: fieldSearch.candidates.length,
         scannedRadius: fieldSearch.scannedRadius,
         trace: fieldSearch.trace,

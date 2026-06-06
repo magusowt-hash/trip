@@ -10,6 +10,7 @@ import {
   solvePendingGroupPlacements,
 } from './footprintLayoutSolver.ts';
 import { buildRadialLayout } from './localMapLayoutEngine.ts';
+import { buildPlacementLayers } from './footprintLayoutLayeredPlacement.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -502,6 +503,57 @@ test('solvePendingGroupPlacements preserves source-angle ordering within a share
     placedOrder,
     sourceOrder,
     `expected placement order to preserve source-angle order, got source=${sourceOrder.join(',')} placed=${placedOrder.join(',')}`,
+  );
+});
+
+test('buildPlacementLayers keeps nearby source rays together instead of splitting every entry into its own layer', () => {
+  const mapRect = rect(-220, -180, 220, 180);
+  const groups = [
+    buildGroup('layer-a', '层A', rect(40, -20, 160, 60), 320, -40, mapRect),
+    buildGroup('layer-b', '层B', rect(60, -20, 180, 60), 360, -30, mapRect),
+    buildGroup('layer-c', '层C', rect(80, -20, 200, 60), 400, -20, mapRect),
+  ];
+  const basePlacementById = new Map(
+    groups.map((group) => [
+      group.placeKey,
+      { centerX: group.logicalX, centerY: group.logicalY },
+    ] as const),
+  );
+
+  const layers = buildPlacementLayers(groups, basePlacementById, mapRect);
+
+  assert.ok(
+    layers.some((layer) => layer.entries.length > 1),
+    'expected at least one shared layer for nearby source rays',
+  );
+});
+
+test('solvePendingGroupPlacements scans field radii near the assigned layer instead of the inner floor', () => {
+  const mapRect = rect(-260, -220, 260, 220);
+  const groups = [
+    buildGroup('wide', '超宽标签测试组甲乙丙丁戊己庚辛', rect(-120, -30, 0, 50), 420, -60, mapRect),
+  ];
+
+  const solved = solvePendingGroupPlacements(groups, mapRect, 80, 0, []);
+  const layeredStep = solved.trace.steps.find((step) => step.step === 'layered-placement');
+  assert.ok(layeredStep, 'expected layered placement to succeed for single-group fixture');
+
+  const functionTrace = (layeredStep!.meta?.functionTrace ?? []) as Array<{
+    fn: string;
+    placeKey?: string;
+    meta?: Record<string, unknown>;
+  }>;
+  const fieldTrace = functionTrace.find((entry) => entry.fn === 'findPlacementInField' && entry.placeKey === 'wide');
+  assert.ok(fieldTrace, 'expected field search trace for the wide group');
+
+  const fieldMeta = fieldTrace!.meta as {
+    layerRadius: number;
+    trace: Array<{ radius: number }>;
+  };
+  assert.ok(fieldMeta.trace.length > 0, 'expected radius scan trace entries');
+  assert.ok(
+    fieldMeta.trace[0]!.radius >= fieldMeta.layerRadius * 0.6,
+    `expected scan to start near layer radius, got start=${fieldMeta.trace[0]!.radius} layer=${fieldMeta.layerRadius}`,
   );
 });
 
