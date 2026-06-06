@@ -23,7 +23,7 @@ import {
   type GroupLayoutSnapshot,
 } from '@/components/localMapGroupGeometry';
 import type { GroupGeometry } from '@/components/localMapGroupGeometry';
-import { FOOTPRINT_MAP_SAFE_GAP, getFootprintMapRect } from '@/components/footprintMapGeometry';
+import { getFootprintMapRect } from '@/components/footprintMapGeometry';
 import { collectConflictingSavedPlaceKeys, geometryConflictsWithLockedGroups } from '@/components/footprintSavedGroupRecovery';
 import {
   applyGroupDragToPhotos,
@@ -345,7 +345,7 @@ function solveFrozenGroupLayouts(
   return resolveGroupLabelLayouts(entries, {
     gap: 10,
     mapRect,
-    mapGap: FOOTPRINT_MAP_SAFE_GAP,
+    mapGap: 0,
     labelGapBoost: computeLabelGapBoost(scale),
     step: 8,
     maxOffset: 120,
@@ -372,7 +372,7 @@ function estimateReservedLabelOffset(
   ], {
     gap: 10,
     mapRect,
-    mapGap: FOOTPRINT_MAP_SAFE_GAP,
+    mapGap: 0,
     labelGapBoost: computeLabelGapBoost(scale),
     step: 8,
     maxOffset: 120,

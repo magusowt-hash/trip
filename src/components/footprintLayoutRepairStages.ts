@@ -163,7 +163,7 @@ export function buildGeometryMapForPlacements(
       ...lockedGroups.map((group) => ({ id: group.placeKey, geometry: group.geometry })),
       ...entries,
     ],
-    { gap: deps.getGroupGap(safeGap), mapRect, mapGap: 128, labelGapBoost },
+    { gap: deps.getGroupGap(safeGap), mapRect, mapGap: 0, labelGapBoost },
   );
   const geometryById = new Map<string, GroupGeometry>();
   for (const group of groups) {

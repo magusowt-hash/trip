@@ -1007,7 +1007,7 @@ export function solvePendingGroupPlacements(
       rect: group.collisionRect,
     })),
     mapRect,
-    { mapGap: MAP_GAP },
+    { mapGap: 0 },
   );
   markMetric('baseRadialLayoutMs');
 
