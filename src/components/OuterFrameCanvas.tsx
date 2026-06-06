@@ -11,7 +11,7 @@ import {
   measureGroupLabelLayout,
   type GroupLayoutSnapshot,
 } from './localMapGroupGeometry';
-import { getFootprintMapRect } from './footprintMapGeometry';
+import { getFootprintMapProtectionRect, getFootprintMapRect } from './footprintMapGeometry';
 import type { LineStyle } from './LegendPanel';
 import {
   clampRectOutsideMap,
@@ -253,13 +253,7 @@ export default function OuterFrameCanvas({
   }, [getPhotoLogicalSize]);
 
   const clampGroupRectAwayFromMap = useCallback((rect: PlaceRect): PlaceRect => {
-    const { halfW: mapHalfW, halfH: mapHalfH } = getMapLogicalBounds(width, height);
-    return clampRectOutsideMap(rect, {
-      left: -mapHalfW,
-      right: mapHalfW,
-      top: -mapHalfH,
-      bottom: mapHalfH,
-    });
+    return clampRectOutsideMap(rect, getFootprintMapProtectionRect(width, height));
   }, [width, height]);
 
   const buildPlaceRectForGroup = useCallback((placeKey: string, items: PhotoItem[]): PlaceRect | null => {

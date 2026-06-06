@@ -14,10 +14,10 @@ import { getFootprintMapRect } from './footprintMapGeometry';
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
 const FIT_VIEW_PADDING = 24;
+const VIEWPORT_GEOMETRY_SCALE = 1;
 const VIEWPORT_PADDING_LOGICAL = 24;
 const MAP_AREA_RATIO_W = 0.6;
 const MAP_AREA_RATIO_H = 0.8;
-const FIT_VIEW_ITERATION_COUNT = 4;
 
 export function buildViewportFromRects(
   rects: Array<{ left: number; right: number; top: number; bottom: number }>,
@@ -165,10 +165,7 @@ export default function OuterFrame({
     halfH: (containerSize.h * MAP_AREA_RATIO_H) / 2,
   }), [containerSize]);
 
-  const buildPhotoGroupViewport = useCallback((
-    geometryScale: number,
-    padding = VIEWPORT_PADDING_LOGICAL,
-  ): Viewport | null => {
+  const buildPhotoGroupViewport = useCallback((padding = VIEWPORT_PADDING_LOGICAL): Viewport | null => {
     const groups = new Map<string, PhotoItem[]>();
     for (const photo of photos) {
       if (photo.frameX == null || photo.frameY == null) continue;
@@ -185,7 +182,7 @@ export default function OuterFrame({
         groupPhotos[0]?.placeKey || '',
         groupPhotos,
         getPhotoLogicalSize,
-        geometryScale,
+        VIEWPORT_GEOMETRY_SCALE,
         groupLayouts ?? [],
         getFootprintMapRect(containerSize.w || 1200, containerSize.h || 800),
       );
@@ -255,25 +252,12 @@ export default function OuterFrame({
     if (!fitViewEnabled || fitViewKey == null || !containerSize.w || !containerSize.h) return;
     const availableWidth = Math.max(1, containerSize.w - FIT_VIEW_PADDING * 2);
     const availableHeight = Math.max(1, containerSize.h - FIT_VIEW_PADDING * 2);
-    let nextScale = Math.min(CLAMP_SCALE.max, Math.max(baseMinScale, transform.scale || 1));
-    let viewport: Viewport | null = null;
-
-    for (let index = 0; index < FIT_VIEW_ITERATION_COUNT; index++) {
-      viewport = buildPhotoGroupViewport(nextScale);
-      if (!viewport) return;
-      const contentWidth = Math.max(1, viewport.right - viewport.left);
-      const contentHeight = Math.max(1, viewport.bottom - viewport.top);
-      const fittedScale = Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight));
-      if (Math.abs(fittedScale - nextScale) < 0.005) {
-        nextScale = fittedScale;
-        break;
-      }
-      nextScale = fittedScale;
-    }
-
-    viewport = buildPhotoGroupViewport(nextScale);
+    const viewport = buildPhotoGroupViewport();
     if (!viewport) return;
 
+    const contentWidth = Math.max(1, viewport.right - viewport.left);
+    const contentHeight = Math.max(1, viewport.bottom - viewport.top);
+    const nextScale = Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight));
     const centerX = (viewport.left + viewport.right) / 2;
     const centerY = (viewport.top + viewport.bottom) / 2;
 
@@ -283,7 +267,7 @@ export default function OuterFrame({
       tx: -centerX * nextScale,
       ty: -centerY * nextScale,
     });
-  }, [fitViewEnabled, fitViewKey, containerSize, buildPhotoGroupViewport, setTransform, baseMinScale, transform.scale]);
+  }, [fitViewEnabled, fitViewKey, containerSize, buildPhotoGroupViewport, setTransform]);
   useEffect(() => {
     if (!mapReady) return;
     computePoiPoints();
