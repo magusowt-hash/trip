@@ -69,3 +69,10 @@ export type SolverTrace = {
   version: 'solver-trace-v1';
   steps: SolverTraceStep[];
 };
+
+export type SolverFunctionTraceEntry = {
+  fn: string;
+  stage: string;
+  placeKey?: string;
+  meta?: Record<string, unknown>;
+};

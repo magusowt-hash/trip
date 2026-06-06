@@ -12,6 +12,7 @@ import type {
   LockedPlaceGroup,
   LogicalRect,
   PendingPlaceGroup,
+  SolverFunctionTraceEntry,
   SolverTrace,
 } from './footprintLayoutTypes';
 import {
@@ -28,6 +29,7 @@ import { chooseFinalPlacementVariant } from './footprintLayoutSelection';
 import {
   buildPlacementLayers,
   lastLayeredPlacementFailures,
+  lastLayeredPlacementTrace,
   placeGroupsLayerByLayer,
   refineAnglesAndRadii,
 } from './footprintLayoutLayeredPlacement';
@@ -1030,6 +1032,7 @@ export function solvePendingGroupPlacements(
     version: 'solver-trace-v1',
     steps: [],
   };
+  const functionTrace: SolverFunctionTraceEntry[] = [];
   const markMetric = (name: string) => {
     reportMetric?.(name, Number((performance.now() - solverStartedAt).toFixed(1)));
   };
@@ -1104,6 +1107,7 @@ export function solvePendingGroupPlacements(
       })),
     },
   });
+  functionTrace.push(...lastLayeredPlacementTrace);
   const layeredState =
     placeGroupsLayerByLayer(
       layeredDeps,
@@ -1114,11 +1118,15 @@ export function solvePendingGroupPlacements(
       lockedGroups,
     );
   markMetric('placeGroupsLayerByLayerMs');
+  functionTrace.push(...lastLayeredPlacementTrace.slice(functionTrace.length));
   if (layeredState) {
     trace.steps.push({
       step: 'layered-placement',
       placements: snapshotPlacements(orderedGroups, layeredState.placementById),
       geometries: snapshotGeometries(orderedGroups, layeredState.geometryById),
+      meta: {
+        functionTrace,
+      },
     });
   } else {
     trace.steps.push({
@@ -1126,6 +1134,7 @@ export function solvePendingGroupPlacements(
       placements: [],
       meta: {
         failures: lastLayeredPlacementFailures,
+        functionTrace,
       },
     });
   }
@@ -1175,6 +1184,9 @@ export function solvePendingGroupPlacements(
       step: 'refine-angles-and-radii',
       placements: snapshotPlacements(repairOrderedGroups, workingState.placementById),
       geometries: snapshotGeometries(repairOrderedGroups, workingState.geometryById),
+      meta: {
+        functionTrace,
+      },
     });
   }
 
@@ -1194,6 +1206,9 @@ export function solvePendingGroupPlacements(
     step: 'final-placement',
     placements: snapshotPlacements(repairOrderedGroups, result.placements),
     geometries: snapshotGeometries(repairOrderedGroups, result.geometries),
+    meta: {
+      functionTrace,
+    },
   });
   return {
     ...result,

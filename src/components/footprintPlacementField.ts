@@ -29,6 +29,20 @@ export type PlacementFieldSearchResult = {
   scannedRadius: number;
   freeArcs: PolarFreeArc[];
   candidates: PlacementFieldCandidate[];
+  trace: Array<{
+    radius: number;
+    sectorStart: number;
+    sectorEnd: number;
+    freeArcCount: number;
+    freeArcs: PolarFreeArc[];
+    candidateCount: number;
+    candidates: Array<{
+      angle: number;
+      radius: number;
+      occupancyStart: number;
+      occupancyEnd: number;
+    }>;
+  }>;
 };
 
 export type EnclosureScore = {
@@ -409,6 +423,7 @@ export function findPlacementInField(
 
   let lastFreeArcs: PolarFreeArc[] = [];
   const rankedCandidates: PlacementFieldCandidate[] = [];
+  const trace: PlacementFieldSearchResult['trace'] = [];
   for (let stepIndex = 0; stepIndex <= radiusScanLimit; stepIndex++) {
     const radius = minRadius + stepIndex * radiusStep;
     const freeArcs = computeFreeArcsAtRadius(
@@ -436,10 +451,35 @@ export function findPlacementInField(
         scoreAngleWithinFreeArc(right.freeArc, right.angle, idealAngle)
       ));
       rankedCandidates.push(...sortedAtRadius.slice(0, Math.min(3, sortedAtRadius.length)));
+      trace.push({
+        radius,
+        sectorStart: sector.start,
+        sectorEnd: sector.end,
+        freeArcCount: freeArcs.length,
+        freeArcs,
+        candidateCount: candidatesAtRadius.length,
+        candidates: candidatesAtRadius.map((candidate) => ({
+          angle: candidate.angle,
+          radius: candidate.radius,
+          occupancyStart: candidate.occupancyStart,
+          occupancyEnd: candidate.occupancyEnd,
+        })),
+      });
       if (rankedCandidates.length >= 6) {
         break;
       }
+      continue;
     }
+
+    trace.push({
+      radius,
+      sectorStart: sector.start,
+      sectorEnd: sector.end,
+      freeArcCount: freeArcs.length,
+      freeArcs,
+      candidateCount: 0,
+      candidates: [],
+    });
   }
 
   if (rankedCandidates.length > 0) {
@@ -456,6 +496,7 @@ export function findPlacementInField(
       scannedRadius: candidate.radius,
       freeArcs: lastFreeArcs,
       candidates: rankedCandidates,
+      trace,
     };
   }
 
@@ -464,5 +505,6 @@ export function findPlacementInField(
     scannedRadius: minRadius + radiusScanLimit * radiusStep,
     freeArcs: lastFreeArcs,
     candidates: [],
+    trace,
   };
 }

@@ -1,4 +1,10 @@
-import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
+import type {
+  FootprintPlacement,
+  LockedPlaceGroup,
+  LogicalRect,
+  PendingPlaceGroup,
+  SolverFunctionTraceEntry,
+} from './footprintLayoutTypes';
 import type { GroupGeometry } from './localMapGroupGeometry';
 import { rectsOverlap } from './localMapGroupGeometry';
 import {
@@ -32,6 +38,7 @@ export type LayeredPlacementFailure = {
 };
 
 export let lastLayeredPlacementFailures: LayeredPlacementFailure[] = [];
+export let lastLayeredPlacementTrace: SolverFunctionTraceEntry[] = [];
 
 type EvaluatePlacementResult = {
   valid: boolean;
@@ -250,6 +257,7 @@ export function buildPlacementLayers(
   basePlacementById: Map<string, FootprintPlacement>,
   mapRect: LogicalRect,
 ) {
+  lastLayeredPlacementTrace = [];
   const adaptiveRadiusBase = getAdaptiveLayerRadiusBase(mapRect);
   const adaptiveRadiusStep = getAdaptiveLayerRadiusStep(mapRect);
   const entries = groups.map((group) => {
@@ -288,6 +296,19 @@ export function buildPlacementLayers(
       minAngularGap: Math.max((Math.PI * 2 / slotCount) * 0.72, requiredAngularGap),
       entries: sortedEntries,
     });
+    lastLayeredPlacementTrace.push({
+      fn: 'buildPlacementLayers',
+      stage: 'finalize-layer',
+      meta: {
+        layerIndex: layers.length - 1,
+        radius: Math.max(currentRadius, sourceRadius),
+        sourceRadius,
+        maxDepth,
+        slotCount,
+        requiredAngularGap,
+        placeKeys: sortedEntries.map((entry) => entry.group.placeKey),
+      },
+    });
     nextMinRadius = Math.max(
       nextMinRadius,
       Math.max(currentRadius, sourceRadius) + maxDepth + adaptiveRadiusStep,
@@ -315,6 +336,24 @@ export function buildPlacementLayers(
       currentEntries.length > 0 &&
       nearestAngularGap < requiredAngularGap;
 
+    lastLayeredPlacementTrace.push({
+      fn: 'buildPlacementLayers',
+      stage: 'evaluate-entry',
+      placeKey: entry.group.placeKey,
+      meta: {
+        currentLayerSize: currentEntries.length,
+        projectedSpan,
+        projectedMaxDepth,
+        projectedRadius,
+        availableCircumference,
+        nearestAngularGap,
+        requiredAngularGap,
+        exceedsCircumference,
+        exceedsDepthBand,
+        exceedsDenseAngularBand,
+      },
+    });
+
     if (exceedsCircumference || exceedsDepthBand || exceedsDenseAngularBand) {
       finalizeLayer(currentEntries);
       currentEntries = [entry];
@@ -322,6 +361,15 @@ export function buildPlacementLayers(
         nextMinRadius,
         Math.min(entry.sourceRadius, nextMinRadius + entry.radialDepth * 0.18),
       );
+      lastLayeredPlacementTrace.push({
+        fn: 'buildPlacementLayers',
+        stage: 'start-new-layer',
+        placeKey: entry.group.placeKey,
+        meta: {
+          nextMinRadius,
+          currentRadius,
+        },
+      });
       continue;
     }
 
@@ -757,6 +805,14 @@ export function placeGroupsLayerByLayer(
   lockedGroups: LockedPlaceGroup[],
 ) {
   lastLayeredPlacementFailures = [];
+  lastLayeredPlacementTrace.push({
+    fn: 'placeGroupsLayerByLayer',
+    stage: 'start',
+    meta: {
+      groupCount: orderedGroups.length,
+      layerCount: layers.length,
+    },
+  });
   const state: PlacementState = {
     placementById: new Map<string, FootprintPlacement>(),
     geometryById: new Map<string, GroupGeometry>(),
@@ -822,6 +878,20 @@ export function placeGroupsLayerByLayer(
         radiusScanLimit: 18,
       },
     );
+    lastLayeredPlacementTrace.push({
+      fn: 'findPlacementInField',
+      stage: 'result',
+      placeKey: group.placeKey,
+      meta: {
+        layerIndex,
+        preferredLayerIndex,
+        idealRadius,
+        layerRadius,
+        candidateCount: fieldSearch.candidates.length,
+        scannedRadius: fieldSearch.scannedRadius,
+        trace: fieldSearch.trace,
+      },
+    });
     const attemptedLayer = {
       layerIndex,
       fieldCandidateCount: fieldSearch.candidates.length,
@@ -938,6 +1008,17 @@ export function placeGroupsLayerByLayer(
 
     if (!best) return false;
     attemptedLayer.placed = true;
+    lastLayeredPlacementTrace.push({
+      fn: 'placeGroupsLayerByLayer',
+      stage: 'placed-in-layer',
+      placeKey: group.placeKey,
+      meta: {
+        layerIndex,
+        preferredLayerIndex,
+        placement: best.placement,
+        score: best.score,
+      },
+    });
     state.placementById.set(group.placeKey, best.placement);
     state.geometryById.set(group.placeKey, best.geometry);
     state.candidateIndexById.set(group.placeKey, 0);
@@ -961,6 +1042,15 @@ export function placeGroupsLayerByLayer(
     if (!placed) {
       failures.push(failureRecord);
       lastLayeredPlacementFailures = [...failures];
+      lastLayeredPlacementTrace.push({
+        fn: 'placeGroupsLayerByLayer',
+        stage: 'group-failed',
+        placeKey: group.placeKey,
+        meta: {
+          preferredLayerIndex,
+          attemptedLayers: failureRecord.attemptedLayers,
+        },
+      });
       return null;
     }
   }
@@ -1023,6 +1113,17 @@ export function refineAnglesAndRadii(
         }
       }
     }
+    lastLayeredPlacementTrace.push({
+      fn: 'refineAnglesAndRadii',
+      stage: 'group-refine',
+      placeKey: group.placeKey,
+      meta: {
+        baseAngle,
+        baseRadius,
+        viableCandidateCount: viableCandidates.length,
+        bestScore,
+      },
+    });
 
     if (groups.length >= 20 && viableCandidates.length > 1) {
       const narrowedCandidates = [...viableCandidates]
