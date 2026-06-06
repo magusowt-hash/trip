@@ -11,7 +11,7 @@ import PhotoAlbumModal from '@/components/PhotoAlbumModal';
 import LegendPanel from '@/components/LegendPanel';
 import LocalMapModal, { type LocalMappedAssetDraft, type LocalMapLayoutSettings } from '@/components/LocalMapModal';
 import { solvePendingGroupPlacements } from '@/components/footprintLayoutSolver';
-import type { LockedPlaceGroup, LogicalOffset, LogicalRect, LogicalSize, PendingPlaceGroup } from '@/components/footprintLayoutTypes';
+import type { LockedPlaceGroup, LogicalOffset, LogicalRect, LogicalSize, PendingPlaceGroup, SolverTrace } from '@/components/footprintLayoutTypes';
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import {
@@ -105,6 +105,7 @@ type MappedLayoutExportSnapshot = {
     solverMetrics: SolverMetricTiming[];
     applyMetrics?: SolverMetricTiming[];
   };
+  solverTrace?: SolverTrace;
 };
 
 const PHOTO_MAX_EDGE = 120;
@@ -1133,6 +1134,7 @@ function UserFootprintsPageInner() {
         solverStages: solverStageTimings,
         solverMetrics: solverMetricTimings,
       },
+      solverTrace: solvedPendingGroups.trace,
     };
 
     for (const group of pendingGroups) {
@@ -1366,6 +1368,7 @@ function UserFootprintsPageInner() {
         },
         solverInputSnapshot,
         timings: exportTimings,
+        solverTrace: exportSnapshot?.solverTrace ?? null,
       });
     } catch {
       setActionNotice('导出映射 JSON 失败，请稍后重试');

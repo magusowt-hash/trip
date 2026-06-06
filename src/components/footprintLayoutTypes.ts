@@ -41,3 +41,31 @@ export type LockedPlaceGroup = {
   logicalY: number;
   geometry: GroupGeometry;
 };
+
+export type PlacementTraceSnapshot = {
+  placeKey: string;
+  centerX: number;
+  centerY: number;
+  angle: number;
+  radius: number;
+};
+
+export type GeometryTraceSnapshot = {
+  placeKey: string;
+  labelSide: GroupGeometry['labelSide'];
+  lineAnchorX: number;
+  lineAnchorY: number;
+  groupRect: LogicalRect;
+};
+
+export type SolverTraceStep = {
+  step: string;
+  placements: PlacementTraceSnapshot[];
+  geometries?: GeometryTraceSnapshot[];
+  meta?: Record<string, unknown>;
+};
+
+export type SolverTrace = {
+  version: 'solver-trace-v1';
+  steps: SolverTraceStep[];
+};

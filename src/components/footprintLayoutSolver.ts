@@ -7,7 +7,13 @@ import {
   type GroupGeometry,
 } from './localMapGroupGeometry';
 import { buildRadialLayout } from './localMapLayoutEngine';
-import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
+import type {
+  FootprintPlacement,
+  LockedPlaceGroup,
+  LogicalRect,
+  PendingPlaceGroup,
+  SolverTrace,
+} from './footprintLayoutTypes';
 import {
   fitsLabelRectAroundMap,
   fitsGroupRectAroundMap,
@@ -95,6 +101,40 @@ function getAdaptiveOuterRingFactors(baseRadius: number, mapRect: LogicalRect) {
 
 export type SolverStageReporter = (stage: string) => void;
 export type SolverMetricReporter = (name: string, elapsedMs: number) => void;
+
+function snapshotPlacements(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+) {
+  return groups.flatMap((group) => {
+    const placement = placementById.get(group.placeKey);
+    if (!placement) return [];
+    return [{
+      placeKey: group.placeKey,
+      centerX: placement.centerX,
+      centerY: placement.centerY,
+      angle: Math.atan2(placement.centerY, placement.centerX),
+      radius: Math.hypot(placement.centerX, placement.centerY),
+    }];
+  });
+}
+
+function snapshotGeometries(
+  groups: PendingPlaceGroup[],
+  geometryById: Map<string, GroupGeometry>,
+) {
+  return groups.flatMap((group) => {
+    const geometry = geometryById.get(group.placeKey);
+    if (!geometry) return [];
+    return [{
+      placeKey: group.placeKey,
+      labelSide: geometry.labelSide,
+      lineAnchorX: geometry.lineAnchorX,
+      lineAnchorY: geometry.lineAnchorY,
+      groupRect: geometry.groupRect,
+    }];
+  });
+}
 
 const layeredDeps = {
   angleDelta,
@@ -986,6 +1026,10 @@ export function solvePendingGroupPlacements(
   reportMetric?: SolverMetricReporter,
 ) {
   const solverStartedAt = performance.now();
+  const trace: SolverTrace = {
+    version: 'solver-trace-v1',
+    steps: [],
+  };
   const markMetric = (name: string) => {
     reportMetric?.(name, Number((performance.now() - solverStartedAt).toFixed(1)));
   };
@@ -1008,6 +1052,17 @@ export function solvePendingGroupPlacements(
     });
   });
   const planningGroups = buildPlanningGroups(groups, initialBasePlacementById);
+  trace.steps.push({
+    step: 'planning-groups',
+    placements: snapshotPlacements(planningGroups, initialBasePlacementById),
+    geometries: planningGroups.map((group) => ({
+      placeKey: group.placeKey,
+      labelSide: group.collisionGeometry.labelSide,
+      lineAnchorX: group.collisionGeometry.lineAnchorX,
+      lineAnchorY: group.collisionGeometry.lineAnchorY,
+      groupRect: group.collisionGeometry.groupRect,
+    })),
+  });
   const basePlacements = buildRadialLayout(
     planningGroups.map((group) => ({
       id: group.placeKey,
@@ -1027,10 +1082,28 @@ export function solvePendingGroupPlacements(
       centerY: placement.centerY,
     });
   });
+  trace.steps.push({
+    step: 'base-radial-layout',
+    placements: snapshotPlacements(planningGroups, basePlacementById),
+  });
   const orderedGroups = [...planningGroups].sort(compareLayerPlacementOrder);
   reportStage?.('构建自动分层');
   const placementLayers = buildPlacementLayers(orderedGroups, basePlacementById, mapRect);
   markMetric('buildPlacementLayersMs');
+  trace.steps.push({
+    step: 'placement-layers',
+    placements: snapshotPlacements(orderedGroups, basePlacementById),
+    meta: {
+      layerCount: placementLayers.length,
+      layers: placementLayers.map((layer) => ({
+        index: layer.index,
+        radius: layer.radius,
+        slotCount: layer.slotCount,
+        minAngularGap: layer.minAngularGap,
+        placeKeys: layer.entries.map((entry) => entry.group.placeKey),
+      })),
+    },
+  });
   const layeredState =
     placeGroupsLayerByLayer(
       layeredDeps,
@@ -1041,6 +1114,13 @@ export function solvePendingGroupPlacements(
       lockedGroups,
     );
   markMetric('placeGroupsLayerByLayerMs');
+  if (layeredState) {
+    trace.steps.push({
+      step: 'layered-placement',
+      placements: snapshotPlacements(orderedGroups, layeredState.placementById),
+      geometries: snapshotGeometries(orderedGroups, layeredState.geometryById),
+    });
+  }
   reportStage?.(layeredState ? '完成分层放置' : '进入兼容候选回退');
   const legacyInputs = layeredState
     ? null
@@ -1062,6 +1142,11 @@ export function solvePendingGroupPlacements(
       );
   if (!layeredState) {
     markMetric('buildLegacyFallbackStateMs');
+    trace.steps.push({
+      step: 'legacy-fallback-state',
+      placements: snapshotPlacements(legacyInputs!.orderedGroups, workingState.placementById),
+      geometries: snapshotGeometries(legacyInputs!.orderedGroups, workingState.geometryById),
+    });
   }
   const repairOrderedGroups = layeredState
     ? orderedGroups
@@ -1078,6 +1163,11 @@ export function solvePendingGroupPlacements(
       lockedGroups,
     );
     markMetric('refineAnglesAndRadiiMs');
+    trace.steps.push({
+      step: 'refine-angles-and-radii',
+      placements: snapshotPlacements(repairOrderedGroups, workingState.placementById),
+      geometries: snapshotGeometries(repairOrderedGroups, workingState.geometryById),
+    });
   }
 
   reportStage?.('收敛最终排布');
@@ -1092,7 +1182,15 @@ export function solvePendingGroupPlacements(
     reportMetric,
   );
   markMetric('finalizePlacementVariantMs');
-  return result;
+  trace.steps.push({
+    step: 'final-placement',
+    placements: snapshotPlacements(repairOrderedGroups, result.placements),
+    geometries: snapshotGeometries(repairOrderedGroups, result.geometries),
+  });
+  return {
+    ...result,
+    trace,
+  };
 }
 
 export const __layoutSolverInternals = {
