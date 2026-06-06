@@ -18,6 +18,10 @@ export type PlacementFieldCandidate = {
   radius: number;
   angle: number;
   freeArc: PolarFreeArc;
+  occupancyStart: number;
+  occupancyEnd: number;
+  occupancyCenter: number;
+  occupancyWidth: number;
 };
 
 export type PlacementFieldSearchResult = {
@@ -353,6 +357,30 @@ export function selectBalancedAngleInFreeArc(
   return bestAngle;
 }
 
+function buildOccupancyCandidate(
+  freeArc: PolarFreeArc,
+  angle: number,
+  radius: number,
+  requiredSpanAngle: number,
+): PlacementFieldCandidate {
+  const halfSpan = requiredSpanAngle * 0.5;
+  const occupancyStart = angle - halfSpan;
+  const occupancyEnd = angle + halfSpan;
+  return {
+    placement: {
+      centerX: Math.cos(angle) * radius,
+      centerY: Math.sin(angle) * radius,
+    },
+    radius,
+    angle,
+    freeArc,
+    occupancyStart,
+    occupancyEnd,
+    occupancyCenter: angle,
+    occupancyWidth: occupancyEnd - occupancyStart,
+  };
+}
+
 export function findPlacementInField(
   group: PendingPlaceGroup,
   geometry: GroupGeometry,
@@ -369,7 +397,7 @@ export function findPlacementInField(
 ): PlacementFieldSearchResult {
   const idealAngle = options?.idealAngle ?? Math.atan2(group.logicalY, group.logicalX);
   const idealRadius = options?.idealRadius ?? Math.hypot(group.logicalX, group.logicalY);
-  const minRadius = Math.max(options?.minRadius ?? 0, idealRadius);
+  const minRadius = Math.max(0, options?.minRadius ?? 0);
   const radiusStep = options?.radiusStep ?? DEFAULT_RADIUS_STEP;
   const radiusScanLimit = options?.radiusScanLimit ?? DEFAULT_RADIUS_SCAN_LIMIT;
   const requiredSpanAngle = groupSpanAngle(geometry, Math.max(minRadius, 1));
@@ -394,15 +422,12 @@ export function findPlacementInField(
     for (const freeArc of freeArcs) {
       const angle = selectBalancedAngleInFreeArc(freeArc, idealAngle, requiredSpanAngle);
       if (angle == null) continue;
-      candidatesAtRadius.push({
-        placement: {
-          centerX: Math.cos(angle) * radius,
-          centerY: Math.sin(angle) * radius,
-        },
-        radius,
-        angle,
+      candidatesAtRadius.push(buildOccupancyCandidate(
         freeArc,
-      });
+        angle,
+        radius,
+        requiredSpanAngle,
+      ));
     }
 
     if (candidatesAtRadius.length > 0) {

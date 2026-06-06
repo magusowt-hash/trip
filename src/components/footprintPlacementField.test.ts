@@ -189,6 +189,10 @@ test('findPlacementInField compares multiple free arcs on the same radius instea
     result.candidates.length >= 2,
     'expected same-radius alternatives to remain available for layered evaluation',
   );
+  assert.ok(
+    result.candidates.every((candidate) => candidate.freeArc.angleEnd - candidate.freeArc.angleStart > 0),
+    'expected field candidates to preserve their supporting occupancy arc instead of collapsing to a bare point',
+  );
 });
 
 test('scoreFreeArcStructure penalizes fragmented and narrow corridor layouts', () => {

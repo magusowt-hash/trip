@@ -478,6 +478,33 @@ test('solvePendingGroupPlacements avoids excessive angular drift that creates cr
   );
 });
 
+test('solvePendingGroupPlacements preserves source-angle ordering within a shared sector', () => {
+  const mapRect = rect(-320, -260, 320, 260);
+  const groups = [
+    buildGroup('a', 'A组', rect(-140, -30, -20, 50), -130, 80, mapRect),
+    buildGroup('b', 'B组', rect(-140, -30, -20, 50), -125, 20, mapRect),
+    buildGroup('c', 'C组', rect(-140, -30, -20, 50), -118, -42, mapRect),
+  ];
+
+  const solved = solvePendingGroupPlacements(groups, mapRect, 88, 0, []);
+  const sourceOrder = [...groups]
+    .sort((left, right) => Math.atan2(left.logicalY, left.logicalX) - Math.atan2(right.logicalY, right.logicalX))
+    .map((group) => group.placeKey);
+  const placedOrder = [...groups]
+    .sort((left, right) => {
+      const leftPlacement = solved.placements.get(left.placeKey)!;
+      const rightPlacement = solved.placements.get(right.placeKey)!;
+      return Math.atan2(leftPlacement.centerY, leftPlacement.centerX) - Math.atan2(rightPlacement.centerY, rightPlacement.centerX);
+    })
+    .map((group) => group.placeKey);
+
+  assert.deepEqual(
+    placedOrder,
+    sourceOrder,
+    `expected placement order to preserve source-angle order, got source=${sourceOrder.join(',')} placed=${placedOrder.join(',')}`,
+  );
+});
+
 test('corridor repair candidate subset keeps head candidates and samples deeper escapes', () => {
   const candidates = Array.from({ length: 20 }, (_, index) => ({
     placement: { centerX: index, centerY: index },

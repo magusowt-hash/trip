@@ -6,6 +6,7 @@ import {
   computeFreeArcsAtRadius,
   findPlacementInField,
   resolvePlacementSector,
+  type PlacementFieldCandidate,
   type PolarBlockedBand,
   scoreFreeArcAccess,
   scoreFreeArcStructure,
@@ -176,16 +177,13 @@ function estimateGroupDepth(group: PendingPlaceGroup) {
   return Math.max(groupWidth, groupHeight);
 }
 
-function estimateGroupIdealRadius(
-  group: PendingPlaceGroup,
-  innerRadiusFloor: number,
-) {
+function estimateGroupPreferredRadius(group: PendingPlaceGroup) {
   const baseRadius = Math.max(
     FIELD_IDEAL_RADIUS_FLOOR,
     Math.hypot(group.logicalX, group.logicalY),
   );
-  const sizeAdjustment = Math.min(96, estimateGroupDepth(group) * 0.18);
-  return Math.max(innerRadiusFloor, baseRadius + sizeAdjustment);
+  const sizeAdjustment = Math.min(96, estimateGroupDepth(group) * 0.12);
+  return baseRadius + sizeAdjustment;
 }
 
 function computePlacementAngularGapPenalty(
@@ -411,6 +409,18 @@ function computeAngularCenteringPenalty(
   return combinedDrift * (18 + radius * 0.012);
 }
 
+function computeOccupancyAlignmentPenalty(
+  deps: LayeredDeps,
+  candidate: PlacementFieldCandidate,
+  preferredAngle: number,
+) {
+  const occupancyDrift = Math.abs(deps.angleDelta(candidate.occupancyCenter, preferredAngle));
+  const widthPenalty = Math.abs(candidate.occupancyWidth - (candidate.occupancyEnd - candidate.occupancyStart)) * 40;
+  const freeArcSlack = (candidate.freeArc.angleEnd - candidate.freeArc.angleStart) - candidate.occupancyWidth;
+  const edgeHugPenalty = Math.max(0, 0.18 - freeArcSlack) * 120;
+  return occupancyDrift * candidate.radius * 0.16 + widthPenalty + edgeHugPenalty;
+}
+
 function computeSectorBalancePenalty(
   deps: LayeredDeps,
   group: PendingPlaceGroup,
@@ -436,6 +446,44 @@ function computeSectorBalancePenalty(
     ? (desiredGap - nearestGap) * radius * 0.8
     : 0;
   return balancePenalty + squeezePenalty;
+}
+
+function computeSectorOrderPenalty(
+  deps: LayeredDeps,
+  group: PendingPlaceGroup,
+  angle: number,
+  sector: PlacementSector,
+  groups: PendingPlaceGroup[],
+  state: PlacementState,
+) {
+  const sourceAngle = Math.atan2(group.logicalY, group.logicalX);
+  let penalty = 0;
+
+  for (const neighbor of groups) {
+    if (neighbor.placeKey === group.placeKey) continue;
+    const neighborPlacement = state.placementById.get(neighbor.placeKey);
+    if (!neighborPlacement) continue;
+
+    const neighborSourceAngle = Math.atan2(neighbor.logicalY, neighbor.logicalX);
+    if (!isAngleInsideArc(neighborSourceAngle, sector.start, sector.end)) continue;
+
+    const sourceDelta = deps.angleDelta(sourceAngle, neighborSourceAngle);
+    if (Math.abs(sourceDelta) <= 1e-6) continue;
+
+    const placedDelta = deps.angleDelta(angle, Math.atan2(neighborPlacement.centerY, neighborPlacement.centerX));
+    if (Math.abs(placedDelta) <= 1e-6) {
+      penalty += 240;
+      continue;
+    }
+
+    const sourceSign = Math.sign(sourceDelta);
+    const placedSign = Math.sign(placedDelta);
+    if (sourceSign !== placedSign) {
+      penalty += 680 + Math.abs(sourceDelta - placedDelta) * 120;
+    }
+  }
+
+  return penalty;
 }
 
 function isAngleInsideArc(
@@ -660,6 +708,14 @@ export function evaluatePlacementAgainstState(
     groups,
     state,
   );
+  const sectorOrderPenalty = computeSectorOrderPenalty(
+    deps,
+    group,
+    angle,
+    sector,
+    groups,
+    state,
+  );
   const enclosurePenalty = computeEnclosurePenalty(
     group,
     placement,
@@ -671,7 +727,7 @@ export function evaluatePlacementAgainstState(
 
   return {
     valid: true,
-    score: driftPenalty + radiusPenalty + outwardPenalty + inwardPenalty + spacingPenalty + sectorBalancePenalty + enclosurePenalty,
+    score: driftPenalty + radiusPenalty + outwardPenalty + inwardPenalty + spacingPenalty + sectorBalancePenalty + sectorOrderPenalty + enclosurePenalty,
     geometry,
   };
 }
@@ -717,26 +773,6 @@ export function placeGroupsLayerByLayer(
     return blockedBands;
   };
 
-  const computeInnerRadiusFloor = (baseAngle: number) => {
-    const sector = resolvePlacementSector(baseAngle);
-    let maxOccupiedRadius = 0;
-    for (const geometry of state.geometryById.values()) {
-      const geometryAngle = Math.atan2(geometry.photoCenterY, geometry.photoCenterX);
-      const inSameSector = sector.start <= sector.end
-        ? geometryAngle >= sector.start && geometryAngle <= sector.end
-        : geometryAngle >= sector.start || geometryAngle <= sector.end;
-      if (!inSameSector) continue;
-      const centerRadius = Math.hypot(geometry.photoCenterX, geometry.photoCenterY);
-      const radialDepth = Math.max(
-        1,
-        geometry.groupRect.right - geometry.groupRect.left,
-        geometry.groupRect.bottom - geometry.groupRect.top,
-      );
-      maxOccupiedRadius = Math.max(maxOccupiedRadius, centerRadius - radialDepth * 0.35);
-    }
-    return Math.max(FIELD_IDEAL_RADIUS_FLOOR, maxOccupiedRadius);
-  };
-
   const tryPlaceInLayer = (
     group: PendingPlaceGroup,
     layerIndex: number,
@@ -746,8 +782,7 @@ export function placeGroupsLayerByLayer(
     if (!layer) return false;
     const baseAngle = Math.atan2(group.logicalY, group.logicalX);
     const layerRadius = layer.radius;
-    const innerRadiusFloor = computeInnerRadiusFloor(baseAngle);
-    const idealRadius = estimateGroupIdealRadius(group, innerRadiusFloor);
+    const idealRadius = estimateGroupPreferredRadius(group);
     let best:
       | {
           placement: FootprintPlacement;
@@ -763,9 +798,9 @@ export function placeGroupsLayerByLayer(
       {
         idealAngle: baseAngle,
         idealRadius,
-        minRadius: Math.max(FIELD_IDEAL_RADIUS_FLOOR, innerRadiusFloor),
-        radiusStep: Math.max(18, idealRadius * 0.05),
-        radiusScanLimit: 8,
+        minRadius: FIELD_IDEAL_RADIUS_FLOOR,
+        radiusStep: Math.max(18, layerRadius * 0.045),
+        radiusScanLimit: 12,
       },
     );
 
@@ -787,7 +822,12 @@ export function placeGroupsLayerByLayer(
         if (!evaluation.valid || !evaluation.geometry) continue;
         const layerPenalty = Math.max(0, layer.index - preferredLayerIndex) * 120;
         const fieldRadiusPenalty = Math.max(0, fieldCandidate.radius - idealRadius) * 0.18;
-        const totalScore = evaluation.score + layerPenalty + fieldRadiusPenalty;
+        const occupancyPenalty = computeOccupancyAlignmentPenalty(
+          deps,
+          fieldCandidate,
+          baseAngle,
+        );
+        const totalScore = evaluation.score + layerPenalty + fieldRadiusPenalty + occupancyPenalty;
         if (!best || totalScore < best.score) {
           best = {
             placement: fieldCandidate.placement,
