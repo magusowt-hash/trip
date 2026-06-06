@@ -9,7 +9,7 @@ import type { LineStyle } from './LegendPanel';
 import type { MapMarker } from './PlanMap';
 import PlanMap from './PlanMap';
 import { buildGroupGeometryFromLayout, type GroupLayoutSnapshot } from './localMapGroupGeometry';
-import { FOOTPRINT_MAP_SAFE_GAP, getFootprintMapRect } from './footprintMapGeometry';
+import { getFootprintMapRect } from './footprintMapGeometry';
 
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
@@ -18,6 +18,36 @@ const VIEWPORT_GEOMETRY_SCALE = 1;
 const VIEWPORT_PADDING_LOGICAL = 24;
 const MAP_AREA_RATIO_W = 0.6;
 const MAP_AREA_RATIO_H = 0.8;
+
+export function buildViewportFromRects(
+  rects: Array<{ left: number; right: number; top: number; bottom: number }>,
+  padding = VIEWPORT_PADDING_LOGICAL,
+): Viewport | null {
+  if (rects.length === 0) return null;
+
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+
+  for (const rect of rects) {
+    left = Math.min(left, rect.left);
+    right = Math.max(right, rect.right);
+    top = Math.min(top, rect.top);
+    bottom = Math.max(bottom, rect.bottom);
+  }
+
+  if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
+    return null;
+  }
+
+  return {
+    left: left - padding,
+    right: right + padding,
+    top: top - padding,
+    bottom: bottom + padding,
+  };
+}
 
 interface Props {
   markers: MapMarker[];
@@ -145,15 +175,7 @@ export default function OuterFrame({
     }
     if (groups.size === 0) return null;
 
-    let left = Infinity;
-    let right = -Infinity;
-    let top = Infinity;
-    let bottom = -Infinity;
-    let fallbackLeft = Infinity;
-    let fallbackRight = -Infinity;
-    let fallbackTop = Infinity;
-    let fallbackBottom = -Infinity;
-    const mapRect = getFootprintMapRect(containerSize.w || 1200, containerSize.h || 800);
+    const rects: Array<{ left: number; right: number; top: number; bottom: number }> = [];
 
     for (const [, groupPhotos] of groups) {
       const geometry = buildGroupGeometryFromLayout(
@@ -162,49 +184,13 @@ export default function OuterFrame({
         getPhotoLogicalSize,
         VIEWPORT_GEOMETRY_SCALE,
         groupLayouts ?? [],
+        getFootprintMapRect(containerSize.w || 1200, containerSize.h || 800),
       );
       if (!geometry) continue;
-      fallbackLeft = Math.min(fallbackLeft, geometry.groupRect.left);
-      fallbackRight = Math.max(fallbackRight, geometry.groupRect.right);
-      fallbackTop = Math.min(fallbackTop, geometry.groupRect.top);
-      fallbackBottom = Math.max(fallbackBottom, geometry.groupRect.bottom);
-      const intrudesProtectedMap =
-        geometry.groupRect.right > mapRect.left - FOOTPRINT_MAP_SAFE_GAP &&
-        geometry.groupRect.left < mapRect.right + FOOTPRINT_MAP_SAFE_GAP &&
-        geometry.groupRect.bottom > mapRect.top - FOOTPRINT_MAP_SAFE_GAP &&
-        geometry.groupRect.top < mapRect.bottom + FOOTPRINT_MAP_SAFE_GAP;
-      if (intrudesProtectedMap) {
-        continue;
-      }
-      left = Math.min(left, geometry.groupRect.left);
-      right = Math.max(right, geometry.groupRect.right);
-      top = Math.min(top, geometry.groupRect.top);
-      bottom = Math.max(bottom, geometry.groupRect.bottom);
+      rects.push(geometry.overallRect);
     }
 
-    if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
-      if (
-        !Number.isFinite(fallbackLeft) ||
-        !Number.isFinite(fallbackRight) ||
-        !Number.isFinite(fallbackTop) ||
-        !Number.isFinite(fallbackBottom)
-      ) {
-        return null;
-      }
-      return {
-        left: fallbackLeft - padding,
-        right: fallbackRight + padding,
-        top: fallbackTop - padding,
-        bottom: fallbackBottom + padding,
-      };
-    }
-
-    return {
-      left: left - padding,
-      right: right + padding,
-      top: top - padding,
-      bottom: bottom + padding,
-    };
+    return buildViewportFromRects(rects, padding);
   }, [photos, getPhotoLogicalSize, groupLayouts, containerSize]);
 
   const computePoiPoints = useCallback(() => {
