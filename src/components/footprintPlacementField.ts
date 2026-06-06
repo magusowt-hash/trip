@@ -26,6 +26,20 @@ export type PlacementFieldSearchResult = {
   freeArcs: PolarFreeArc[];
 };
 
+export type EnclosureScore = {
+  fragmentPenalty: number;
+  narrowPenalty: number;
+  concavityPenalty: number;
+  total: number;
+};
+
+export type FreeArcAccessScore = {
+  fitPenalty: number;
+  offsetPenalty: number;
+  squeezePenalty: number;
+  total: number;
+};
+
 export type PlacementSector = {
   start: number;
   end: number;
@@ -228,6 +242,79 @@ function scoreAngleWithinFreeArc(
   const idealPenalty = Math.abs(angleDistance(angle, idealAngle));
   const smallestMargin = Math.min(leftMargin, rightMargin);
   return balancePenalty * 0.62 + idealPenalty * 0.18 - smallestMargin * 0.2;
+}
+
+export function scoreFreeArcAccess(
+  freeArcs: PolarFreeArc[],
+  idealAngle: number,
+  requiredSpanAngle: number,
+): FreeArcAccessScore {
+  const halfSpan = requiredSpanAngle * 0.5;
+  const viableArcs = freeArcs.filter((arc) => (arc.angleEnd - arc.angleStart) >= requiredSpanAngle);
+  if (viableArcs.length === 0) {
+    return {
+      fitPenalty: 1_000_000,
+      offsetPenalty: 1_000_000,
+      squeezePenalty: 1_000_000,
+      total: 3_000_000,
+    };
+  }
+
+  const normalizedIdeal = normalizeAngle(idealAngle);
+  let bestScore: FreeArcAccessScore | null = null;
+
+  for (const arc of viableArcs) {
+    const minAngle = arc.angleStart + halfSpan;
+    const maxAngle = arc.angleEnd - halfSpan;
+    if (maxAngle < minAngle) continue;
+
+    const clampedIdeal = clamp(normalizedIdeal, minAngle, maxAngle);
+    const offsetPenalty = Math.abs(clampedIdeal - normalizedIdeal) * 220;
+    const squeezePenalty = Math.max(0, requiredSpanAngle * 1.8 - (arc.angleEnd - arc.angleStart)) * 140;
+    const fitPenalty = Math.max(0, requiredSpanAngle - (arc.angleEnd - arc.angleStart)) * 800;
+    const score = {
+      fitPenalty,
+      offsetPenalty,
+      squeezePenalty,
+      total: fitPenalty + offsetPenalty + squeezePenalty,
+    };
+
+    if (!bestScore || score.total < bestScore.total) {
+      bestScore = score;
+    }
+  }
+
+  return bestScore ?? {
+    fitPenalty: 1_000_000,
+    offsetPenalty: 1_000_000,
+    squeezePenalty: 1_000_000,
+    total: 3_000_000,
+  };
+}
+
+export function scoreFreeArcStructure(freeArcs: PolarFreeArc[]) : EnclosureScore {
+  if (freeArcs.length === 0) {
+    return {
+      fragmentPenalty: 1_000_000,
+      narrowPenalty: 1_000_000,
+      concavityPenalty: 1_000_000,
+      total: 3_000_000,
+    };
+  }
+
+  const widths = freeArcs.map((arc) => arc.angleEnd - arc.angleStart);
+  const minWidth = Math.min(...widths);
+  const maxWidth = Math.max(...widths);
+  const fragmentPenalty = Math.max(0, freeArcs.length - 1) * 40;
+  const narrowPenalty = Math.max(0, DEFAULT_MIN_FREE_ARC * 2.4 - minWidth) * 240;
+  const concavityPenalty = Math.max(0, maxWidth - minWidth) * 36;
+
+  return {
+    fragmentPenalty,
+    narrowPenalty,
+    concavityPenalty,
+    total: fragmentPenalty + narrowPenalty + concavityPenalty,
+  };
 }
 
 export function selectBalancedAngleInFreeArc(

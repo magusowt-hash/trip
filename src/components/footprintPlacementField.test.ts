@@ -8,6 +8,8 @@ import {
   computeFreeArcsAtRadius,
   findPlacementInField,
   resolvePlacementSector,
+  scoreFreeArcAccess,
+  scoreFreeArcStructure,
 } from './footprintPlacementField.ts';
 
 function rect(left: number, top: number, right: number, bottom: number) {
@@ -181,5 +183,36 @@ test('findPlacementInField compares multiple free arcs on the same radius instea
   assert.ok(
     result.candidate!.angle > 1.45 && result.candidate!.angle < 2.2,
     'expected the search to choose the better-balanced later free arc instead of the first legal arc',
+  );
+});
+
+test('scoreFreeArcStructure penalizes fragmented and narrow corridor layouts', () => {
+  const smooth = scoreFreeArcStructure([
+    { angleStart: 0.8, angleEnd: 1.6 },
+  ]);
+  const fragmented = scoreFreeArcStructure([
+    { angleStart: 0.8, angleEnd: 1.0 },
+    { angleStart: 1.15, angleEnd: 1.35 },
+    { angleStart: 1.5, angleEnd: 1.6 },
+  ]);
+
+  assert.ok(
+    fragmented.total > smooth.total,
+    'expected fragmented narrow corridors to score worse than one smooth corridor',
+  );
+});
+
+test('scoreFreeArcAccess favors a corridor that can host the group near its own ideal angle', () => {
+  const nearIdeal = scoreFreeArcAccess([
+    { angleStart: 1.1, angleEnd: 1.9 },
+  ], Math.PI / 2, 0.35);
+  const displaced = scoreFreeArcAccess([
+    { angleStart: 0.1, angleEnd: 0.5 },
+    { angleStart: 2.2, angleEnd: 2.7 },
+  ], Math.PI / 2, 0.35);
+
+  assert.ok(
+    nearIdeal.total < displaced.total,
+    'expected access scoring to prefer a corridor that fits near the group ideal angle',
   );
 });

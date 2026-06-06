@@ -3,9 +3,12 @@ import type { GroupGeometry } from './localMapGroupGeometry';
 import { rectsOverlap } from './localMapGroupGeometry';
 import {
   buildBlockedBandFromGeometry,
+  computeFreeArcsAtRadius,
   findPlacementInField,
   resolvePlacementSector,
   type PolarBlockedBand,
+  scoreFreeArcAccess,
+  scoreFreeArcStructure,
 } from './footprintPlacementField';
 
 type LineGroup = Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'> | LockedPlaceGroup;
@@ -348,6 +351,122 @@ function buildLayerAngleCandidates(
   return indexes.map((index) => index * step);
 }
 
+function isAngleInsideArc(
+  angle: number,
+  start: number,
+  end: number,
+) {
+  const normalized = normalizeAngle(angle);
+  const normalizedStart = normalizeAngle(start);
+  const normalizedEnd = normalizeAngle(end);
+  return normalizedStart <= normalizedEnd
+    ? normalized >= normalizedStart && normalized <= normalizedEnd
+    : normalized >= normalizedStart || normalized <= normalizedEnd;
+}
+
+function splitArcSegments(start: number, end: number) {
+  const normalizedStart = normalizeAngle(start);
+  const normalizedEnd = normalizeAngle(end);
+  if (normalizedStart <= normalizedEnd) {
+    return [{ start: normalizedStart, end: normalizedEnd }];
+  }
+  return [
+    { start: 0, end: normalizedEnd },
+    { start: normalizedStart, end: Math.PI * 2 },
+  ];
+}
+
+function sectorsOverlap(
+  left: { start: number; end: number },
+  right: { start: number; end: number },
+) {
+  const leftSegments = splitArcSegments(left.start, left.end);
+  const rightSegments = splitArcSegments(right.start, right.end);
+  return leftSegments.some((leftSegment) => (
+    rightSegments.some((rightSegment) => (
+      leftSegment.start <= rightSegment.end && rightSegment.start <= leftSegment.end
+    ))
+  ));
+}
+
+function estimateRequiredSpanAngleAtRadius(
+  group: PendingPlaceGroup,
+  radius: number,
+) {
+  return Math.max(Math.PI / 36, Math.min(Math.PI * 0.75, estimateGroupSpan(group) / Math.max(radius, 1)));
+}
+
+function buildBlockedBandsForEvaluation(
+  state: PlacementState,
+  lockedGroups: LockedPlaceGroup[],
+  candidateGeometry: GroupGeometry,
+) {
+  const blockedBands: PolarBlockedBand[] = [];
+  for (const geometry of state.geometryById.values()) {
+    blockedBands.push(buildBlockedBandFromGeometry(geometry, FIELD_PADDING_RADIUS));
+  }
+  for (const locked of lockedGroups) {
+    blockedBands.push(buildBlockedBandFromGeometry(locked.geometry, FIELD_PADDING_RADIUS));
+  }
+  blockedBands.push(buildBlockedBandFromGeometry(candidateGeometry, FIELD_PADDING_RADIUS));
+  return blockedBands;
+}
+
+function computeEnclosurePenalty(
+  group: PendingPlaceGroup,
+  placement: FootprintPlacement,
+  geometry: GroupGeometry,
+  groups: PendingPlaceGroup[],
+  state: PlacementState,
+  lockedGroups: LockedPlaceGroup[],
+) {
+  const candidateBand = buildBlockedBandFromGeometry(geometry, FIELD_PADDING_RADIUS);
+  const candidateSector = resolvePlacementSector(Math.atan2(placement.centerY, placement.centerX));
+  const blockedBands = buildBlockedBandsForEvaluation(state, lockedGroups, geometry);
+  let enclosurePenalty = 0;
+
+  for (const futureGroup of groups) {
+    if (futureGroup.placeKey === group.placeKey) continue;
+    if (state.placementById.has(futureGroup.placeKey)) continue;
+
+    const futureAngle = Math.atan2(futureGroup.logicalY, futureGroup.logicalX);
+    const futureSector = resolvePlacementSector(futureAngle);
+    if (!sectorsOverlap(candidateSector, futureSector)) continue;
+
+    const baseRadius = Math.max(
+      FIELD_IDEAL_RADIUS_FLOOR,
+      Math.hypot(futureGroup.logicalX, futureGroup.logicalY),
+    );
+    const radiusStep = Math.max(18, baseRadius * 0.05);
+    const requiredSpanBase = estimateRequiredSpanAngleAtRadius(futureGroup, baseRadius);
+    const directlyCovered = isAngleInsideArc(futureAngle, candidateBand.angleStart - requiredSpanBase * 0.5, candidateBand.angleEnd + requiredSpanBase * 0.5);
+    const impactWeight = directlyCovered ? 1.2 : 0.55;
+    let bestFuturePenalty = Number.POSITIVE_INFINITY;
+
+    for (let stepIndex = 0; stepIndex < 4; stepIndex++) {
+      const radius = baseRadius + stepIndex * radiusStep;
+      const requiredSpan = estimateRequiredSpanAngleAtRadius(futureGroup, radius);
+      const freeArcs = computeFreeArcsAtRadius(
+        blockedBands,
+        radius,
+        futureSector.start,
+        futureSector.end,
+      );
+      const structureScore = scoreFreeArcStructure(freeArcs);
+      const accessScore = scoreFreeArcAccess(freeArcs, futureAngle, requiredSpan);
+      const candidatePenalty =
+        accessScore.total +
+        structureScore.total * 0.45 +
+        stepIndex * 24;
+      bestFuturePenalty = Math.min(bestFuturePenalty, candidatePenalty);
+    }
+
+    enclosurePenalty += bestFuturePenalty * impactWeight;
+  }
+
+  return enclosurePenalty;
+}
+
 export function evaluatePlacementAgainstState(
   deps: LayeredDeps,
   group: PendingPlaceGroup,
@@ -438,10 +557,18 @@ export function evaluatePlacementAgainstState(
   const radiusPenalty = Math.abs(radius - preferredRadius) * 0.24;
   const outwardPenalty = Math.max(0, radius - preferredRadius) * 0.28;
   const inwardPenalty = Math.max(0, preferredRadius - radius) * 0.42;
+  const enclosurePenalty = computeEnclosurePenalty(
+    group,
+    placement,
+    geometry,
+    groups,
+    state,
+    lockedGroups,
+  );
 
   return {
     valid: true,
-    score: driftPenalty + radiusPenalty + outwardPenalty + inwardPenalty + spacingPenalty,
+    score: driftPenalty + radiusPenalty + outwardPenalty + inwardPenalty + spacingPenalty + enclosurePenalty,
     geometry,
   };
 }
