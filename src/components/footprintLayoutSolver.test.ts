@@ -423,6 +423,61 @@ test('solvePendingGroupPlacements keeps real fixture connector lines uncrossed',
   );
 });
 
+test('solvePendingGroupPlacements keeps neighboring same-sector groups angularly balanced', () => {
+  const mapRect = rect(-260, -220, 260, 220);
+  const groups = [
+    buildGroup('left', '左一', rect(-150, -40, -30, 40), -120, 40, mapRect),
+    buildGroup('mid', '左二', rect(-120, -40, 0, 40), -108, 12, mapRect),
+    buildGroup('right', '左三', rect(-90, -40, 30, 40), -92, -18, mapRect),
+  ];
+
+  const solved = solvePendingGroupPlacements(groups, mapRect, 84, 0, []);
+  const angles = groups
+    .map((group) => {
+      const placement = solved.placements.get(group.placeKey);
+      assert.ok(placement, `missing placement for ${group.placeKey}`);
+      return Math.atan2(placement!.centerY, placement!.centerX);
+    })
+    .sort((left, right) => left - right);
+
+  const gapA = angles[1]! - angles[0]!;
+  const gapB = angles[2]! - angles[1]!;
+  assert.ok(
+    Math.abs(gapA - gapB) < Math.PI / 10,
+    `expected same-sector angular gaps to stay balanced, got gapA=${gapA} gapB=${gapB}`,
+  );
+});
+
+test('solvePendingGroupPlacements avoids excessive angular drift that creates crossing-prone line bundles', () => {
+  const mapRect = rect(-300, -240, 300, 240);
+  const groups = [
+    buildGroup('northwest', '西北组', rect(-150, -30, -30, 50), -120, 90, mapRect),
+    buildGroup('west', '正西组', rect(-140, -30, -20, 50), -130, 12, mapRect),
+    buildGroup('southwest', '西南组', rect(-140, -30, -20, 50), -118, -74, mapRect),
+    buildGroup('north', '北组', rect(-60, -30, 60, 50), -18, 128, mapRect),
+  ];
+
+  const solved = solvePendingGroupPlacements(groups, mapRect, 88, 0, []);
+
+  for (const group of groups) {
+    const placement = solved.placements.get(group.placeKey);
+    assert.ok(placement, `missing placement for ${group.placeKey}`);
+    const sourceAngle = Math.atan2(group.logicalY, group.logicalX);
+    const placedAngle = Math.atan2(placement!.centerY, placement!.centerX);
+    const drift = Math.abs(__layoutSolverInternals.angleDelta(placedAngle, sourceAngle));
+    assert.ok(
+      drift < Math.PI / 5,
+      `expected ${group.placeKey} to stay near its source ray, got drift=${drift}`,
+    );
+  }
+
+  assert.equal(
+    countPlacementLineCrossings(groups, solved.placements),
+    0,
+    'expected drift control to keep the local connector bundle uncrossed',
+  );
+});
+
 test('corridor repair candidate subset keeps head candidates and samples deeper escapes', () => {
   const candidates = Array.from({ length: 20 }, (_, index) => ({
     placement: { centerX: index, centerY: index },

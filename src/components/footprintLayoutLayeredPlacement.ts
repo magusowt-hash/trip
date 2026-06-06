@@ -351,6 +351,93 @@ function buildLayerAngleCandidates(
   return indexes.map((index) => index * step);
 }
 
+function findPlacedNeighborsInSector(
+  groups: PendingPlaceGroup[],
+  state: PlacementState,
+  currentGroupKey: string,
+  sector: PlacementSector,
+) {
+  const neighbors: Array<{ angle: number; radius: number }> = [];
+  for (const group of groups) {
+    if (group.placeKey === currentGroupKey) continue;
+    const placement = state.placementById.get(group.placeKey);
+    if (!placement) continue;
+    const angle = Math.atan2(placement.centerY, placement.centerX);
+    if (!isAngleInsideArc(angle, sector.start, sector.end)) continue;
+    neighbors.push({
+      angle,
+      radius: Math.hypot(placement.centerX, placement.centerY),
+    });
+  }
+  return neighbors.sort((left, right) => left.angle - right.angle);
+}
+
+function computeNeighborAngleGaps(
+  deps: LayeredDeps,
+  targetAngle: number,
+  neighborAngles: number[],
+) {
+  if (neighborAngles.length === 0) {
+    return { leftGap: Math.PI, rightGap: Math.PI };
+  }
+
+  let leftGap = Math.PI;
+  let rightGap = Math.PI;
+  for (const neighborAngle of neighborAngles) {
+    const delta = deps.angleDelta(targetAngle, neighborAngle);
+    if (delta >= 0) {
+      leftGap = Math.min(leftGap, delta);
+    } else {
+      rightGap = Math.min(rightGap, Math.abs(delta));
+    }
+  }
+
+  return { leftGap, rightGap };
+}
+
+function computeAngularCenteringPenalty(
+  deps: LayeredDeps,
+  angle: number,
+  preferredAngle: number,
+  radius: number,
+  sector: PlacementSector,
+) {
+  const sectorCenter = normalizeAngle(sector.start <= sector.end
+    ? (sector.start + sector.end) * 0.5
+    : normalizeAngle((sector.start + sector.end + Math.PI * 2) * 0.5));
+  const sourceDrift = Math.abs(deps.angleDelta(angle, preferredAngle));
+  const sectorDrift = Math.abs(deps.angleDelta(angle, sectorCenter));
+  const combinedDrift = sourceDrift * 0.7 + sectorDrift * 0.3;
+  return combinedDrift * (18 + radius * 0.012);
+}
+
+function computeSectorBalancePenalty(
+  deps: LayeredDeps,
+  group: PendingPlaceGroup,
+  angle: number,
+  radius: number,
+  sector: PlacementSector,
+  groups: PendingPlaceGroup[],
+  state: PlacementState,
+) {
+  const neighbors = findPlacedNeighborsInSector(groups, state, group.placeKey, sector);
+  if (neighbors.length === 0) return 0;
+
+  const neighborAngles = neighbors.map((neighbor) => neighbor.angle);
+  const { leftGap, rightGap } = computeNeighborAngleGaps(deps, angle, neighborAngles);
+  const balancePenalty = Math.abs(leftGap - rightGap) * radius * 0.42;
+  const nearestGap = Math.min(leftGap, rightGap);
+  const averageNeighborRadius = neighbors.reduce((sum, neighbor) => sum + neighbor.radius, 0) / neighbors.length;
+  const desiredGap = Math.max(
+    MIN_REQUIRED_ANGULAR_GAP,
+    Math.min(MAX_REQUIRED_ANGULAR_GAP, estimateGroupSpan(group) / Math.max((radius + averageNeighborRadius) * 0.5, 1)),
+  );
+  const squeezePenalty = nearestGap < desiredGap
+    ? (desiredGap - nearestGap) * radius * 0.8
+    : 0;
+  return balancePenalty + squeezePenalty;
+}
+
 function isAngleInsideArc(
   angle: number,
   start: number,
@@ -491,6 +578,7 @@ export function evaluatePlacementAgainstState(
   let spacingPenalty = 0;
   const angle = Math.atan2(placement.centerY, placement.centerX);
   const radius = Math.hypot(placement.centerX, placement.centerY);
+  const sector = resolvePlacementSector(preferredAngle);
 
   for (const neighbor of groups) {
     if (neighbor.placeKey === group.placeKey) continue;
@@ -553,10 +641,25 @@ export function evaluatePlacementAgainstState(
     }
   }
 
-  const driftPenalty = Math.abs(deps.angleDelta(angle, preferredAngle)) * 18;
+  const driftPenalty = computeAngularCenteringPenalty(
+    deps,
+    angle,
+    preferredAngle,
+    radius,
+    sector,
+  );
   const radiusPenalty = Math.abs(radius - preferredRadius) * 0.24;
   const outwardPenalty = Math.max(0, radius - preferredRadius) * 0.28;
   const inwardPenalty = Math.max(0, preferredRadius - radius) * 0.42;
+  const sectorBalancePenalty = computeSectorBalancePenalty(
+    deps,
+    group,
+    angle,
+    radius,
+    sector,
+    groups,
+    state,
+  );
   const enclosurePenalty = computeEnclosurePenalty(
     group,
     placement,
@@ -568,7 +671,7 @@ export function evaluatePlacementAgainstState(
 
   return {
     valid: true,
-    score: driftPenalty + radiusPenalty + outwardPenalty + inwardPenalty + spacingPenalty + enclosurePenalty,
+    score: driftPenalty + radiusPenalty + outwardPenalty + inwardPenalty + spacingPenalty + sectorBalancePenalty + enclosurePenalty,
     geometry,
   };
 }

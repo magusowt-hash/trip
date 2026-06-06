@@ -740,6 +740,74 @@ function normalizeVector(dx: number, dy: number) {
   return { x: dx / length, y: dy / length };
 }
 
+function normalizeAngle(angle: number) {
+  const fullTurn = Math.PI * 2;
+  const normalized = angle % fullTurn;
+  return normalized >= 0 ? normalized : normalized + fullTurn;
+}
+
+function angleDelta(left: number, right: number) {
+  const fullTurn = Math.PI * 2;
+  let delta = normalizeAngle(left) - normalizeAngle(right);
+  if (delta > Math.PI) delta -= fullTurn;
+  if (delta < -Math.PI) delta += fullTurn;
+  return delta;
+}
+
+function computePlacementDriftPenalty(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  focusKeys?: string[],
+) {
+  let penalty = 0;
+  for (const group of groups) {
+    if (focusKeys && !focusKeys.includes(group.placeKey)) continue;
+    const placement = placementById.get(group.placeKey);
+    if (!placement) continue;
+    const sourceAngle = Math.atan2(group.logicalY, group.logicalX);
+    const placedAngle = Math.atan2(placement.centerY, placement.centerX);
+    const drift = Math.abs(angleDelta(placedAngle, sourceAngle));
+    penalty += drift;
+  }
+  return penalty;
+}
+
+function computeLocalAngleBalancePenalty(
+  groups: PendingPlaceGroup[],
+  placementById: Map<string, FootprintPlacement>,
+  anchorKey: string,
+) {
+  const anchorPlacement = placementById.get(anchorKey);
+  const anchorGroup = groups.find((group) => group.placeKey === anchorKey);
+  if (!anchorPlacement || !anchorGroup) return Number.POSITIVE_INFINITY;
+
+  const anchorAngle = Math.atan2(anchorPlacement.centerY, anchorPlacement.centerX);
+  const relevant = groups
+    .map((group) => {
+      const placement = placementById.get(group.placeKey);
+      if (!placement) return null;
+      const angle = Math.atan2(placement.centerY, placement.centerX);
+      const gap = Math.abs(angleDelta(angle, anchorAngle));
+      return { key: group.placeKey, angle, gap };
+    })
+    .filter((entry): entry is { key: string; angle: number; gap: number } => Boolean(entry))
+    .filter((entry) => entry.gap <= Math.PI / 4)
+    .sort((left, right) => left.angle - right.angle);
+
+  if (relevant.length <= 2) return 0;
+
+  let penalty = 0;
+  for (let index = 1; index < relevant.length - 1; index++) {
+    const previous = relevant[index - 1]!;
+    const current = relevant[index]!;
+    const next = relevant[index + 1]!;
+    const leftGap = Math.abs(angleDelta(current.angle, previous.angle));
+    const rightGap = Math.abs(angleDelta(next.angle, current.angle));
+    penalty += Math.abs(leftGap - rightGap);
+  }
+  return penalty;
+}
+
 function analyzePairDirection(
   deps: RepairCoreDeps,
   outerPlacement: FootprintPlacement,
@@ -942,6 +1010,8 @@ export function relaxRadialSpacing(
       let bestCorridorRisk = corridorRisk;
       let bestLineCrossings = placementLineCrossings;
       let bestGlobalConflictScore = globalConflictScore;
+      let bestDriftPenalty = computePlacementDriftPenalty(orderedGroups, state.placementById, [outerKey]);
+      let bestBalancePenalty = computeLocalAngleBalancePenalty(orderedGroups, state.placementById, outerKey);
 
       for (const candidatePlacement of candidatePlacements) {
         const placementById = new Map(state.placementById);
@@ -982,6 +1052,8 @@ export function relaxRadialSpacing(
           safeGap,
           lockedGroups,
         );
+        const candidateDriftPenalty = computePlacementDriftPenalty(orderedGroups, placementById, [outerKey]);
+        const candidateBalancePenalty = computeLocalAngleBalancePenalty(orderedGroups, placementById, outerKey);
 
         const isBetter =
           (!candidateHardConflicts && bestHardConflicts) ||
@@ -993,7 +1065,18 @@ export function relaxRadialSpacing(
           (candidateHardConflicts === bestHardConflicts &&
             candidateLineCrossings === bestLineCrossings &&
             candidateCorridorRisk === bestCorridorRisk &&
-            candidateGlobalConflictScore < bestGlobalConflictScore);
+            candidateGlobalConflictScore < bestGlobalConflictScore) ||
+          (candidateHardConflicts === bestHardConflicts &&
+            candidateLineCrossings === bestLineCrossings &&
+            candidateCorridorRisk === bestCorridorRisk &&
+            candidateGlobalConflictScore === bestGlobalConflictScore &&
+            candidateDriftPenalty < bestDriftPenalty) ||
+          (candidateHardConflicts === bestHardConflicts &&
+            candidateLineCrossings === bestLineCrossings &&
+            candidateCorridorRisk === bestCorridorRisk &&
+            candidateGlobalConflictScore === bestGlobalConflictScore &&
+            candidateDriftPenalty === bestDriftPenalty &&
+            candidateBalancePenalty < bestBalancePenalty);
 
         if (!isBetter) continue;
 
@@ -1003,6 +1086,8 @@ export function relaxRadialSpacing(
         bestCorridorRisk = candidateCorridorRisk;
         bestLineCrossings = candidateLineCrossings;
         bestGlobalConflictScore = candidateGlobalConflictScore;
+        bestDriftPenalty = candidateDriftPenalty;
+        bestBalancePenalty = candidateBalancePenalty;
       }
 
       if (!bestPlacement || !bestGeometryById) continue;
