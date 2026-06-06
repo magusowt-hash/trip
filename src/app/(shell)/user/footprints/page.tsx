@@ -1092,6 +1092,7 @@ function UserFootprintsPageInner() {
             collisionScale,
             preferredLabelSide,
             reservedLabelOffset,
+            mapRect,
           )
         : null;
       if (!offsetGeometry) continue;
