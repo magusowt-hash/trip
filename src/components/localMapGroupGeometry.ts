@@ -196,17 +196,17 @@ function isPointInLowerPartition(pointX: number, pointY: number, mapRect: Logica
   return pointY >= boundaryY;
 }
 
+function getLowerRegionReferencePoint(rect: LogicalRect) {
+  return {
+    x: (rect.left + rect.right) * 0.5,
+    y: rect.bottom,
+  };
+}
+
 export function isRectInLowerRegion(rect: LogicalRect, mapRect?: LogicalRect) {
   if (!mapRect) return false;
-
-  const sampleXs = [rect.left, (rect.left + rect.right) * 0.5, rect.right];
-  const sampleYs = [rect.top, (rect.top + rect.bottom) * 0.5, rect.bottom];
-
-  return sampleYs.some((sampleY) => (
-    sampleXs.some((sampleX) => (
-      isPointInLowerPartition(sampleX, sampleY, mapRect)
-    ))
-  ));
+  const referencePoint = getLowerRegionReferencePoint(rect);
+  return isPointInLowerPartition(referencePoint.x, referencePoint.y, mapRect);
 }
 
 export function resolvePreferredLabelSideForMapRect(rect: LogicalRect, mapRect?: LogicalRect): GroupLabelSide {
@@ -224,7 +224,7 @@ export function applyRuntimeEnvelope(
   if (!mapRect) return geometry;
 
   const rect = geometry.groupRect;
-  const inLowerRegion = isRectInLowerRegion(rect, mapRect);
+  const inLowerRegion = isRectInLowerRegion(geometry.photoRect, mapRect);
 
   const envelopeRect = {
     ...rect,
