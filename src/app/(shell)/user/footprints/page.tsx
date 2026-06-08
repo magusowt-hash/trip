@@ -542,6 +542,7 @@ function UserFootprintsPageInner() {
   const [backgroundColor, setBackgroundColor] = useState('#0f172a');
   const [lineStyle, setLineStyle] = useState<LineStyle>({ color: '#a5b4fc', width: 2, dashed: true });
   const [outerScale, setOuterScale] = useState(1);
+  const [outerViewport, setOuterViewport] = useState<LogicalRect | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   const [groups, setGroups] = useState<FootprintGroup[]>([]);
@@ -598,6 +599,19 @@ function UserFootprintsPageInner() {
   useEffect(() => { poiPointsRef.current = poiPoints; }, [poiPoints]);
   useEffect(() => { outerScaleRef.current = outerScale; }, [outerScale]);
   useEffect(() => { layoutInteractionModeRef.current = layoutInteractionMode; }, [layoutInteractionMode]);
+
+  const getCurrentViewportSize = useCallback(() => {
+    if (outerViewport) {
+      return {
+        width: Math.max(1, outerViewport.right - outerViewport.left),
+        height: Math.max(1, outerViewport.bottom - outerViewport.top),
+      };
+    }
+    return {
+      width: typeof window !== 'undefined' ? window.innerWidth : 1200,
+      height: typeof window !== 'undefined' ? window.innerHeight : 800,
+    };
+  }, [outerViewport]);
 
   useEffect(() => {
     if (!pendingFitViewAfterPresetRef.current) return;
@@ -1014,8 +1028,7 @@ function UserFootprintsPageInner() {
 
     const cardSize = 80;
     const collisionScale = CLAMP_SCALE.max;
-    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
-    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
+    const { width: viewportWidth, height: viewportHeight } = getCurrentViewportSize();
     const mapRect = options.mapRect ?? getFootprintMapRect(viewportWidth, viewportHeight);
     const allGroups = new Map<string, PhotoItem[]>();
     for (const photo of referencePhotos) {
@@ -1191,7 +1204,8 @@ function UserFootprintsPageInner() {
     } else {
       dirtyUploadedPhotoIdsRef.current.add(photoId);
     }
-    const mapRect = getFootprintMapRect(window.innerWidth, window.innerHeight);
+    const { width, height } = getCurrentViewportSize();
+    const mapRect = getFootprintMapRect(width, height);
     setPhotos((current) => {
       const nextPhotos = applyPhotoDragToPhotos(current, photoId, x, y);
       const targetPhoto = nextPhotos.find((photo) => photo.id === photoId);
@@ -1212,7 +1226,7 @@ function UserFootprintsPageInner() {
     });
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-  }, []);
+  }, [getCurrentViewportSize]);
 
   const handleGroupLabelDragEnd = useCallback((placeKey: string, nextGroupPhotos: DraggedGroupPhotoPosition[]) => {
     if (layoutInteractionModeRef.current !== 'manual') return;
@@ -1226,7 +1240,8 @@ function UserFootprintsPageInner() {
       }
     }
     const nextPhotos = applyGroupPhotoPositions(photosRef.current, placeKey, nextGroupPhotos);
-    const mapRect = getFootprintMapRect(window.innerWidth, window.innerHeight);
+    const { width, height } = getCurrentViewportSize();
+    const mapRect = getFootprintMapRect(width, height);
     const groupPhotos = nextPhotos.filter((photo) => photo.placeKey === placeKey);
     const nextLayout = rebuildGroupLayoutSnapshotForCurrentPosition(
       placeKey,
@@ -1241,7 +1256,7 @@ function UserFootprintsPageInner() {
     }
     movedPhotosRef.current = true;
     setHasMovedPhotos(true);
-  }, []);
+  }, [getCurrentViewportSize]);
 
   const buildLocalMapAssetsForSave = useCallback((sourcePhotos: PhotoItem[]) => (
     sourcePhotos
@@ -1352,11 +1367,11 @@ function UserFootprintsPageInner() {
             pendingGroups: exportSnapshot.pendingGroups,
           }
         : {
-            viewportWidth: typeof window !== 'undefined' ? window.innerWidth : 1200,
-            viewportHeight: typeof window !== 'undefined' ? window.innerHeight : 800,
+            viewportWidth: getCurrentViewportSize().width,
+            viewportHeight: getCurrentViewportSize().height,
             mapRect: getFootprintMapRect(
-              typeof window !== 'undefined' ? window.innerWidth : 1200,
-              typeof window !== 'undefined' ? window.innerHeight : 800,
+              getCurrentViewportSize().width,
+              getCurrentViewportSize().height,
             ),
             safeGap: 80,
             labelGapBoost: computeLabelGapBoost(CLAMP_SCALE.max),
@@ -1383,7 +1398,7 @@ function UserFootprintsPageInner() {
     } catch {
       setActionNotice('导出映射 JSON 失败，请稍后重试');
     }
-  }, [groups, selectedGroupId, items, poiPoints, groupLayouts, photos, localLayout]);
+  }, [groups, selectedGroupId, items, poiPoints, groupLayouts, photos, localLayout, getCurrentViewportSize]);
 
   const handlePhotoClick = useCallback((photoId: number | string) => {
     const p = photos.find(x => x.id === photoId);
@@ -1974,6 +1989,7 @@ function UserFootprintsPageInner() {
         photos={photos}
         groupLayouts={groupLayouts}
         onPoiPointsChange={setPoiPoints}
+        onViewportChange={setOuterViewport}
         focusPosition={focusPosition}
         onMarkerClick={handleMapMarkerClick}
         onPhotoDragEnd={handlePhotoDragEnd}
