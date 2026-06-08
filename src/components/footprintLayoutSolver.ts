@@ -2,7 +2,6 @@ import {
   buildGroupGeometryFromPhotoRect,
   rectsOverlap,
   resolveGroupGeometryAsWhole,
-  resolvePreferredLabelSideForMap,
   translateGroupGeometry,
   type GroupGeometry,
 } from './localMapGroupGeometry';
@@ -58,6 +57,8 @@ const RADIUS_FACTORS = [0.78, 0.86, 0.94, 1, 1.08, 1.18];
 const OUTER_RING_RADIUS_FACTORS = [1.24, 1.36];
 const DENSE_SECTOR_ANGLE_OFFSETS_DEGREES = [-32, -24, 24, 32];
 const DENSE_SECTOR_RADIUS_FACTORS = [1.08, 1.18, 1.28];
+const DENSE_OUTWARD_SHELL_ANGLE_OFFSETS_DEGREES = [-22, -12, 0, 12, 22];
+const DENSE_OUTWARD_SHELL_RADIUS_FACTORS = [1.42, 1.58, 1.74];
 const DENSE_MAP_ADJACENT_ESCAPE_ANGLE_OFFSETS_DEGREES = [-72, -56, 56, 72];
 const DENSE_MAP_ADJACENT_ESCAPE_RADIUS_FACTORS = [1.18, 1.32, 1.46];
 const PRESSURE_YIELD_ANGLE_OFFSETS_DEGREES = [-42, -30, 30, 42];
@@ -67,6 +68,8 @@ const CORNER_TRANSITION_ESCAPE_RADIUS_FACTORS = [1.08, 1.22, 1.38];
 const UPPER_REGION_BOTTOM_CLEARANCE = 176;
 const LOWER_REGION_TOP_CLEARANCE = 176;
 const LOWER_TRANSITION_BAND_DEGREES = 10;
+const BASE_LAYOUT_MAP_GAP = 96;
+const BASE_LAYOUT_MIN_OUTWARD_PUSH = 24;
 const REPAIR_TEST_CONFIG = {
   rebalanceIterationCount: 3,
   radialRelaxPassLimit: 2,
@@ -102,7 +105,11 @@ function getMapViewRadius(mapRect: LogicalRect) {
 }
 
 function getAdaptiveBaseRadius(baseRadius: number, mapRect: LogicalRect) {
-  return Math.max(baseRadius, 180, getMapViewRadius(mapRect) + MAP_GAP);
+  return Math.max(
+    baseRadius + BASE_LAYOUT_MIN_OUTWARD_PUSH,
+    180,
+    getMapViewRadius(mapRect) + BASE_LAYOUT_MAP_GAP,
+  );
 }
 
 function getAdaptiveOuterRingFactors(baseRadius: number, mapRect: LogicalRect) {
@@ -397,15 +404,12 @@ function buildGeometryForPlacement(
   placement: FootprintPlacement,
   mapRect?: LogicalRect,
 ) {
-  const preferredLabelSide = mapRect
-    ? resolvePreferredLabelSideForMap(placement.centerX, placement.centerY, mapRect)
-    : group.collisionGeometry.labelSide;
   const rebuiltGeometry = buildGroupGeometryFromPhotoRect(
     group.collisionGeometry.photoRect,
     group.placePhotos[0]?.placeTitle || '',
     group.placePhotos.length,
     1,
-    preferredLabelSide,
+    group.collisionGeometry.labelSide,
     getGeometryLabelOffset(group.collisionGeometry),
     mapRect,
   );
@@ -455,15 +459,12 @@ function buildPlanningGeometry(
   absoluteCenterX: number,
   absoluteCenterY: number,
 ) {
-  const preferredLabelSide = group.mapRect
-    ? resolvePreferredLabelSideForMap(absoluteCenterX, absoluteCenterY, group.mapRect)
-    : group.collisionGeometry.labelSide;
   const relativeGeometry = buildGroupGeometryFromPhotoRect(
     group.collisionGeometry.photoRect,
     group.placePhotos[0]?.placeTitle || '',
     group.placePhotos.length,
     1,
-    preferredLabelSide,
+    group.collisionGeometry.labelSide,
     getGeometryLabelOffset(group.collisionGeometry),
   );
   const absoluteGeometry = translateGroupGeometry(
@@ -517,6 +518,11 @@ function compareLegacyGroupOrder(
   const rightPlacement = basePlacementById.get(right.placeKey);
   const leftRadius = leftPlacement ? Math.hypot(leftPlacement.centerX, leftPlacement.centerY) : 0;
   const rightRadius = rightPlacement ? Math.hypot(rightPlacement.centerX, rightPlacement.centerY) : 0;
+  const leftSourceRadius = Math.hypot(left.logicalX, left.logicalY);
+  const rightSourceRadius = Math.hypot(right.logicalX, right.logicalY);
+  const leftOutwardNeed = Math.max(0, leftSourceRadius + BASE_LAYOUT_MIN_OUTWARD_PUSH - leftRadius);
+  const rightOutwardNeed = Math.max(0, rightSourceRadius + BASE_LAYOUT_MIN_OUTWARD_PUSH - rightRadius);
+  if (Math.abs(rightOutwardNeed - leftOutwardNeed) > 1e-6) return rightOutwardNeed - leftOutwardNeed;
   if (Math.abs(rightRadius - leftRadius) > 1e-6) return rightRadius - leftRadius;
 
   const leftArea =
@@ -534,6 +540,10 @@ function compareLayerPlacementOrder(
   left: PendingPlaceGroup,
   right: PendingPlaceGroup,
 ) {
+  const leftOutwardNeed = Math.max(0, Math.hypot(left.logicalX, left.logicalY) + BASE_LAYOUT_MIN_OUTWARD_PUSH);
+  const rightOutwardNeed = Math.max(0, Math.hypot(right.logicalX, right.logicalY) + BASE_LAYOUT_MIN_OUTWARD_PUSH);
+  if (Math.abs(rightOutwardNeed - leftOutwardNeed) > 1e-6) return rightOutwardNeed - leftOutwardNeed;
+
   const leftAngle = Math.atan2(left.logicalY, left.logicalX);
   const rightAngle = Math.atan2(right.logicalY, right.logicalX);
   if (Math.abs(leftAngle - rightAngle) > 1e-6) return leftAngle - rightAngle;
@@ -555,12 +565,16 @@ function scoreBaseCandidate(
   mapRect: LogicalRect,
   allowWideEscape = false,
 ) {
-  const driftPenalty = Math.abs(angleDelta(angle, baseAngle)) * (allowWideEscape ? 28 : 46);
-  const radiusPenalty = Math.abs(radius - baseRadius) * 0.85;
-  const outwardPenalty = Math.max(0, radius - baseRadius) * (allowWideEscape ? 0.78 : 1.15);
+  const driftPenalty = Math.abs(angleDelta(angle, baseAngle)) * (allowWideEscape ? 24 : 34);
+  const inwardPenalty = Math.max(0, baseRadius - radius) * 4.8;
+  const outwardSlackPenalty = Math.max(0, radius - (baseRadius + 220)) * 0.42;
   const mapDistance = rectDistanceToMap(geometry.groupRect, mapRect);
-  const mapDistancePenalty = Math.max(0, mapDistance - 180) * 0.55;
-  return driftPenalty + radiusPenalty + outwardPenalty + mapDistancePenalty;
+  const mapClearanceTarget = BASE_LAYOUT_MIN_OUTWARD_PUSH;
+  const mapClearancePenalty =
+    mapDistance < mapClearanceTarget
+      ? (mapClearanceTarget - mapDistance) * (mapClearanceTarget - mapDistance) * 4.6
+      : Math.max(0, mapDistance - 220) * 0.18;
+  return driftPenalty + inwardPenalty + outwardSlackPenalty + mapClearancePenalty;
 }
 
 function dedupeCandidates(candidates: PlacementCandidate[]) {
@@ -654,6 +668,24 @@ function buildCandidatePool(
       const radius = safeBaseRadius * radiusFactor;
       for (const angleOffset of DENSE_SECTOR_ANGLE_OFFSETS_DEGREES) {
         addCandidate(baseAngle + (angleOffset * Math.PI) / 180, radius);
+      }
+    }
+  }
+
+  if (sectorDensity >= 5 || nearProtectedMapBand) {
+    for (const radiusFactor of DENSE_OUTWARD_SHELL_RADIUS_FACTORS) {
+      const radius = safeBaseRadius * radiusFactor;
+      for (const angleOffset of DENSE_OUTWARD_SHELL_ANGLE_OFFSETS_DEGREES) {
+        const shellBonus =
+          44 +
+          Math.max(0, sectorDensity - 4) * 8 +
+          (nearProtectedMapBand ? 20 : 0);
+        addCandidate(
+          baseAngle + (angleOffset * Math.PI) / 180,
+          radius,
+          true,
+          -shellBonus,
+        );
       }
     }
   }
@@ -1001,7 +1033,7 @@ export function solvePendingGroupPlacements(
       rect: group.collisionRect,
     })),
     mapRect,
-    { mapGap: 0 },
+    { mapGap: BASE_LAYOUT_MAP_GAP },
   );
   markMetric('baseRadialLayoutMs');
 

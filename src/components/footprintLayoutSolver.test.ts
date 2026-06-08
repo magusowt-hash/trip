@@ -636,6 +636,53 @@ test('solvePendingGroupPlacements keeps lower-region planning envelope clear of 
   );
 });
 
+test('solvePendingGroupPlacements expands dense same-sector groups outward as whole rigid groups before allowing near-map crowding', () => {
+  const mapRect = rect(-180, -150, 180, 150);
+  const groups = [
+    buildGroup('a', '甲组', rect(-60, -40, 60, 40), 36, 178, mapRect),
+    buildGroup('b', '乙组', rect(-60, -40, 60, 40), 58, 188, mapRect),
+    buildGroup('c', '丙组', rect(-60, -40, 60, 40), 78, 200, mapRect),
+  ];
+
+  const sourceRadii = new Map(
+    groups.map((group) => [group.placeKey, Math.hypot(group.logicalX, group.logicalY)] as const),
+  );
+
+  const solved = solvePendingGroupPlacements(groups, mapRect, 96, 0, []);
+
+  for (const group of groups) {
+    const placement = solved.placements.get(group.placeKey);
+    const geometry = solved.geometries.get(group.placeKey);
+    assert.ok(placement, `expected placement for ${group.placeKey}`);
+    assert.ok(geometry, `expected geometry for ${group.placeKey}`);
+
+    const solvedRadius = Math.hypot(placement!.centerX, placement!.centerY);
+    assert.ok(
+      solvedRadius >= sourceRadii.get(group.placeKey)! + 24,
+      `expected ${group.placeKey} to expand outward by at least 24 logical units, got ${solvedRadius - sourceRadii.get(group.placeKey)!}`,
+    );
+    assert.ok(
+      !rectsOverlap(geometry!.groupRect, mapRect, 0),
+      `expected ${group.placeKey} group envelope to avoid the map entirely`,
+    );
+  }
+
+  const solvedGeometries = groups.map((group) => solved.geometries.get(group.placeKey)!);
+  for (let index = 0; index < solvedGeometries.length; index++) {
+    for (let neighborIndex = index + 1; neighborIndex < solvedGeometries.length; neighborIndex++) {
+      const left = solvedGeometries[index]!;
+      const right = solvedGeometries[neighborIndex]!;
+      const flags = countPairCollisionFlags(left, right, 96);
+      assert.deepEqual(flags, {
+        groupRect: false,
+        leftLabelToRightPhoto: false,
+        rightLabelToLeftPhoto: false,
+        labelLabel: false,
+      });
+    }
+  }
+});
+
 test('solvePendingGroupPlacements returns the main solver placements without post-finalize drift', () => {
   const mapRect = rect(-260, -220, 260, 220);
   const groups = [

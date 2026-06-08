@@ -54,10 +54,10 @@ type LegacyDeps = {
 };
 
 const GLOBAL_SECTOR_COUNT = 16;
-const INITIAL_ASSIGNMENT_PASSES = 4;
-const INITIAL_ASSIGNMENT_BEAM_WIDTH = 5;
-const INITIAL_ASSIGNMENT_HEAD_CANDIDATE_LIMIT = 8;
-const INITIAL_ASSIGNMENT_SPREAD_SAMPLE_COUNT = 6;
+const INITIAL_ASSIGNMENT_PASSES = 6;
+const INITIAL_ASSIGNMENT_BEAM_WIDTH = 8;
+const INITIAL_ASSIGNMENT_HEAD_CANDIDATE_LIMIT = 12;
+const INITIAL_ASSIGNMENT_SPREAD_SAMPLE_COUNT = 8;
 const REBALANCE_ITERATION_COUNT = 8;
 
 function estimateFrontierFlexibility(
@@ -112,6 +112,10 @@ function buildInitialAssignmentCandidateSubset(
     const ratio = sampleCount === 1 ? 1 : sampleIndex / (sampleCount - 1);
     const index = tailStart + Math.round(ratio * (tailCount - 1));
     addByIndex(index);
+  }
+
+  for (let shellStep = 1; shellStep <= 3; shellStep++) {
+    addByIndex(candidates.length - shellStep);
   }
 
   return subset;

@@ -7,6 +7,7 @@ import type {
 } from './footprintLayoutTypes';
 import type { GroupGeometry } from './localMapGroupGeometry';
 import { rectsOverlap } from './localMapGroupGeometry';
+import { rectDistanceToMap } from './footprintLayoutConstraints';
 import {
   buildBlockedBandFromGeometry,
   computeFreeArcsAtRadius,
@@ -164,6 +165,8 @@ const FIELD_PADDING_RADIUS = 48;
 const FIELD_IDEAL_RADIUS_FLOOR = 180;
 const SAME_LAYER_RADIUS_SPREAD_RELAX_FACTOR = 1.55;
 const SAME_LAYER_ANGULAR_RELAX_FACTOR = 1.4;
+const MAP_CLEARANCE_TARGET = 24;
+const LAYER_OUTER_SHELL_BIAS = 0.72;
 
 function getMapViewRadius(mapRect: LogicalRect) {
   return Math.max(
@@ -237,6 +240,15 @@ function estimateGroupPreferredRadius(group: PendingPlaceGroup) {
   );
   const sizeAdjustment = Math.min(96, estimateGroupDepth(group) * 0.12);
   return baseRadius + sizeAdjustment;
+}
+
+function estimateGroupOuterShellRadius(group: PendingPlaceGroup, mapRect: LogicalRect) {
+  const preferredRadius = estimateGroupPreferredRadius(group);
+  const safeRadius = Math.max(
+    preferredRadius + MAP_CLEARANCE_TARGET,
+    Math.max(Math.abs(mapRect.left), Math.abs(mapRect.right), Math.abs(mapRect.top), Math.abs(mapRect.bottom)) + MAP_CLEARANCE_TARGET,
+  );
+  return safeRadius;
 }
 
 function resolveLayerRadiusBand(
@@ -476,6 +488,8 @@ export function buildPlacementLayers(
   const adaptiveRadiusStep = getAdaptiveLayerRadiusStep(mapRect);
   const entries = groups.map((group) => {
     const placement = basePlacementById.get(group.placeKey) ?? { centerX: group.logicalX, centerY: group.logicalY };
+    const preferredRadius = estimateGroupPreferredRadius(group);
+    const outerShellRadius = estimateGroupOuterShellRadius(group, mapRect);
     return {
       group,
       sizeScore: scoreGroupSize(group),
@@ -484,7 +498,10 @@ export function buildPlacementLayers(
       angle: Math.atan2(group.logicalY, group.logicalX),
       sourceRadius: Math.max(
         adaptiveRadiusBase,
-        Math.hypot(placement.centerX, placement.centerY),
+        Math.max(
+          Math.hypot(placement.centerX, placement.centerY),
+          preferredRadius * (1 - LAYER_OUTER_SHELL_BIAS) + outerShellRadius * LAYER_OUTER_SHELL_BIAS,
+        ),
       ),
     };
   }).sort(compareLayeredEntryOrder);
@@ -499,39 +516,42 @@ export function buildPlacementLayers(
     if (layerEntries.length === 0) return;
     const sortedEntries = [...layerEntries].sort(compareLayeredEntryOrder);
     const sourceRadius = sortedEntries.reduce((sum, entry) => sum + entry.sourceRadius, 0) / sortedEntries.length;
+    const shellRadius = sortedEntries.reduce((maxRadius, entry) => Math.max(maxRadius, entry.sourceRadius), 0);
     const maxDepth = sortedEntries.reduce((maxDepth, entry) => Math.max(maxDepth, entry.radialDepth), 0);
     const slotCount = Math.max(LAYER_SLOT_MIN, sortedEntries.length * 2 + 2);
     const outwardPressure = sortedEntries.reduce((sum, entry) => sum + Math.max(0, entry.sourceRadius - sourceRadius), 0);
     const requiredAngularGap = sortedEntries.reduce((maxGap, entry) => (
-      Math.max(maxGap, computeRequiredAngularGap(Math.max(currentRadius, sourceRadius), entry.spanEstimate))
+      Math.max(maxGap, computeRequiredAngularGap(Math.max(currentRadius, shellRadius), entry.spanEstimate))
     ), 0);
+    const layerRadius = Math.max(currentRadius, shellRadius);
     layers.push({
       index: layers.length,
-      radius: Math.max(currentRadius, sourceRadius),
+      radius: layerRadius,
       slotCount,
       minAngularGap: Math.max(
         (Math.PI * 2 / slotCount) * 0.72,
-        requiredAngularGap + Math.min(Math.PI / 14, outwardPressure / Math.max(sourceRadius * 24, 1)),
+        requiredAngularGap + Math.min(Math.PI / 14, outwardPressure / Math.max(shellRadius * 24, 1)),
       ),
       outwardPressure,
       entries: sortedEntries,
     });
     lastLayeredPlacementTrace.push({
       fn: 'buildPlacementLayers',
-      stage: 'finalize-layer',
-      meta: {
-        layerIndex: layers.length - 1,
-        radius: Math.max(currentRadius, sourceRadius),
-        sourceRadius,
-        maxDepth,
-        slotCount,
-        requiredAngularGap,
-        placeKeys: sortedEntries.map((entry) => entry.group.placeKey),
-      },
-    });
+        stage: 'finalize-layer',
+        meta: {
+          layerIndex: layers.length - 1,
+          radius: layerRadius,
+          sourceRadius,
+          shellRadius,
+          maxDepth,
+          slotCount,
+          requiredAngularGap,
+          placeKeys: sortedEntries.map((entry) => entry.group.placeKey),
+        },
+      });
     nextMinRadius = Math.max(
       nextMinRadius,
-      Math.max(currentRadius, sourceRadius) + maxDepth + adaptiveRadiusStep,
+      layerRadius + maxDepth + adaptiveRadiusStep,
     );
   };
 
@@ -543,10 +563,11 @@ export function buildPlacementLayers(
       nextMinRadius,
       projectedEntries.reduce((sum, item) => sum + item.sourceRadius, 0) / projectedEntries.length,
     );
+    const projectedShellRadius = projectedEntries.reduce((maxRadius, item) => Math.max(maxRadius, item.sourceRadius), 0);
     const sourceRadiusValues = projectedEntries.map((item) => item.sourceRadius);
     const minProjectedSourceRadius = Math.min(...sourceRadiusValues);
     const maxProjectedSourceRadius = Math.max(...sourceRadiusValues);
-    const availableCircumference = Math.PI * 2 * Math.max(projectedRadius, adaptiveRadiusBase);
+    const availableCircumference = Math.PI * 2 * Math.max(projectedShellRadius, adaptiveRadiusBase);
     const exceedsCircumference =
       currentEntries.length > 0 &&
       projectedSpan > availableCircumference * LAYER_FILL_RATIO;
@@ -556,7 +577,7 @@ export function buildPlacementLayers(
     const clusterCenterAngle = (cluster.angleStart + cluster.angleEnd) * 0.5;
     const nearestAngularGap = findNearestAngularGap(clusterCenterAngle, currentEntries);
     const requiredAngularGap = cluster.entries.reduce((maxGap, entry) => (
-      Math.max(maxGap, computeRequiredAngularGap(projectedRadius, entry.spanEstimate))
+      Math.max(maxGap, computeRequiredAngularGap(projectedShellRadius, entry.spanEstimate))
     ), 0);
     const currentNeighborCount = countCurrentNeighborsWithinAngleWindow(
       currentEntries,
@@ -585,6 +606,7 @@ export function buildPlacementLayers(
         projectedSpan,
         projectedMaxDepth,
         projectedRadius,
+        projectedShellRadius,
         minProjectedSourceRadius,
         maxProjectedSourceRadius,
         availableCircumference,
@@ -622,7 +644,7 @@ export function buildPlacementLayers(
     }
 
     currentEntries = projectedEntries;
-    currentRadius = projectedRadius;
+    currentRadius = Math.max(projectedRadius, projectedShellRadius);
   }
 
   finalizeLayer(currentEntries);
@@ -1135,6 +1157,10 @@ export function evaluatePlacementAgainstState(
     radius,
     sector,
   );
+  const mapClearancePenalty = Math.max(
+    0,
+    MAP_CLEARANCE_TARGET - rectDistanceToMap(geometry.groupRect, mapRect),
+  );
   const radiusPenalty = Math.abs(radius - preferredRadius) * 0.24;
   const outwardPenalty = Math.max(0, radius - preferredRadius) * 0.28;
   const inwardPenalty = Math.max(0, preferredRadius - radius) * 0.42;
@@ -1175,6 +1201,7 @@ export function evaluatePlacementAgainstState(
     valid: true,
     score:
       driftPenalty +
+      mapClearancePenalty * mapClearancePenalty * 16 +
       radiusPenalty +
       outwardPenalty +
       inwardPenalty +
@@ -1241,6 +1268,9 @@ export function placeGroupsLayerByLayer(
     const leftLayer = layerByKey.get(left.placeKey) ?? Number.MAX_SAFE_INTEGER;
     const rightLayer = layerByKey.get(right.placeKey) ?? Number.MAX_SAFE_INTEGER;
     if (leftLayer !== rightLayer) return leftLayer - rightLayer;
+    const leftRadiusNeed = Math.hypot(left.logicalX, left.logicalY);
+    const rightRadiusNeed = Math.hypot(right.logicalX, right.logicalY);
+    if (Math.abs(rightRadiusNeed - leftRadiusNeed) > 1e-6) return rightRadiusNeed - leftRadiusNeed;
     const leftPressure = outwardPressureByKey.get(left.placeKey)?.pressureScore ?? 0;
     const rightPressure = outwardPressureByKey.get(right.placeKey)?.pressureScore ?? 0;
     if (Math.abs(leftPressure - rightPressure) > 1e-6) return rightPressure - leftPressure;
@@ -1281,7 +1311,10 @@ export function placeGroupsLayerByLayer(
     if (!layer) return false;
     const baseAngle = Math.atan2(group.logicalY, group.logicalX);
     const layerBand = resolveLayerRadiusBand(layers, layerIndex);
-    const idealRadius = estimateGroupPreferredRadius(group);
+    const idealRadius = Math.max(
+      estimateGroupPreferredRadius(group),
+      Math.hypot(group.logicalX, group.logicalY) + 24,
+    );
     const pressure = outwardPressureByKey.get(group.placeKey);
     const propagatedTarget = targetAngleByKey.get(group.placeKey);
     const layerWindow = layerWindowByKey.get(group.placeKey);
@@ -1290,6 +1323,40 @@ export function placeGroupsLayerByLayer(
     const preferredAngle = propagatedAngle == null
       ? baseAngle
       : layerAnchorAngle + getAngularDelta(propagatedAngle, layerAnchorAngle);
+    let preferredRadius = Math.max(layerBand.targetRadius, idealRadius);
+    let probeGeometry = deps.chooseBestGeometryForPlacement(
+      group,
+      {
+        centerX: Math.cos(preferredAngle) * preferredRadius,
+        centerY: Math.sin(preferredAngle) * preferredRadius,
+      },
+      mapRect,
+    );
+    let probeCount = 0;
+    const probeStep = Math.max(
+      24,
+      Math.max(
+        group.collisionGeometry.groupRect.bottom - group.collisionGeometry.groupRect.top,
+        group.collisionGeometry.groupRect.right - group.collisionGeometry.groupRect.left,
+      ) * 0.18,
+    );
+    while (!deps.geometryFitsMap(probeGeometry, mapRect) && probeCount < 16) {
+      preferredRadius += probeStep;
+      probeGeometry = deps.chooseBestGeometryForPlacement(
+        group,
+        {
+          centerX: Math.cos(preferredAngle) * preferredRadius,
+          centerY: Math.sin(preferredAngle) * preferredRadius,
+        },
+        mapRect,
+      );
+      probeCount += 1;
+    }
+    const minSearchRadius = Math.max(layerBand.minRadius, preferredRadius);
+    const maxSearchRadius = Math.max(
+      layerBand.maxRadius,
+      preferredRadius + Math.max(48, layerBand.targetRadius * 0.12),
+    );
     const reservedSpan = Math.max(
       layer.minAngularGap * 1.2,
       propagatedTarget?.reservedSpan ?? layer.minAngularGap * 1.9,
@@ -1328,12 +1395,12 @@ export function placeGroupsLayerByLayer(
       buildBlockedBandsForState(group.placeKey),
       {
         idealAngle: preferredAngle,
-        idealRadius: layerBand.targetRadius,
-        minRadius: layerBand.minRadius,
-        maxRadius: layerBand.maxRadius,
+        idealRadius: preferredRadius,
+        minRadius: minSearchRadius,
+        maxRadius: maxSearchRadius,
         radiusStep: Math.max(18, Math.min(
-          (layerBand.maxRadius - layerBand.minRadius) / 6,
-          layerBand.targetRadius * 0.045,
+          (maxSearchRadius - minSearchRadius) / 6,
+          preferredRadius * 0.045,
         )),
         radiusScanLimit: 12,
         sectorStart: preferredWindowStart,
@@ -1348,7 +1415,7 @@ export function placeGroupsLayerByLayer(
         layerIndex,
         preferredLayerIndex,
         idealRadius,
-        layerRadius: layerBand.targetRadius,
+        layerRadius: preferredRadius,
         layerBand,
         candidateCount: fieldSearch.candidates.length,
         scannedRadius: fieldSearch.scannedRadius,
@@ -1374,14 +1441,14 @@ export function placeGroupsLayerByLayer(
           safeGap,
           mapRect,
           preferredAngle,
-          layerBand.targetRadius,
+          preferredRadius,
           layer.minAngularGap,
           windowConstraint,
           sameLayerConstraint,
         );
         if (!evaluation.valid || !evaluation.geometry) continue;
         const layerPenalty = Math.max(0, layer.index - preferredLayerIndex) * 120;
-        const fieldRadiusPenalty = Math.abs(fieldCandidate.radius - layerBand.targetRadius) * 0.1;
+        const fieldRadiusPenalty = Math.abs(fieldCandidate.radius - preferredRadius) * 0.1;
         const occupancyPenalty = computeOccupancyAlignmentPenalty(
           deps,
           fieldCandidate,
@@ -1418,8 +1485,8 @@ export function placeGroupsLayerByLayer(
           const angle = slotAngle + (angleOffset * Math.PI) / 180;
           for (const radiusFactor of FINAL_REFINE_RADIUS_FACTORS) {
             const placement = {
-              centerX: Math.cos(angle) * layerBand.targetRadius * radiusFactor,
-              centerY: Math.sin(angle) * layerBand.targetRadius * radiusFactor,
+              centerX: Math.cos(angle) * preferredRadius * radiusFactor,
+              centerY: Math.sin(angle) * preferredRadius * radiusFactor,
             };
             const evaluation = evaluatePlacementAgainstState(
               deps,
@@ -1431,7 +1498,7 @@ export function placeGroupsLayerByLayer(
               safeGap,
               mapRect,
               preferredAngle,
-              layerBand.targetRadius,
+              preferredRadius,
               layer.minAngularGap,
               windowConstraint,
               sameLayerConstraint,
@@ -1454,8 +1521,8 @@ export function placeGroupsLayerByLayer(
     if (!best) {
       for (const radiusFactor of FINAL_REFINE_RADIUS_FACTORS) {
         const placement = {
-          centerX: Math.cos(preferredAngle) * layerBand.targetRadius * radiusFactor,
-          centerY: Math.sin(preferredAngle) * layerBand.targetRadius * radiusFactor,
+          centerX: Math.cos(preferredAngle) * preferredRadius * radiusFactor,
+          centerY: Math.sin(preferredAngle) * preferredRadius * radiusFactor,
         };
         const evaluation = evaluatePlacementAgainstState(
           deps,
@@ -1467,7 +1534,7 @@ export function placeGroupsLayerByLayer(
           safeGap,
           mapRect,
           preferredAngle,
-          layerBand.targetRadius,
+          preferredRadius,
           layer.minAngularGap,
           windowConstraint,
           sameLayerConstraint,
