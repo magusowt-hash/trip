@@ -1162,18 +1162,26 @@ function UserFootprintsPageInner() {
       }
     }
 
-    const finalLayouts: GroupLayoutSnapshot[] = [];
-    for (const [placeKey, geometry] of solvedPendingGroups.geometries) {
-      const labelOffset =
-        geometry.labelSide === 'top'
-          ? Math.max(0, geometry.photoRect.top - geometry.lineAnchorY)
-          : Math.max(0, geometry.lineAnchorY - geometry.photoRect.bottom);
-      finalLayouts.push({
-        placeKey,
-        labelSide: geometry.labelSide,
-        labelOffset,
-      });
+    const finalizedPhotos = referencePhotos.map((photo) => ({ ...photo }));
+    const finalizedPendingKeys = new Set(pendingGroups.map((group) => group.placeKey));
+    for (const group of pendingGroups) {
+      const chosenCenter = placementById.get(group.placeKey);
+      if (!chosenCenter) continue;
+      for (let i = 0; i < group.placePhotos.length; i++) {
+        const targetId = group.placePhotos[i]?.id;
+        const finalizedPhoto = finalizedPhotos.find((photo) => photo.id === targetId);
+        if (!finalizedPhoto) continue;
+        finalizedPhoto.frameX = chosenCenter.centerX + group.offsets[i].offsetX;
+        finalizedPhoto.frameY = chosenCenter.centerY + group.offsets[i].offsetY;
+      }
     }
+    const frozenLayouts = solveFrozenGroupLayouts(
+      finalizedPhotos.filter((photo) => finalizedPendingKeys.has(photo.placeKey)),
+      collisionScale,
+      mapRect,
+      activeGroupLayouts,
+    );
+    const finalLayouts = Array.from(frozenLayouts.values());
     const next = new Map(activeGroupLayouts.map((item) => [item.placeKey, item]));
     for (const layout of finalLayouts) {
       next.set(layout.placeKey, layout);
