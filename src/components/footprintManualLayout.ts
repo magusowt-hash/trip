@@ -121,18 +121,22 @@ export function clampRectOutsideMap(
   rect: ManualPlaceRect,
   mapRect: ManualMapRect,
 ): ManualPlaceRect {
+  const visualLeft = Math.min(rect.photoLeft, rect.labelLeft, rect.lineAnchorX);
+  const visualRight = Math.max(rect.photoRight, rect.labelRight, rect.lineAnchorX);
+  const visualTop = Math.min(rect.photoTop, rect.labelTop, rect.lineAnchorY);
+  const visualBottom = Math.max(rect.photoBottom, rect.labelBottom, rect.lineAnchorY);
   const overlapsMap =
-    rect.overallRight > mapRect.left &&
-    rect.overallLeft < mapRect.right &&
-    rect.overallBottom > mapRect.top &&
-    rect.overallTop < mapRect.bottom;
+    visualRight > mapRect.left &&
+    visualLeft < mapRect.right &&
+    visualBottom > mapRect.top &&
+    visualTop < mapRect.bottom;
 
   if (!overlapsMap) return rect;
 
-  const dl = rect.overallRight - mapRect.left;
-  const dr = mapRect.right - rect.overallLeft;
-  const dt = rect.overallBottom - mapRect.top;
-  const db = mapRect.bottom - rect.overallTop;
+  const dl = visualRight - mapRect.left;
+  const dr = mapRect.right - visualLeft;
+  const dt = visualBottom - mapRect.top;
+  const db = mapRect.bottom - visualTop;
   const minD = Math.min(dl, dr, dt, db);
 
   if (minD === dl) return translatePlaceRect(rect, -dl, 0);
