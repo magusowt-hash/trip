@@ -138,15 +138,9 @@ export function resolvePreferredLabelSide(centerX: number, centerY: number): Gro
 
 export function resolvePreferredLabelSideForMap(centerX: number, centerY: number, mapRect?: LogicalRect): GroupLabelSide {
   if (!mapRect) return resolvePreferredLabelSide(centerX, centerY);
-  if (centerY <= mapRect.bottom) return 'bottom';
-  if (centerX >= mapRect.left && centerX <= mapRect.right) return 'top';
-
-  const verticalDistance = centerY - mapRect.bottom;
-  const leftCornerDistance = mapRect.left - centerX;
-  const rightCornerDistance = centerX - mapRect.right;
-  const withinLeftBottomPartition = centerX < mapRect.left && verticalDistance >= leftCornerDistance;
-  const withinRightBottomPartition = centerX > mapRect.right && verticalDistance >= rightCornerDistance;
-  return withinLeftBottomPartition || withinRightBottomPartition ? 'top' : 'bottom';
+  return isPointInLowerPartition(centerX, centerY, mapRect) || isPointInLowerTransitionBand(centerX, centerY, mapRect)
+    ? 'top'
+    : 'bottom';
 }
 
 function isPointInLowerPartition(pointX: number, pointY: number, mapRect: LogicalRect) {
@@ -172,6 +166,28 @@ function isPointInLowerTransitionBand(pointX: number, pointY: number, mapRect: L
   return Math.abs(Math.abs(boundaryAngle) - Math.PI / 4) <= bandRadians;
 }
 
+export function isRectInLowerRegion(rect: LogicalRect, mapRect?: LogicalRect) {
+  if (!mapRect) return false;
+
+  const sampleXs = [rect.left, (rect.left + rect.right) * 0.5, rect.right];
+  const sampleYs = [rect.top, (rect.top + rect.bottom) * 0.5, rect.bottom];
+
+  return sampleYs.some((sampleY) => (
+    sampleXs.some((sampleX) => (
+      isPointInLowerPartition(sampleX, sampleY, mapRect) ||
+      isPointInLowerTransitionBand(sampleX, sampleY, mapRect)
+    ))
+  ));
+}
+
+export function resolvePreferredLabelSideForMapRect(rect: LogicalRect, mapRect?: LogicalRect): GroupLabelSide {
+  if (!mapRect) {
+    const center = rectCenter(rect);
+    return resolvePreferredLabelSide(center.x, center.y);
+  }
+  return isRectInLowerRegion(rect, mapRect) ? 'top' : 'bottom';
+}
+
 export function applyRuntimeEnvelope(
   geometry: GroupGeometry,
   mapRect?: LogicalRect,
@@ -179,14 +195,14 @@ export function applyRuntimeEnvelope(
   if (!mapRect) return geometry;
 
   const rect = geometry.groupRect;
-  const sampleXs = [rect.left, (rect.left + rect.right) * 0.5, rect.right];
-  const sampleYs = [rect.top, (rect.top + rect.bottom) * 0.5, rect.bottom];
-  const inLowerRegion = sampleYs.some((sampleY) => (
-    sampleXs.some((sampleX) => isPointInLowerPartition(sampleX, sampleY, mapRect))
-  ));
-  const inLowerTransitionBand = sampleYs.some((sampleY) => (
-    sampleXs.some((sampleX) => isPointInLowerTransitionBand(sampleX, sampleY, mapRect))
-  ));
+  const inLowerRegion = isRectInLowerRegion(rect, mapRect);
+  const inLowerTransitionBand = !inLowerRegion && (() => {
+    const sampleXs = [rect.left, (rect.left + rect.right) * 0.5, rect.right];
+    const sampleYs = [rect.top, (rect.top + rect.bottom) * 0.5, rect.bottom];
+    return sampleYs.some((sampleY) => (
+      sampleXs.some((sampleX) => isPointInLowerTransitionBand(sampleX, sampleY, mapRect))
+    ));
+  })();
 
   const envelopeRect = {
     ...rect,
@@ -341,7 +357,7 @@ export function buildGroupGeometryFromPhotoRect(
 ): GroupGeometry {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
-  const labelSide = fixedLabelSide ?? resolvePreferredLabelSideForMap(photoCenter.x, photoCenter.y, mapRect);
+  const labelSide = fixedLabelSide ?? resolvePreferredLabelSideForMapRect(photoRect, mapRect);
   const lineAnchorRadius = toLogicalScreenSize(GROUP_ENDPOINT_RADIUS_SCREEN, safeScale);
   const photoWidth = Math.max(1, photoRect.right - photoRect.left);
   const photoHeight = Math.max(1, photoRect.bottom - photoRect.top);
@@ -467,7 +483,7 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
     }, mapRect);
   };
 
-  const resolvedSide = fixedLabelSide ?? resolvePreferredLabelSideForMap(photoCenter.x, photoCenter.y, mapRect);
+  const resolvedSide = fixedLabelSide ?? resolvePreferredLabelSideForMapRect(photoRect, mapRect);
   const offsetSteps = [0, 18, 36];
   const candidates: GroupGeometry[] = [];
 
@@ -545,7 +561,7 @@ export function buildGroupGeometryCandidatesFromGeometry(
 
   const resolvedSide =
     fixedLabelSide ??
-    resolvePreferredLabelSideForMap(photoCenter.x, photoCenter.y, mapRect);
+    resolvePreferredLabelSideForMapRect(photoRect, mapRect);
   const offsetSteps = [0, 18, 36];
   const candidates: GroupGeometry[] = [];
 
@@ -660,12 +676,12 @@ export function buildGroupGeometryFromLayout(
   const layoutByPlaceKey = new Map(layouts.map((layout) => [layout.placeKey, layout]));
   const layout = layoutByPlaceKey.get(placeKey);
   const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
-  const centerX = photoRect ? (photoRect.left + photoRect.right) * 0.5 : 0;
-  const centerY = photoRect ? (photoRect.top + photoRect.bottom) * 0.5 : 0;
   const shouldPreserveSavedLayout = preserveSavedLabelSide && layout?.labelSide != null;
   const computedLabelSide = shouldPreserveSavedLayout
     ? layout!.labelSide
-    : resolvePreferredLabelSideForMap(centerX, centerY, mapRect);
+    : photoRect
+      ? resolvePreferredLabelSideForMapRect(photoRect, mapRect)
+      : 'bottom';
   const computedLabelOffset = shouldPreserveSavedLayout
     ? (layout?.labelOffset ?? 0)
     : 0;
@@ -707,9 +723,8 @@ export function resolveGroupLabelLayouts(
   for (const entry of sortedEntries) {
     const candidates: GroupGeometry[] = [];
     const candidateKeys = new Set<string>();
-    const preferredLabelSideForCurrentPosition = resolvePreferredLabelSideForMap(
-      entry.geometry.photoCenterX,
-      entry.geometry.photoCenterY,
+    const preferredLabelSideForCurrentPosition = resolvePreferredLabelSideForMapRect(
+      entry.geometry.photoRect,
       options?.mapRect,
     );
     const baseCandidates = buildGroupGeometryCandidatesFromPhotoRect(
@@ -954,10 +969,10 @@ function computeMapClearanceOffset(
   mapGap = 0,
 ) {
   if (!mapRect) return 0;
-  if (candidate.labelSide === 'top') {
-    return Math.max(0, candidate.overallRect.bottom - (mapRect.top - mapGap));
+  if (isRectInLowerRegion(candidate.photoRect, mapRect)) {
+    return Math.max(0, mapRect.bottom + mapGap - candidate.overallRect.top);
   }
-  return Math.max(0, mapRect.bottom + mapGap - candidate.overallRect.top);
+  return Math.max(0, candidate.overallRect.bottom - (mapRect.top - mapGap));
 }
 
 function getMapCollisionRect(
