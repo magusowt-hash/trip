@@ -711,12 +711,17 @@ export function resolveGroupLabelLayouts(
   for (const entry of sortedEntries) {
     const candidates: GroupGeometry[] = [];
     const candidateKeys = new Set<string>();
+    const preferredLabelSideForCurrentPosition = resolvePreferredLabelSideForMap(
+      entry.geometry.photoCenterX,
+      entry.geometry.photoCenterY,
+      options?.mapRect,
+    );
     const baseCandidates = buildGroupGeometryCandidatesFromPhotoRect(
       entry.geometry.photoRect,
       entry.title,
       entry.photoCount,
       entry.scale,
-      entry.geometry.labelSide,
+      preferredLabelSideForCurrentPosition,
       0,
       options?.mapRect,
     );
