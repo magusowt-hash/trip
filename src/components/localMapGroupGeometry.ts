@@ -595,7 +595,10 @@ export function buildSingleSideGroupGeometryFromGeometry(
       ? Math.max(0, geometry.lineRect.top - geometry.labelRect.bottom)
       : Math.max(0, geometry.labelRect.top - geometry.lineRect.bottom);
 
-  const labelSide = fixedLabelSide ?? geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
+  const labelSide =
+    fixedLabelSide ??
+    geometry.labelSide ??
+    resolvePreferredLabelSideForMapRect(photoRect, mapRect);
   const lineAnchorX = photoCenter.x;
   const lineAnchorY =
     labelSide === 'top'

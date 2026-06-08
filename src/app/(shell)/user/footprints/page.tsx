@@ -19,7 +19,7 @@ import {
   buildGroupGeometryFromLayout,
   buildGroupGeometryFromPhotoRect,
   expandPhotoRect,
-  resolvePreferredLabelSideForMap,
+  resolvePreferredLabelSideForMapRect,
   type GroupLayoutSnapshot,
 } from '@/components/localMapGroupGeometry';
 import type { GroupGeometry } from '@/components/localMapGroupGeometry';
@@ -1079,9 +1079,8 @@ function UserFootprintsPageInner() {
       const reservedLabelOffset = estimateReservedLabelOffset(placeKey, placePhotos, collisionScale, mapRect, activeGroupLayouts);
       const offsetPhotoRect = buildOffsetPhotoRect(placePhotos, offsets);
       const logicalPoint = logicalPointByPlaceKey.get(placeKey)!;
-      const preferredLabelSide = resolvePreferredLabelSideForMap(
-        logicalPoint.x,
-        logicalPoint.y,
+      const preferredLabelSide = resolvePreferredLabelSideForMapRect(
+        offsetPhotoRect,
         mapRect,
       );
       const offsetGeometry = offsetPhotoRect

@@ -1,7 +1,8 @@
 import {
+  applyRuntimeEnvelope,
   buildGroupGeometryFromPhotoRect,
   rectsOverlap,
-  resolvePreferredLabelSideForMap,
+  resolvePreferredLabelSideForMapRect,
   resolveGroupGeometryAsWhole,
   translateGroupGeometry,
   type GroupGeometry,
@@ -66,9 +67,6 @@ const PRESSURE_YIELD_ANGLE_OFFSETS_DEGREES = [-42, -30, 30, 42];
 const PRESSURE_YIELD_RADIUS_FACTORS = [1, 1.08, 1.18];
 const CORNER_TRANSITION_ESCAPE_ANGLE_OFFSETS_DEGREES = [-96, -84, 84, 96];
 const CORNER_TRANSITION_ESCAPE_RADIUS_FACTORS = [1.08, 1.22, 1.38];
-const UPPER_REGION_BOTTOM_CLEARANCE = 176;
-const LOWER_REGION_TOP_CLEARANCE = 176;
-const LOWER_TRANSITION_BAND_DEGREES = 10;
 const BASE_LAYOUT_MAP_GAP = 96;
 const BASE_LAYOUT_MIN_OUTWARD_PUSH = 24;
 const REPAIR_TEST_CONFIG = {
@@ -349,55 +347,11 @@ function getGeometryLabelOffset(geometry: GroupGeometry) {
     : Math.max(0, geometry.lineAnchorY - geometry.photoRect.bottom);
 }
 
-function isPointInLowerPartition(pointX: number, pointY: number, mapRect: LogicalRect) {
-  if (pointY > mapRect.bottom) return true;
-  if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
-
-  const verticalDistance = pointY - mapRect.bottom;
-  if (pointX < mapRect.left) {
-    return verticalDistance >= mapRect.left - pointX;
-  }
-  return verticalDistance >= pointX - mapRect.right;
-}
-
-function isPointInLowerTransitionBand(pointX: number, pointY: number, mapRect: LogicalRect) {
-  if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
-  if (pointY <= mapRect.bottom) return false;
-
-  const boundaryAngle =
-    pointX < mapRect.left
-      ? Math.atan2(mapRect.bottom - pointY, mapRect.left - pointX)
-      : Math.atan2(mapRect.bottom - pointY, pointX - mapRect.right);
-  const bandRadians = (LOWER_TRANSITION_BAND_DEGREES * Math.PI) / 180;
-  return Math.abs(Math.abs(boundaryAngle) - Math.PI / 4) <= bandRadians;
-}
-
 function applyPlanningEnvelope(
   geometry: GroupGeometry,
   mapRect?: LogicalRect,
 ) {
-  if (!mapRect) return geometry;
-
-  const rect = geometry.groupRect;
-  const sampleXs = [rect.left, (rect.left + rect.right) * 0.5, rect.right];
-  const sampleYs = [rect.top, (rect.top + rect.bottom) * 0.5, rect.bottom];
-  const inLowerRegion = sampleYs.some((sampleY) => (
-    sampleXs.some((sampleX) => isPointInLowerPartition(sampleX, sampleY, mapRect))
-  ));
-  const inLowerTransitionBand = sampleYs.some((sampleY) => (
-    sampleXs.some((sampleX) => isPointInLowerTransitionBand(sampleX, sampleY, mapRect))
-  ));
-  const planningRect = {
-    ...rect,
-    top: rect.top - (inLowerRegion || inLowerTransitionBand ? LOWER_REGION_TOP_CLEARANCE : 0),
-    bottom: rect.bottom + (inLowerTransitionBand ? UPPER_REGION_BOTTOM_CLEARANCE : inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
-  };
-
-  return {
-    ...geometry,
-    groupRect: planningRect,
-    overallRect: planningRect,
-  };
+  return applyRuntimeEnvelope(geometry, mapRect);
 }
 
 function buildGeometryForPlacement(
@@ -405,9 +359,14 @@ function buildGeometryForPlacement(
   placement: FootprintPlacement,
   mapRect?: LogicalRect,
 ) {
-  const resolvedLabelSide = resolvePreferredLabelSideForMap(
-    placement.centerX,
-    placement.centerY,
+  const translatedPhotoRect = {
+    left: group.collisionGeometry.photoRect.left + placement.centerX,
+    right: group.collisionGeometry.photoRect.right + placement.centerX,
+    top: group.collisionGeometry.photoRect.top + placement.centerY,
+    bottom: group.collisionGeometry.photoRect.bottom + placement.centerY,
+  };
+  const resolvedLabelSide = resolvePreferredLabelSideForMapRect(
+    translatedPhotoRect,
     mapRect,
   );
   const rebuiltGeometry = buildGroupGeometryFromPhotoRect(
@@ -465,9 +424,14 @@ function buildPlanningGeometry(
   absoluteCenterX: number,
   absoluteCenterY: number,
 ) {
-  const resolvedLabelSide = resolvePreferredLabelSideForMap(
-    absoluteCenterX,
-    absoluteCenterY,
+  const translatedPhotoRect = {
+    left: group.collisionGeometry.photoRect.left + absoluteCenterX,
+    right: group.collisionGeometry.photoRect.right + absoluteCenterX,
+    top: group.collisionGeometry.photoRect.top + absoluteCenterY,
+    bottom: group.collisionGeometry.photoRect.bottom + absoluteCenterY,
+  };
+  const resolvedLabelSide = resolvePreferredLabelSideForMapRect(
+    translatedPhotoRect,
     group.mapRect,
   );
   const relativeGeometry = buildGroupGeometryFromPhotoRect(
