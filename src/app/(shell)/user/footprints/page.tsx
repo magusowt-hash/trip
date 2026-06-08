@@ -342,14 +342,14 @@ function solveFrozenGroupLayouts(
     });
   }
 
-  return Array.from(resolveGroupLabelLayouts(entries, {
+  return resolveGroupLabelLayouts(entries, {
     gap: 10,
     mapRect,
     mapGap: 0,
     labelGapBoost: computeLabelGapBoost(scale),
     step: 8,
     maxOffset: 120,
-  }).values());
+  });
 }
 
 function areGroupLayoutsEqual(left: GroupLayoutSnapshot[], right: GroupLayoutSnapshot[]) {
@@ -994,8 +994,7 @@ function UserFootprintsPageInner() {
       ...current.filter((photo) => photo.sourceType === 'local-mapped'),
     ]);
     setGroupLayouts((current) => {
-      const safeCurrent = Array.isArray(current) ? current : [];
-      const merged = new Map(safeCurrent.map((item) => [item.placeKey, item]));
+      const merged = new Map(current.map((item) => [item.placeKey, item]));
       for (const layout of nextGroupLayouts) {
         merged.set(layout.placeKey, layout);
       }
