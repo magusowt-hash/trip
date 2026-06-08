@@ -404,12 +404,17 @@ function buildGeometryForPlacement(
   placement: FootprintPlacement,
   mapRect?: LogicalRect,
 ) {
+  const resolvedLabelSide = resolvePreferredLabelSideForMap(
+    placement.centerX,
+    placement.centerY,
+    mapRect,
+  );
   const rebuiltGeometry = buildGroupGeometryFromPhotoRect(
     group.collisionGeometry.photoRect,
     group.placePhotos[0]?.placeTitle || '',
     group.placePhotos.length,
     1,
-    group.collisionGeometry.labelSide,
+    resolvedLabelSide,
     getGeometryLabelOffset(group.collisionGeometry),
     mapRect,
   );
@@ -459,12 +464,17 @@ function buildPlanningGeometry(
   absoluteCenterX: number,
   absoluteCenterY: number,
 ) {
+  const resolvedLabelSide = resolvePreferredLabelSideForMap(
+    absoluteCenterX,
+    absoluteCenterY,
+    group.mapRect,
+  );
   const relativeGeometry = buildGroupGeometryFromPhotoRect(
     group.collisionGeometry.photoRect,
     group.placePhotos[0]?.placeTitle || '',
     group.placePhotos.length,
     1,
-    group.collisionGeometry.labelSide,
+    resolvedLabelSide,
     getGeometryLabelOffset(group.collisionGeometry),
   );
   const absoluteGeometry = translateGroupGeometry(
