@@ -69,6 +69,8 @@ const CORNER_TRANSITION_ESCAPE_ANGLE_OFFSETS_DEGREES = [-96, -84, 84, 96];
 const CORNER_TRANSITION_ESCAPE_RADIUS_FACTORS = [1.08, 1.22, 1.38];
 const BASE_LAYOUT_MAP_GAP = 96;
 const BASE_LAYOUT_MIN_OUTWARD_PUSH = 24;
+const BOUNDARY_TRANSITION_BAND_DEGREES = 5;
+const LABEL_X_NEGATIVE_OVERLAP_RATIO = 0.1;
 const REPAIR_TEST_CONFIG = {
   rebalanceIterationCount: 3,
   radialRelaxPassLimit: 2,
@@ -179,7 +181,14 @@ const legacyDeps = {
   compareLegacyGroupOrder,
   computeSectorIndex,
   countPlacementLineCrossings,
-  evaluateCandidate,
+  evaluateCandidate: (
+    group: PendingPlaceGroup,
+    candidate: PlacementCandidate,
+    groups: PendingPlaceGroup[],
+    state: PlacementState,
+    lockedGroups: LockedPlaceGroup[],
+    safeGap: number,
+  ) => evaluateCandidate(group, candidate, groups, state, lockedGroups, safeGap, group.mapRect),
 };
 
 const geometryAnalysisDeps = {
@@ -299,6 +308,42 @@ function buildLine(group: PendingPlaceGroup, geometry: GroupGeometry) {
     start: { x: group.logicalX, y: group.logicalY },
     end: { x: geometry.lineAnchorX, y: geometry.lineAnchorY },
   };
+}
+
+function isWithinBoundaryTransitionBand(
+  group: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  mapRect?: LogicalRect,
+) {
+  if (!mapRect) return false;
+  const leftBoundaryAngle = Math.atan2(mapRect.bottom, mapRect.left);
+  const rightBoundaryAngle = Math.atan2(mapRect.bottom, mapRect.right);
+  const groupAngle = Math.atan2(group.logicalY, group.logicalX);
+  const bandRadians = (BOUNDARY_TRANSITION_BAND_DEGREES * Math.PI) / 180;
+  return (
+    Math.abs(angleDelta(groupAngle, leftBoundaryAngle)) <= bandRadians ||
+    Math.abs(angleDelta(groupAngle, rightBoundaryAngle)) <= bandRadians
+  );
+}
+
+function hasBoundaryLabelAlignmentConflict(
+  group: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  geometry: GroupGeometry,
+  neighbor: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  neighborGeometry: GroupGeometry,
+  mapRect?: LogicalRect,
+) {
+  if (!mapRect) return false;
+  if (!isWithinBoundaryTransitionBand(group, mapRect) && !isWithinBoundaryTransitionBand(neighbor, mapRect)) {
+    return false;
+  }
+
+  const overlapWidth =
+    Math.min(geometry.labelRect.right, neighborGeometry.labelRect.right) -
+    Math.max(geometry.labelRect.left, neighborGeometry.labelRect.left);
+  const candidateWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left);
+  const neighborWidth = Math.max(1, neighborGeometry.labelRect.right - neighborGeometry.labelRect.left);
+  const requiredNegativeGap = Math.min(candidateWidth, neighborWidth) * LABEL_X_NEGATIVE_OVERLAP_RATIO;
+  return overlapWidth > -requiredNegativeGap;
 }
 
 function countPlacementLineCrossings(
@@ -885,6 +930,7 @@ function evaluateCandidate(
   state: PlacementState,
   lockedGroups: LockedPlaceGroup[],
   safeGap: number,
+  mapRect?: LogicalRect,
 ) : CandidateEvaluation {
   const line = buildLine(group, candidate.geometry);
   let bundlePenalty = 0;
@@ -897,6 +943,10 @@ function evaluateCandidate(
     const neighborPlacement = state.placementById.get(neighbor.placeKey);
     const neighborGeometry = state.geometryById.get(neighbor.placeKey);
     if (!neighborPlacement || !neighborGeometry) continue;
+
+    if (hasBoundaryLabelAlignmentConflict(group, candidate.geometry, neighbor, neighborGeometry, mapRect)) {
+      return { valid: false, score: Number.POSITIVE_INFINITY };
+    }
 
     if (hasGroupRectConflict(candidate.geometry, neighborGeometry, safeGap)) {
       return { valid: false, score: Number.POSITIVE_INFINITY };
@@ -926,6 +976,10 @@ function evaluateCandidate(
   }
 
   for (const locked of lockedGroups) {
+    if (hasBoundaryLabelAlignmentConflict(group, candidate.geometry, locked, locked.geometry, mapRect)) {
+      return { valid: false, score: Number.POSITIVE_INFINITY };
+    }
+
     if (hasGroupRectConflict(candidate.geometry, locked.geometry, safeGap)) {
       return { valid: false, score: Number.POSITIVE_INFINITY };
     }
