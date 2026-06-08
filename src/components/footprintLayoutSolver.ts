@@ -1,6 +1,7 @@
 import {
   applyRuntimeEnvelope,
   buildGroupGeometryFromPhotoRect,
+  hasBoundaryLabelXConflict,
   rectsOverlap,
   resolveGroupGeometryAsWhole,
   translateGroupGeometry,
