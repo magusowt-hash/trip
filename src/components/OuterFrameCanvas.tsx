@@ -265,6 +265,7 @@ export default function OuterFrameCanvas({
       transform.scale,
       groupLayouts ?? [],
       mapRect,
+      true,
     );
     if (!geometry) return null;
     return {

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildGroupGeometryCandidatesFromGeometry,
   buildGroupGeometryFromPhotoRect,
+  buildGroupGeometryFromLayout,
   buildSingleSideGroupGeometryFromGeometry,
   rectsOverlap,
   resolveGroupLabelLayouts,
@@ -12,6 +13,13 @@ import {
 
 function rect(left: number, top: number, right: number, bottom: number) {
   return { left, top, right, bottom };
+}
+
+function getPhotoLogicalSize() {
+  return {
+    width: 120,
+    height: 80,
+  };
 }
 
 test('geometry candidates include both label sides so whole-layout resolution can avoid label conflicts', () => {
@@ -267,6 +275,38 @@ test('final label layout anchors lower-region envelope against the map boundary'
   );
 
   assert.equal(rectsOverlap(resolvedCenter.overallRect, mapRect, 0), false);
+});
+
+test('buildGroupGeometryFromLayout preserves the saved label side instead of recomputing it from map heuristics', () => {
+  const mapRect = rect(-120, -120, 120, 120);
+  const groupPhotos = [
+    {
+      frameX: 0,
+      frameY: 344,
+      pixelWidth: 120,
+      pixelHeight: 80,
+      placeTitle: 'center',
+    },
+  ];
+
+  const resolved = buildGroupGeometryFromLayout(
+    'center',
+    groupPhotos,
+    getPhotoLogicalSize,
+    1,
+    [{
+      placeKey: 'center',
+      labelSide: 'bottom',
+      labelOffset: 84,
+    }],
+    mapRect,
+    true,
+  );
+
+  assert.ok(resolved);
+  assert.equal(resolved!.labelSide, 'bottom');
+  assert.equal(rectsOverlap(resolved!.labelRect, mapRect, 0), false);
+  assert.ok(resolved!.labelRect.top >= mapRect.bottom);
 });
 
 test('final label layout falls back to the least-bad map-safe candidate instead of the first candidate when every option conflicts', () => {

@@ -185,6 +185,7 @@ export default function OuterFrame({
         VIEWPORT_GEOMETRY_SCALE,
         groupLayouts ?? [],
         getFootprintMapRect(containerSize.w || 1200, containerSize.h || 800),
+        true,
       );
       if (!geometry) continue;
       rects.push(geometry.overallRect);

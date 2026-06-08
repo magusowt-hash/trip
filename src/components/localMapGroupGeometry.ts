@@ -659,13 +659,17 @@ export function buildGroupGeometryFromLayout(
   scale = 1,
   layouts: GroupLayoutSnapshot[] = [],
   mapRect?: LogicalRect,
+  preserveSavedLabelSide = false,
 ) {
   const layoutByPlaceKey = new Map(layouts.map((layout) => [layout.placeKey, layout]));
   const layout = layoutByPlaceKey.get(placeKey);
   const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
   const centerX = photoRect ? (photoRect.left + photoRect.right) * 0.5 : 0;
   const centerY = photoRect ? (photoRect.top + photoRect.bottom) * 0.5 : 0;
-  const computedLabelSide = resolvePreferredLabelSideForMap(centerX, centerY, mapRect);
+  const computedLabelSide =
+    preserveSavedLabelSide && layout?.labelSide
+      ? layout.labelSide
+      : resolvePreferredLabelSideForMap(centerX, centerY, mapRect);
   return buildGroupGeometry(
     groupPhotos,
     getPhotoLogicalSize,
