@@ -5,7 +5,7 @@ import type {
   PendingPlaceGroup,
   SolverFunctionTraceEntry,
 } from './footprintLayoutTypes';
-import type { GroupGeometry } from './localMapGroupGeometry';
+import { hasBoundaryLabelXConflict, type GroupGeometry } from './localMapGroupGeometry';
 import { rectsOverlap } from './localMapGroupGeometry';
 import { rectDistanceToMap } from './footprintLayoutConstraints';
 import {
@@ -191,6 +191,22 @@ function hasGroupRectConflict(
   safeGap: number,
 ) {
   return rectsOverlap(candidate.overallRect, neighbor.overallRect, Math.max(48, safeGap * 0.5));
+}
+
+function hasBoundaryConflict(
+  group: PendingPlaceGroup,
+  geometry: GroupGeometry,
+  neighbor: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
+  neighborGeometry: GroupGeometry,
+  mapRect: LogicalRect,
+) {
+  return hasBoundaryLabelXConflict(
+    { x: group.logicalX, y: group.logicalY },
+    geometry,
+    { x: neighbor.logicalX, y: neighbor.logicalY },
+    neighborGeometry,
+    mapRect,
+  );
 }
 
 function compareLayerPlacementOrder(
@@ -1107,6 +1123,10 @@ export function evaluatePlacementAgainstState(
       continue;
     }
 
+    if (hasBoundaryConflict(group, geometry, neighbor, neighborGeometry, mapRect)) {
+      return { valid: false, score: Number.POSITIVE_INFINITY, geometry: null };
+    }
+
     const neighborLine = deps.buildLine(neighbor, neighborGeometry);
     if (deps.segmentsIntersect(line.start, line.end, neighborLine.start, neighborLine.end)) {
       return { valid: false, score: Number.POSITIVE_INFINITY, geometry: null };
@@ -1155,6 +1175,10 @@ export function evaluatePlacementAgainstState(
       return { valid: false, score: Number.POSITIVE_INFINITY, geometry: null };
     }
 
+    if (hasBoundaryConflict(group, geometry, locked, locked.geometry, mapRect)) {
+      return { valid: false, score: Number.POSITIVE_INFINITY, geometry: null };
+    }
+
     const lockedLine = deps.buildLine(locked, locked.geometry);
     if (deps.segmentsIntersect(line.start, line.end, lockedLine.start, lockedLine.end)) {
       return { valid: false, score: Number.POSITIVE_INFINITY, geometry: null };
@@ -1175,7 +1199,7 @@ export function evaluatePlacementAgainstState(
   );
   const mapClearancePenalty = Math.max(
     0,
-    MAP_CLEARANCE_TARGET - rectDistanceToMap(geometry.groupRect, mapRect),
+    MAP_CLEARANCE_TARGET - rectDistanceToMap(geometry.overallRect, mapRect),
   );
   const radiusPenalty = Math.abs(radius - preferredRadius) * 0.24;
   const outwardPenalty = Math.max(0, radius - preferredRadius) * 0.28;

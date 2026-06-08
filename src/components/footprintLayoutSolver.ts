@@ -2,7 +2,6 @@ import {
   applyRuntimeEnvelope,
   buildGroupGeometryFromPhotoRect,
   rectsOverlap,
-  resolvePreferredLabelSideForMapRect,
   resolveGroupGeometryAsWhole,
   translateGroupGeometry,
   type GroupGeometry,
@@ -46,6 +45,7 @@ import {
   relaxRadialSpacing,
   selectCorridorRepairTargets,
 } from './footprintLayoutRepairStages';
+import type { PlacementState } from './footprintLayoutLayeredPlacement';
 
 const GROUP_GAP = 14;
 const LABEL_GAP = 22;
@@ -69,8 +69,6 @@ const CORNER_TRANSITION_ESCAPE_ANGLE_OFFSETS_DEGREES = [-96, -84, 84, 96];
 const CORNER_TRANSITION_ESCAPE_RADIUS_FACTORS = [1.08, 1.22, 1.38];
 const BASE_LAYOUT_MAP_GAP = 96;
 const BASE_LAYOUT_MIN_OUTWARD_PUSH = 24;
-const BOUNDARY_TRANSITION_BAND_DEGREES = 5;
-const LABEL_X_NEGATIVE_OVERLAP_RATIO = 0.1;
 const REPAIR_TEST_CONFIG = {
   rebalanceIterationCount: 3,
   radialRelaxPassLimit: 2,
@@ -310,42 +308,6 @@ function buildLine(group: PendingPlaceGroup, geometry: GroupGeometry) {
   };
 }
 
-function isWithinBoundaryTransitionBand(
-  group: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
-  mapRect?: LogicalRect,
-) {
-  if (!mapRect) return false;
-  const leftBoundaryAngle = Math.atan2(mapRect.bottom, mapRect.left);
-  const rightBoundaryAngle = Math.atan2(mapRect.bottom, mapRect.right);
-  const groupAngle = Math.atan2(group.logicalY, group.logicalX);
-  const bandRadians = (BOUNDARY_TRANSITION_BAND_DEGREES * Math.PI) / 180;
-  return (
-    Math.abs(angleDelta(groupAngle, leftBoundaryAngle)) <= bandRadians ||
-    Math.abs(angleDelta(groupAngle, rightBoundaryAngle)) <= bandRadians
-  );
-}
-
-function hasBoundaryLabelAlignmentConflict(
-  group: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
-  geometry: GroupGeometry,
-  neighbor: Pick<PendingPlaceGroup, 'logicalX' | 'logicalY'>,
-  neighborGeometry: GroupGeometry,
-  mapRect?: LogicalRect,
-) {
-  if (!mapRect) return false;
-  if (!isWithinBoundaryTransitionBand(group, mapRect) && !isWithinBoundaryTransitionBand(neighbor, mapRect)) {
-    return false;
-  }
-
-  const overlapWidth =
-    Math.min(geometry.labelRect.right, neighborGeometry.labelRect.right) -
-    Math.max(geometry.labelRect.left, neighborGeometry.labelRect.left);
-  const candidateWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left);
-  const neighborWidth = Math.max(1, neighborGeometry.labelRect.right - neighborGeometry.labelRect.left);
-  const requiredNegativeGap = Math.min(candidateWidth, neighborWidth) * LABEL_X_NEGATIVE_OVERLAP_RATIO;
-  return overlapWidth > -requiredNegativeGap;
-}
-
 function countPlacementLineCrossings(
   groups: PendingPlaceGroup[],
   placementById: Map<string, FootprintPlacement>,
@@ -404,22 +366,12 @@ function buildGeometryForPlacement(
   placement: FootprintPlacement,
   mapRect?: LogicalRect,
 ) {
-  const translatedPhotoRect = {
-    left: group.collisionGeometry.photoRect.left + placement.centerX,
-    right: group.collisionGeometry.photoRect.right + placement.centerX,
-    top: group.collisionGeometry.photoRect.top + placement.centerY,
-    bottom: group.collisionGeometry.photoRect.bottom + placement.centerY,
-  };
-  const resolvedLabelSide = resolvePreferredLabelSideForMapRect(
-    translatedPhotoRect,
-    mapRect,
-  );
   const rebuiltGeometry = buildGroupGeometryFromPhotoRect(
     group.collisionGeometry.photoRect,
     group.placePhotos[0]?.placeTitle || '',
     group.placePhotos.length,
     1,
-    resolvedLabelSide,
+    group.collisionGeometry.labelSide,
     getGeometryLabelOffset(group.collisionGeometry),
     mapRect,
   );
@@ -444,7 +396,7 @@ function geometryFitsMap(geometry: GroupGeometry, mapRect: LogicalRect) {
   return (
     fitsPhotoRectAroundMap(geometry.photoRect, mapRect, MAP_GAP) &&
     fitsLabelRectAroundMap(geometry.labelRect, mapRect, MAP_GAP) &&
-    fitsGroupRectAroundMap(geometry.groupRect, mapRect, MAP_GAP)
+    fitsGroupRectAroundMap(geometry.overallRect, mapRect, MAP_GAP)
   );
 }
 
@@ -469,22 +421,12 @@ function buildPlanningGeometry(
   absoluteCenterX: number,
   absoluteCenterY: number,
 ) {
-  const translatedPhotoRect = {
-    left: group.collisionGeometry.photoRect.left + absoluteCenterX,
-    right: group.collisionGeometry.photoRect.right + absoluteCenterX,
-    top: group.collisionGeometry.photoRect.top + absoluteCenterY,
-    bottom: group.collisionGeometry.photoRect.bottom + absoluteCenterY,
-  };
-  const resolvedLabelSide = resolvePreferredLabelSideForMapRect(
-    translatedPhotoRect,
-    group.mapRect,
-  );
   const relativeGeometry = buildGroupGeometryFromPhotoRect(
     group.collisionGeometry.photoRect,
     group.placePhotos[0]?.placeTitle || '',
     group.placePhotos.length,
     1,
-    resolvedLabelSide,
+    group.collisionGeometry.labelSide,
     getGeometryLabelOffset(group.collisionGeometry),
   );
   const absoluteGeometry = translateGroupGeometry(
@@ -514,7 +456,7 @@ function buildPlanningGroups(
     return {
       ...group,
       collisionGeometry: planningGeometry,
-      collisionRect: planningGeometry.groupRect,
+      collisionRect: planningGeometry.overallRect,
     };
   });
 }
@@ -944,7 +886,16 @@ function evaluateCandidate(
     const neighborGeometry = state.geometryById.get(neighbor.placeKey);
     if (!neighborPlacement || !neighborGeometry) continue;
 
-    if (hasBoundaryLabelAlignmentConflict(group, candidate.geometry, neighbor, neighborGeometry, mapRect)) {
+    if (
+      mapRect &&
+      hasBoundaryLabelXConflict(
+        { x: group.logicalX, y: group.logicalY },
+        candidate.geometry,
+        { x: neighbor.logicalX, y: neighbor.logicalY },
+        neighborGeometry,
+        mapRect,
+      )
+    ) {
       return { valid: false, score: Number.POSITIVE_INFINITY };
     }
 
@@ -976,7 +927,16 @@ function evaluateCandidate(
   }
 
   for (const locked of lockedGroups) {
-    if (hasBoundaryLabelAlignmentConflict(group, candidate.geometry, locked, locked.geometry, mapRect)) {
+    if (
+      mapRect &&
+      hasBoundaryLabelXConflict(
+        { x: group.logicalX, y: group.logicalY },
+        candidate.geometry,
+        { x: locked.logicalX, y: locked.logicalY },
+        locked.geometry,
+        mapRect,
+      )
+    ) {
       return { valid: false, score: Number.POSITIVE_INFINITY };
     }
 
@@ -1217,9 +1177,10 @@ export const __layoutSolverInternals = {
   selectCorridorRepairTargets: (
     groups: PendingPlaceGroup[],
     geometryById: Map<string, GroupGeometry>,
+    mapRect: LogicalRect,
     safeGap: number,
     lockedGroups: LockedPlaceGroup[] = [],
-  ) => selectCorridorRepairTargets(geometryAnalysisDeps, groups, geometryById, safeGap, lockedGroups),
+  ) => selectCorridorRepairTargets(geometryAnalysisDeps, groups, geometryById, mapRect, safeGap, lockedGroups),
   countPlacementLineCrossings,
   assignInitialPlacements: (
     orderedGroups: PendingPlaceGroup[],

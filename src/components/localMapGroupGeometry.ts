@@ -29,6 +29,11 @@ export type GroupGeometry = {
   lineAnchorY: number;
 };
 
+export type BoundaryAnchor = {
+  x: number;
+  y: number;
+};
+
 type SizeReader = (photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>) => { width: number; height: number };
 type GroupGeometryEntry<T extends string = string> = {
   id: T;
@@ -39,6 +44,11 @@ type WholeGeometryEntry<T extends string = string> = {
   id: T;
   geometry: GroupGeometry;
   candidates?: GroupGeometry[];
+};
+
+type OccupiedResolvedGeometry = {
+  geometry: GroupGeometry;
+  anchor?: BoundaryAnchor;
 };
 
 type LabelLayoutEntry = {
@@ -69,6 +79,8 @@ const UPPER_REGION_BOTTOM_CLEARANCE = 176;
 const LOWER_REGION_TOP_CLEARANCE = 176;
 const FOOTPRINT_MAP_AREA_RATIO_W = 0.6;
 const FOOTPRINT_MAP_AREA_RATIO_H = 0.8;
+export const BOUNDARY_TRANSITION_BAND_DEGREES = 5;
+export const LABEL_X_NEGATIVE_OVERLAP_RATIO = 0.1;
 
 type LabelPlacementGapPolicy = {
   labelPhotoGap: number;
@@ -208,6 +220,47 @@ export function resolvePreferredLabelSideForMapRect(rect: LogicalRect, mapRect?:
   }
   const center = rectCenter(rect);
   return resolvePreferredLabelSideForMap(center.x, center.y, mapRect);
+}
+
+export function isBoundaryTransitionAnchor(
+  anchor: BoundaryAnchor,
+  mapRect?: LogicalRect,
+  bandDegrees = BOUNDARY_TRANSITION_BAND_DEGREES,
+) {
+  if (!mapRect) return false;
+  const leftBoundaryAngle = Math.atan2(mapRect.bottom, mapRect.left);
+  const rightBoundaryAngle = Math.atan2(mapRect.bottom, mapRect.right);
+  const anchorAngle = Math.atan2(anchor.y, anchor.x);
+  const bandRadians = (bandDegrees * Math.PI) / 180;
+  return (
+    angleDistance(anchorAngle, leftBoundaryAngle) <= bandRadians ||
+    angleDistance(anchorAngle, rightBoundaryAngle) <= bandRadians
+  );
+}
+
+export function hasBoundaryLabelXConflict(
+  anchor: BoundaryAnchor,
+  geometry: GroupGeometry,
+  neighborAnchor: BoundaryAnchor,
+  neighborGeometry: GroupGeometry,
+  mapRect?: LogicalRect,
+  negativeOverlapRatio = LABEL_X_NEGATIVE_OVERLAP_RATIO,
+) {
+  if (!mapRect) return false;
+  if (
+    !isBoundaryTransitionAnchor(anchor, mapRect) &&
+    !isBoundaryTransitionAnchor(neighborAnchor, mapRect)
+  ) {
+    return false;
+  }
+
+  const overlapWidth =
+    Math.min(geometry.labelRect.right, neighborGeometry.labelRect.right) -
+    Math.max(geometry.labelRect.left, neighborGeometry.labelRect.left);
+  const candidateWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left);
+  const neighborWidth = Math.max(1, neighborGeometry.labelRect.right - neighborGeometry.labelRect.left);
+  const requiredNegativeGap = Math.min(candidateWidth, neighborWidth) * negativeOverlapRatio;
+  return overlapWidth > -requiredNegativeGap;
 }
 
 export function applyRuntimeEnvelope(
@@ -814,8 +867,12 @@ export function resolveGroupLabelLayouts(
   for (const entry of candidateEntries) {
     const occupied = candidateEntries
       .filter((candidate) => candidate.id !== entry.id)
-      .map((candidate) => resolved.get(candidate.id))
-      .filter((candidate): candidate is GroupGeometry => candidate != null);
+      .map((candidate) => {
+        const geometry = resolved.get(candidate.id);
+        if (!geometry) return null;
+        return { geometry };
+      })
+      .filter((candidate): candidate is { geometry: GroupGeometry } => candidate != null);
     const chosen = pickBestResolvedCandidate(
       entry.candidates,
       occupied,
@@ -1080,20 +1137,22 @@ function scoreLabelPlacementPenalties(
 
 function scoreResolvedCandidate(
   candidate: GroupGeometry,
-  occupied: GroupGeometry[],
+  occupied: OccupiedResolvedGeometry[],
   baseGeometry: GroupGeometry,
   safeGap: number,
   gapPolicy: LabelPlacementGapPolicy,
   labelGapBoost: number,
   mapRect?: LogicalRect,
   mapGap?: number,
+  candidateAnchor?: BoundaryAnchor,
 ) {
-  let score = scoreGroupGeometryPlacement(candidate, occupied, safeGap, { labelGapBoost });
-  const hardInvalid = isLabelPlacementHardInvalid(candidate, occupied, gapPolicy, mapRect);
-  const hardPenalty = scoreLabelPlacementPenalties(candidate, occupied, gapPolicy, mapRect);
+  const occupiedGeometries = occupied.map((entry) => entry.geometry);
+  let score = scoreGroupGeometryPlacement(candidate, occupiedGeometries, safeGap, { labelGapBoost });
+  const hardInvalid = isLabelPlacementHardInvalid(candidate, occupiedGeometries, gapPolicy, mapRect);
+  const hardPenalty = scoreLabelPlacementPenalties(candidate, occupiedGeometries, gapPolicy, mapRect);
   const mapCollisionRect = getMapCollisionRect(candidate, mapGap ?? gapPolicy.mapGap);
 
-  const nearbySameSidePenalty = occupied.reduce((sum, neighbor) => {
+  const nearbySameSidePenalty = occupiedGeometries.reduce((sum, neighbor) => {
     if (neighbor.labelSide !== candidate.labelSide) return sum;
     const centerDistance = Math.hypot(
       candidate.photoCenterX - neighbor.photoCenterX,
@@ -1103,6 +1162,15 @@ function scoreResolvedCandidate(
     return sum + Math.max(0, safeGap * 14 - centerDistance) * 12;
   }, 0);
   score += nearbySameSidePenalty;
+
+  const boundaryConflictPenalty = occupied.reduce((sum, neighbor) => {
+    if (!candidateAnchor || !neighbor.anchor) return sum;
+    if (!hasBoundaryLabelXConflict(candidateAnchor, candidate, neighbor.anchor, neighbor.geometry, mapRect)) {
+      return sum;
+    }
+    return sum + 400_000;
+  }, 0);
+  score += boundaryConflictPenalty;
 
   if (mapRect && mapGap != null && rectOverlapsMap(mapCollisionRect, mapRect, mapGap)) {
     score += 500000;
@@ -1127,13 +1195,14 @@ function scoreResolvedCandidate(
 
 function pickBestResolvedCandidate(
   candidates: GroupGeometry[],
-  occupied: GroupGeometry[],
+  occupied: OccupiedResolvedGeometry[],
   baseGeometry: GroupGeometry,
   safeGap: number,
   gapPolicy: LabelPlacementGapPolicy,
   labelGapBoost: number,
   mapRect?: LogicalRect,
   mapGap?: number,
+  candidateAnchor?: BoundaryAnchor,
 ) {
   let chosen = candidates[0] ?? baseGeometry;
   let bestPreferredScore = Number.POSITIVE_INFINITY;
@@ -1149,6 +1218,7 @@ function pickBestResolvedCandidate(
       labelGapBoost,
       mapRect,
       mapGap,
+      candidateAnchor,
     );
 
     if (evaluation.fallbackScore < bestFallbackScore) {
@@ -1175,6 +1245,7 @@ function optimizeResolvedAssignments<T extends string>(
   labelGapBoost: number,
   mapRect?: LogicalRect,
   mapGap?: number,
+  boundaryAnchorById?: Map<T, BoundaryAnchor>,
 ) {
   for (let iteration = 0; iteration < 4; iteration++) {
     let changed = false;
@@ -1182,8 +1253,15 @@ function optimizeResolvedAssignments<T extends string>(
     for (const entry of orderedEntries) {
       const occupied = orderedEntries
         .filter((candidate) => candidate.id !== entry.id)
-        .map((candidate) => resolved.get(candidate.id))
-        .filter((candidate): candidate is GroupGeometry => candidate != null);
+        .map((candidate) => {
+          const geometry = resolved.get(candidate.id);
+          if (!geometry) return null;
+          return {
+            geometry,
+            anchor: boundaryAnchorById?.get(candidate.id),
+          };
+        })
+        .filter((candidate): candidate is OccupiedResolvedGeometry => candidate != null);
 
       const next = pickBestResolvedCandidate(
         entry.candidates,
@@ -1194,6 +1272,7 @@ function optimizeResolvedAssignments<T extends string>(
         labelGapBoost,
         mapRect,
         mapGap,
+        boundaryAnchorById?.get(entry.id),
       );
       const current = resolved.get(entry.id);
 
@@ -1215,6 +1294,7 @@ function computeResolvedTotalScore<T extends string>(
   labelGapBoost: number,
   mapRect?: LogicalRect,
   mapGap?: number,
+  boundaryAnchorById?: Map<T, BoundaryAnchor>,
 ) {
   let total = 0;
 
@@ -1223,8 +1303,15 @@ function computeResolvedTotalScore<T extends string>(
     if (!candidate) continue;
     const occupied = orderedEntries
       .filter((neighbor) => neighbor.id !== entry.id)
-      .map((neighbor) => resolved.get(neighbor.id))
-      .filter((neighbor): neighbor is GroupGeometry => neighbor != null);
+      .map((neighbor) => {
+        const geometry = resolved.get(neighbor.id);
+        if (!geometry) return null;
+        return {
+          geometry,
+          anchor: boundaryAnchorById?.get(neighbor.id),
+        };
+      })
+      .filter((neighbor): neighbor is OccupiedResolvedGeometry => neighbor != null);
     total += scoreResolvedCandidate(
       candidate,
       occupied,
@@ -1234,6 +1321,7 @@ function computeResolvedTotalScore<T extends string>(
       labelGapBoost,
       mapRect,
       mapGap,
+      boundaryAnchorById?.get(entry.id),
     ).fallbackScore;
   }
 
@@ -1247,6 +1335,7 @@ function searchResolvedAssignments<T extends string>(
   labelGapBoost: number,
   mapRect?: LogicalRect,
   mapGap?: number,
+  boundaryAnchorById?: Map<T, BoundaryAnchor>,
 ) {
   if (orderedEntries.length === 0 || orderedEntries.length > 8) return null;
 
@@ -1264,6 +1353,7 @@ function searchResolvedAssignments<T extends string>(
           labelGapBoost,
           mapRect,
           mapGap,
+          boundaryAnchorById?.get(entry.id),
         ).fallbackScore,
       }))
       .sort((left, right) => left.score - right.score)
@@ -1285,6 +1375,7 @@ function searchResolvedAssignments<T extends string>(
         labelGapBoost,
         mapRect,
         mapGap,
+        boundaryAnchorById,
       );
       if (totalScore < bestScore) {
         bestScore = totalScore;
@@ -1296,8 +1387,15 @@ function searchResolvedAssignments<T extends string>(
     const entry = rankedEntries[index]!;
     const occupied = rankedEntries
       .slice(0, index)
-      .map((neighbor) => partial.get(neighbor.id))
-      .filter((neighbor): neighbor is GroupGeometry => neighbor != null);
+      .map((neighbor) => {
+        const geometry = partial.get(neighbor.id);
+        if (!geometry) return null;
+        return {
+          geometry,
+          anchor: boundaryAnchorById?.get(neighbor.id),
+        };
+      })
+      .filter((neighbor): neighbor is OccupiedResolvedGeometry => neighbor != null);
 
     for (const candidate of entry.candidates) {
       const evaluation = scoreResolvedCandidate(
@@ -1309,6 +1407,7 @@ function searchResolvedAssignments<T extends string>(
         labelGapBoost,
         mapRect,
         mapGap,
+        boundaryAnchorById?.get(entry.id),
       );
       if (evaluation.fallbackScore >= bestScore) continue;
       partial.set(entry.id, candidate);
@@ -1328,6 +1427,7 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
     mapRect?: LogicalRect;
     mapGap?: number;
     labelGapBoost?: number;
+    boundaryAnchorById?: Map<T, BoundaryAnchor>;
   },
 ) {
   const gap = options?.gap ?? 10;
@@ -1351,8 +1451,15 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
   for (const entry of candidateEntries) {
     const occupied = candidateEntries
       .filter((candidate) => candidate.id !== entry.id)
-      .map((candidate) => resolved.get(candidate.id))
-      .filter((candidate): candidate is GroupGeometry => candidate != null);
+      .map((candidate) => {
+        const geometry = resolved.get(candidate.id);
+        if (!geometry) return null;
+        return {
+          geometry,
+          anchor: options?.boundaryAnchorById?.get(candidate.id),
+        };
+      })
+      .filter((candidate): candidate is OccupiedResolvedGeometry => candidate != null);
     const chosen = pickBestResolvedCandidate(
       entry.candidates,
       occupied,
@@ -1362,6 +1469,7 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
       labelGapBoost,
       options?.mapRect,
       mapGap,
+      options?.boundaryAnchorById?.get(entry.id),
     );
     resolved.set(entry.id, chosen);
   }
@@ -1374,6 +1482,7 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
     labelGapBoost,
     options?.mapRect,
     mapGap,
+    options?.boundaryAnchorById,
   );
 
   const searched = searchResolvedAssignments(
@@ -1383,6 +1492,7 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
     labelGapBoost,
     options?.mapRect,
     mapGap,
+    options?.boundaryAnchorById,
   );
   if (searched) {
     searched.forEach((geometry, id) => {

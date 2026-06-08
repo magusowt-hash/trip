@@ -1,5 +1,5 @@
 import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
-import type { GroupGeometry } from './localMapGroupGeometry';
+import { hasBoundaryLabelXConflict, type BoundaryAnchor, type GroupGeometry } from './localMapGroupGeometry';
 import type { PlacementState } from './footprintLayoutLayeredPlacement';
 import type { SolverMetricReporter } from './footprintLayoutSolver';
 
@@ -152,6 +152,13 @@ export function buildGeometryMapForPlacements(
   labelGapBoost = 0,
   lockedGroups: LockedPlaceGroup[] = [],
 ) {
+  const boundaryAnchorById = new Map<string, BoundaryAnchor>();
+  for (const group of groups) {
+    boundaryAnchorById.set(group.placeKey, { x: group.logicalX, y: group.logicalY });
+  }
+  for (const group of lockedGroups) {
+    boundaryAnchorById.set(group.placeKey, { x: group.logicalX, y: group.logicalY });
+  }
   const entries = groups.flatMap((group) => {
     const placement = placementById.get(group.placeKey);
     if (!placement) return [];
@@ -163,7 +170,7 @@ export function buildGeometryMapForPlacements(
       ...lockedGroups.map((group) => ({ id: group.placeKey, geometry: group.geometry })),
       ...entries,
     ],
-    { gap: deps.getGroupGap(safeGap), mapRect, mapGap: 0, labelGapBoost },
+    { gap: deps.getGroupGap(safeGap), mapRect, mapGap: 0, labelGapBoost, boundaryAnchorById },
   );
   const geometryById = new Map<string, GroupGeometry>();
   for (const group of groups) {
@@ -172,6 +179,16 @@ export function buildGeometryMapForPlacements(
     geometryById.set(group.placeKey, geometry);
   }
   return geometryById;
+}
+
+function hasBoundaryConflict(
+  leftAnchor: BoundaryAnchor,
+  leftGeometry: GroupGeometry,
+  rightAnchor: BoundaryAnchor,
+  rightGeometry: GroupGeometry,
+  mapRect: LogicalRect,
+) {
+  return hasBoundaryLabelXConflict(leftAnchor, leftGeometry, rightAnchor, rightGeometry, mapRect);
 }
 
 export function hasHardConflicts(
@@ -190,6 +207,7 @@ export function hasHardConflicts(
     if (!deps.geometryFitsMap(geometry, mapRect)) return true;
 
     const line = deps.buildLine(group, geometry);
+    const groupAnchor = { x: group.logicalX, y: group.logicalY };
     for (let neighborIndex = index + 1; neighborIndex < groups.length; neighborIndex++) {
       const neighbor = groups[neighborIndex];
       const neighborGeometry = geometryById.get(neighbor.placeKey);
@@ -199,6 +217,18 @@ export function hasHardConflicts(
       const labelOverlap = deps.hasLabelCollisions(geometry, [neighborGeometry], deps.getLabelGap(safeGap));
       const photoLabelOverlap = deps.hasPhotoAgainstLabelCollisions(geometry, [neighborGeometry], deps.getLabelGap(safeGap));
       if (photoOverlap || labelOverlap || photoLabelOverlap) {
+        return true;
+      }
+
+      if (
+        hasBoundaryConflict(
+          groupAnchor,
+          geometry,
+          { x: neighbor.logicalX, y: neighbor.logicalY },
+          neighborGeometry,
+          mapRect,
+        )
+      ) {
         return true;
       }
 
@@ -213,6 +243,18 @@ export function hasHardConflicts(
       const labelOverlap = deps.hasLabelCollisions(geometry, [locked.geometry], deps.getLabelGap(safeGap));
       const photoLabelOverlap = deps.hasPhotoAgainstLabelCollisions(geometry, [locked.geometry], deps.getLabelGap(safeGap));
       if (photoOverlap || labelOverlap || photoLabelOverlap) {
+        return true;
+      }
+
+      if (
+        hasBoundaryConflict(
+          groupAnchor,
+          geometry,
+          { x: locked.logicalX, y: locked.logicalY },
+          locked.geometry,
+          mapRect,
+        )
+      ) {
         return true;
       }
 
@@ -231,6 +273,7 @@ export function countCorridorRiskConflicts(
   groups: PendingPlaceGroup[],
   geometryById: Map<string, GroupGeometry>,
   safeGap: number,
+  mapRect: LogicalRect,
   lockedGroups: LockedPlaceGroup[] = [],
 ) {
   let risk = 0;
@@ -256,7 +299,14 @@ export function countCorridorRiskConflicts(
         deps.rectsOverlap(geometry.groupRect, neighborGeometry.groupRect, groupGap) ||
         deps.rectsOverlap(geometry.labelRect, neighborGeometry.photoRect, labelGap) ||
         deps.rectsOverlap(neighborGeometry.labelRect, geometry.photoRect, labelGap) ||
-        deps.rectsOverlap(geometry.labelRect, neighborGeometry.labelRect, labelGap)
+        deps.rectsOverlap(geometry.labelRect, neighborGeometry.labelRect, labelGap) ||
+        hasBoundaryConflict(
+          { x: group.logicalX, y: group.logicalY },
+          geometry,
+          { x: neighbor.logicalX, y: neighbor.logicalY },
+          neighborGeometry,
+          mapRect,
+        )
       ) {
         risk += 1;
       }
@@ -267,7 +317,14 @@ export function countCorridorRiskConflicts(
         deps.rectsOverlap(geometry.groupRect, locked.geometry.groupRect, groupGap) ||
         deps.rectsOverlap(geometry.labelRect, locked.geometry.photoRect, labelGap) ||
         deps.rectsOverlap(locked.geometry.labelRect, geometry.photoRect, labelGap) ||
-        deps.rectsOverlap(geometry.labelRect, locked.geometry.labelRect, labelGap)
+        deps.rectsOverlap(geometry.labelRect, locked.geometry.labelRect, labelGap) ||
+        hasBoundaryConflict(
+          { x: group.logicalX, y: group.logicalY },
+          geometry,
+          { x: locked.logicalX, y: locked.logicalY },
+          locked.geometry,
+          mapRect,
+        )
       ) {
         risk += 1;
       }
@@ -317,6 +374,7 @@ export function analyzePlacementState(
           groups,
           geometryById,
           safeGap,
+          mapRect,
           lockedGroups,
         )
       : 0,
@@ -331,6 +389,7 @@ export function buildCorridorRiskByGroup(
   groups: PendingPlaceGroup[],
   geometryById: Map<string, GroupGeometry>,
   safeGap: number,
+  mapRect: LogicalRect,
   lockedGroups: LockedPlaceGroup[] = [],
 ) {
   const riskByGroup = new Map<string, number>();
@@ -363,6 +422,17 @@ export function buildCorridorRiskByGroup(
       if (deps.rectsOverlap(geometry.labelRect, neighborGeometry.photoRect, labelGap)) pairRisk += 1;
       if (deps.rectsOverlap(neighborGeometry.labelRect, geometry.photoRect, labelGap)) pairRisk += 1;
       if (deps.rectsOverlap(geometry.labelRect, neighborGeometry.labelRect, labelGap)) pairRisk += 1;
+      if (
+        hasBoundaryConflict(
+          { x: group.logicalX, y: group.logicalY },
+          geometry,
+          { x: neighbor.logicalX, y: neighbor.logicalY },
+          neighborGeometry,
+          mapRect,
+        )
+      ) {
+        pairRisk += 2;
+      }
       if (pairRisk > 0) {
         addRisk(group.placeKey, pairRisk);
         addRisk(neighbor.placeKey, pairRisk);
@@ -375,6 +445,17 @@ export function buildCorridorRiskByGroup(
       if (deps.rectsOverlap(geometry.labelRect, locked.geometry.photoRect, labelGap)) lockedRisk += 1;
       if (deps.rectsOverlap(locked.geometry.labelRect, geometry.photoRect, labelGap)) lockedRisk += 1;
       if (deps.rectsOverlap(geometry.labelRect, locked.geometry.labelRect, labelGap)) lockedRisk += 1;
+      if (
+        hasBoundaryConflict(
+          { x: group.logicalX, y: group.logicalY },
+          geometry,
+          { x: locked.logicalX, y: locked.logicalY },
+          locked.geometry,
+          mapRect,
+        )
+      ) {
+        lockedRisk += 2;
+      }
       if (lockedRisk > 0) addRisk(group.placeKey, lockedRisk);
     }
   }
@@ -952,6 +1033,7 @@ export function relaxRadialSpacing(
     orderedGroups,
     geometryById,
     safeGap,
+    mapRect,
     lockedGroups,
   );
   let hardConflicts = hasHardConflicts(
@@ -1042,6 +1124,7 @@ export function relaxRadialSpacing(
           orderedGroups,
           candidateGeometryById,
           safeGap,
+          mapRect,
           lockedGroups,
         );
         const candidateGlobalConflictScore = computeGlobalConflictScore(
@@ -1237,10 +1320,11 @@ export function selectCorridorRepairTargets(
   deps: RepairRuntimeDeps,
   groups: PendingPlaceGroup[],
   geometryById: Map<string, GroupGeometry>,
+  mapRect: LogicalRect,
   safeGap: number,
   lockedGroups: LockedPlaceGroup[] = [],
 ) {
-  const riskByGroup = buildCorridorRiskByGroup(deps, groups, geometryById, safeGap, lockedGroups);
+  const riskByGroup = buildCorridorRiskByGroup(deps, groups, geometryById, safeGap, mapRect, lockedGroups);
   return [...groups]
     .map((group) => ({
       placeKey: group.placeKey,
@@ -1328,18 +1412,19 @@ export function improveCorridorRisk(
     orderedGroups,
     geometryById,
     safeGap,
+    mapRect,
     lockedGroups,
   );
   if (corridorRisk === 0) return;
   let envelopeScore = deps.scoreFinalLayoutEnvelope(orderedGroups, geometryById);
   let placementLineCrossings = deps.countPlacementLineCrossings(orderedGroups, state.placementById);
-  let riskByGroup = buildCorridorRiskByGroup(deps, orderedGroups, geometryById, safeGap, lockedGroups);
+  let riskByGroup = buildCorridorRiskByGroup(deps, orderedGroups, geometryById, safeGap, mapRect, lockedGroups);
   let groupRectRiskByGroup = buildGroupRectRiskByGroup(deps, orderedGroups, geometryById, safeGap, lockedGroups);
 
   for (let iteration = 0; iteration < deps.config.rebalanceIterationCount; iteration++) {
     let changed = false;
     const targetKeys = new Set(
-      selectCorridorRepairTargets(deps, orderedGroups, geometryById, safeGap, lockedGroups),
+      selectCorridorRepairTargets(deps, orderedGroups, geometryById, mapRect, safeGap, lockedGroups),
     );
     if (targetKeys.size === 0) break;
 
@@ -1390,6 +1475,7 @@ export function improveCorridorRisk(
           orderedGroups,
           candidateGeometryById,
           safeGap,
+          mapRect,
           lockedGroups,
         );
         const candidateRiskByGroup = buildCorridorRiskByGroup(
@@ -1397,6 +1483,7 @@ export function improveCorridorRisk(
           orderedGroups,
           candidateGeometryById,
           safeGap,
+          mapRect,
           lockedGroups,
         );
         const candidateTargetGroupRisk = candidateRiskByGroup.get(group.placeKey) ?? 0;
@@ -1468,7 +1555,7 @@ export function improveCorridorRisk(
         geometryById = bestGeometry;
         hardConflicts = bestHardConflicts;
         corridorRisk = bestCorridorRisk;
-        riskByGroup = buildCorridorRiskByGroup(deps, orderedGroups, geometryById, safeGap, lockedGroups);
+        riskByGroup = buildCorridorRiskByGroup(deps, orderedGroups, geometryById, safeGap, mapRect, lockedGroups);
         groupRectRiskByGroup = buildGroupRectRiskByGroup(deps, orderedGroups, geometryById, safeGap, lockedGroups);
         envelopeScore = bestEnvelopeScore;
         changed = true;
@@ -1503,6 +1590,7 @@ export function improveGroupRectOnlyPairs(
     orderedGroups,
     geometryById,
     safeGap,
+    mapRect,
     lockedGroups,
   );
   let hardConflicts = hasHardConflicts(
@@ -1564,6 +1652,7 @@ export function improveGroupRectOnlyPairs(
             orderedGroups,
             candidateGeometryById,
             safeGap,
+            mapRect,
             lockedGroups,
           );
           const candidateHardConflicts = hasHardConflicts(
@@ -1668,6 +1757,7 @@ export function improvePairCorridorRisk(
     orderedGroups,
     geometryById,
     safeGap,
+    mapRect,
     lockedGroups,
   );
   let placementLineCrossings = deps.countPlacementLineCrossings(orderedGroups, state.placementById);
@@ -1781,6 +1871,7 @@ export function improvePairCorridorRisk(
           orderedGroups,
           candidateGeometryById,
           safeGap,
+          mapRect,
           lockedGroups,
         );
         const candidateGlobalConflictScore = computeGlobalConflictScore(
@@ -1872,6 +1963,7 @@ export function improvePairCorridorRisk(
           orderedGroups,
           candidateGeometryById,
           safeGap,
+          mapRect,
           lockedGroups,
         );
         const candidateGlobalConflictScore = computeGlobalConflictScore(
@@ -1994,6 +2086,7 @@ export function resolveResidualPairConflicts(
     orderedGroups,
     geometryById,
     safeGap,
+    mapRect,
     lockedGroups,
   );
   let placementLineCrossings = deps.countPlacementLineCrossings(orderedGroups, state.placementById);
@@ -2082,6 +2175,7 @@ export function resolveResidualPairConflicts(
             orderedGroups,
             candidateGeometryById,
             safeGap,
+            mapRect,
             lockedGroups,
           );
           const candidateEnvelopeScore = deps.scoreFinalLayoutEnvelope(
