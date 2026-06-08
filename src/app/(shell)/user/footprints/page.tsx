@@ -352,6 +352,19 @@ function solveFrozenGroupLayouts(
   });
 }
 
+function areGroupLayoutsEqual(left: GroupLayoutSnapshot[], right: GroupLayoutSnapshot[]) {
+  if (left.length !== right.length) return false;
+  const rightByKey = new Map(right.map((layout) => [layout.placeKey, layout]));
+  return left.every((layout) => {
+    const candidate = rightByKey.get(layout.placeKey);
+    return (
+      candidate != null &&
+      candidate.labelSide === layout.labelSide &&
+      Math.abs(candidate.labelOffset - layout.labelOffset) < 1e-6
+    );
+  });
+}
+
 function estimateReservedLabelOffset(
   placeKey: string,
   groupPhotos: PhotoItem[],
@@ -1390,6 +1403,24 @@ function UserFootprintsPageInner() {
       setActionNotice('导出映射 JSON 失败，请稍后重试');
     }
   }, [groups, selectedGroupId, items, poiPoints, groupLayouts, photos, localLayout]);
+
+  useEffect(() => {
+    if (!photosLoaded) return;
+    if (photos.length === 0) return;
+    if (poiPoints.length === 0) return;
+    if (typeof window === 'undefined') return;
+
+    const mapRect = getFootprintMapRect(window.innerWidth, window.innerHeight);
+    const nextLayouts = solveFrozenGroupLayouts(
+      photos,
+      Math.max(currentScale, 0.1),
+      mapRect,
+      groupLayoutsRef.current,
+    );
+
+    if (areGroupLayoutsEqual(groupLayoutsRef.current, nextLayouts)) return;
+    setGroupLayouts(nextLayouts);
+  }, [currentScale, photosLoaded, photos, poiPoints]);
 
   const handlePhotoClick = useCallback((photoId: number | string) => {
     const p = photos.find(x => x.id === photoId);
