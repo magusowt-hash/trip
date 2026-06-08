@@ -467,15 +467,12 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
     }, mapRect);
   };
 
-  const preferredSide = fixedLabelSide ?? resolvePreferredLabelSideForMap(photoCenter.x, photoCenter.y, mapRect);
-  const alternateSide: GroupLabelSide = preferredSide === 'top' ? 'bottom' : 'top';
+  const resolvedSide = fixedLabelSide ?? resolvePreferredLabelSideForMap(photoCenter.x, photoCenter.y, mapRect);
   const offsetSteps = [0, 18, 36];
   const candidates: GroupGeometry[] = [];
 
-  for (const side of [preferredSide, alternateSide]) {
-    for (const offset of offsetSteps) {
-      candidates.push(buildForSide(side, offset));
-    }
+  for (const offset of offsetSteps) {
+    candidates.push(buildForSide(resolvedSide, offset));
   }
 
   return candidates;
@@ -546,15 +543,14 @@ export function buildGroupGeometryCandidatesFromGeometry(
     }, mapRect);
   };
 
-  const preferredSide = fixedLabelSide ?? geometry.labelSide ?? resolvePreferredLabelSide(photoCenter.x, photoCenter.y);
-  const alternateSide: GroupLabelSide = preferredSide === 'top' ? 'bottom' : 'top';
+  const resolvedSide =
+    fixedLabelSide ??
+    resolvePreferredLabelSideForMap(photoCenter.x, photoCenter.y, mapRect);
   const offsetSteps = [0, 18, 36];
   const candidates: GroupGeometry[] = [];
 
-  for (const side of [preferredSide, alternateSide]) {
-    for (const offset of offsetSteps) {
-      candidates.push(buildForSide(side, offset));
-    }
+  for (const offset of offsetSteps) {
+    candidates.push(buildForSide(resolvedSide, offset));
   }
 
   return candidates;
