@@ -16,7 +16,6 @@ const MAX_OVERLAY_SCALE = 2.4;
 const MAX_LINE_WIDTH = 4;
 const MAX_ANCHOR_RADIUS = 6;
 const MAX_POI_LABEL_FONT = 18;
-const FROZEN_LAYOUT_GEOMETRY_SCALE = 2.4;
 
 function getOverlayScale(scale: number) {
   return Math.min(scale, MAX_OVERLAY_SCALE);
@@ -87,7 +86,7 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
         placeKey,
         groupPhotos,
         getPhotoLogicalSize,
-        FROZEN_LAYOUT_GEOMETRY_SCALE,
+        transform.scale,
         groupLayouts ?? [],
         mapRect,
       );
@@ -95,7 +94,7 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
       entries.push({ id: placeKey, geometry });
     }
     return new Map(entries.map((entry) => [entry.id, entry.geometry]));
-  }, [photosByPlaceKey, groupLayouts, getPhotoLogicalSize, width, height]);
+  }, [photosByPlaceKey, groupLayouts, getPhotoLogicalSize, transform.scale, width, height]);
   const resolvedGeometryMap = useMemo(() => buildResolvedGeometryMap(), [buildResolvedGeometryMap]);
 
   const getGroupAnchorPoint = useCallback((resolvedGeometryMap: Map<string, NonNullable<ReturnType<typeof buildGroupGeometry>>>, groupPhotos: PhotoItem[], poi: PoiPoint) => {
@@ -107,7 +106,7 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
         placeKey,
         groupPhotos,
         getPhotoLogicalSize,
-        FROZEN_LAYOUT_GEOMETRY_SCALE,
+        transform.scale,
         groupLayouts ?? [],
         mapRect,
       );
@@ -115,7 +114,7 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
       return { x: poi.logicalX, y: poi.logicalY };
     }
     return { x: geometry.lineAnchorX, y: geometry.lineAnchorY };
-  }, [groupLayouts, getPhotoLogicalSize, width, height]);
+  }, [groupLayouts, getPhotoLogicalSize, transform.scale, width, height]);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
@@ -154,7 +153,7 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
           activePlaceKey,
           activeGroupPhotos,
           getPhotoLogicalSize,
-          FROZEN_LAYOUT_GEOMETRY_SCALE,
+          transform.scale,
           groupLayouts ?? [],
           mapRect,
         );
