@@ -742,6 +742,25 @@ export function buildGroupGeometryFromLayout(
   );
 }
 
+export function buildGroupGeometryForCurrentPosition(
+  groupPhotos: Array<Pick<PhotoItem, 'frameX' | 'frameY' | 'pixelWidth' | 'pixelHeight' | 'placeTitle'>>,
+  getPhotoLogicalSize: SizeReader,
+  scale = 1,
+  mapRect?: LogicalRect,
+) {
+  const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
+  if (!photoRect) return null;
+  const computedLabelSide = resolvePreferredLabelSideForMapRect(photoRect, mapRect);
+  return buildGroupGeometry(
+    groupPhotos,
+    getPhotoLogicalSize,
+    scale,
+    computedLabelSide,
+    0,
+    mapRect,
+  );
+}
+
 export function resolveGroupLabelLayouts(
   entries: LabelLayoutEntry[],
   options?: {

@@ -17,6 +17,7 @@ import type { MapMarker } from '@/components/PlanMap';
 import {
   createGroupLayoutSnapshot,
   buildGroupGeometryFromLayout,
+  buildGroupGeometryForCurrentPosition,
   buildGroupGeometryFromPhotoRect,
   expandPhotoRect,
   resolvePreferredLabelSideForMapRect,
@@ -329,7 +330,6 @@ function solveFrozenGroupLayouts(
   photos: PhotoItem[],
   scale: number,
   mapRect?: LogicalRect,
-  existingLayouts: GroupLayoutSnapshot[] = [],
 ) {
   const groups = new Map<string, PhotoItem[]>();
   for (const photo of photos) {
@@ -341,7 +341,7 @@ function solveFrozenGroupLayouts(
 
   const resolved = new Map<string, GroupLayoutSnapshot>();
   for (const [placeKey, groupPhotos] of groups) {
-    const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts, mapRect);
+    const geometry = buildGroupGeometryForCurrentPosition(groupPhotos, getPhotoLogicalSize, scale, mapRect);
     if (!geometry) continue;
     resolved.set(placeKey, createGroupLayoutSnapshot(placeKey, geometry));
   }
@@ -354,9 +354,8 @@ function estimateReservedLabelOffset(
   groupPhotos: PhotoItem[],
   scale: number,
   mapRect: LogicalRect | undefined,
-  existingLayouts: GroupLayoutSnapshot[] = [],
 ) {
-  const baseGeometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts, mapRect);
+  const baseGeometry = buildGroupGeometryForCurrentPosition(groupPhotos, getPhotoLogicalSize, scale, mapRect);
   if (!baseGeometry) return 0;
   return Math.max(
     0,
@@ -371,16 +370,8 @@ function rebuildGroupLayoutSnapshotForCurrentPosition(
   groupPhotos: PhotoItem[],
   scale: number,
   mapRect: LogicalRect,
-  existingLayouts: GroupLayoutSnapshot[] = [],
 ) {
-  const geometry = buildGroupGeometryFromLayout(
-    placeKey,
-    groupPhotos,
-    getPhotoLogicalSize,
-    scale,
-    existingLayouts,
-    mapRect,
-  );
+  const geometry = buildGroupGeometryForCurrentPosition(groupPhotos, getPhotoLogicalSize, scale, mapRect);
   if (!geometry) return null;
   const labelOffset =
     geometry.labelSide === 'top'
@@ -1083,7 +1074,7 @@ function UserFootprintsPageInner() {
       const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
       const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
 
-      const reservedLabelOffset = estimateReservedLabelOffset(placeKey, placePhotos, collisionScale, mapRect, activeGroupLayouts);
+      const reservedLabelOffset = estimateReservedLabelOffset(placeKey, placePhotos, collisionScale, mapRect);
       const offsetPhotoRect = buildOffsetPhotoRect(placePhotos, offsets);
       const logicalPoint = logicalPointByPlaceKey.get(placeKey)!;
       const preferredLabelSide = resolvePreferredLabelSideForMapRect(
@@ -1184,7 +1175,6 @@ function UserFootprintsPageInner() {
       finalizedPhotos.filter((photo) => finalizedPendingKeys.has(photo.placeKey)),
       collisionScale,
       mapRect,
-      activeGroupLayouts,
     );
     const finalLayouts = Array.from(frozenLayouts.values());
     const next = new Map(activeGroupLayouts.map((item) => [item.placeKey, item]));
@@ -1222,7 +1212,6 @@ function UserFootprintsPageInner() {
           groupPhotos,
           CLAMP_SCALE.max,
           mapRect,
-          groupLayoutsRef.current,
         );
         if (nextLayout) {
           setGroupLayouts((layouts) => mergeGroupLayoutSnapshot(layouts, nextLayout));
@@ -1254,7 +1243,6 @@ function UserFootprintsPageInner() {
       groupPhotos,
       CLAMP_SCALE.max,
       mapRect,
-      groupLayoutsRef.current,
     );
     setPhotos(nextPhotos);
     if (nextLayout) {
