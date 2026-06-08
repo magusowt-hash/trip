@@ -67,7 +67,8 @@ const SOFT_GAP_WEIGHT = 20;
 const BOTTOM_SECTOR_HALF_ANGLE = Math.PI / 4;
 const UPPER_REGION_BOTTOM_CLEARANCE = 176;
 const LOWER_REGION_TOP_CLEARANCE = 176;
-const LOWER_TRANSITION_BAND_DEGREES = 10;
+const FOOTPRINT_MAP_AREA_RATIO_W = 0.6;
+const FOOTPRINT_MAP_AREA_RATIO_H = 0.8;
 
 type LabelPlacementGapPolicy = {
   labelPhotoGap: number;
@@ -138,32 +139,61 @@ export function resolvePreferredLabelSide(centerX: number, centerY: number): Gro
 
 export function resolvePreferredLabelSideForMap(centerX: number, centerY: number, mapRect?: LogicalRect): GroupLabelSide {
   if (!mapRect) return resolvePreferredLabelSide(centerX, centerY);
-  return isPointInLowerPartition(centerX, centerY, mapRect) || isPointInLowerTransitionBand(centerX, centerY, mapRect)
+  return isPointInLowerPartition(centerX, centerY, mapRect)
     ? 'top'
     : 'bottom';
 }
 
-function isPointInLowerPartition(pointX: number, pointY: number, mapRect: LogicalRect) {
-  if (pointY > mapRect.bottom) return true;
-  if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
-
-  const verticalDistance = pointY - mapRect.bottom;
-  if (pointX < mapRect.left) {
-    return verticalDistance >= mapRect.left - pointX;
-  }
-  return verticalDistance >= pointX - mapRect.right;
+function getViewportRectFromMapRect(mapRect: LogicalRect): LogicalRect {
+  return {
+    left: mapRect.left / FOOTPRINT_MAP_AREA_RATIO_W,
+    right: mapRect.right / FOOTPRINT_MAP_AREA_RATIO_W,
+    top: mapRect.top / FOOTPRINT_MAP_AREA_RATIO_H,
+    bottom: mapRect.bottom / FOOTPRINT_MAP_AREA_RATIO_H,
+  };
 }
 
-function isPointInLowerTransitionBand(pointX: number, pointY: number, mapRect: LogicalRect) {
-  if (pointX >= mapRect.left && pointX <= mapRect.right) return false;
-  if (pointY <= mapRect.bottom) return false;
+function interpolateYOnLine(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  x: number,
+) {
+  const dx = end.x - start.x;
+  if (Math.abs(dx) < 1e-6) return Math.max(start.y, end.y);
+  const progress = (x - start.x) / dx;
+  return start.y + (end.y - start.y) * progress;
+}
 
-  const boundaryAngle =
-    pointX < mapRect.left
-      ? Math.atan2(mapRect.bottom - pointY, mapRect.left - pointX)
-      : Math.atan2(mapRect.bottom - pointY, pointX - mapRect.right);
-  const bandRadians = (LOWER_TRANSITION_BAND_DEGREES * Math.PI) / 180;
-  return Math.abs(Math.abs(boundaryAngle) - Math.PI / 4) <= bandRadians;
+function isPointInLowerPartition(pointX: number, pointY: number, mapRect: LogicalRect) {
+  const viewportRect = getViewportRectFromMapRect(mapRect);
+  if (
+    pointX < viewportRect.left ||
+    pointX > viewportRect.right ||
+    pointY < mapRect.bottom ||
+    pointY > viewportRect.bottom
+  ) {
+    return false;
+  }
+
+  if (pointX >= mapRect.left && pointX <= mapRect.right) {
+    return true;
+  }
+
+  if (pointX < mapRect.left) {
+    const boundaryY = interpolateYOnLine(
+      { x: viewportRect.left, y: viewportRect.bottom },
+      { x: mapRect.left, y: mapRect.bottom },
+      pointX,
+    );
+    return pointY >= boundaryY;
+  }
+
+  const boundaryY = interpolateYOnLine(
+    { x: mapRect.right, y: mapRect.bottom },
+    { x: viewportRect.right, y: viewportRect.bottom },
+    pointX,
+  );
+  return pointY >= boundaryY;
 }
 
 export function isRectInLowerRegion(rect: LogicalRect, mapRect?: LogicalRect) {
@@ -174,8 +204,7 @@ export function isRectInLowerRegion(rect: LogicalRect, mapRect?: LogicalRect) {
 
   return sampleYs.some((sampleY) => (
     sampleXs.some((sampleX) => (
-      isPointInLowerPartition(sampleX, sampleY, mapRect) ||
-      isPointInLowerTransitionBand(sampleX, sampleY, mapRect)
+      isPointInLowerPartition(sampleX, sampleY, mapRect)
     ))
   ));
 }
@@ -196,18 +225,11 @@ export function applyRuntimeEnvelope(
 
   const rect = geometry.groupRect;
   const inLowerRegion = isRectInLowerRegion(rect, mapRect);
-  const inLowerTransitionBand = !inLowerRegion && (() => {
-    const sampleXs = [rect.left, (rect.left + rect.right) * 0.5, rect.right];
-    const sampleYs = [rect.top, (rect.top + rect.bottom) * 0.5, rect.bottom];
-    return sampleYs.some((sampleY) => (
-      sampleXs.some((sampleX) => isPointInLowerTransitionBand(sampleX, sampleY, mapRect))
-    ));
-  })();
 
   const envelopeRect = {
     ...rect,
-    top: rect.top - (inLowerRegion || inLowerTransitionBand ? LOWER_REGION_TOP_CLEARANCE : 0),
-    bottom: rect.bottom + (inLowerTransitionBand ? UPPER_REGION_BOTTOM_CLEARANCE : inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
+    top: rect.top - (inLowerRegion ? LOWER_REGION_TOP_CLEARANCE : 0),
+    bottom: rect.bottom + (inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
   };
 
   return {
