@@ -225,6 +225,50 @@ test('final label layout resolution rejects map-overlapping labels by increasing
   assert.equal(rectsOverlap(resolvedCenter.labelRect, mapRect, 24), false);
 });
 
+test('final label layout anchors lower-region envelope against the map boundary', () => {
+  const mapRect = rect(-120, -120, 120, 120);
+  const bottomCenter = buildGroupGeometryFromPhotoRect(
+    rect(-60, 304, 60, 384),
+    'center',
+    4,
+    1,
+    'top',
+    0,
+    mapRect,
+  );
+
+  const layouts = resolveGroupLabelLayouts([
+    {
+      placeKey: 'center',
+      geometry: bottomCenter,
+      title: 'center',
+      photoCount: 4,
+      scale: 1,
+    },
+  ], {
+    gap: 24,
+    mapRect,
+    mapGap: 0,
+    step: 12,
+    maxOffset: 160,
+  });
+
+  const centerLayout = layouts.get('center');
+  assert.ok(centerLayout);
+
+  const resolvedCenter = buildGroupGeometryFromPhotoRect(
+    bottomCenter.photoRect,
+    'center',
+    4,
+    1,
+    centerLayout!.labelSide,
+    centerLayout!.labelOffset,
+    mapRect,
+  );
+
+  assert.equal(rectsOverlap(resolvedCenter.overallRect, mapRect, 0), false);
+});
+
 test('final label layout falls back to the least-bad map-safe candidate instead of the first candidate when every option conflicts', () => {
   const mapRect = rect(-120, -120, 120, 120);
   const top = buildGroupGeometryFromPhotoRect(

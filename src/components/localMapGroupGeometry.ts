@@ -952,6 +952,13 @@ function computeMapClearanceOffset(
   return Math.max(0, mapRect.bottom + mapGap - candidate.overallRect.top);
 }
 
+function getMapCollisionRect(
+  candidate: GroupGeometry,
+  mapGap: number,
+) {
+  return mapGap <= 0 ? candidate.overallRect : candidate.labelRect;
+}
+
 function isLabelPlacementHardInvalid(
   candidate: GroupGeometry,
   occupied: GroupGeometry[],
@@ -965,7 +972,7 @@ function isLabelPlacementHardInvalid(
     return true;
   }
 
-  if (mapRect && rectOverlapsMap(candidate.labelRect, mapRect, gapPolicy.mapGap)) {
+  if (mapRect && rectOverlapsMap(getMapCollisionRect(candidate, gapPolicy.mapGap), mapRect, gapPolicy.mapGap)) {
     return true;
   }
 
@@ -979,8 +986,9 @@ function scoreLabelPlacementPenalties(
   mapRect?: LogicalRect,
 ) {
   let penalty = 0;
+  const mapCollisionRect = getMapCollisionRect(candidate, gapPolicy.mapGap);
   const overlapsMap = mapRect
-    ? rectOverlapsMap(candidate.labelRect, mapRect, gapPolicy.mapGap)
+    ? rectOverlapsMap(mapCollisionRect, mapRect, gapPolicy.mapGap)
     : false;
 
   for (const neighbor of occupied) {
@@ -1000,7 +1008,7 @@ function scoreLabelPlacementPenalties(
 
   if (mapRect) {
     penalty += scorePlacementGapViolation(
-      candidate.labelRect,
+      mapCollisionRect,
       mapRect,
       gapPolicy.mapGap,
       4.2,
@@ -1023,6 +1031,7 @@ function scoreResolvedCandidate(
   let score = scoreGroupGeometryPlacement(candidate, occupied, safeGap, { labelGapBoost });
   const hardInvalid = isLabelPlacementHardInvalid(candidate, occupied, gapPolicy, mapRect);
   const hardPenalty = scoreLabelPlacementPenalties(candidate, occupied, gapPolicy, mapRect);
+  const mapCollisionRect = getMapCollisionRect(candidate, mapGap ?? gapPolicy.mapGap);
 
   const nearbySameSidePenalty = occupied.reduce((sum, neighbor) => {
     if (neighbor.labelSide !== candidate.labelSide) return sum;
@@ -1035,7 +1044,7 @@ function scoreResolvedCandidate(
   }, 0);
   score += nearbySameSidePenalty;
 
-  if (mapRect && mapGap != null && rectOverlapsMap(candidate.labelRect, mapRect, mapGap)) {
+  if (mapRect && mapGap != null && rectOverlapsMap(mapCollisionRect, mapRect, mapGap)) {
     score += 500000;
   }
 
