@@ -196,17 +196,39 @@ function isPointInLowerPartition(pointX: number, pointY: number, mapRect: Logica
   return pointY >= boundaryY;
 }
 
-function getLowerRegionReferencePoint(rect: LogicalRect) {
-  return {
-    x: (rect.left + rect.right) * 0.5,
-    y: rect.bottom,
-  };
+function getLowerPartitionBoundaryY(pointX: number, mapRect: LogicalRect) {
+  const viewportRect = getViewportRectFromMapRect(mapRect);
+  if (pointX < viewportRect.left || pointX > viewportRect.right) return Number.POSITIVE_INFINITY;
+  if (pointX >= mapRect.left && pointX <= mapRect.right) return mapRect.bottom;
+  if (pointX < mapRect.left) {
+    return interpolateYOnLine(
+      { x: viewportRect.left, y: viewportRect.bottom },
+      { x: mapRect.left, y: mapRect.bottom },
+      pointX,
+    );
+  }
+  return interpolateYOnLine(
+    { x: mapRect.right, y: mapRect.bottom },
+    { x: viewportRect.right, y: viewportRect.bottom },
+    pointX,
+  );
 }
 
 export function isRectInLowerRegion(rect: LogicalRect, mapRect?: LogicalRect) {
   if (!mapRect) return false;
-  const referencePoint = getLowerRegionReferencePoint(rect);
-  return isPointInLowerPartition(referencePoint.x, referencePoint.y, mapRect);
+  const viewportRect = getViewportRectFromMapRect(mapRect);
+  const overlapLeft = Math.max(rect.left, viewportRect.left);
+  const overlapRight = Math.min(rect.right, viewportRect.right);
+  if (overlapLeft > overlapRight) return false;
+
+  const sampleXs = overlapLeft === overlapRight
+    ? [overlapLeft]
+    : [overlapLeft, (overlapLeft + overlapRight) * 0.5, overlapRight];
+
+  return sampleXs.some((sampleX) => {
+    const boundaryY = getLowerPartitionBoundaryY(sampleX, mapRect);
+    return rect.bottom >= boundaryY && rect.top <= viewportRect.bottom;
+  });
 }
 
 export function resolvePreferredLabelSideForMapRect(rect: LogicalRect, mapRect?: LogicalRect): GroupLabelSide {
