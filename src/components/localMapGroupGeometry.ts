@@ -723,13 +723,13 @@ export function buildGroupGeometryFromLayout(
   const layoutByPlaceKey = new Map(layouts.map((layout) => [layout.placeKey, layout]));
   const layout = layoutByPlaceKey.get(placeKey);
   const photoRect = buildPhotoRect(groupPhotos, getPhotoLogicalSize);
-  const shouldPreserveSavedLayout = preserveSavedLabelSide && layout?.labelSide != null;
-  const computedLabelSide = shouldPreserveSavedLayout
+  const hasSavedLayout = layout?.labelSide != null;
+  const computedLabelSide = hasSavedLayout
     ? layout!.labelSide
     : photoRect
       ? resolvePreferredLabelSideForMapRect(photoRect, mapRect)
       : 'bottom';
-  const computedLabelOffset = shouldPreserveSavedLayout
+  const computedLabelOffset = hasSavedLayout
     ? (layout?.labelOffset ?? 0)
     : 0;
   return buildGroupGeometry(
