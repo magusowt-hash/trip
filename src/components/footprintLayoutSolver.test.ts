@@ -620,6 +620,22 @@ test('candidate pool keeps lower-transition label envelopes expanded in live pla
   );
 });
 
+test('solvePendingGroupPlacements keeps lower-region planning envelope clear of the map boundary', () => {
+  const mapRect = rect(-120, -120, 120, 120);
+  const groups = [
+    buildGroup('south', '南侧组', rect(-60, 304, 60, 384), 0, 344, mapRect),
+  ];
+
+  const solved = solvePendingGroupPlacements(groups, mapRect, 80, 0, []);
+  const geometry = solved.geometries.get('south');
+
+  assert.ok(geometry, 'expected solved geometry for south group');
+  assert.ok(
+    geometry!.groupRect.top - mapRect.bottom >= 24,
+    `expected lower-region planning envelope to keep at least 24 logical units from the map boundary, got ${geometry!.groupRect.top - mapRect.bottom}`,
+  );
+});
+
 test('solvePendingGroupPlacements returns the main solver placements without post-finalize drift', () => {
   const mapRect = rect(-260, -220, 260, 220);
   const groups = [

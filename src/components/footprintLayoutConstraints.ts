@@ -2,6 +2,8 @@ import type { GroupGeometry } from './localMapGroupGeometry.ts';
 import { rectsOverlap } from './localMapGroupGeometry.ts';
 import type { LogicalRect } from './footprintLayoutTypes.ts';
 
+const EXACT_MAP_EDGE_BUFFER = 24;
+
 export function fitsPhotoRectAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
   const photoGap = gap + 12;
   return (
@@ -13,20 +15,22 @@ export function fitsPhotoRectAroundMap(rect: LogicalRect, mapRect: LogicalRect, 
 }
 
 export function fitsLabelRectAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
+  const effectiveGap = gap <= 0 ? EXACT_MAP_EDGE_BUFFER : gap;
   return (
-    rect.right <= mapRect.left - gap ||
-    rect.left >= mapRect.right + gap ||
-    rect.bottom <= mapRect.top - gap ||
-    rect.top >= mapRect.bottom + gap
+    rect.right <= mapRect.left - effectiveGap ||
+    rect.left >= mapRect.right + effectiveGap ||
+    rect.bottom <= mapRect.top - effectiveGap ||
+    rect.top >= mapRect.bottom + effectiveGap
   );
 }
 
 export function fitsGroupRectAroundMap(rect: LogicalRect, mapRect: LogicalRect, gap: number) {
+  const effectiveGap = gap <= 0 ? EXACT_MAP_EDGE_BUFFER : gap;
   return (
-    rect.right <= mapRect.left - gap ||
-    rect.left >= mapRect.right + gap ||
-    rect.bottom <= mapRect.top - gap ||
-    rect.top >= mapRect.bottom + gap
+    rect.right <= mapRect.left - effectiveGap ||
+    rect.left >= mapRect.right + effectiveGap ||
+    rect.bottom <= mapRect.top - effectiveGap ||
+    rect.top >= mapRect.bottom + effectiveGap
   );
 }
 
