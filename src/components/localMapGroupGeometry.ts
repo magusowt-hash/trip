@@ -206,7 +206,8 @@ export function resolvePreferredLabelSideForMapRect(rect: LogicalRect, mapRect?:
     const center = rectCenter(rect);
     return resolvePreferredLabelSide(center.x, center.y);
   }
-  return isRectInLowerRegion(rect, mapRect) ? 'top' : 'bottom';
+  const center = rectCenter(rect);
+  return resolvePreferredLabelSideForMap(center.x, center.y, mapRect);
 }
 
 export function applyRuntimeEnvelope(
