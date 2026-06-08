@@ -1094,6 +1094,14 @@ export function evaluatePlacementAgainstState(
     const neighborGeometry = state.geometryById.get(neighbor.placeKey);
     if (!neighborPlacement || !neighborGeometry) continue;
 
+    if (
+      deps.hasLabelCollisions(geometry, [neighborGeometry], safeGap) ||
+      deps.hasPhotoAgainstLabelCollisions(geometry, [neighborGeometry], safeGap) ||
+      deps.hasPhotoAgainstLabelCollisions(neighborGeometry, [geometry], safeGap)
+    ) {
+      return { valid: false, score: Number.POSITIVE_INFINITY, geometry: null };
+    }
+
     if (hasGroupRectConflict(geometry, neighborGeometry, safeGap)) {
       spacingPenalty += 68_000;
       continue;
@@ -1135,6 +1143,14 @@ export function evaluatePlacementAgainstState(
   }
 
   for (const locked of lockedGroups) {
+    if (
+      deps.hasLabelCollisions(geometry, [locked.geometry], safeGap) ||
+      deps.hasPhotoAgainstLabelCollisions(geometry, [locked.geometry], safeGap) ||
+      deps.hasPhotoAgainstLabelCollisions(locked.geometry, [geometry], safeGap)
+    ) {
+      return { valid: false, score: Number.POSITIVE_INFINITY, geometry: null };
+    }
+
     if (hasGroupRectConflict(geometry, locked.geometry, safeGap)) {
       return { valid: false, score: Number.POSITIVE_INFINITY, geometry: null };
     }
