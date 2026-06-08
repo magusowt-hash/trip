@@ -103,6 +103,7 @@ const HOVER_STROKE_WIDTH = 1.5;
 const MAX_LINE_WIDTH = 4;
 const MAX_ANCHOR_RADIUS = 6;
 const MAX_POI_LABEL_FONT = 18;
+const FROZEN_LAYOUT_GEOMETRY_SCALE = 2.4;
 
 function getOverlayScale(scale: number) {
   return Math.min(scale, MAX_OVERLAY_SCALE);
@@ -262,7 +263,7 @@ export default function OuterFrameCanvas({
       placeKey,
       items,
       getPhotoLogicalSize,
-      transform.scale,
+      FROZEN_LAYOUT_GEOMETRY_SCALE,
       groupLayouts ?? [],
       mapRect,
     );
@@ -288,7 +289,7 @@ export default function OuterFrameCanvas({
       lineAnchorX: geometry.lineAnchorX,
       lineAnchorY: geometry.lineAnchorY,
     };
-  }, [getPhotoLogicalSize, transform.scale, groupLayouts]);
+  }, [getPhotoLogicalSize, groupLayouts]);
 
   const buildPlaceRects = useCallback((): PlaceRect[] => {
     const rects: PlaceRect[] = [];
