@@ -198,6 +198,16 @@ async function attachLocalThumbnails(
   return nextPhotos;
 }
 
+function describeUnknownError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return '未知错误';
+  }
+}
+
 function getPhotoLogicalSize(photo: Pick<PhotoItem, 'pixelWidth' | 'pixelHeight'>): LogicalSize {
   const sourceWidth = photo.pixelWidth ?? 0;
   const sourceHeight = photo.pixelHeight ?? 0;
@@ -1744,6 +1754,7 @@ function UserFootprintsPageInner() {
       if (!isCurrentRun()) return;
       const applyStartedAt = performance.now();
       const applyMetrics: SolverMetricTiming[] = [];
+      let currentApplyStep = '初始化';
       const markApplyMetric = (name: string) => {
         applyMetrics.push({
           name,
@@ -1751,6 +1762,7 @@ function UserFootprintsPageInner() {
         });
       };
       try {
+        currentApplyStep = '检查地图点位';
         setLocalMapApplyStage('检查地图点位');
         setLocalMapApplyProgress(12);
         const currentItems = itemsRef.current;
@@ -1778,6 +1790,7 @@ function UserFootprintsPageInner() {
         }
         markApplyMetric('apply.poiReadyCheckMs');
 
+        currentApplyStep = '生成本地图片映射';
         setLocalMapApplyStage('生成本地图片映射');
         const currentItemKeys = new Set(currentItems.map(getFootprintItemPlaceKey));
         const mappedPhotos: PhotoItem[] = payload.matchedAssets
@@ -1816,6 +1829,7 @@ function UserFootprintsPageInner() {
         setLocalMapApplyProgress(24);
 
         if (payload.layout.enabled) {
+          currentApplyStep = '应用预设布局';
           setLocalMapApplyStage('应用预设布局');
           for (const photo of mappedPhotos) {
             photo.frameX = undefined;
@@ -1827,6 +1841,7 @@ function UserFootprintsPageInner() {
         setLocalMapApplyProgress(42);
         let nextGroupLayouts = currentGroupLayouts;
         if (unplaced.length > 0) {
+          currentApplyStep = '计算安全排布';
           setLocalMapApplyStage(`计算安全排布：${unplaced.length} 张 / ${currentPoiPoints.length} 个点位`);
           nextGroupLayouts = autoPlacePhotos(
             unplaced,
@@ -1857,6 +1872,7 @@ function UserFootprintsPageInner() {
         }
         setLocalMapApplyProgress(66);
 
+        currentApplyStep = '生成本地缩略图';
         setLocalMapApplyStage('生成本地缩略图');
         const mappedPhotosWithThumbnails = await attachLocalThumbnails(mappedPhotos, {
           maxPhotos: LOCAL_THUMB_INITIAL_BATCH_LIMIT,
@@ -1866,6 +1882,7 @@ function UserFootprintsPageInner() {
         markApplyMetric('apply.attachLocalThumbnailsMs');
         setLocalMapApplyProgress(78);
 
+        currentApplyStep = '写入前端状态';
         setLocalMapApplyStage('写入前端状态');
         setPhotos((current) => {
           current
@@ -1915,8 +1932,10 @@ function UserFootprintsPageInner() {
             finishApplying();
           }, 180);
         });
-      } catch {
-        alert('应用本地映射失败，请重新选择主文件夹后再试。');
+      } catch (error) {
+        const detail = describeUnknownError(error);
+        setLocalMapApplyStage(`应用失败：${currentApplyStep}`);
+        alert(`应用本地映射失败\n阶段：${currentApplyStep}\n原因：${detail}`);
         finishApplying();
       }
     };
