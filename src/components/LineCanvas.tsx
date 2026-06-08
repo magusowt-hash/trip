@@ -89,7 +89,6 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
         transform.scale,
         groupLayouts ?? [],
         mapRect,
-        true,
       );
       if (!geometry) continue;
       entries.push({ id: placeKey, geometry });
@@ -110,7 +109,6 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
         transform.scale,
         groupLayouts ?? [],
         mapRect,
-        true,
       );
     if (!geometry) {
       return { x: poi.logicalX, y: poi.logicalY };
@@ -158,7 +156,6 @@ const LineCanvas = forwardRef<LineCanvasHandle, Props>(function LineCanvas({ wid
           transform.scale,
           groupLayouts ?? [],
           mapRect,
-          true,
         );
         if (geometry) currentResolvedGeometryMap.set(activePlaceKey, geometry);
         else currentResolvedGeometryMap.delete(activePlaceKey);
