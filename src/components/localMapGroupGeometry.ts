@@ -947,9 +947,9 @@ function computeMapClearanceOffset(
 ) {
   if (!mapRect) return 0;
   if (candidate.labelSide === 'top') {
-    return Math.max(0, candidate.labelRect.bottom - (mapRect.top - mapGap));
+    return Math.max(0, candidate.overallRect.bottom - (mapRect.top - mapGap));
   }
-  return Math.max(0, mapRect.bottom + mapGap - candidate.labelRect.top);
+  return Math.max(0, mapRect.bottom + mapGap - candidate.overallRect.top);
 }
 
 function isLabelPlacementHardInvalid(
