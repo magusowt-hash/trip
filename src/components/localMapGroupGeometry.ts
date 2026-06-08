@@ -138,15 +138,8 @@ export function resolvePreferredLabelSide(centerX: number, centerY: number): Gro
 
 export function resolvePreferredLabelSideForMap(centerX: number, centerY: number, mapRect?: LogicalRect): GroupLabelSide {
   if (!mapRect) return resolvePreferredLabelSide(centerX, centerY);
-  if (centerY <= mapRect.bottom) return 'bottom';
-  if (centerX >= mapRect.left && centerX <= mapRect.right) return 'top';
-
-  const verticalDistance = centerY - mapRect.bottom;
-  const leftCornerDistance = mapRect.left - centerX;
-  const rightCornerDistance = centerX - mapRect.right;
-  const withinLeftBottomPartition = centerX < mapRect.left && verticalDistance >= leftCornerDistance;
-  const withinRightBottomPartition = centerX > mapRect.right && verticalDistance >= rightCornerDistance;
-  return withinLeftBottomPartition || withinRightBottomPartition ? 'top' : 'bottom';
+  if (centerY > mapRect.bottom) return 'top';
+  return 'bottom';
 }
 
 function isPointInLowerPartition(pointX: number, pointY: number, mapRect: LogicalRect) {
