@@ -15,10 +15,10 @@ import type { LockedPlaceGroup, LogicalOffset, LogicalRect, LogicalSize, Pending
 import type { LineStyle } from '@/components/LegendPanel';
 import type { MapMarker } from '@/components/PlanMap';
 import {
+  createGroupLayoutSnapshot,
   buildGroupGeometryFromLayout,
   buildGroupGeometryFromPhotoRect,
   expandPhotoRect,
-  resolveGroupLabelLayouts,
   resolvePreferredLabelSideForMap,
   type GroupLayoutSnapshot,
 } from '@/components/localMapGroupGeometry';
@@ -339,27 +339,14 @@ function solveFrozenGroupLayouts(
     groups.set(photo.placeKey, arr);
   }
 
-  const entries: Array<{ placeKey: string; geometry: GroupGeometry; title: string; photoCount: number; scale: number }> = [];
+  const resolved = new Map<string, GroupLayoutSnapshot>();
   for (const [placeKey, groupPhotos] of groups) {
     const geometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts, mapRect);
     if (!geometry) continue;
-    entries.push({
-      placeKey,
-      geometry,
-      title: groupPhotos[0]?.placeTitle || '',
-      photoCount: groupPhotos.length,
-      scale,
-    });
+    resolved.set(placeKey, createGroupLayoutSnapshot(placeKey, geometry));
   }
 
-  return resolveGroupLabelLayouts(entries, {
-    gap: 10,
-    mapRect,
-    mapGap: 0,
-    labelGapBoost: computeLabelGapBoost(scale),
-    step: 8,
-    maxOffset: 120,
-  });
+  return resolved;
 }
 
 function estimateReservedLabelOffset(
@@ -371,23 +358,12 @@ function estimateReservedLabelOffset(
 ) {
   const baseGeometry = buildGroupGeometryFromLayout(placeKey, groupPhotos, getPhotoLogicalSize, scale, existingLayouts, mapRect);
   if (!baseGeometry) return 0;
-  const resolved = resolveGroupLabelLayouts([
-    {
-      placeKey,
-      geometry: baseGeometry,
-      title: groupPhotos[0]?.placeTitle || '',
-      photoCount: groupPhotos.length,
-      scale,
-    },
-  ], {
-    gap: 10,
-    mapRect,
-    mapGap: 0,
-    labelGapBoost: computeLabelGapBoost(scale),
-    step: 8,
-    maxOffset: 120,
-  });
-  return resolved.get(placeKey)?.labelOffset ?? 0;
+  return Math.max(
+    0,
+    baseGeometry.labelSide === 'top'
+      ? baseGeometry.photoRect.top - baseGeometry.lineAnchorY
+      : baseGeometry.lineAnchorY - baseGeometry.photoRect.bottom,
+  );
 }
 
 function rebuildGroupLayoutSnapshotForCurrentPosition(
