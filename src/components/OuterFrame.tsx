@@ -14,10 +14,10 @@ import { getFootprintMapRect } from './footprintMapGeometry';
 const PHOTO_MAX_EDGE = 120;
 const PHOTO_MIN_EDGE = 48;
 const FIT_VIEW_PADDING = 24;
-const VIEWPORT_GEOMETRY_SCALE = 1;
 const VIEWPORT_PADDING_LOGICAL = 24;
 const MAP_AREA_RATIO_W = 0.6;
 const MAP_AREA_RATIO_H = 0.8;
+const FIT_VIEW_ITERATION_COUNT = 4;
 
 export function buildViewportFromRects(
   rects: Array<{ left: number; right: number; top: number; bottom: number }>,
@@ -48,6 +48,17 @@ export function buildViewportFromRects(
     bottom: bottom + padding,
   };
 }
+
+type FitViewMetrics = {
+  photoLeft: number;
+  photoRight: number;
+  photoTop: number;
+  photoBottom: number;
+  leftOverflowScreen: number;
+  rightOverflowScreen: number;
+  topOverflowScreen: number;
+  bottomOverflowScreen: number;
+};
 
 interface Props {
   markers: MapMarker[];
@@ -165,7 +176,7 @@ export default function OuterFrame({
     halfH: (containerSize.h * MAP_AREA_RATIO_H) / 2,
   }), [containerSize]);
 
-  const buildPhotoGroupViewport = useCallback((padding = VIEWPORT_PADDING_LOGICAL): Viewport | null => {
+  const buildPhotoGroupFitMetrics = useCallback((geometryScale: number): FitViewMetrics | null => {
     const groups = new Map<string, PhotoItem[]>();
     for (const photo of photos) {
       if (photo.frameX == null || photo.frameY == null) continue;
@@ -175,22 +186,54 @@ export default function OuterFrame({
     }
     if (groups.size === 0) return null;
 
-    const rects: Array<{ left: number; right: number; top: number; bottom: number }> = [];
+    let photoLeft = Infinity;
+    let photoRight = -Infinity;
+    let photoTop = Infinity;
+    let photoBottom = -Infinity;
+    let leftOverflowScreen = 0;
+    let rightOverflowScreen = 0;
+    let topOverflowScreen = 0;
+    let bottomOverflowScreen = 0;
 
     for (const [, groupPhotos] of groups) {
       const geometry = buildGroupGeometryFromLayout(
         groupPhotos[0]?.placeKey || '',
         groupPhotos,
         getPhotoLogicalSize,
-        VIEWPORT_GEOMETRY_SCALE,
+        geometryScale,
         groupLayouts ?? [],
         getFootprintMapRect(containerSize.w || 1200, containerSize.h || 800),
       );
       if (!geometry) continue;
-      rects.push(geometry.overallRect);
+      photoLeft = Math.min(photoLeft, geometry.photoRect.left);
+      photoRight = Math.max(photoRight, geometry.photoRect.right);
+      photoTop = Math.min(photoTop, geometry.photoRect.top);
+      photoBottom = Math.max(photoBottom, geometry.photoRect.bottom);
+      leftOverflowScreen = Math.max(leftOverflowScreen, geometry.photoRect.left - geometry.overallRect.left);
+      rightOverflowScreen = Math.max(rightOverflowScreen, geometry.overallRect.right - geometry.photoRect.right);
+      topOverflowScreen = Math.max(topOverflowScreen, geometry.photoRect.top - geometry.overallRect.top);
+      bottomOverflowScreen = Math.max(bottomOverflowScreen, geometry.overallRect.bottom - geometry.photoRect.bottom);
     }
 
-    return buildViewportFromRects(rects, padding);
+    if (
+      !Number.isFinite(photoLeft) ||
+      !Number.isFinite(photoRight) ||
+      !Number.isFinite(photoTop) ||
+      !Number.isFinite(photoBottom)
+    ) {
+      return null;
+    }
+
+    return {
+      photoLeft,
+      photoRight,
+      photoTop,
+      photoBottom,
+      leftOverflowScreen,
+      rightOverflowScreen,
+      topOverflowScreen,
+      bottomOverflowScreen,
+    };
   }, [photos, getPhotoLogicalSize, groupLayouts, containerSize]);
 
   const computePoiPoints = useCallback(() => {
@@ -250,16 +293,43 @@ export default function OuterFrame({
 
   useEffect(() => {
     if (!fitViewEnabled || fitViewKey == null || !containerSize.w || !containerSize.h) return;
-    const availableWidth = Math.max(1, containerSize.w - FIT_VIEW_PADDING * 2);
-    const availableHeight = Math.max(1, containerSize.h - FIT_VIEW_PADDING * 2);
-    const viewport = buildPhotoGroupViewport();
-    if (!viewport) return;
+    let nextScale = Math.min(CLAMP_SCALE.max, Math.max(baseMinScale, transform.scale || 1));
+    let metrics: FitViewMetrics | null = null;
 
-    const contentWidth = Math.max(1, viewport.right - viewport.left);
-    const contentHeight = Math.max(1, viewport.bottom - viewport.top);
-    const nextScale = Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight));
-    const centerX = (viewport.left + viewport.right) / 2;
-    const centerY = (viewport.top + viewport.bottom) / 2;
+    for (let index = 0; index < FIT_VIEW_ITERATION_COUNT; index++) {
+      metrics = buildPhotoGroupFitMetrics(nextScale);
+      if (!metrics) return;
+
+      const photoWidth = Math.max(1, metrics.photoRight - metrics.photoLeft);
+      const photoHeight = Math.max(1, metrics.photoBottom - metrics.photoTop);
+      const availableWidth = Math.max(
+        1,
+        containerSize.w - FIT_VIEW_PADDING * 2 - metrics.leftOverflowScreen - metrics.rightOverflowScreen,
+      );
+      const availableHeight = Math.max(
+        1,
+        containerSize.h - FIT_VIEW_PADDING * 2 - metrics.topOverflowScreen - metrics.bottomOverflowScreen,
+      );
+      const fittedScale = Math.min(
+        CLAMP_SCALE.max,
+        Math.min(availableWidth / photoWidth, availableHeight / photoHeight),
+      );
+      if (Math.abs(fittedScale - nextScale) < 0.005) {
+        nextScale = fittedScale;
+        break;
+      }
+      nextScale = fittedScale;
+    }
+
+    metrics = buildPhotoGroupFitMetrics(nextScale);
+    if (!metrics) return;
+
+    const viewportLeft = metrics.photoLeft - (FIT_VIEW_PADDING + metrics.leftOverflowScreen) / nextScale;
+    const viewportRight = metrics.photoRight + (FIT_VIEW_PADDING + metrics.rightOverflowScreen) / nextScale;
+    const viewportTop = metrics.photoTop - (FIT_VIEW_PADDING + metrics.topOverflowScreen) / nextScale;
+    const viewportBottom = metrics.photoBottom + (FIT_VIEW_PADDING + metrics.bottomOverflowScreen) / nextScale;
+    const centerX = (viewportLeft + viewportRight) / 2;
+    const centerY = (viewportTop + viewportBottom) / 2;
 
     setMinScale(nextScale);
     setTransform({
@@ -267,7 +337,7 @@ export default function OuterFrame({
       tx: -centerX * nextScale,
       ty: -centerY * nextScale,
     });
-  }, [fitViewEnabled, fitViewKey, containerSize, buildPhotoGroupViewport, setTransform]);
+  }, [fitViewEnabled, fitViewKey, containerSize, buildPhotoGroupFitMetrics, setTransform, baseMinScale, transform.scale]);
   useEffect(() => {
     if (!mapReady) return;
     computePoiPoints();
