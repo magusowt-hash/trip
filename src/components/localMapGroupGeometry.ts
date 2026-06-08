@@ -164,71 +164,41 @@ function interpolateYOnLine(
   return start.y + (end.y - start.y) * progress;
 }
 
-function isPointInLowerPartition(pointX: number, pointY: number, mapRect: LogicalRect) {
-  const viewportRect = getViewportRectFromMapRect(mapRect);
-  if (
-    pointX < viewportRect.left ||
-    pointX > viewportRect.right ||
-    pointY < mapRect.bottom ||
-    pointY > viewportRect.bottom
-  ) {
-    return false;
-  }
-
-  if (pointX >= mapRect.left && pointX <= mapRect.right) {
-    return true;
-  }
-
-  if (pointX < mapRect.left) {
-    const boundaryY = interpolateYOnLine(
-      { x: viewportRect.left, y: viewportRect.bottom },
-      { x: mapRect.left, y: mapRect.bottom },
-      pointX,
-    );
-    return pointY >= boundaryY;
-  }
-
-  const boundaryY = interpolateYOnLine(
-    { x: mapRect.right, y: mapRect.bottom },
-    { x: viewportRect.right, y: viewportRect.bottom },
-    pointX,
+function crossProduct(
+  origin: { x: number; y: number },
+  target: { x: number; y: number },
+  point: { x: number; y: number },
+) {
+  return (
+    (target.x - origin.x) * (point.y - origin.y) -
+    (target.y - origin.y) * (point.x - origin.x)
   );
-  return pointY >= boundaryY;
 }
 
-function getLowerPartitionBoundaryY(pointX: number, mapRect: LogicalRect) {
-  const viewportRect = getViewportRectFromMapRect(mapRect);
-  if (pointX < viewportRect.left || pointX > viewportRect.right) return Number.POSITIVE_INFINITY;
-  if (pointX >= mapRect.left && pointX <= mapRect.right) return mapRect.bottom;
-  if (pointX < mapRect.left) {
-    return interpolateYOnLine(
-      { x: viewportRect.left, y: viewportRect.bottom },
-      { x: mapRect.left, y: mapRect.bottom },
-      pointX,
-    );
-  }
-  return interpolateYOnLine(
-    { x: mapRect.right, y: mapRect.bottom },
-    { x: viewportRect.right, y: viewportRect.bottom },
-    pointX,
-  );
+function isPointInLowerPartition(pointX: number, pointY: number, mapRect: LogicalRect) {
+  const mapCenter = rectCenter(mapRect);
+  const leftLowerCorner = { x: mapRect.left, y: mapRect.bottom };
+  const rightLowerCorner = { x: mapRect.right, y: mapRect.bottom };
+  const point = { x: pointX, y: pointY };
+
+  const leftBoundaryCross = crossProduct(mapCenter, leftLowerCorner, point);
+  const rightBoundaryCross = crossProduct(mapCenter, rightLowerCorner, point);
+
+  return leftBoundaryCross <= 0 && rightBoundaryCross >= 0;
 }
 
 export function isRectInLowerRegion(rect: LogicalRect, mapRect?: LogicalRect) {
   if (!mapRect) return false;
-  const viewportRect = getViewportRectFromMapRect(mapRect);
-  const overlapLeft = Math.max(rect.left, viewportRect.left);
-  const overlapRight = Math.min(rect.right, viewportRect.right);
-  if (overlapLeft > overlapRight) return false;
+  const sampleXs = rect.left === rect.right
+    ? [rect.left]
+    : [rect.left, (rect.left + rect.right) * 0.5, rect.right];
+  const sampleYs = rect.top === rect.bottom
+    ? [rect.top]
+    : [rect.top, (rect.top + rect.bottom) * 0.5, rect.bottom];
 
-  const sampleXs = overlapLeft === overlapRight
-    ? [overlapLeft]
-    : [overlapLeft, (overlapLeft + overlapRight) * 0.5, overlapRight];
-
-  return sampleXs.some((sampleX) => {
-    const boundaryY = getLowerPartitionBoundaryY(sampleX, mapRect);
-    return rect.bottom >= boundaryY && rect.top <= viewportRect.bottom;
-  });
+  return sampleYs.some((sampleY) => (
+    sampleXs.some((sampleX) => isPointInLowerPartition(sampleX, sampleY, mapRect))
+  ));
 }
 
 export function resolvePreferredLabelSideForMapRect(rect: LogicalRect, mapRect?: LogicalRect): GroupLabelSide {
