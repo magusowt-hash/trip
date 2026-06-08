@@ -71,6 +71,7 @@ interface Props {
   lineStyle: LineStyle;
   onScaleChange?: (scale: number) => void;
   onViewportChange?: (viewport: Viewport) => void;
+  onContainerSizeChange?: (size: { width: number; height: number }) => void;
   fitViewKey?: string | number;
   fitViewEnabled?: boolean;
   baseMinScale?: number;
@@ -98,6 +99,7 @@ export default function OuterFrame({
   lineStyle,
   onScaleChange,
   onViewportChange,
+  onContainerSizeChange,
   fitViewKey,
   fitViewEnabled = false,
   baseMinScale = 1,
@@ -236,7 +238,8 @@ export default function OuterFrame({
   useEffect(() => {
     if (!containerSize.w || !containerSize.h) return;
     onViewportChange?.(logicalViewport(containerSize.w, containerSize.h, transform));
-  }, [containerSize, transform, onViewportChange]);
+    onContainerSizeChange?.({ width: containerSize.w, height: containerSize.h });
+  }, [containerSize, transform, onViewportChange, onContainerSizeChange]);
 
   useEffect(() => {
     setMinScale(baseMinScale);

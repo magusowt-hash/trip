@@ -543,6 +543,7 @@ function UserFootprintsPageInner() {
   const [lineStyle, setLineStyle] = useState<LineStyle>({ color: '#a5b4fc', width: 2, dashed: true });
   const [outerScale, setOuterScale] = useState(1);
   const [outerViewport, setOuterViewport] = useState<LogicalRect | null>(null);
+  const [outerContainerSize, setOuterContainerSize] = useState<{ width: number; height: number } | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   const [groups, setGroups] = useState<FootprintGroup[]>([]);
@@ -601,6 +602,12 @@ function UserFootprintsPageInner() {
   useEffect(() => { layoutInteractionModeRef.current = layoutInteractionMode; }, [layoutInteractionMode]);
 
   const getCurrentViewportSize = useCallback(() => {
+    if (outerContainerSize) {
+      return {
+        width: Math.max(1, outerContainerSize.width),
+        height: Math.max(1, outerContainerSize.height),
+      };
+    }
     if (outerViewport) {
       return {
         width: Math.max(1, outerViewport.right - outerViewport.left),
@@ -611,7 +618,7 @@ function UserFootprintsPageInner() {
       width: typeof window !== 'undefined' ? window.innerWidth : 1200,
       height: typeof window !== 'undefined' ? window.innerHeight : 800,
     };
-  }, [outerViewport]);
+  }, [outerContainerSize, outerViewport]);
 
   useEffect(() => {
     if (!pendingFitViewAfterPresetRef.current) return;
@@ -1989,6 +1996,7 @@ function UserFootprintsPageInner() {
         groupLayouts={groupLayouts}
         onPoiPointsChange={setPoiPoints}
         onViewportChange={setOuterViewport}
+        onContainerSizeChange={setOuterContainerSize}
         focusPosition={focusPosition}
         onMarkerClick={handleMapMarkerClick}
         onPhotoDragEnd={handlePhotoDragEnd}
