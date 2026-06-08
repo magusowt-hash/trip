@@ -1,6 +1,7 @@
 import {
   buildGroupGeometryFromPhotoRect,
   rectsOverlap,
+  resolvePreferredLabelSideForMap,
   resolveGroupGeometryAsWhole,
   translateGroupGeometry,
   type GroupGeometry,
