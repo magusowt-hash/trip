@@ -1413,14 +1413,14 @@ function UserFootprintsPageInner() {
     const mapRect = getFootprintMapRect(window.innerWidth, window.innerHeight);
     const nextLayouts = solveFrozenGroupLayouts(
       photos,
-      Math.max(outerScale, 0.1),
+      Math.max(currentScale, 0.1),
       mapRect,
       groupLayoutsRef.current,
     );
 
     if (areGroupLayoutsEqual(groupLayoutsRef.current, nextLayouts)) return;
     setGroupLayouts(nextLayouts);
-  }, [outerScale, photosLoaded, photos, poiPoints]);
+  }, [currentScale, photosLoaded, photos, poiPoints]);
 
   const handlePhotoClick = useCallback((photoId: number | string) => {
     const p = photos.find(x => x.id === photoId);
