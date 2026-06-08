@@ -190,7 +190,7 @@ function hasGroupRectConflict(
   neighbor: GroupGeometry,
   safeGap: number,
 ) {
-  return rectsOverlap(candidate.groupRect, neighbor.groupRect, Math.max(48, safeGap * 0.5));
+  return rectsOverlap(candidate.overallRect, neighbor.overallRect, Math.max(48, safeGap * 0.5));
 }
 
 function compareLayerPlacementOrder(
