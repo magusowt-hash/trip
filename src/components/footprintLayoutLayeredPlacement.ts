@@ -101,6 +101,14 @@ type GroupOutwardPressure = {
   pressureScore: number;
 };
 
+type GroupEnclosurePressure = {
+  placeKey: string;
+  enclosureCount: number;
+  enclosureWeight: number;
+  sameLayerSpacingBoost: number;
+  radiusBoost: number;
+};
+
 type LayeredDeps = {
   angleDelta: (left: number, right: number) => number;
   buildLine: (group: LineGroup, geometry: GroupGeometry) => {
@@ -494,6 +502,52 @@ function buildOutwardPressureByGroup(
   return pressureByKey;
 }
 
+function buildEnclosurePressureByGroup(
+  layers: PlacementLayer[],
+) {
+  const pressureByKey = new Map<string, GroupEnclosurePressure>();
+  for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
+    const layer = layers[layerIndex]!;
+    for (const entry of layer.entries) {
+      let enclosureCount = 0;
+      let enclosureWeight = 0;
+      const innerRequiredGap = computeRequiredAngularGap(
+        Math.max(layer.radius, FIELD_IDEAL_RADIUS_FLOOR),
+        entry.spanEstimate,
+      );
+
+      for (let outerIndex = layerIndex + 1; outerIndex < layers.length; outerIndex++) {
+        const outerLayer = layers[outerIndex]!;
+        const layerDistance = outerIndex - layerIndex;
+        for (const outerEntry of outerLayer.entries) {
+          const outerRequiredGap = computeRequiredAngularGap(
+            Math.max(outerLayer.radius, FIELD_IDEAL_RADIUS_FLOOR),
+            outerEntry.spanEstimate,
+          );
+          const coverageWindow = Math.max(
+            innerRequiredGap * 2.4,
+            outerRequiredGap * 1.1,
+            Math.PI / 7,
+          );
+          const angleGap = Math.abs(getAngularDelta(entry.angle, outerEntry.angle));
+          if (angleGap > coverageWindow) continue;
+          enclosureCount += 1;
+          enclosureWeight += 1 + outerEntry.sizeScore / 30000 + layerDistance * 0.35;
+        }
+      }
+
+      pressureByKey.set(entry.group.placeKey, {
+        placeKey: entry.group.placeKey,
+        enclosureCount,
+        enclosureWeight,
+        sameLayerSpacingBoost: Math.min(0.65, enclosureWeight * 0.08),
+        radiusBoost: Math.min(140, enclosureWeight * 14),
+      });
+    }
+  }
+  return pressureByKey;
+}
+
 export function buildPlacementLayers(
   groups: PendingPlaceGroup[],
   basePlacementById: Map<string, FootprintPlacement>,
@@ -856,6 +910,7 @@ function computeSameLayerWindowPenalty(
   groups: PendingPlaceGroup[],
   layerByKey: Map<string, number>,
   targetAngleByKey: Map<string, { angle: number; reservedSpan: number }>,
+  enclosurePressureByKey?: Map<string, GroupEnclosurePressure>,
 ) {
   const layerIndex = layerByKey.get(group.placeKey);
   if (layerIndex == null) return 0;
@@ -864,6 +919,7 @@ function computeSameLayerWindowPenalty(
   if (!ownTarget) return 0;
 
   let penalty = 0;
+  const ownBoost = enclosurePressureByKey?.get(group.placeKey)?.sameLayerSpacingBoost ?? 0;
   for (const neighbor of groups) {
     if (neighbor.placeKey === group.placeKey) continue;
     if (layerByKey.get(neighbor.placeKey) !== layerIndex) continue;
@@ -879,7 +935,11 @@ function computeSameLayerWindowPenalty(
       penalty += radius * 220;
     }
 
-    const reservedGap = ((ownTarget.reservedSpan + (neighborTarget?.reservedSpan ?? ownTarget.reservedSpan)) * 0.5) * 0.76;
+    const neighborBoost = enclosurePressureByKey?.get(neighbor.placeKey)?.sameLayerSpacingBoost ?? 0;
+    const reservedGap =
+      ((ownTarget.reservedSpan + (neighborTarget?.reservedSpan ?? ownTarget.reservedSpan)) * 0.5) *
+      0.76 *
+      (1 + ownBoost + neighborBoost * 0.5);
     const actualGap = Math.abs(deps.angleDelta(angle, neighborAngle));
     if (actualGap < reservedGap) {
       penalty += (reservedGap - actualGap) * radius * 3.2;
@@ -1089,6 +1149,7 @@ export function evaluatePlacementAgainstState(
   sameLayerConstraint?: {
     layerByKey: Map<string, number>;
     targetAngleByKey: Map<string, { angle: number; reservedSpan: number }>;
+    enclosurePressureByKey?: Map<string, GroupEnclosurePressure>;
   },
 ): EvaluatePlacementResult {
   const geometry = deps.chooseBestGeometryForPlacement(group, placement, mapRect);
@@ -1227,6 +1288,7 @@ export function evaluatePlacementAgainstState(
       groups,
       sameLayerConstraint.layerByKey,
       sameLayerConstraint.targetAngleByKey,
+      sameLayerConstraint.enclosurePressureByKey,
     );
   const enclosurePenalty = computeEnclosurePenalty(
     group,
@@ -1272,6 +1334,7 @@ export function placeGroupsLayerByLayer(
     },
   });
   const outwardPressureByKey = buildOutwardPressureByGroup(layers);
+  const enclosurePressureByKey = buildEnclosurePressureByGroup(layers);
   const targetAngleByKey = propagateLayerAngles(
     layers.map((layer) => ({
       index: layer.index,
@@ -1356,6 +1419,7 @@ export function placeGroupsLayerByLayer(
       Math.hypot(group.logicalX, group.logicalY) + 24,
     );
     const pressure = outwardPressureByKey.get(group.placeKey);
+    const enclosurePressure = enclosurePressureByKey.get(group.placeKey);
     const propagatedTarget = targetAngleByKey.get(group.placeKey);
     const layerWindow = layerWindowByKey.get(group.placeKey);
     const propagatedAngle = layerWindow?.centerAngle ?? propagatedTarget?.angle;
@@ -1363,7 +1427,7 @@ export function placeGroupsLayerByLayer(
     const preferredAngle = propagatedAngle == null
       ? baseAngle
       : layerAnchorAngle + getAngularDelta(propagatedAngle, layerAnchorAngle);
-    let preferredRadius = Math.max(layerBand.targetRadius, idealRadius);
+    let preferredRadius = Math.max(layerBand.targetRadius, idealRadius) + (enclosurePressure?.radiusBoost ?? 0);
     let probeGeometry = deps.chooseBestGeometryForPlacement(
       group,
       {
@@ -1395,12 +1459,12 @@ export function placeGroupsLayerByLayer(
     const minSearchRadius = Math.max(layerBand.minRadius, preferredRadius);
     const maxSearchRadius = Math.max(
       layerBand.maxRadius,
-      preferredRadius + Math.max(48, layerBand.targetRadius * 0.12),
+      preferredRadius + Math.max(48, layerBand.targetRadius * 0.12) + (enclosurePressure?.radiusBoost ?? 0) * 0.8,
     );
     const reservedSpan = Math.max(
       layer.minAngularGap * 1.2,
       propagatedTarget?.reservedSpan ?? layer.minAngularGap * 1.9,
-    );
+    ) * (1 + (enclosurePressure?.sameLayerSpacingBoost ?? 0));
     const preferredWindowStart = layerWindow != null
       ? layerWindow.startAngle
       : propagatedTarget == null
@@ -1420,6 +1484,7 @@ export function placeGroupsLayerByLayer(
     const sameLayerConstraint = {
       layerByKey,
       targetAngleByKey,
+      enclosurePressureByKey,
     };
     let best:
       | {
@@ -1604,6 +1669,7 @@ export function placeGroupsLayerByLayer(
         placement: best.placement,
         score: best.score,
         pressure,
+        enclosurePressure,
         preferredAngle,
         reservedSpan,
       },
@@ -1618,6 +1684,9 @@ export function placeGroupsLayerByLayer(
     const layerGroups = [...(groupsByLayer.get(currentLayerIndex) ?? [])];
     while (layerGroups.length > 0) {
       layerGroups.sort((left, right) => {
+        const leftEnclosure = enclosurePressureByKey.get(left.placeKey)?.enclosureWeight ?? 0;
+        const rightEnclosure = enclosurePressureByKey.get(right.placeKey)?.enclosureWeight ?? 0;
+        if (Math.abs(leftEnclosure - rightEnclosure) > 1e-6) return rightEnclosure - leftEnclosure;
         const leftPressure = outwardPressureByKey.get(left.placeKey)?.pressureScore ?? 0;
         const rightPressure = outwardPressureByKey.get(right.placeKey)?.pressureScore ?? 0;
         if (Math.abs(leftPressure - rightPressure) > 1e-6) return rightPressure - leftPressure;
