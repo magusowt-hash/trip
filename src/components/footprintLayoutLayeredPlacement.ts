@@ -109,6 +109,20 @@ type GroupEnclosurePressure = {
   radiusBoost: number;
 };
 
+type LineSectorPlanEntry = {
+  sectorIndex: number;
+  load: number;
+  overflow: number;
+  centerAngle: number;
+};
+
+type GroupSectorBudget = {
+  placeKey: string;
+  targetAngle: number;
+  sectorIndex: number;
+  sectorSpread: number;
+};
+
 type LayeredDeps = {
   angleDelta: (left: number, right: number) => number;
   buildLine: (group: LineGroup, geometry: GroupGeometry) => {
@@ -175,6 +189,7 @@ const SAME_LAYER_RADIUS_SPREAD_RELAX_FACTOR = 1.55;
 const SAME_LAYER_ANGULAR_RELAX_FACTOR = 1.4;
 const MAP_CLEARANCE_TARGET = 24;
 const LAYER_OUTER_SHELL_BIAS = 0.72;
+const LINE_SECTOR_COUNT = 24;
 
 function getMapViewRadius(mapRect: LogicalRect) {
   return Math.max(
@@ -410,6 +425,95 @@ function countCurrentNeighborsWithinAngleWindow(
   return count;
 }
 
+function getLineSectorIndex(angle: number) {
+  const normalized = normalizeAngle(angle);
+  return Math.min(
+    LINE_SECTOR_COUNT - 1,
+    Math.floor((normalized / (Math.PI * 2)) * LINE_SECTOR_COUNT),
+  );
+}
+
+function getLineSectorCenterAngle(index: number) {
+  return ((index + 0.5) / LINE_SECTOR_COUNT) * Math.PI * 2;
+}
+
+function buildGlobalLineSectorPlan(
+  entries: LayeredGroupEntry[],
+) {
+  const sectorLoads = Array.from({ length: LINE_SECTOR_COUNT }, (_, sectorIndex) => ({
+    sectorIndex,
+    load: 0,
+    overflow: 0,
+    centerAngle: getLineSectorCenterAngle(sectorIndex),
+  }));
+  const expectedLoadPerSector = entries.length / Math.max(1, LINE_SECTOR_COUNT);
+
+  for (const entry of entries) {
+    const sectorIndex = getLineSectorIndex(entry.angle);
+    const loadWeight = 1 + entry.sizeScore / 40000;
+    sectorLoads[sectorIndex]!.load += loadWeight;
+  }
+
+  for (const sector of sectorLoads) {
+    sector.overflow = Math.max(0, sector.load - expectedLoadPerSector);
+  }
+
+  return sectorLoads;
+}
+
+function buildGroupSectorBudgetByPlaceKey(
+  entries: LayeredGroupEntry[],
+  sectorPlan: LineSectorPlanEntry[],
+) {
+  const budgetByKey = new Map<string, GroupSectorBudget>();
+  const sectorArc = (Math.PI * 2) / LINE_SECTOR_COUNT;
+
+  for (const entry of entries) {
+    const ownSectorIndex = getLineSectorIndex(entry.angle);
+    const ownSector = sectorPlan[ownSectorIndex]!;
+    const leftSector = sectorPlan[(ownSectorIndex - 1 + LINE_SECTOR_COUNT) % LINE_SECTOR_COUNT]!;
+    const rightSector = sectorPlan[(ownSectorIndex + 1) % LINE_SECTOR_COUNT]!;
+    let targetSector = ownSector;
+
+    if (ownSector.overflow > 0) {
+      if (leftSector.load + 0.35 < targetSector.load) {
+        targetSector = leftSector;
+      }
+      if (rightSector.load + 0.35 < targetSector.load) {
+        targetSector = rightSector;
+      }
+    }
+
+    budgetByKey.set(entry.group.placeKey, {
+      placeKey: entry.group.placeKey,
+      targetAngle: targetSector.centerAngle,
+      sectorIndex: targetSector.sectorIndex,
+      sectorSpread: Math.max(sectorArc * 0.72, Math.PI / 9),
+    });
+  }
+
+  return budgetByKey;
+}
+
+function rebalanceLayerEntriesBySectorBudget(
+  layerEntries: LayeredGroupEntry[],
+  sectorBudgetByKey: Map<string, GroupSectorBudget>,
+) {
+  return [...layerEntries].sort((left, right) => {
+    const leftBudget = sectorBudgetByKey.get(left.group.placeKey);
+    const rightBudget = sectorBudgetByKey.get(right.group.placeKey);
+    if (leftBudget && rightBudget && leftBudget.sectorIndex !== rightBudget.sectorIndex) {
+      return leftBudget.sectorIndex - rightBudget.sectorIndex;
+    }
+    if (leftBudget && rightBudget) {
+      const leftDelta = Math.abs(getAngularDelta(left.angle, leftBudget.targetAngle));
+      const rightDelta = Math.abs(getAngularDelta(right.angle, rightBudget.targetAngle));
+      if (Math.abs(leftDelta - rightDelta) > 1e-6) return leftDelta - rightDelta;
+    }
+    return compareLayeredEntryOrder(left, right);
+  });
+}
+
 function buildEntryClusters(
   entries: LayeredGroupEntry[],
   adaptiveRadiusBase: number,
@@ -575,7 +679,10 @@ export function buildPlacementLayers(
       ),
     };
   }).sort(compareLayeredEntryOrder);
-  const clusters = buildEntryClusters(entries, adaptiveRadiusBase);
+  const globalSectorPlan = buildGlobalLineSectorPlan(entries);
+  const sectorBudgetByKey = buildGroupSectorBudgetByPlaceKey(entries, globalSectorPlan);
+  const rebalancedEntries = rebalanceLayerEntriesBySectorBudget(entries, sectorBudgetByKey);
+  const clusters = buildEntryClusters(rebalancedEntries, adaptiveRadiusBase);
 
   const layers: PlacementLayer[] = [];
   let currentEntries: LayeredGroupEntry[] = [];
@@ -584,7 +691,7 @@ export function buildPlacementLayers(
 
   const finalizeLayer = (layerEntries: LayeredGroupEntry[]) => {
     if (layerEntries.length === 0) return;
-    const sortedEntries = [...layerEntries].sort(compareLayeredEntryOrder);
+    const sortedEntries = rebalanceLayerEntriesBySectorBudget(layerEntries, sectorBudgetByKey);
     const sourceRadius = sortedEntries.reduce((sum, entry) => sum + entry.sourceRadius, 0) / sortedEntries.length;
     const shellRadius = sortedEntries.reduce((maxRadius, entry) => Math.max(maxRadius, entry.sourceRadius), 0);
     const maxDepth = sortedEntries.reduce((maxDepth, entry) => Math.max(maxDepth, entry.radialDepth), 0);
@@ -616,6 +723,11 @@ export function buildPlacementLayers(
           maxDepth,
           slotCount,
           requiredAngularGap,
+          globalSectorPlan: globalSectorPlan.map((sector) => ({
+            sectorIndex: sector.sectorIndex,
+            load: sector.load,
+            overflow: sector.overflow,
+          })),
           placeKeys: sortedEntries.map((entry) => entry.group.placeKey),
         },
       });
@@ -953,6 +1065,7 @@ function buildLayerWindowConstraints(
   layers: PlacementLayer[],
   layerAnchorAngleByIndex: Map<number, number>,
   targetAngleByKey: Map<string, { angle: number; reservedSpan: number }>,
+  sectorBudgetByKey?: Map<string, GroupSectorBudget>,
 ) {
   const windowsByKey = new Map<string, LayerWindowConstraint>();
   const branchMargin = Math.PI / 60;
@@ -990,8 +1103,20 @@ function buildLayerWindowConstraints(
 
     const rawWindows = unwrappedCenters.map((window) => ({
       ...window,
-      startAngle: window.centerAngle - window.reservedSpan * 0.5,
-      endAngle: window.centerAngle + window.reservedSpan * 0.5,
+      startAngle: (
+        sectorBudgetByKey?.get(window.placeKey)?.targetAngle ??
+        window.centerAngle
+      ) - Math.max(
+        window.reservedSpan * 0.5,
+        (sectorBudgetByKey?.get(window.placeKey)?.sectorSpread ?? 0) * 0.5,
+      ),
+      endAngle: (
+        sectorBudgetByKey?.get(window.placeKey)?.targetAngle ??
+        window.centerAngle
+      ) + Math.max(
+        window.reservedSpan * 0.5,
+        (sectorBudgetByKey?.get(window.placeKey)?.sectorSpread ?? 0) * 0.5,
+      ),
     }));
 
     const minStart = Math.min(...rawWindows.map((window) => window.startAngle));
@@ -1335,6 +1460,13 @@ export function placeGroupsLayerByLayer(
   });
   const outwardPressureByKey = buildOutwardPressureByGroup(layers);
   const enclosurePressureByKey = buildEnclosurePressureByGroup(layers);
+  const layerSectorPlan = buildGlobalLineSectorPlan(
+    layers.flatMap((layer) => layer.entries),
+  );
+  const sectorBudgetByKey = buildGroupSectorBudgetByPlaceKey(
+    layers.flatMap((layer) => layer.entries),
+    layerSectorPlan,
+  );
   const targetAngleByKey = propagateLayerAngles(
     layers.map((layer) => ({
       index: layer.index,
@@ -1366,6 +1498,7 @@ export function placeGroupsLayerByLayer(
     layers,
     layerAnchorAngleByIndex,
     targetAngleByKey,
+    sectorBudgetByKey,
   );
   const orderedByLayer = [...orderedGroups].sort((left, right) => {
     const leftLayer = layerByKey.get(left.placeKey) ?? Number.MAX_SAFE_INTEGER;
@@ -1421,8 +1554,9 @@ export function placeGroupsLayerByLayer(
     const pressure = outwardPressureByKey.get(group.placeKey);
     const enclosurePressure = enclosurePressureByKey.get(group.placeKey);
     const propagatedTarget = targetAngleByKey.get(group.placeKey);
+    const sectorBudget = sectorBudgetByKey.get(group.placeKey);
     const layerWindow = layerWindowByKey.get(group.placeKey);
-    const propagatedAngle = layerWindow?.centerAngle ?? propagatedTarget?.angle;
+    const propagatedAngle = layerWindow?.centerAngle ?? sectorBudget?.targetAngle ?? propagatedTarget?.angle;
     const layerAnchorAngle = layerAnchorAngleByIndex.get(layerIndex) ?? baseAngle;
     const preferredAngle = propagatedAngle == null
       ? baseAngle
@@ -1670,6 +1804,7 @@ export function placeGroupsLayerByLayer(
         score: best.score,
         pressure,
         enclosurePressure,
+        sectorBudget,
         preferredAngle,
         reservedSpan,
       },
