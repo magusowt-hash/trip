@@ -1193,9 +1193,8 @@ function computeMapClearanceOffset(
 
 function getMapCollisionRect(
   candidate: GroupGeometry,
-  mapGap: number,
 ) {
-  return mapGap <= 0 ? candidate.overallRect : candidate.labelRect;
+  return candidate.overallRect;
 }
 
 function isLabelPlacementHardInvalid(
@@ -1211,7 +1210,7 @@ function isLabelPlacementHardInvalid(
     return true;
   }
 
-  if (mapRect && rectOverlapsMap(getMapCollisionRect(candidate, gapPolicy.mapGap), mapRect, gapPolicy.mapGap)) {
+  if (mapRect && rectOverlapsMap(getMapCollisionRect(candidate), mapRect, gapPolicy.mapGap)) {
     return true;
   }
 
@@ -1225,7 +1224,7 @@ function scoreLabelPlacementPenalties(
   mapRect?: LogicalRect,
 ) {
   let penalty = 0;
-  const mapCollisionRect = getMapCollisionRect(candidate, gapPolicy.mapGap);
+  const mapCollisionRect = getMapCollisionRect(candidate);
   const overlapsMap = mapRect
     ? rectOverlapsMap(mapCollisionRect, mapRect, gapPolicy.mapGap)
     : false;
@@ -1272,7 +1271,7 @@ function scoreResolvedCandidate(
   let score = scoreGroupGeometryPlacement(candidate, occupiedGeometries, safeGap, { labelGapBoost });
   const hardInvalid = isLabelPlacementHardInvalid(candidate, occupiedGeometries, gapPolicy, mapRect);
   const hardPenalty = scoreLabelPlacementPenalties(candidate, occupiedGeometries, gapPolicy, mapRect);
-  const mapCollisionRect = getMapCollisionRect(candidate, mapGap ?? gapPolicy.mapGap);
+  const mapCollisionRect = getMapCollisionRect(candidate);
 
   const nearbySameSidePenalty = occupiedGeometries.reduce((sum, neighbor) => {
     if (neighbor.labelSide !== candidate.labelSide) return sum;
