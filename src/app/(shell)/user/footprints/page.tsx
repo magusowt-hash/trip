@@ -326,6 +326,38 @@ function buildOffsetPhotoRect(placePhotos: PhotoItem[], offsets: LogicalOffset[]
   });
 }
 
+function estimateFitViewCollisionScale(
+  photoRects: LogicalRect[],
+  viewportWidth: number,
+  viewportHeight: number,
+) {
+  if (photoRects.length === 0) return 1;
+
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+
+  for (const rect of photoRects) {
+    left = Math.min(left, rect.left);
+    right = Math.max(right, rect.right);
+    top = Math.min(top, rect.top);
+    bottom = Math.max(bottom, rect.bottom);
+  }
+
+  if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
+    return 1;
+  }
+
+  const FIT_VIEW_PADDING = 24;
+  const VIEWPORT_PADDING_LOGICAL = 24;
+  const availableWidth = Math.max(1, viewportWidth - FIT_VIEW_PADDING * 2);
+  const availableHeight = Math.max(1, viewportHeight - FIT_VIEW_PADDING * 2);
+  const contentWidth = Math.max(1, right - left + VIEWPORT_PADDING_LOGICAL * 2);
+  const contentHeight = Math.max(1, bottom - top + VIEWPORT_PADDING_LOGICAL * 2);
+  return Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight));
+}
+
 function solveFrozenGroupLayouts(
   photos: PhotoItem[],
   scale: number,
@@ -1025,7 +1057,6 @@ function UserFootprintsPageInner() {
     }
 
     const cardSize = 80;
-    const collisionScale = CLAMP_SCALE.max;
     const { width: viewportWidth, height: viewportHeight } = getCurrentViewportSize();
     const mapRect = options.mapRect ?? getFootprintMapRect(viewportWidth, viewportHeight);
     const allGroups = new Map<string, PhotoItem[]>();
@@ -1042,6 +1073,17 @@ function UserFootprintsPageInner() {
     const sortedGroups = Array.from(allGroups.entries()).sort(([leftKey], [rightKey]) => (
       leftKey.localeCompare(rightKey, 'zh-CN')
     ));
+
+    const offsetPhotoRects: LogicalRect[] = [];
+    for (const [, placePhotos] of sortedGroups) {
+      const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
+      const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
+      const offsetPhotoRect = buildOffsetPhotoRect(placePhotos, offsets);
+      if (offsetPhotoRect) {
+        offsetPhotoRects.push(offsetPhotoRect);
+      }
+    }
+    const collisionScale = estimateFitViewCollisionScale(offsetPhotoRects, viewportWidth, viewportHeight);
 
     for (const [placeKey, placePhotos] of sortedGroups) {
       const canConsiderLocked =
