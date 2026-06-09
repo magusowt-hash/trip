@@ -1130,6 +1130,7 @@ function UserFootprintsPageInner() {
     );
     const solverTotalMs = Number((performance.now() - solverStartedAt).toFixed(1));
     const placementById = solvedPendingGroups.placements;
+    const resolvedGeometryById = solvedPendingGroups.geometries;
 
     mappedLayoutExportSnapshotRef.current = {
       viewportWidth,
@@ -1172,12 +1173,11 @@ function UserFootprintsPageInner() {
         finalizedPhoto.frameY = chosenCenter.centerY + group.offsets[i].offsetY;
       }
     }
-    const frozenLayouts = solveFrozenGroupLayouts(
-      finalizedPhotos.filter((photo) => finalizedPendingKeys.has(photo.placeKey)),
-      collisionScale,
-      mapRect,
-    );
-    const finalLayouts = Array.from(frozenLayouts.values());
+    const finalLayouts = pendingGroups.flatMap((group) => {
+      const geometry = resolvedGeometryById.get(group.placeKey);
+      if (!geometry) return [];
+      return [createGroupLayoutSnapshot(group.placeKey, geometry)];
+    });
     const next = new Map(activeGroupLayouts.map((item) => [item.placeKey, item]));
     for (const layout of finalLayouts) {
       next.set(layout.placeKey, layout);
