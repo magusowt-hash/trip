@@ -1173,10 +1173,18 @@ function UserFootprintsPageInner() {
         finalizedPhoto.frameY = chosenCenter.centerY + group.offsets[i].offsetY;
       }
     }
-    const finalLayouts = pendingGroups.flatMap((group) => {
-      const geometry = resolvedGeometryById.get(group.placeKey);
-      if (!geometry) return [];
-      return [createGroupLayoutSnapshot(group.placeKey, geometry)];
+    const frozenLayouts = solveFrozenGroupLayouts(
+      finalizedPhotos.filter((photo) => finalizedPendingKeys.has(photo.placeKey)),
+      collisionScale,
+      mapRect,
+    );
+    const finalLayouts = Array.from(frozenLayouts.values()).map((layout) => {
+      const resolvedGeometry = resolvedGeometryById.get(layout.placeKey);
+      if (!resolvedGeometry) return layout;
+      return {
+        ...layout,
+        labelOffset: createGroupLayoutSnapshot(layout.placeKey, resolvedGeometry).labelOffset,
+      };
     });
     const next = new Map(activeGroupLayouts.map((item) => [item.placeKey, item]));
     for (const layout of finalLayouts) {
