@@ -5,6 +5,7 @@ export type GroupLayoutSnapshot = {
   placeKey: string;
   labelSide: GroupLabelSide;
   labelOffset: number;
+  labelOffsetScreen?: number;
 };
 
 export type LogicalRect = {
@@ -807,11 +808,13 @@ export function createGroupLayoutSnapshot(placeKey: string, geometry: GroupGeome
     geometry.labelSide === 'top'
       ? Math.max(0, geometry.photoRect.top - geometry.lineAnchorY)
       : Math.max(0, geometry.lineAnchorY - geometry.photoRect.bottom);
+  const geometryScale = measureGeometryScale(geometry);
 
   return {
     placeKey,
     labelSide: geometry.labelSide,
     labelOffset,
+    labelOffsetScreen: labelOffset * geometryScale,
   };
 }
 
@@ -834,7 +837,9 @@ export function buildGroupGeometryFromLayout(
       ? resolvePreferredLabelSideForMapRect(photoRect, mapRect)
       : 'bottom';
   const computedLabelOffset = hasSavedLayout
-    ? (layout?.labelOffset ?? 0)
+    ? layout?.labelOffsetScreen != null
+      ? toLogicalScreenSize(layout.labelOffsetScreen, scale)
+      : (layout?.labelOffset ?? 0)
     : 0;
   return buildGroupGeometry(
     groupPhotos,
