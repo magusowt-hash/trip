@@ -81,6 +81,7 @@ const FOOTPRINT_MAP_AREA_RATIO_W = 0.6;
 const FOOTPRINT_MAP_AREA_RATIO_H = 0.8;
 export const BOUNDARY_TRANSITION_BAND_DEGREES = 5;
 export const LABEL_X_NEGATIVE_OVERLAP_RATIO = 0.1;
+export const BOUNDARY_LABEL_METRIC_SCALE = 5;
 
 type LabelPlacementGapPolicy = {
   labelPhotoGap: number;
@@ -279,8 +280,13 @@ export function getBoundaryLabelXMetrics(
     return null;
   }
 
-  const candidateWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left);
-  const neighborWidth = Math.max(1, neighborGeometry.labelRect.right - neighborGeometry.labelRect.left);
+  const minimumScreenWidth = getMinimumSingleLineLabelScreenWidth();
+  const candidateCurrentWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left);
+  const neighborCurrentWidth = Math.max(1, neighborGeometry.labelRect.right - neighborGeometry.labelRect.left);
+  const candidateScreenWidth = Math.max(minimumScreenWidth, candidateCurrentWidth * BOUNDARY_LABEL_METRIC_SCALE);
+  const neighborScreenWidth = Math.max(minimumScreenWidth, neighborCurrentWidth * BOUNDARY_LABEL_METRIC_SCALE);
+  const candidateWidth = toLogicalScreenSize(candidateScreenWidth, BOUNDARY_LABEL_METRIC_SCALE);
+  const neighborWidth = toLogicalScreenSize(neighborScreenWidth, BOUNDARY_LABEL_METRIC_SCALE);
   const candidateCenterX = (geometry.labelRect.left + geometry.labelRect.right) * 0.5;
   const neighborCenterX = (neighborGeometry.labelRect.left + neighborGeometry.labelRect.right) * 0.5;
   const overlapWidth =
@@ -364,6 +370,10 @@ function splitLabelText(title: string) {
   const compact = title.trim().replace(/\s+/g, ' ');
   if (!compact) return [''];
   return Array.from(compact);
+}
+
+function getMinimumSingleLineLabelScreenWidth() {
+  return Math.max(LABEL_MIN_SCREEN_WIDTH, GROUP_LABEL_FONT_SCREEN_SIZE);
 }
 
 export function measureGroupLabelLayout(
