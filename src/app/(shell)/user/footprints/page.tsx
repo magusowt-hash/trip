@@ -364,6 +364,7 @@ function estimateFitViewCollisionScaleFromPhotoGroups(
   cardSize: number,
   viewportWidth: number,
   viewportHeight: number,
+  mapRect?: LogicalRect,
 ) {
   const geometryRects: LogicalRect[] = [];
   for (const placePhotos of photoGroups) {
@@ -378,6 +379,8 @@ function estimateFitViewCollisionScaleFromPhotoGroups(
         placePhotos.length,
         1,
         preferredLabelSide,
+        0,
+        mapRect,
       );
       geometryRects.push(geometry.overallRect);
     }
@@ -1016,6 +1019,7 @@ function UserFootprintsPageInner() {
       80,
       getCurrentViewportSize().width,
       getCurrentViewportSize().height,
+      getFootprintMapRect(getCurrentViewportSize().width, getCurrentViewportSize().height),
     );
     const conflictingSavedPlaceKeys = collectConflictingSavedPlaceKeys(
       savedPhotosByPlaceKey,
@@ -1114,6 +1118,7 @@ function UserFootprintsPageInner() {
       cardSize,
       viewportWidth,
       viewportHeight,
+      mapRect,
     );
 
     for (const [placeKey, placePhotos] of sortedGroups) {
