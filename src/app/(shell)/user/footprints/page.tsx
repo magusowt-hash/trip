@@ -365,16 +365,24 @@ function estimateFitViewCollisionScaleFromPhotoGroups(
   viewportWidth: number,
   viewportHeight: number,
 ) {
-  const photoRects: LogicalRect[] = [];
+  const geometryRects: LogicalRect[] = [];
   for (const placePhotos of photoGroups) {
     const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
     const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
     const offsetPhotoRect = buildOffsetPhotoRect(placePhotos, offsets);
     if (offsetPhotoRect) {
-      photoRects.push(offsetPhotoRect);
+      const preferredLabelSide = resolvePreferredLabelSideForMapRect(offsetPhotoRect);
+      const geometry = buildGroupGeometryFromPhotoRect(
+        offsetPhotoRect,
+        placePhotos[0]?.placeTitle || '',
+        placePhotos.length,
+        1,
+        preferredLabelSide,
+      );
+      geometryRects.push(geometry.overallRect);
     }
   }
-  return estimateFitViewCollisionScale(photoRects, viewportWidth, viewportHeight);
+  return estimateFitViewCollisionScale(geometryRects, viewportWidth, viewportHeight);
 }
 
 function solveFrozenGroupLayouts(
