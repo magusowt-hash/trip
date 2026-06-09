@@ -75,8 +75,7 @@ const LABEL_MAX_LINES = 1;
 const HARD_OVERLAP_WEIGHT = 1000;
 const SOFT_GAP_WEIGHT = 20;
 const BOTTOM_SECTOR_HALF_ANGLE = Math.PI / 4;
-const UPPER_REGION_BOTTOM_CLEARANCE = 176;
-const LOWER_REGION_TOP_CLEARANCE = 176;
+const REGION_MAP_CLEARANCE_SCREEN = 176;
 const FOOTPRINT_MAP_AREA_RATIO_W = 0.6;
 const FOOTPRINT_MAP_AREA_RATIO_H = 0.8;
 export const BOUNDARY_TRANSITION_BAND_DEGREES = 5;
@@ -333,11 +332,15 @@ export function applyRuntimeEnvelope(
 
   const rect = geometry.groupRect;
   const inLowerRegion = isRectInLowerRegion(geometry.photoRect, mapRect);
+  const logicalClearance = toLogicalScreenSize(
+    REGION_MAP_CLEARANCE_SCREEN,
+    measureGeometryScale(geometry),
+  );
 
   const envelopeRect = {
     ...rect,
-    top: rect.top - (inLowerRegion ? LOWER_REGION_TOP_CLEARANCE : 0),
-    bottom: rect.bottom + (inLowerRegion ? 0 : UPPER_REGION_BOTTOM_CLEARANCE),
+    top: rect.top - (inLowerRegion ? logicalClearance : 0),
+    bottom: rect.bottom + (inLowerRegion ? 0 : logicalClearance),
   };
 
   return {
@@ -358,6 +361,11 @@ export function translateLogicalRect(rect: LogicalRect, offsetX: number, offsetY
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function measureGeometryScale(geometry: GroupGeometry) {
+  const lineDiameter = Math.max(1e-6, geometry.lineRect.right - geometry.lineRect.left);
+  return Math.max(0.1, (GROUP_ENDPOINT_RADIUS_SCREEN * 2) / lineDiameter);
 }
 
 function estimateCharacterScreenWidth(char: string) {
