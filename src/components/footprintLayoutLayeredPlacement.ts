@@ -470,25 +470,28 @@ function buildGroupSectorBudgetByPlaceKey(
 
   for (const entry of entries) {
     const ownSectorIndex = getLineSectorIndex(entry.angle);
-    const ownSector = sectorPlan[ownSectorIndex]!;
-    const leftSector = sectorPlan[(ownSectorIndex - 1 + LINE_SECTOR_COUNT) % LINE_SECTOR_COUNT]!;
-    const rightSector = sectorPlan[(ownSectorIndex + 1) % LINE_SECTOR_COUNT]!;
-    let targetSector = ownSector;
+    let targetSector = sectorPlan[ownSectorIndex]!;
+    let bestScore = Number.POSITIVE_INFINITY;
 
-    if (ownSector.overflow > 0) {
-      if (leftSector.load + 0.35 < targetSector.load) {
-        targetSector = leftSector;
-      }
-      if (rightSector.load + 0.35 < targetSector.load) {
-        targetSector = rightSector;
+    for (let offset = -2; offset <= 2; offset++) {
+      const sectorIndex = (ownSectorIndex + offset + LINE_SECTOR_COUNT) % LINE_SECTOR_COUNT;
+      const candidateSector = sectorPlan[sectorIndex]!;
+      const distancePenalty = Math.abs(offset) * 0.55;
+      const overloadPenalty = candidateSector.overflow * 1.6;
+      const score = candidateSector.load + overloadPenalty + distancePenalty;
+      if (score < bestScore) {
+        bestScore = score;
+        targetSector = candidateSector;
       }
     }
+
+    const sectorSpreadTightness = targetSector.overflow > 0 ? 0.46 : 0.58;
 
     budgetByKey.set(entry.group.placeKey, {
       placeKey: entry.group.placeKey,
       targetAngle: targetSector.centerAngle,
       sectorIndex: targetSector.sectorIndex,
-      sectorSpread: Math.max(sectorArc * 0.72, Math.PI / 9),
+      sectorSpread: Math.max(sectorArc * sectorSpreadTightness, Math.PI / 18),
     });
   }
 
@@ -1103,17 +1106,24 @@ function buildLayerWindowConstraints(
 
     const rawWindows = unwrappedCenters.map((window) => ({
       ...window,
-      startAngle: (
-        sectorBudgetByKey?.get(window.placeKey)?.targetAngle ??
-        window.centerAngle
-      ) - Math.max(
+      centerAngle: (() => {
+        const budgetCenter = sectorBudgetByKey?.get(window.placeKey)?.targetAngle;
+        if (budgetCenter == null) return window.centerAngle;
+        return window.centerAngle + getAngularDelta(budgetCenter, window.centerAngle);
+      })(),
+      startAngle: ((() => {
+        const budgetCenter = sectorBudgetByKey?.get(window.placeKey)?.targetAngle;
+        if (budgetCenter == null) return window.centerAngle;
+        return window.centerAngle + getAngularDelta(budgetCenter, window.centerAngle);
+      })()) - Math.max(
         window.reservedSpan * 0.5,
         (sectorBudgetByKey?.get(window.placeKey)?.sectorSpread ?? 0) * 0.5,
       ),
-      endAngle: (
-        sectorBudgetByKey?.get(window.placeKey)?.targetAngle ??
-        window.centerAngle
-      ) + Math.max(
+      endAngle: ((() => {
+        const budgetCenter = sectorBudgetByKey?.get(window.placeKey)?.targetAngle;
+        if (budgetCenter == null) return window.centerAngle;
+        return window.centerAngle + getAngularDelta(budgetCenter, window.centerAngle);
+      })()) + Math.max(
         window.reservedSpan * 0.5,
         (sectorBudgetByKey?.get(window.placeKey)?.sectorSpread ?? 0) * 0.5,
       ),
