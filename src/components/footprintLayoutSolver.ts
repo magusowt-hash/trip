@@ -373,7 +373,7 @@ function buildGeometryForPlacement(
     group.collisionGeometry.photoRect,
     group.placePhotos[0]?.placeTitle || '',
     group.placePhotos.length,
-    1,
+    group.collisionScale,
     group.collisionGeometry.labelSide,
     getGeometryLabelOffset(group.collisionGeometry),
     mapRect,
@@ -428,7 +428,7 @@ function buildPlanningGeometry(
     group.collisionGeometry.photoRect,
     group.placePhotos[0]?.placeTitle || '',
     group.placePhotos.length,
-    1,
+    group.collisionScale,
     group.collisionGeometry.labelSide,
     getGeometryLabelOffset(group.collisionGeometry),
   );

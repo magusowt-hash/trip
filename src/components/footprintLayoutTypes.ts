@@ -28,6 +28,7 @@ export type PendingPlaceGroup = {
   placePhotos: PhotoItem[];
   collisionGeometry: GroupGeometry;
   collisionRect: LogicalRect;
+  collisionScale: number;
   reservedLabelOffset: number;
   logicalX: number;
   logicalY: number;

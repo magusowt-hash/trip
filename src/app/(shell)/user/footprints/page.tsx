@@ -1099,6 +1099,7 @@ function UserFootprintsPageInner() {
         placePhotos,
         collisionGeometry: offsetGeometry,
         collisionRect: offsetGeometry.groupRect,
+        collisionScale,
         reservedLabelOffset,
         logicalX: logicalPoint.x,
         logicalY: logicalPoint.y,
