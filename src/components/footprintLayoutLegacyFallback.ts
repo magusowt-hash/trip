@@ -30,6 +30,7 @@ type LegacyDeps = {
     basePlacement: FootprintPlacement,
     mapRect: LogicalRect,
     sectorDensity?: number,
+    occupiedGeometries?: Array<{ anchor: { x: number; y: number }; geometry: GroupGeometry }>,
   ) => PlacementCandidate[];
   compareLegacyGroupOrder: (
     left: PendingPlaceGroup,
@@ -139,7 +140,13 @@ export function buildLegacySolverInputs(
     const basePlacement = basePlacementById.get(group.placeKey) ?? { centerX: 0, centerY: 0 };
     const sectorDensity = baseSectorCounts[deps.computeSectorIndex(Math.atan2(basePlacement.centerY, basePlacement.centerX))] ?? 0;
     sectorDensityById.set(group.placeKey, sectorDensity);
-    const candidates = deps.buildCandidatePool(group, basePlacement, mapRect, sectorDensity);
+    const occupiedGeometries = groups
+      .filter((neighbor) => neighbor.placeKey !== group.placeKey)
+      .map((neighbor) => ({
+        anchor: { x: neighbor.logicalX, y: neighbor.logicalY },
+        geometry: neighbor.collisionGeometry,
+      }));
+    const candidates = deps.buildCandidatePool(group, basePlacement, mapRect, sectorDensity, occupiedGeometries);
     candidatePoolById.set(group.placeKey, candidates);
     candidateCountById.set(group.placeKey, candidates.length);
   }

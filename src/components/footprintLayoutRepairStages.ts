@@ -1,5 +1,5 @@
 import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
-import { hasBoundaryLabelXConflict, type BoundaryAnchor, type GroupGeometry } from './localMapGroupGeometry';
+import { getBoundaryLabelXMetrics, hasBoundaryLabelXConflict, type BoundaryAnchor, type GroupGeometry } from './localMapGroupGeometry';
 import type { PlacementState } from './footprintLayoutLayeredPlacement';
 import type { SolverMetricReporter } from './footprintLayoutSolver';
 
@@ -773,6 +773,43 @@ function buildNormalSeparationCandidates(
   return candidates;
 }
 
+function buildBoundaryEscapeCandidates(
+  outerPlacement: FootprintPlacement,
+  outerAnchor: BoundaryAnchor,
+  outerGeometry: GroupGeometry,
+  innerAnchor: BoundaryAnchor,
+  innerGeometry: GroupGeometry,
+  mapRect: LogicalRect,
+) {
+  const metrics = getBoundaryLabelXMetrics(
+    outerAnchor,
+    outerGeometry,
+    innerAnchor,
+    innerGeometry,
+    mapRect,
+  );
+  if (!metrics || metrics.extraSeparationNeeded <= 0) return [];
+
+  const dx = outerPlacement.centerX - outerAnchor.x;
+  const dy = outerPlacement.centerY - outerAnchor.y;
+  const radialLength = Math.max(1, Math.hypot(dx, dy));
+  const horizontalUnit = Math.abs(dx) / radialLength;
+  const requiredRadiusDelta = (metrics.extraSeparationNeeded + BOUNDARY_X_ESCAPE_PADDING) / Math.max(horizontalUnit, 0.35);
+  const baseRadius = Math.max(180, Math.hypot(outerPlacement.centerX, outerPlacement.centerY));
+  const baseAngle = Math.atan2(outerPlacement.centerY, outerPlacement.centerX);
+
+  return [1, 1.18, 1.36].flatMap((factor) => {
+    const radius = baseRadius + requiredRadiusDelta * factor;
+    return [0, -6, 6, -12, 12].map((angleOffset) => {
+      const angle = baseAngle + (angleOffset * Math.PI) / 180;
+      return {
+        centerX: Math.cos(angle) * radius,
+        centerY: Math.sin(angle) * radius,
+      };
+    });
+  });
+}
+
 function buildLocalClusterKeys(
   groups: PendingPlaceGroup[],
   placementById: Map<string, FootprintPlacement>,
@@ -812,6 +849,8 @@ type PairDirectionAnalysis = {
   tangentSign: number;
   requiredDistance: number;
 };
+
+const BOUNDARY_X_ESCAPE_PADDING = 12;
 
 function normalizeVector(dx: number, dy: number) {
   const length = Math.hypot(dx, dy);
@@ -1794,6 +1833,9 @@ export function improvePairCorridorRisk(
       const outerPlacement = state.placementById.get(outerKey);
       const innerPlacement = state.placementById.get(innerKey);
       if (!outerPlacement || !innerPlacement) continue;
+      const outerGroup = orderedGroups.find((group) => group.placeKey === outerKey);
+      const innerGroup = orderedGroups.find((group) => group.placeKey === innerKey);
+      if (!outerGroup || !innerGroup) continue;
       const outerGeometry = geometryById.get(outerKey);
       const innerGeometry = geometryById.get(innerKey);
       if (!outerGeometry || !innerGeometry) continue;
@@ -1821,6 +1863,14 @@ export function improvePairCorridorRisk(
           outerGeometry,
           innerGeometry,
           safeGap,
+        ),
+        ...buildBoundaryEscapeCandidates(
+          outerPlacement,
+          { x: outerGroup.logicalX, y: outerGroup.logicalY },
+          outerGeometry,
+          { x: innerGroup.logicalX, y: innerGroup.logicalY },
+          innerGeometry,
+          mapRect,
         ),
         ...buildRadialRelaxCandidates(outerPlacement, outwardDirection),
         ...buildPairRelaxCandidates(outerPlacement, innerPlacement, outwardDirection),

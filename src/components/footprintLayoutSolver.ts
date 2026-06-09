@@ -1,6 +1,7 @@
 import {
   applyRuntimeEnvelope,
   buildGroupGeometryFromPhotoRect,
+  getBoundaryLabelXMetrics,
   hasBoundaryLabelXConflict,
   rectsOverlap,
   resolveGroupGeometryAsWhole,
@@ -68,6 +69,7 @@ const PRESSURE_YIELD_ANGLE_OFFSETS_DEGREES = [-42, -30, 30, 42];
 const PRESSURE_YIELD_RADIUS_FACTORS = [1, 1.08, 1.18];
 const CORNER_TRANSITION_ESCAPE_ANGLE_OFFSETS_DEGREES = [-96, -84, 84, 96];
 const CORNER_TRANSITION_ESCAPE_RADIUS_FACTORS = [1.08, 1.22, 1.38];
+const BOUNDARY_X_ESCAPE_PADDING = 12;
 const BASE_LAYOUT_MAP_GAP = 96;
 const BASE_LAYOUT_MIN_OUTWARD_PUSH = 24;
 const REPAIR_TEST_CONFIG = {
@@ -559,6 +561,7 @@ function buildCandidatePool(
   basePlacement: FootprintPlacement,
   mapRect: LogicalRect,
   sectorDensity = 0,
+  occupiedGeometries: Array<{ anchor: { x: number; y: number }; geometry: GroupGeometry }> = [],
 ) {
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
   const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
@@ -611,6 +614,23 @@ function buildCandidatePool(
       ) + scoreAdjustment,
     });
   };
+
+  const boundaryExtraRadius = occupiedGeometries.reduce((maxDelta, occupied) => {
+    const metrics = getBoundaryLabelXMetrics(
+      { x: group.logicalX, y: group.logicalY },
+      group.collisionGeometry,
+      occupied.anchor,
+      occupied.geometry,
+      mapRect,
+    );
+    if (!metrics || metrics.extraSeparationNeeded <= 0) return maxDelta;
+    const dx = basePlacement.centerX - group.logicalX;
+    const dy = basePlacement.centerY - group.logicalY;
+    const radialLength = Math.max(1, Math.hypot(dx, dy));
+    const horizontalUnit = Math.abs(dx) / radialLength;
+    const requiredRadiusDelta = (metrics.extraSeparationNeeded + BOUNDARY_X_ESCAPE_PADDING) / Math.max(horizontalUnit, 0.35);
+    return Math.max(maxDelta, requiredRadiusDelta);
+  }, 0);
 
   for (const radiusFactor of RADIUS_FACTORS) {
     const radius = safeBaseRadius * radiusFactor;
@@ -706,6 +726,14 @@ function buildCandidatePool(
           scoreAdjustment,
         );
       }
+    }
+  }
+
+  if (boundaryExtraRadius > 0) {
+    const escapeRadius = safeBaseRadius + boundaryExtraRadius;
+    for (const angleOffset of [0, -6, 6, -12, 12]) {
+      addCandidate(baseAngle + (angleOffset * Math.PI) / 180, escapeRadius, true, -64);
+      addCandidate(baseAngle + (angleOffset * Math.PI) / 180, escapeRadius + boundaryExtraRadius * 0.35, true, -52);
     }
   }
 

@@ -263,6 +263,60 @@ export function hasBoundaryLabelXConflict(
   return overlapWidth > -requiredNegativeGap;
 }
 
+export function getBoundaryLabelXMetrics(
+  anchor: BoundaryAnchor,
+  geometry: GroupGeometry,
+  neighborAnchor: BoundaryAnchor,
+  neighborGeometry: GroupGeometry,
+  mapRect?: LogicalRect,
+  negativeOverlapRatio = LABEL_X_NEGATIVE_OVERLAP_RATIO,
+) {
+  if (!mapRect) return null;
+  if (
+    !isBoundaryTransitionAnchor(anchor, mapRect) &&
+    !isBoundaryTransitionAnchor(neighborAnchor, mapRect)
+  ) {
+    return null;
+  }
+
+  const candidateWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left);
+  const neighborWidth = Math.max(1, neighborGeometry.labelRect.right - neighborGeometry.labelRect.left);
+  const candidateCenterX = (geometry.labelRect.left + geometry.labelRect.right) * 0.5;
+  const neighborCenterX = (neighborGeometry.labelRect.left + neighborGeometry.labelRect.right) * 0.5;
+  const overlapWidth =
+    Math.min(candidateCenterX + candidateWidth * 0.5, neighborCenterX + neighborWidth * 0.5) -
+    Math.max(candidateCenterX - candidateWidth * 0.5, neighborCenterX - neighborWidth * 0.5);
+  const requiredNegativeGap = Math.min(candidateWidth, neighborWidth) * negativeOverlapRatio;
+  const extraSeparationNeeded = overlapWidth + requiredNegativeGap;
+
+  return {
+    overlapWidth,
+    requiredNegativeGap,
+    extraSeparationNeeded,
+    candidateWidth,
+    neighborWidth,
+  };
+}
+
+export function hasBoundaryLabelXConflictAtMaxScale(
+  anchor: BoundaryAnchor,
+  geometry: GroupGeometry,
+  neighborAnchor: BoundaryAnchor,
+  neighborGeometry: GroupGeometry,
+  mapRect?: LogicalRect,
+  negativeOverlapRatio = LABEL_X_NEGATIVE_OVERLAP_RATIO,
+) {
+  const metrics = getBoundaryLabelXMetrics(
+    anchor,
+    geometry,
+    neighborAnchor,
+    neighborGeometry,
+    mapRect,
+    negativeOverlapRatio,
+  );
+  return metrics != null && metrics.extraSeparationNeeded > 0;
+}
+
 export function applyRuntimeEnvelope(
   geometry: GroupGeometry,
   mapRect?: LogicalRect,
