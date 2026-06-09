@@ -2,7 +2,7 @@ import {
   applyRuntimeEnvelope,
   buildGroupGeometryFromPhotoRect,
   getBoundaryLabelXMetrics,
-  hasBoundaryLabelXConflict,
+  hasBoundaryLabelXConflictAtMaxScale,
   rectsOverlap,
   resolveGroupGeometryAsWhole,
   translateGroupGeometry,
@@ -929,7 +929,7 @@ function evaluateCandidate(
 
     if (
       mapRect &&
-      hasBoundaryLabelXConflict(
+      hasBoundaryLabelXConflictAtMaxScale(
         { x: group.logicalX, y: group.logicalY },
         candidate.geometry,
         { x: neighbor.logicalX, y: neighbor.logicalY },
@@ -970,7 +970,7 @@ function evaluateCandidate(
   for (const locked of lockedGroups) {
     if (
       mapRect &&
-      hasBoundaryLabelXConflict(
+      hasBoundaryLabelXConflictAtMaxScale(
         { x: group.logicalX, y: group.logicalY },
         candidate.geometry,
         { x: locked.logicalX, y: locked.logicalY },

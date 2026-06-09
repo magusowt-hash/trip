@@ -255,13 +255,15 @@ export function hasBoundaryLabelXConflict(
     return false;
   }
 
-  const overlapWidth =
-    Math.min(geometry.labelRect.right, neighborGeometry.labelRect.right) -
-    Math.max(geometry.labelRect.left, neighborGeometry.labelRect.left);
-  const candidateWidth = Math.max(1, geometry.labelRect.right - geometry.labelRect.left);
-  const neighborWidth = Math.max(1, neighborGeometry.labelRect.right - neighborGeometry.labelRect.left);
-  const requiredNegativeGap = Math.min(candidateWidth, neighborWidth) * negativeOverlapRatio;
-  return overlapWidth > -requiredNegativeGap;
+  const metrics = getBoundaryLabelXMetrics(
+    anchor,
+    geometry,
+    neighborAnchor,
+    neighborGeometry,
+    mapRect,
+    negativeOverlapRatio,
+  );
+  return metrics != null && metrics.extraSeparationNeeded > 0;
 }
 
 export function getBoundaryLabelXMetrics(
@@ -555,6 +557,7 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   fixedLabelSide?: GroupLabelSide,
   fixedLabelOffset = 0,
   mapRect?: LogicalRect,
+  extraOffsets?: number[],
 ) {
   const safeScale = Math.max(scale, 0.1);
   const photoCenter = rectCenter(photoRect);
@@ -616,7 +619,9 @@ export function buildGroupGeometryCandidatesFromPhotoRect(
   };
 
   const resolvedSide = fixedLabelSide ?? resolvePreferredLabelSideForMapRect(photoRect, mapRect);
-  const offsetSteps = [0, 18, 36];
+  const offsetSteps = Array.from(new Set([0, 18, 36, ...(extraOffsets ?? [])]))
+    .filter((offset) => offset >= 0)
+    .sort((left, right) => left - right);
   const candidates: GroupGeometry[] = [];
 
   for (const offset of offsetSteps) {
@@ -630,6 +635,7 @@ export function buildGroupGeometryCandidatesFromGeometry(
   geometry: GroupGeometry,
   fixedLabelSide?: GroupLabelSide,
   mapRect?: LogicalRect,
+  extraOffsets?: number[],
 ) {
   const photoRect = geometry.photoRect;
   const photoCenter = rectCenter(photoRect);
@@ -694,7 +700,9 @@ export function buildGroupGeometryCandidatesFromGeometry(
   const resolvedSide =
     fixedLabelSide ??
     resolvePreferredLabelSideForMapRect(photoRect, mapRect);
-  const offsetSteps = [0, 18, 36];
+  const offsetSteps = Array.from(new Set([0, 18, 36, ...(extraOffsets ?? [])]))
+    .filter((offset) => offset >= 0)
+    .sort((left, right) => left - right);
   const candidates: GroupGeometry[] = [];
 
   for (const offset of offsetSteps) {
@@ -1104,6 +1112,56 @@ function buildLabelPlacementGapPolicy(
   };
 }
 
+function buildDynamicResolvedOffsets(
+  geometry: GroupGeometry,
+  anchor: BoundaryAnchor | undefined,
+  occupied: OccupiedResolvedGeometry[],
+  mapRect?: LogicalRect,
+  mapGap = 0,
+) {
+  const offsets = new Set<number>([0, 18, 36]);
+  const requiredMapClearance = computeMapClearanceOffset(geometry, mapRect, mapGap);
+  if (requiredMapClearance > 0) {
+    offsets.add(Math.ceil(requiredMapClearance));
+    offsets.add(Math.ceil(requiredMapClearance + 18));
+  }
+
+  if (anchor && mapRect) {
+    for (const neighbor of occupied) {
+      if (!neighbor.anchor) continue;
+      const metrics = getBoundaryLabelXMetrics(
+        anchor,
+        geometry,
+        neighbor.anchor,
+        neighbor.geometry,
+        mapRect,
+      );
+      if (!metrics || metrics.extraSeparationNeeded <= 0) continue;
+      offsets.add(Math.ceil(metrics.extraSeparationNeeded + 12));
+      offsets.add(Math.ceil(metrics.extraSeparationNeeded + 30));
+    }
+  }
+
+  return Array.from(offsets)
+    .filter((offset) => offset >= 0)
+    .sort((left, right) => left - right);
+}
+
+function dedupeResolvedCandidates(candidates: GroupGeometry[]) {
+  const candidateByKey = new Map<string, GroupGeometry>();
+  for (const candidate of candidates) {
+    const labelOffset =
+      candidate.labelSide === 'top'
+        ? Math.max(0, candidate.photoRect.top - candidate.lineAnchorY)
+        : Math.max(0, candidate.lineAnchorY - candidate.photoRect.bottom);
+    const key = `${candidate.labelSide}:${Math.round(labelOffset)}`;
+    if (!candidateByKey.has(key)) {
+      candidateByKey.set(key, candidate);
+    }
+  }
+  return Array.from(candidateByKey.values());
+}
+
 function scorePlacementGapViolation(
   left: LogicalRect,
   right: LogicalRect,
@@ -1229,7 +1287,7 @@ function scoreResolvedCandidate(
 
   const boundaryConflictPenalty = occupied.reduce((sum, neighbor) => {
     if (!candidateAnchor || !neighbor.anchor) return sum;
-    if (!hasBoundaryLabelXConflict(candidateAnchor, candidate, neighbor.anchor, neighbor.geometry, mapRect)) {
+    if (!hasBoundaryLabelXConflictAtMaxScale(candidateAnchor, candidate, neighbor.anchor, neighbor.geometry, mapRect)) {
       return sum;
     }
     return sum + 400_000;
@@ -1268,11 +1326,29 @@ function pickBestResolvedCandidate(
   mapGap?: number,
   candidateAnchor?: BoundaryAnchor,
 ) {
-  let chosen = candidates[0] ?? baseGeometry;
+  const dynamicCandidates = candidateAnchor
+    ? buildGroupGeometryCandidatesFromGeometry(
+        baseGeometry,
+        baseGeometry.labelSide,
+        mapRect,
+        buildDynamicResolvedOffsets(
+          baseGeometry,
+          candidateAnchor,
+          occupied,
+          mapRect,
+          mapGap ?? gapPolicy.mapGap,
+        ),
+      )
+    : [];
+  const candidatePool = dedupeResolvedCandidates([
+    ...candidates,
+    ...dynamicCandidates,
+  ]);
+  let chosen = candidatePool[0] ?? baseGeometry;
   let bestPreferredScore = Number.POSITIVE_INFINITY;
   let bestFallbackScore = Number.POSITIVE_INFINITY;
 
-  for (const candidate of candidates) {
+  for (const candidate of candidatePool) {
     const evaluation = scoreResolvedCandidate(
       candidate,
       occupied,
@@ -1508,7 +1584,23 @@ export function resolveGroupGeometryAsWhole<T extends string = string>(
     geometry: entry.geometry,
     candidates: entry.candidates?.length
       ? entry.candidates
-      : buildGroupGeometryCandidatesFromGeometry(entry.geometry, undefined, options?.mapRect),
+      : buildGroupGeometryCandidatesFromGeometry(
+          entry.geometry,
+          entry.geometry.labelSide,
+          options?.mapRect,
+          buildDynamicResolvedOffsets(
+            entry.geometry,
+            options?.boundaryAnchorById?.get(entry.id),
+            sortedEntries
+              .filter((neighbor) => neighbor.id !== entry.id)
+              .map((neighbor) => ({
+                geometry: neighbor.geometry,
+                anchor: options?.boundaryAnchorById?.get(neighbor.id),
+              })),
+            options?.mapRect,
+            mapGap,
+          ),
+        ),
   }));
   const resolved = new Map<T, GroupGeometry>();
 

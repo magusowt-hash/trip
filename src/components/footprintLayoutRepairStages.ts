@@ -1,5 +1,5 @@
 import type { FootprintPlacement, LockedPlaceGroup, LogicalRect, PendingPlaceGroup } from './footprintLayoutTypes';
-import { getBoundaryLabelXMetrics, hasBoundaryLabelXConflict, type BoundaryAnchor, type GroupGeometry } from './localMapGroupGeometry';
+import { getBoundaryLabelXMetrics, hasBoundaryLabelXConflictAtMaxScale, type BoundaryAnchor, type GroupGeometry } from './localMapGroupGeometry';
 import type { PlacementState } from './footprintLayoutLayeredPlacement';
 import type { SolverMetricReporter } from './footprintLayoutSolver';
 
@@ -115,7 +115,13 @@ type RepairCoreDeps = {
   ) => number;
   resolveGroupGeometryAsWhole: (
     entries: Array<{ id: string; geometry: GroupGeometry }>,
-    options: { gap: number; mapRect: LogicalRect; mapGap: number; labelGapBoost?: number },
+    options: {
+      gap: number;
+      mapRect: LogicalRect;
+      mapGap: number;
+      labelGapBoost?: number;
+      boundaryAnchorById?: Map<string, BoundaryAnchor>;
+    },
   ) => Map<string, GroupGeometry>;
   segmentsIntersect: (
     a1: { x: number; y: number },
@@ -188,7 +194,7 @@ function hasBoundaryConflict(
   rightGeometry: GroupGeometry,
   mapRect: LogicalRect,
 ) {
-  return hasBoundaryLabelXConflict(leftAnchor, leftGeometry, rightAnchor, rightGeometry, mapRect);
+  return hasBoundaryLabelXConflictAtMaxScale(leftAnchor, leftGeometry, rightAnchor, rightGeometry, mapRect);
 }
 
 export function hasHardConflicts(

@@ -5,7 +5,7 @@ import type {
   PendingPlaceGroup,
   SolverFunctionTraceEntry,
 } from './footprintLayoutTypes';
-import { hasBoundaryLabelXConflict, type GroupGeometry } from './localMapGroupGeometry';
+import { hasBoundaryLabelXConflictAtMaxScale, type GroupGeometry } from './localMapGroupGeometry';
 import { rectsOverlap } from './localMapGroupGeometry';
 import { rectDistanceToMap } from './footprintLayoutConstraints';
 import {
@@ -200,7 +200,7 @@ function hasBoundaryConflict(
   neighborGeometry: GroupGeometry,
   mapRect: LogicalRect,
 ) {
-  return hasBoundaryLabelXConflict(
+  return hasBoundaryLabelXConflictAtMaxScale(
     { x: group.logicalX, y: group.logicalY },
     geometry,
     { x: neighbor.logicalX, y: neighbor.logicalY },
