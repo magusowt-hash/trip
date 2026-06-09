@@ -358,6 +358,25 @@ function estimateFitViewCollisionScale(
   return Math.min(CLAMP_SCALE.max, Math.min(availableWidth / contentWidth, availableHeight / contentHeight));
 }
 
+function estimateFitViewCollisionScaleFromPhotoGroups(
+  photoGroups: Iterable<PhotoItem[]>,
+  layout: LocalMapLayoutSettings,
+  cardSize: number,
+  viewportWidth: number,
+  viewportHeight: number,
+) {
+  const photoRects: LogicalRect[] = [];
+  for (const placePhotos of photoGroups) {
+    const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
+    const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
+    const offsetPhotoRect = buildOffsetPhotoRect(placePhotos, offsets);
+    if (offsetPhotoRect) {
+      photoRects.push(offsetPhotoRect);
+    }
+  }
+  return estimateFitViewCollisionScale(photoRects, viewportWidth, viewportHeight);
+}
+
 function solveFrozenGroupLayouts(
   photos: PhotoItem[],
   scale: number,
@@ -983,9 +1002,16 @@ function UserFootprintsPageInner() {
       current.push(photo);
       savedPhotosByPlaceKey.set(photo.placeKey, current);
     }
+    const savedCollisionScale = estimateFitViewCollisionScaleFromPhotoGroups(
+      savedPhotosByPlaceKey.values(),
+      localLayout ?? { enabled: true, mode: 'grid', gapX: 20, gapY: 20, staggerAxis: 'horizontal' },
+      80,
+      getCurrentViewportSize().width,
+      getCurrentViewportSize().height,
+    );
     const conflictingSavedPlaceKeys = collectConflictingSavedPlaceKeys(
       savedPhotosByPlaceKey,
-      CLAMP_SCALE.max,
+      savedCollisionScale,
       groupLayouts,
       logicalPointByPlaceKey,
     );
@@ -1074,16 +1100,13 @@ function UserFootprintsPageInner() {
       leftKey.localeCompare(rightKey, 'zh-CN')
     ));
 
-    const offsetPhotoRects: LogicalRect[] = [];
-    for (const [, placePhotos] of sortedGroups) {
-      const rawOffsets = buildOffsetsForLayout(placePhotos.length, layout, cardSize);
-      const offsets = applySizedOffsets(placePhotos, rawOffsets, layout.gapX, layout.gapY);
-      const offsetPhotoRect = buildOffsetPhotoRect(placePhotos, offsets);
-      if (offsetPhotoRect) {
-        offsetPhotoRects.push(offsetPhotoRect);
-      }
-    }
-    const collisionScale = estimateFitViewCollisionScale(offsetPhotoRects, viewportWidth, viewportHeight);
+    const collisionScale = estimateFitViewCollisionScaleFromPhotoGroups(
+      allGroups.values(),
+      layout,
+      cardSize,
+      viewportWidth,
+      viewportHeight,
+    );
 
     for (const [placeKey, placePhotos] of sortedGroups) {
       const canConsiderLocked =
@@ -1261,7 +1284,7 @@ function UserFootprintsPageInner() {
         const nextLayout = rebuildGroupLayoutSnapshotForCurrentPosition(
           targetPhoto.placeKey,
           groupPhotos,
-          CLAMP_SCALE.max,
+          outerScaleRef.current,
           mapRect,
         );
         if (nextLayout) {
@@ -1292,7 +1315,7 @@ function UserFootprintsPageInner() {
     const nextLayout = rebuildGroupLayoutSnapshotForCurrentPosition(
       placeKey,
       groupPhotos,
-      CLAMP_SCALE.max,
+      outerScaleRef.current,
       mapRect,
     );
     setPhotos(nextPhotos);
@@ -1419,8 +1442,8 @@ function UserFootprintsPageInner() {
               getCurrentViewportSize().height,
             ),
             safeGap: 80,
-            labelGapBoost: computeLabelGapBoost(CLAMP_SCALE.max),
-            collisionScale: CLAMP_SCALE.max,
+            labelGapBoost: computeLabelGapBoost(outerScaleRef.current),
+            collisionScale: outerScaleRef.current,
             layout: localLayout ?? { enabled: true, mode: 'grid' as const, gapX: 20, gapY: 20, staggerAxis: 'horizontal' as const },
             lockedGroups: [],
             pendingGroups: [],
