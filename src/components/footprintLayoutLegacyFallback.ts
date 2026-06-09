@@ -30,7 +30,7 @@ type LegacyDeps = {
     basePlacement: FootprintPlacement,
     mapRect: LogicalRect,
     sectorDensity?: number,
-    occupiedGeometries?: Array<{ anchor: { x: number; y: number }; geometry: GroupGeometry }>,
+    occupiedGeometries?: Array<{ anchor: { x: number; y: number }; geometry: GroupGeometry; placement: FootprintPlacement }>,
   ) => PlacementCandidate[];
   compareLegacyGroupOrder: (
     left: PendingPlaceGroup,
@@ -145,6 +145,7 @@ export function buildLegacySolverInputs(
       .map((neighbor) => ({
         anchor: { x: neighbor.logicalX, y: neighbor.logicalY },
         geometry: neighbor.collisionGeometry,
+        placement: basePlacementById.get(neighbor.placeKey) ?? { centerX: 0, centerY: 0 },
       }));
     const candidates = deps.buildCandidatePool(group, basePlacement, mapRect, sectorDensity, occupiedGeometries);
     candidatePoolById.set(group.placeKey, candidates);

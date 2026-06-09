@@ -561,7 +561,11 @@ function buildCandidatePool(
   basePlacement: FootprintPlacement,
   mapRect: LogicalRect,
   sectorDensity = 0,
-  occupiedGeometries: Array<{ anchor: { x: number; y: number }; geometry: GroupGeometry }> = [],
+  occupiedGeometries: Array<{
+    anchor: { x: number; y: number };
+    geometry: GroupGeometry;
+    placement: FootprintPlacement;
+  }> = [],
 ) {
   const baseAngle = Math.atan2(basePlacement.centerY, basePlacement.centerX);
   const baseRadius = Math.hypot(basePlacement.centerX, basePlacement.centerY);
@@ -616,11 +620,19 @@ function buildCandidatePool(
   };
 
   const boundaryExtraRadius = occupiedGeometries.reduce((maxDelta, occupied) => {
+    const candidateBaseGeometry = chooseBestGeometryForPlacement(group, basePlacement, mapRect);
+    const occupiedGeometry = occupied.placement
+      ? translateGroupGeometry(
+          occupied.geometry,
+          occupied.placement.centerX,
+          occupied.placement.centerY,
+        )
+      : occupied.geometry;
     const metrics = getBoundaryLabelXMetrics(
       { x: group.logicalX, y: group.logicalY },
-      group.collisionGeometry,
+      candidateBaseGeometry,
       occupied.anchor,
-      occupied.geometry,
+      occupiedGeometry,
       mapRect,
     );
     if (!metrics || metrics.extraSeparationNeeded <= 0) return maxDelta;
