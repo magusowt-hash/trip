@@ -63,7 +63,7 @@ test('test passport visa frontend wrapper imports src implementation through ali
     source,
     /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/frontend['"]/,
   );
-  assert.match(source, /<PassportVisaPage \/>/);
+  assert.match(source, /<FormalPassportVisaPage \/>/);
 });
 
 test('test passport visa admin wrapper imports src implementation through alias path', async () => {
@@ -76,7 +76,7 @@ test('test passport visa admin wrapper imports src implementation through alias 
     source,
     /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/admin['"]/,
   );
-  assert.match(source, /<ChinaPassportVisaMapAdminPage \/>/);
+  assert.match(source, /<FormalPassportVisaAdminPage \/>/);
 });
 
 test('src passport visa frontend route imports formal frontend page through alias path', async () => {
@@ -89,6 +89,8 @@ test('src passport visa frontend route imports formal frontend page through alia
     source,
     /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/frontend['"]/,
   );
+  assert.match(source, /import \{ PassportVisaPage as FormalPassportVisaPage \}/);
+  assert.match(source, /return <FormalPassportVisaPage \/>;/);
 });
 
 test('src passport visa admin route imports formal admin page through alias path', async () => {
@@ -101,4 +103,6 @@ test('src passport visa admin route imports formal admin page through alias path
     source,
     /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/admin['"]/,
   );
+  assert.match(source, /import \{ ChinaPassportVisaMapAdminPage as FormalPassportVisaAdminPage \}/);
+  assert.match(source, /return <FormalPassportVisaAdminPage \/>;/);
 });
