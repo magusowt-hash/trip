@@ -8,11 +8,25 @@ export type PassportVisaViewBox = {
 export const PASSPORT_VISA_MIN_ZOOM_SCALE = 0.8;
 export const PASSPORT_VISA_MAX_ZOOM_SCALE = 12;
 
+type PassportVisaSvgLike = {
+  getAttribute(name: string): string | null;
+};
+
 export function parsePassportVisaViewBox(
-  viewBoxValue: string | null | undefined,
+  viewBoxValueOrSvg: string | PassportVisaSvgLike | null | undefined,
   widthValue: string | null | undefined,
   heightValue: string | null | undefined,
 ) {
+  const viewBoxValue = typeof viewBoxValueOrSvg === 'string'
+    ? viewBoxValueOrSvg
+    : viewBoxValueOrSvg?.getAttribute('viewBox');
+  const resolvedWidthValue = typeof viewBoxValueOrSvg === 'string'
+    ? widthValue
+    : (viewBoxValueOrSvg?.getAttribute('width') ?? widthValue);
+  const resolvedHeightValue = typeof viewBoxValueOrSvg === 'string'
+    ? heightValue
+    : (viewBoxValueOrSvg?.getAttribute('height') ?? heightValue);
+
   if (viewBoxValue) {
     const values = viewBoxValue
       .trim()
@@ -29,8 +43,8 @@ export function parsePassportVisaViewBox(
     }
   }
 
-  const width = Number(widthValue);
-  const height = Number(heightValue);
+  const width = Number(resolvedWidthValue);
+  const height = Number(resolvedHeightValue);
 
   if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
     return {
