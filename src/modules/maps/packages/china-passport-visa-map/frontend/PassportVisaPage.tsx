@@ -1,7 +1,7 @@
 'use client';
 
-import TestPassportVisaPage from '../../../../../../test/app/passport-visa/page';
+import PassportVisaClientPage from '../shared/PassportVisaClientPage';
 
 export function PassportVisaPage() {
-  return <TestPassportVisaPage />;
+  return <PassportVisaClientPage />;
 }

@@ -1,7 +1,7 @@
 'use client';
 
-import TestPassportVisaAdminPage from '../../../../../../test/app/passport-visa-admin/page';
+import PassportVisaAdminClientPage from '../shared/PassportVisaAdminClientPage';
 
 export function ChinaPassportVisaMapAdminPage() {
-  return <TestPassportVisaAdminPage />;
+  return <PassportVisaAdminClientPage />;
 }

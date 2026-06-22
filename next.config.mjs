@@ -1,9 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  experimental: {
-    externalDir: true,
-  },
   // 云服务器 / Docker 部署：生成 standalone 产物，镜像体积小、启动快
   output: 'standalone',
   // 隐藏 X-Powered-By，降低指纹暴露
