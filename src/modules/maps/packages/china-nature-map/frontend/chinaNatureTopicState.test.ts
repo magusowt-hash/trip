@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildNatureTopicMarkers,
   buildVisibleNatureTopics,
   createInitialNatureViewState,
   enterNatureTopicShell,
-} from './chinaNatureTopicState';
+} from './chinaNatureTopicState.ts';
 
 test('buildVisibleNatureTopics keeps enabled topics in sort order', () => {
   const topics = buildVisibleNatureTopics([
@@ -45,4 +46,28 @@ test('buildVisibleNatureTopics drops disabled admin-managed topics', () => {
   ]);
 
   assert.deepEqual(topics.map((item) => item.topicSlug), ['karst']);
+});
+
+test('buildNatureTopicMarkers maps island items to PlanMap markers', () => {
+  const markers = buildNatureTopicMarkers([
+    {
+      id: 'island-1',
+      rank: 1,
+      name: '西沙群岛',
+      lat: 16.836667,
+      lng: 112.333333,
+      locationLabel: '海南省三沙市',
+    },
+  ]);
+
+  assert.deepEqual(markers, [
+    {
+      id: 1,
+      position: [112.333333, 16.836667],
+      title: '西沙群岛',
+      address: '海南省三沙市',
+      description: '中国自然地图·海岛',
+      groupColor: '#0f766e',
+    },
+  ]);
 });

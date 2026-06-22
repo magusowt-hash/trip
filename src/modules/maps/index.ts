@@ -5,7 +5,16 @@ export { buildMapPackageRuntimeList, pickInitialActiveMapSlug } from './core/map
 export { chinaNatureMapPackage } from './packages/china-nature-map';
 export { standardMapPackage } from './packages/standard-map';
 export { railMapPackage } from './packages/rail-map';
-export { ChinaNatureMapRightPanel } from './packages/china-nature-map/frontend';
+export {
+  ChinaNatureMapRightPanel,
+  buildChinaNatureTopicDataset,
+  buildNatureTopicMarkers,
+  buildVisibleNatureTopics,
+  chinaNatureTopics,
+  createInitialNatureViewState,
+  enterNatureTopicShell,
+  type NatureViewState,
+} from './packages/china-nature-map/frontend';
 export {
   StandardMapRightPanel,
   type StandardMapSearchResult,

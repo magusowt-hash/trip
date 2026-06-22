@@ -1,4 +1,13 @@
-import type { NatureTopicItem } from './chinaNatureTopics';
+import type { NatureTopicDatasetItem, NatureTopicItem } from './chinaNatureTopics';
+
+export type NatureMapMarker = {
+  id?: number;
+  position: [number, number];
+  title?: string;
+  address?: string;
+  description?: string;
+  groupColor?: string;
+};
 
 export type NatureViewState =
   | { mode: 'list'; activeTopicSlug: null }
@@ -28,4 +37,15 @@ export function enterNatureTopicShell(
 ): NatureViewState {
   void current;
   return { mode: 'topic', activeTopicSlug: topicSlug };
+}
+
+export function buildNatureTopicMarkers(items: NatureTopicDatasetItem[]): NatureMapMarker[] {
+  return items.map((item) => ({
+    id: Number(item.id.replace('island-', '')),
+    position: [item.lng, item.lat],
+    title: item.name,
+    address: item.locationLabel,
+    description: '中国自然地图·海岛',
+    groupColor: '#0f766e',
+  }));
 }

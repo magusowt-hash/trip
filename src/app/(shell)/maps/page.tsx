@@ -4,8 +4,15 @@ import { useEffect, useRef, useState } from 'react';
 import PlanMap from '@/components/PlanMap';
 import RailCanvas from '@/components/RailCanvas';
 import {
+  buildChinaNatureTopicDataset,
+  buildNatureTopicMarkers,
+  buildVisibleNatureTopics,
+  chinaNatureTopics,
+  createInitialNatureViewState,
+  enterNatureTopicShell,
   getMapPackage,
   pickInitialActiveMapSlug,
+  type NatureViewState,
   useRailMapPanelController,
   type StandardMapSearchResult,
   useStandardMapPanelController,
@@ -32,11 +39,20 @@ export default function MapsPage() {
   const [railSettings, setRailSettings] = useState<any>(null);
   const [stationOverrides, setStationOverrides] = useState<any[]>([]);
   const [capitalLabels, setCapitalLabels] = useState<any[]>([]);
+  const [natureViewState, setNatureViewState] = useState<NatureViewState>(() => createInitialNatureViewState(chinaNatureTopics));
+  const [selectedNatureItemId, setSelectedNatureItemId] = useState<string | null>(null);
   const [railLoaded, setRailLoaded] = useState(false);
   const [railZoom, setRailZoom] = useState(4);
   const railMapRef = useRef<any>(null);
   const standardController = useStandardMapPanelController(activeTab === 'standard');
   const railController = useRailMapPanelController();
+  const natureTopics = buildVisibleNatureTopics(chinaNatureTopics);
+  const activeNatureTopicSlug = natureViewState.mode === 'topic' ? natureViewState.activeTopicSlug : null;
+  const activeNatureDataset = buildChinaNatureTopicDataset(activeNatureTopicSlug ?? '');
+  const activeNatureItems = activeNatureDataset.items;
+  const natureMarkers = activeNatureTopicSlug === 'island' ? buildNatureTopicMarkers(activeNatureItems) : [];
+  const selectedNatureItem = activeNatureItems.find((item) => item.id === selectedNatureItemId) ?? activeNatureItems[0] ?? null;
+  const activeNatureTopic = natureTopics.find((item) => item.topicSlug === activeNatureTopicSlug) ?? null;
 
   useEffect(() => {
     let active = true;
@@ -89,6 +105,32 @@ export default function MapsPage() {
       .catch(() => {});
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab !== 'china-nature') {
+      setNatureViewState(createInitialNatureViewState(chinaNatureTopics));
+      setSelectedNatureItemId(null);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (natureViewState.mode !== 'topic') {
+      return;
+    }
+
+    if (activeNatureItems.length === 0) {
+      setSelectedNatureItemId(null);
+      return;
+    }
+
+    setSelectedNatureItemId((current) => {
+      if (current && activeNatureItems.some((item) => item.id === current)) {
+        return current;
+      }
+
+      return activeNatureItems[0]?.id ?? null;
+    });
+  }, [natureViewState, activeNatureItems]);
+
   const standardMapPackage = getMapPackage('standard');
   const railMapPackage = getMapPackage('rail');
   const chinaNatureMapPackage = getMapPackage('china-nature');
@@ -138,7 +180,11 @@ export default function MapsPage() {
                 )}
               </div>
             ) : activeTab === 'china-nature' ? (
-              <PlanMap autoLoadMarkers={false} />
+              <PlanMap
+                autoLoadMarkers={false}
+                markers={natureMarkers}
+                focusPosition={selectedNatureItem ? [selectedNatureItem.lng, selectedNatureItem.lat] : null}
+              />
             ) : (
               <div className={styles.emptyState}>加载中……</div>
             )}
@@ -185,7 +231,23 @@ export default function MapsPage() {
               ) : null
             ) : activeTab === 'china-nature' ? (
               ChinaNatureRightPanel ? (
-                <ChinaNatureRightPanel styles={styles} />
+                <ChinaNatureRightPanel
+                  styles={styles}
+                  topics={natureTopics}
+                  viewState={natureViewState}
+                  activeTopicTitle={activeNatureTopic?.title ?? null}
+                  items={activeNatureItems}
+                  selectedItemId={selectedNatureItemId}
+                  onEnterTopic={(topicSlug) => {
+                    setNatureViewState((current) => enterNatureTopicShell(current, topicSlug));
+                    setSelectedNatureItemId(null);
+                  }}
+                  onBackToList={() => {
+                    setNatureViewState(createInitialNatureViewState(chinaNatureTopics));
+                    setSelectedNatureItemId(null);
+                  }}
+                  onItemSelect={setSelectedNatureItemId}
+                />
               ) : null
             ) : (
               StandardRightPanel ? (
