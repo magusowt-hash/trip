@@ -16,6 +16,7 @@ import {
   useRailMapPanelController,
   type StandardMapSearchResult,
   useStandardMapPanelController,
+  PassportVisaMapView,
 } from '@/modules/maps';
 import styles from './maps-page.module.css';
 
@@ -39,6 +40,7 @@ export default function MapsPage() {
   const [railSettings, setRailSettings] = useState<any>(null);
   const [stationOverrides, setStationOverrides] = useState<any[]>([]);
   const [capitalLabels, setCapitalLabels] = useState<any[]>([]);
+  const [selectedPassportVisaCountryCode, setSelectedPassportVisaCountryCode] = useState<string | null>(null);
   const [natureViewState, setNatureViewState] = useState<NatureViewState>(() => createInitialNatureViewState(chinaNatureTopics));
   const [selectedNatureItemId, setSelectedNatureItemId] = useState<string | null>(null);
   const [railLoaded, setRailLoaded] = useState(false);
@@ -134,9 +136,11 @@ export default function MapsPage() {
   const standardMapPackage = getMapPackage('standard');
   const railMapPackage = getMapPackage('rail');
   const chinaNatureMapPackage = getMapPackage('china-nature');
+  const passportVisaMapPackage = getMapPackage('passport-visa');
   const StandardRightPanel = standardMapPackage?.frontend?.rightPanel;
   const RailRightPanel = railMapPackage?.frontend?.rightPanel;
   const ChinaNatureRightPanel = chinaNatureMapPackage?.frontend?.rightPanel;
+  const PassportVisaRightPanel = passportVisaMapPackage?.frontend?.rightPanel;
   const activePackage = packageItems.find((item) => item.slug === activeTab) ?? null;
 
   return (
@@ -184,6 +188,11 @@ export default function MapsPage() {
                 autoLoadMarkers={false}
                 markers={natureMarkers}
                 focusPosition={selectedNatureItem ? [selectedNatureItem.lng, selectedNatureItem.lat] : null}
+              />
+            ) : activeTab === 'passport-visa' ? (
+              <PassportVisaMapView
+                selectedCountryCode={selectedPassportVisaCountryCode}
+                onCountrySelect={setSelectedPassportVisaCountryCode}
               />
             ) : (
               <div className={styles.emptyState}>加载中……</div>
@@ -247,6 +256,13 @@ export default function MapsPage() {
                     setSelectedNatureItemId(null);
                   }}
                   onItemSelect={setSelectedNatureItemId}
+                />
+              ) : null
+            ) : activeTab === 'passport-visa' ? (
+              PassportVisaRightPanel ? (
+                <PassportVisaRightPanel
+                  selectedCountryCode={selectedPassportVisaCountryCode}
+                  onCountrySelect={setSelectedPassportVisaCountryCode}
                 />
               ) : null
             ) : (

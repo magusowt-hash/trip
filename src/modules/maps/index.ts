@@ -3,6 +3,7 @@ export { getMapPackage } from './core/registry/get-map-package';
 export { mapPackages } from './core/registry/map-packages';
 export { buildMapPackageRuntimeList, pickInitialActiveMapSlug } from './core/map-package-runtime';
 export { chinaNatureMapPackage } from './packages/china-nature-map';
+export { chinaPassportVisaMapPackage } from './packages/china-passport-visa-map';
 export { standardMapPackage } from './packages/standard-map';
 export { railMapPackage } from './packages/rail-map';
 export {
@@ -15,6 +16,10 @@ export {
   enterNatureTopicShell,
   type NatureViewState,
 } from './packages/china-nature-map/frontend';
+export {
+  ChinaPassportVisaMapRightPanel,
+  PassportVisaMapView,
+} from './packages/china-passport-visa-map/frontend';
 export {
   StandardMapRightPanel,
   type StandardMapSearchResult,

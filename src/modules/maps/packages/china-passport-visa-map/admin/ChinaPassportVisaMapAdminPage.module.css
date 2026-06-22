@@ -1,0 +1,72 @@
+.page {
+  display: grid;
+  gap: 18px;
+}
+
+.hero,
+.card {
+  padding: 20px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 28px;
+  color: #0f172a;
+}
+
+.copy {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #475569;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.statValue {
+  margin: 0;
+  font-size: 28px;
+  color: #0f172a;
+}
+
+.statLabel {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.legendList {
+  display: grid;
+  gap: 10px;
+}
+
+.legendRow {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.legendLabel {
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.legendCount {
+  font-size: 13px;
+  color: #64748b;
+}

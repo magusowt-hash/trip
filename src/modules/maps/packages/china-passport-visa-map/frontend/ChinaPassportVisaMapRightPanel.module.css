@@ -1,0 +1,236 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hero {
+  padding: 18px;
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.92));
+  border: 1px solid rgba(203, 213, 225, 0.72);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.eyebrow {
+  display: inline-flex;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  color: #334155;
+  font-size: 12px;
+}
+
+.title {
+  margin: 10px 0 6px;
+  font-size: 22px;
+  line-height: 1.15;
+  color: #0f172a;
+}
+
+.copy {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #475569;
+}
+
+.searchWrap {
+  position: relative;
+}
+
+.searchInput {
+  width: 100%;
+  height: 44px;
+  border-radius: 14px;
+  border: 1px solid #d1d5db;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 0 14px;
+  color: #111827;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.legend {
+  display: grid;
+  gap: 10px;
+}
+
+.legendRow {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.legendDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.legendLabel {
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.legendCount {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.detailCard,
+.resultCard,
+.empty {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.detailTitle {
+  margin: 0;
+  font-size: 20px;
+  color: #0f172a;
+}
+
+.detailSub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.badgeRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #0f172a;
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.dangerBadge {
+  background: rgba(220, 38, 38, 0.12);
+  color: #991b1b;
+}
+
+.safeBadge {
+  background: rgba(34, 197, 94, 0.14);
+  color: #166534;
+}
+
+.riskBadgelow {
+  background: rgba(34, 197, 94, 0.14);
+  color: #166534;
+}
+
+.riskBadgemedium {
+  background: rgba(245, 158, 11, 0.18);
+  color: #92400e;
+}
+
+.riskBadgehigh {
+  background: rgba(239, 68, 68, 0.16);
+  color: #b91c1c;
+}
+
+.riskBadgeblocked {
+  background: rgba(127, 29, 29, 0.16);
+  color: #7f1d1d;
+}
+
+.religiousBadge {
+  background: rgba(30, 64, 175, 0.12);
+  color: #1d4ed8;
+}
+
+.metaGrid {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.metaLabel {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.metaValue {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.link {
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+.detailSections {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.detailSection {
+  padding-top: 12px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.detailText {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.results {
+  display: grid;
+  gap: 10px;
+}
+
+.resultButton {
+  all: unset;
+  cursor: pointer;
+  display: block;
+}
+
+.resultCard {
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+.resultButton:hover .resultCard {
+  transform: translateY(-1px);
+  border-color: rgba(59, 130, 246, 0.36);
+  box-shadow: 0 16px 30px rgba(59, 130, 246, 0.08);
+}
+
+.resultTitle {
+  margin: 0;
+  font-size: 16px;
+  color: #0f172a;
+}
+
+.resultMeta {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
