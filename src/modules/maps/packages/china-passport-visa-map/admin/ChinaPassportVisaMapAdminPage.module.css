@@ -1,72 +1,324 @@
 .page {
+  min-height: 100vh;
+  padding: 32px;
+  background:
+    radial-gradient(circle at top left, rgba(212, 165, 42, 0.14), transparent 28%),
+    linear-gradient(180deg, #f7f7f5 0%, #ecefed 100%);
+  color: #102a43;
+}
+
+.shell {
   display: grid;
-  gap: 18px;
+  gap: 16px;
+  max-width: 1480px;
+  margin: 0 auto;
 }
 
-.hero,
-.card {
-  padding: 20px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
-}
-
-.title {
-  margin: 0 0 8px;
-  font-size: 28px;
-  color: #0f172a;
-}
-
-.copy {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.7;
-  color: #475569;
-}
-
-.stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 14px;
-}
-
-.statValue {
-  margin: 0;
-  font-size: 28px;
-  color: #0f172a;
-}
-
-.statLabel {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: #64748b;
-}
-
-.legendList {
-  display: grid;
-  gap: 10px;
-}
-
-.legendRow {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-  gap: 10px;
+.statusBar {
+  min-height: 24px;
+  display: flex;
+  justify-content: flex-end;
   align-items: center;
 }
 
-.dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-}
-
-.legendLabel {
+.status {
+  min-height: 22px;
   font-size: 14px;
-  color: #0f172a;
+  color: #6f4b2f;
 }
 
-.legendCount {
+.grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: 220px minmax(320px, 0.9fr) minmax(520px, 1.25fr);
+  align-items: start;
+}
+
+.panel {
+  border: 1px solid rgba(221, 227, 232, 0.92);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 44px rgba(16, 42, 67, 0.08);
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.fixedPanel {
+  height: calc(100vh - 96px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.listPanel {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: start;
+}
+
+.editorPanel {
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
+}
+
+.navPanel {
+  position: sticky;
+  top: 24px;
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 20px;
+}
+
+.navList {
+  display: grid;
+  gap: 10px;
+}
+
+.navButton {
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.92);
+  padding: 14px 16px;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 6px;
+}
+
+.navButtonActive {
+  border-color: rgba(111, 75, 47, 0.44);
+  background: rgba(111, 75, 47, 0.1);
+}
+
+.navButtonTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #102a43;
+}
+
+.navButtonMeta {
+  font-size: 12px;
+  color: #627d98;
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.input,
+.textarea,
+.select {
+  width: 100%;
+  border: 1px solid rgba(186, 194, 205, 0.9);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.96);
+  color: #102a43;
+  padding: 11px 14px;
+}
+
+.textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.longTextarea {
+  min-height: 220px;
+}
+
+.button,
+.ghostButton,
+.dangerButton {
+  border: none;
+  border-radius: 14px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.button {
+  background: #6f4b2f;
+  color: #fffdf9;
+}
+
+.ghostButton {
+  background: rgba(111, 75, 47, 0.1);
+  color: #6f4b2f;
+}
+
+.dangerButton {
+  background: rgba(197, 91, 74, 0.12);
+  color: #8d3e33;
+}
+
+.list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.listButton {
+  text-align: left;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.92);
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.listTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.listButtonActive {
+  border-color: rgba(111, 75, 47, 0.44);
+  background: rgba(111, 75, 47, 0.1);
+}
+
+.listTitle {
+  margin: 0;
+  font-size: 15px;
+}
+
+.listMeta {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #627d98;
+}
+
+.redirectBadge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(111, 75, 47, 0.1);
+  color: #6f4b2f;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.editorHeading {
+  display: grid;
+  gap: 6px;
+}
+
+.editorHint {
+  margin: 0;
   font-size: 13px;
-  color: #64748b;
+  color: #627d98;
+}
+
+.form {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.fieldRow {
+  display: grid;
+  gap: 8px;
+}
+
+.label {
+  font-size: 12px;
+  color: #627d98;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.twoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.riskLevelGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  align-items: stretch;
+}
+
+.riskLevelButton {
+  border: 1px solid rgba(186, 194, 205, 0.9);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.96);
+  color: #486581;
+  min-height: 40px;
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.riskLevelButton:hover {
+  border-color: rgba(111, 75, 47, 0.32);
+  color: #243b53;
+  transform: translateY(-1px);
+}
+
+.riskLevelButtonActive {
+  border-color: rgba(111, 75, 47, 0.52);
+  background: rgba(111, 75, 47, 0.12);
+  color: #6f4b2f;
+}
+
+.scenarioCodes {
+  min-height: 180px;
+}
+
+.themeSwatch {
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(186, 194, 205, 0.9);
+}
+
+.themeEditorGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.themeEditorCard {
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(248, 250, 252, 0.92);
+  display: grid;
+  gap: 8px;
+}
+
+@media (max-width: 1180px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fixedPanel {
+    height: auto;
+    overflow: visible;
+  }
+
+  .navPanel {
+    position: static;
+  }
+
+  .themeEditorGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .riskLevelGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

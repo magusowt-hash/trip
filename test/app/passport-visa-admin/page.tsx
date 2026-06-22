@@ -1,7 +1,7 @@
 'use client';
 
-import PassportVisaAdminClientPage from '@/modules/maps/packages/china-passport-visa-map/shared/PassportVisaAdminClientPage';
+import { ChinaPassportVisaMapAdminPage } from '@/modules/maps/packages/china-passport-visa-map/admin';
 
 export default function PassportVisaAdminPage() {
-  return <PassportVisaAdminClientPage />;
+  return <ChinaPassportVisaMapAdminPage />;
 }

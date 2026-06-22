@@ -10,6 +10,7 @@ test('formal passport visa frontend page no longer depends on test app page modu
   );
 
   assert.doesNotMatch(source, /test\/app\/passport-visa\/page/);
+  assert.doesNotMatch(source, /shared\/PassportVisaClientPage/);
 });
 
 test('formal passport visa admin page no longer depends on test app admin page module', async () => {
@@ -19,6 +20,7 @@ test('formal passport visa admin page no longer depends on test app admin page m
   );
 
   assert.doesNotMatch(source, /test\/app\/passport-visa-admin\/page/);
+  assert.doesNotMatch(source, /shared\/PassportVisaAdminClientPage/);
 });
 
 test('formal passport visa package source tree does not import test modules', async () => {
@@ -59,9 +61,9 @@ test('test passport visa frontend wrapper imports src implementation through ali
 
   assert.match(
     source,
-    /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/shared\/PassportVisaClientPage['"]/,
+    /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/frontend['"]/,
   );
-  assert.doesNotMatch(source, /\.\.\/\.\.\/\.\.\/src\/modules\/maps\/packages\/china-passport-visa-map\/shared\/PassportVisaClientPage/);
+  assert.match(source, /<PassportVisaPage \/>/);
 });
 
 test('test passport visa admin wrapper imports src implementation through alias path', async () => {
@@ -72,12 +74,12 @@ test('test passport visa admin wrapper imports src implementation through alias 
 
   assert.match(
     source,
-    /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/shared\/PassportVisaAdminClientPage['"]/,
+    /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/admin['"]/,
   );
-  assert.doesNotMatch(source, /\.\.\/\.\.\/\.\.\/src\/modules\/maps\/packages\/china-passport-visa-map\/shared\/PassportVisaAdminClientPage/);
+  assert.match(source, /<ChinaPassportVisaMapAdminPage \/>/);
 });
 
-test('src passport visa frontend route imports shared implementation through alias path', async () => {
+test('src passport visa frontend route imports formal frontend page through alias path', async () => {
   const source = await fs.readFile(
     new URL('../../src/app/passport-visa/page.tsx', import.meta.url),
     'utf8',
@@ -85,11 +87,11 @@ test('src passport visa frontend route imports shared implementation through ali
 
   assert.match(
     source,
-    /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/shared\/PassportVisaClientPage['"]/,
+    /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/frontend['"]/,
   );
 });
 
-test('src passport visa admin route imports shared implementation through alias path', async () => {
+test('src passport visa admin route imports formal admin page through alias path', async () => {
   const source = await fs.readFile(
     new URL('../../src/app/passport-visa-admin/page.tsx', import.meta.url),
     'utf8',
@@ -97,6 +99,6 @@ test('src passport visa admin route imports shared implementation through alias 
 
   assert.match(
     source,
-    /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/shared\/PassportVisaAdminClientPage['"]/,
+    /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/admin['"]/,
   );
 });
