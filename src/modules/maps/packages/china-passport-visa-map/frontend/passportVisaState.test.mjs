@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { passportVisaCountries } from '../data/passportVisaCountries.ts';
 import {
@@ -9,6 +10,13 @@ import {
   findPassportVisaCountryByMapCode,
   getPassportVisaRiskBadgeLabel,
 } from './passportVisaState.ts';
+test('formal passport visa frontend index exports fullscreen page and legacy entry points', () => {
+  const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
+
+  assert.match(source, /ChinaPassportVisaMapRightPanel/);
+  assert.match(source, /PassportVisaMapView/);
+  assert.match(source, /PassportVisaPage/);
+});
 
 test('legend counts sum to canonical mappable countries only', () => {
   const counts = buildPassportVisaLegendCounts(passportVisaCountries);

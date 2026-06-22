@@ -1,6 +1,6 @@
 import type { MapPackage } from '../../core/contracts/map-package';
 import { ChinaPassportVisaMapAdminPage } from './admin';
-import { ChinaPassportVisaMapRightPanel } from './frontend';
+import { ChinaPassportVisaMapRightPanel, PassportVisaPage } from './frontend';
 
 export const chinaPassportVisaMapPackage: MapPackage = {
   slug: 'passport-visa',
@@ -13,6 +13,7 @@ export const chinaPassportVisaMapPackage: MapPackage = {
     page: ChinaPassportVisaMapAdminPage,
   },
   frontend: {
+    page: PassportVisaPage,
     rightPanel: ChinaPassportVisaMapRightPanel,
   },
 };

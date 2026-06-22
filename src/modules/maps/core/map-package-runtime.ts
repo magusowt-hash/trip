@@ -1,4 +1,4 @@
-import type { MapPackage, MapPackageRecord } from './contracts/map-package';
+import type { MapPackage, MapPackageRecord } from './contracts/map-package.ts';
 
 export type MapPackageRuntimeItem = MapPackageRecord & {
   packageName: string | null;
@@ -21,7 +21,7 @@ export function buildMapPackageRuntimeList(input: {
       isEnabled: item.isEnabled === true || item.isEnabled === 1,
       packageName: registered?.packageName ?? null,
       entryPath: registered?.admin.entryPath ?? null,
-      hasFrontend: Boolean(registered?.frontend?.rightPanel),
+      hasFrontend: Boolean(registered?.frontend?.page || registered?.frontend?.rightPanel),
       hasAdmin: Boolean(registered?.admin?.page),
     });
   }
@@ -39,7 +39,7 @@ export function buildMapPackageRuntimeList(input: {
       sortOrder: 0,
       packageName: registered.packageName,
       entryPath: registered.admin.entryPath,
-      hasFrontend: Boolean(registered.frontend?.rightPanel),
+      hasFrontend: Boolean(registered.frontend?.page || registered.frontend?.rightPanel),
       hasAdmin: Boolean(registered.admin?.page),
     });
   }

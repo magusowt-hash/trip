@@ -18,6 +18,7 @@ export {
 } from './packages/china-nature-map/frontend';
 export {
   ChinaPassportVisaMapRightPanel,
+  PassportVisaPage,
   PassportVisaMapView,
 } from './packages/china-passport-visa-map/frontend';
 export {

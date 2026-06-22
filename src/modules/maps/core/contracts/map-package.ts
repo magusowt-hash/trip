@@ -13,7 +13,8 @@ export type MapPackage = {
     page: () => JSX.Element;
   };
   frontend?: {
-    rightPanel: ComponentType<any>;
+    page?: ComponentType<any>;
+    rightPanel?: ComponentType<any>;
   };
 };
 

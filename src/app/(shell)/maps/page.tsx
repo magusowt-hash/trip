@@ -16,6 +16,7 @@ import {
   useRailMapPanelController,
   type StandardMapSearchResult,
   useStandardMapPanelController,
+  PassportVisaPage,
   PassportVisaMapView,
 } from '@/modules/maps';
 import styles from './maps-page.module.css';
@@ -141,7 +142,12 @@ export default function MapsPage() {
   const RailRightPanel = railMapPackage?.frontend?.rightPanel;
   const ChinaNatureRightPanel = chinaNatureMapPackage?.frontend?.rightPanel;
   const PassportVisaRightPanel = passportVisaMapPackage?.frontend?.rightPanel;
+  const PassportVisaFullscreenPage = passportVisaMapPackage?.frontend?.page ?? PassportVisaPage;
   const activePackage = packageItems.find((item) => item.slug === activeTab) ?? null;
+
+  if (activeTab === 'passport-visa' && PassportVisaFullscreenPage) {
+    return <PassportVisaFullscreenPage />;
+  }
 
   return (
     <div className={styles.root}>

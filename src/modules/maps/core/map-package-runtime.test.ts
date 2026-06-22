@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { MapPackage, MapPackageRecord } from './contracts/map-package';
+import type { MapPackage, MapPackageRecord } from './contracts/map-package.ts';
 import {
   buildMapPackageRuntimeList,
   pickInitialActiveMapSlug,
-} from './map-package-runtime';
+} from './map-package-runtime.ts';
 
 const registeredPackages: MapPackage[] = [
   {
@@ -34,6 +34,20 @@ const registeredPackages: MapPackage[] = [
     },
     frontend: {
       rightPanel: (() => null) as any,
+    },
+  },
+  {
+    slug: 'passport-visa',
+    packageName: 'china-passport-visa-map',
+    name: '中国护照签证地图',
+    description: '中国护照全球签证便利度、场景筛选与后台编辑。',
+    admin: {
+      enabled: true,
+      entryPath: '/management/maps/passport-visa',
+      page: (() => null) as any,
+    },
+    frontend: {
+      page: (() => null) as any,
     },
   },
   {
@@ -68,18 +82,25 @@ const storedRecords: MapPackageRecord[] = [
     sortOrder: 1,
   },
   {
+    slug: 'passport-visa',
+    name: '中国护照签证地图',
+    description: '中国护照全球签证便利度、场景筛选与后台编辑。',
+    isEnabled: 1,
+    sortOrder: 3,
+  },
+  {
     slug: 'ghost',
     name: '未接入地图',
     description: '数据库里有但代码未注册。',
     isEnabled: 1,
-    sortOrder: 3,
+    sortOrder: 4,
   },
   {
     slug: 'china-nature',
     name: '中国自然地图',
     description: '自然主题图层、专题浏览与管理。',
     isEnabled: 1,
-    sortOrder: 4,
+    sortOrder: 5,
   },
 ];
 
@@ -103,6 +124,7 @@ test('buildMapPackageRuntimeList keeps admin entries while exposing only enabled
     [
       { slug: 'standard', isEnabled: false, hasFrontend: true, hasAdmin: true },
       { slug: 'rail', isEnabled: true, hasFrontend: true, hasAdmin: true },
+      { slug: 'passport-visa', isEnabled: true, hasFrontend: true, hasAdmin: true },
       { slug: 'ghost', isEnabled: true, hasFrontend: false, hasAdmin: false },
       {
         slug: 'china-nature',
@@ -115,7 +137,7 @@ test('buildMapPackageRuntimeList keeps admin entries while exposing only enabled
 
   assert.deepEqual(
     runtime.frontendPackages.map((item) => item.slug),
-    ['rail', 'china-nature'],
+    ['rail', 'passport-visa', 'china-nature'],
   );
 });
 
@@ -141,6 +163,6 @@ test('buildMapPackageRuntimeList falls back to registered defaults when storage 
 
   assert.deepEqual(
     runtime.frontendPackages.map((item) => item.slug),
-    ['standard', 'rail', 'china-nature'],
+    ['standard', 'rail', 'passport-visa', 'china-nature'],
   );
 });
