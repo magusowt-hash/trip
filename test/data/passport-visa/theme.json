@@ -1,0 +1,15 @@
+{
+  "activeThemeId": "default",
+  "themes": [
+    {
+      "id": "default",
+      "label": "沙棕",
+      "visaFree": "#D4A52A",
+      "arrivalOrEVisa": "#F0DEBF",
+      "visaRequired": "#8B5E3C",
+      "noData": "#EFEDE8",
+      "stroke": "#FFFDF9",
+      "accentStrong": "#6F4B2F"
+    }
+  ]
+}
