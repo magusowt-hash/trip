@@ -68,6 +68,14 @@ import {
 } from '../../lib/passportVisaHoverCard.ts';
 import { shouldRenderPassportVisaDrawerBackdrop } from '../../lib/passportVisaDrawerInteraction.ts';
 import { PassportVisaRiskMark } from '../../lib/passportVisaRiskMark.tsx';
+import { PassportVisaOfficialSiteMark } from '../../lib/PassportVisaOfficialSiteMark.tsx';
+import { PassportVisaEmbassySiteMark } from '../../lib/PassportVisaEmbassySiteMark.tsx';
+import { PassportVisaFeeMark } from '../../lib/PassportVisaFeeMark.tsx';
+import { PassportVisaStayDurationMark } from '../../lib/PassportVisaStayDurationMark.tsx';
+import {
+  parsePassportVisaFeeDisplay,
+  parsePassportVisaStayDurationDisplay,
+} from '../../lib/passportVisaFeeDisplay.ts';
 import { applyPassportVisaNonScalingStroke } from '../../lib/passportVisaSvgStroke';
 import styles from './page.module.css';
 
@@ -80,7 +88,7 @@ const fallbackTheme: PassportVisaThemeRecord = {
   visaFree: '#D4A52A',
   arrivalOrEVisa: '#F0DEBF',
   visaRequired: '#8B5E3C',
-  noData: '#F4F3F0',
+  noData: '#EFEDE8',
   stroke: '#FFFDF9',
   accentStrong: '#6F4B2F',
 };
@@ -251,6 +259,15 @@ export default function PassportVisaPage() {
     [visibleCountries],
   );
   const selectedCountry = selectedCountryCode ? countryByCode.get(selectedCountryCode) ?? null : null;
+  const parsedVisaFee = useMemo(
+    () => parsePassportVisaFeeDisplay(selectedCountry?.visaFee),
+    [selectedCountry],
+  );
+  const parsedVisaFeeWithSymbol = parsedVisaFee?.currencySymbol ? parsedVisaFee : null;
+  const parsedStayDuration = useMemo(
+    () => parsePassportVisaStayDurationDisplay(selectedCountry?.stayDuration),
+    [selectedCountry],
+  );
   const hoveredCountry = hoverCardState ? effectiveCountryByCode.get(hoverCardState.countryCode) ?? null : null;
   const previewDetailInfoContent = useMemo(() => {
     if (!selectedCountry || !previewDetailInfoState) return null;
@@ -510,11 +527,11 @@ export default function PassportVisaPage() {
         for (const path of Array.from(svg.querySelectorAll('path[id]'))) {
           const code = path.getAttribute('id');
           const resolvedCode = resolvePassportVisaCountryCode(code);
-          const resolvedCountry = resolvedCode ? effectiveCountryByCode.get(resolvedCode) ?? null : null;
           path.setAttribute('stroke', activeTheme.stroke);
+          path.setAttribute('data-country-code', resolvedCode ?? '');
           applyPassportVisaNonScalingStroke(path, '0.9');
           path.setAttribute('class', styles.countryPath);
-          if (isPassportVisaCountryInteractive(resolvedCountry)) {
+          if (resolvedCode) {
             path.classList.add(styles.countryInteractive);
             const overlayPath = path.cloneNode(true);
             if (overlayPath instanceof Element) {
@@ -548,7 +565,7 @@ export default function PassportVisaPage() {
     return () => {
       active = false;
     };
-  }, [activeTheme.stroke, effectiveCountryByCode]);
+  }, [activeTheme.stroke]);
 
   useLayoutEffect(() => {
     const root = mapSvgRef.current;
@@ -602,6 +619,7 @@ export default function PassportVisaPage() {
     effectiveCountryByCode,
     hoveredOverlayCode,
     isDrawerOpen,
+    mapMarkupVersion,
     selectedCountryCode,
     suppressedHoverCode,
     visibleCountryCodes,
@@ -1049,42 +1067,126 @@ export default function PassportVisaPage() {
             </header>
 
             <div className={styles.drawerScroll}>
-              <div className={styles.badgeRow}>
-                <div className={styles.detailInfoAnchor}>
-                  <button
-                    type="button"
-                    className={`${styles.badge} ${styles.badgeButton}`}
-                    style={{ background: themeColor(selectedCountry.displayGroup, activeTheme), color: '#fff' }}
-                    aria-label="查看入境居留信息"
-                    {...getDetailInfoInteractiveProps('entry-residence', { badge: true })}
-                  >
-                    {selectedCountry.rawLabel || getPassportVisaDisplayGroupLabel(selectedCountry.displayGroup)}
-                  </button>
+              <div
+                className={`${styles.drawerCanvas} ${
+                  selectedCountry.officialVisaUrl || selectedCountry.embassyUrl || parsedVisaFeeWithSymbol || parsedStayDuration
+                    ? styles.drawerCanvasWithUtilities
+                    : styles.drawerCanvasWithoutUtilities
+                }`}
+              >
+                {selectedCountry.officialVisaUrl || selectedCountry.embassyUrl || parsedVisaFeeWithSymbol || parsedStayDuration ? (
+                  <div className={styles.utilityRow}>
+                    {selectedCountry.officialVisaUrl ? (
+                      <a
+                        className={styles.officialVisaEntry}
+                        href={selectedCountry.officialVisaUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label="打开官方签证网站"
+                        title="官方签证网站"
+                        data-tooltip="官方签证网站"
+                      >
+                        <PassportVisaOfficialSiteMark
+                          className={styles.officialVisaEntryIcon}
+                          accentColor={themeColor(selectedCountry.displayGroup, activeTheme)}
+                        />
+                      </a>
+                    ) : null}
+                    {selectedCountry.embassyUrl ? (
+                      <a
+                        className={styles.officialVisaEntry}
+                        href={selectedCountry.embassyUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label="打开中国驻当地使馆网站"
+                        title="中国驻当地使馆网站"
+                        data-tooltip="中国驻当地使馆网站"
+                      >
+                        <PassportVisaEmbassySiteMark
+                          className={styles.officialVisaEntryIcon}
+                          accentColor={themeColor(selectedCountry.displayGroup, activeTheme)}
+                        />
+                      </a>
+                    ) : null}
+                    {parsedVisaFeeWithSymbol ? (
+                      <div
+                        className={`${styles.officialVisaEntry} ${styles.officialVisaEntryFee}`}
+                        aria-label="签证费图标"
+                        title="签证费"
+                        data-tooltip="签证费"
+                      >
+                        <PassportVisaFeeMark
+                          className={`${styles.officialVisaEntryIcon} ${styles.officialVisaEntryFeeIcon}`}
+                          accentColor={themeColor(selectedCountry.displayGroup, activeTheme)}
+                          amount={parsedVisaFeeWithSymbol.amount}
+                          currencySymbol={parsedVisaFeeWithSymbol.currencySymbol}
+                        />
+                      </div>
+                    ) : null}
+                    {parsedStayDuration ? (
+                      <div
+                        className={`${styles.officialVisaEntry} ${styles.officialVisaEntryStayDuration}`}
+                        aria-label="停留时长图标"
+                        title={parsedStayDuration.note || '停留时长'}
+                        data-tooltip={parsedStayDuration.note || '停留时长'}
+                      >
+                        <PassportVisaStayDurationMark
+                          className={`${styles.officialVisaEntryIcon} ${styles.officialVisaEntryStayDurationIcon}`}
+                          accentColor={themeColor(selectedCountry.displayGroup, activeTheme)}
+                          days={parsedStayDuration.days}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className={styles.badgeRow}>
+                  <div className={styles.detailInfoAnchor}>
+                    <button
+                      type="button"
+                      className={`${styles.badge} ${styles.badgeButton}`}
+                      style={{ background: themeColor(selectedCountry.displayGroup, activeTheme), color: '#fff' }}
+                      aria-label="查看入境居留信息"
+                      {...getDetailInfoInteractiveProps('entry-residence', { badge: true })}
+                    >
+                      {selectedCountry.rawLabel || getPassportVisaDisplayGroupLabel(selectedCountry.displayGroup)}
+                    </button>
+                  </div>
+                  {shouldRenderPassportVisaRiskBadge(selectedCountry.riskLevel) ? (
+                    <div className={styles.detailInfoAnchor}>
+                      <button
+                        type="button"
+                        className={`${styles.badge} ${styles.badgeButton} ${styles.badgeRisk} ${riskBadgeToneClassNameByLevel[getPassportVisaRiskBadgeClassName(selectedCountry.riskLevel)]}`}
+                        aria-label={`查看旅行风险等级和安全提醒：${selectedCountry.riskLevel}`}
+                        {...getDetailInfoInteractiveProps('travel-risk', { badge: true })}
+                      >
+                        {selectedCountry.riskLevel}
+                      </button>
+                    </div>
+                  ) : null}
+                  {shouldRenderPassportVisaReligiousLawBadge(selectedCountry.religiousLawRestrictions) ? (
+                    <div className={styles.detailInfoAnchor}>
+                      <button
+                        type="button"
+                        className={`${styles.badge} ${styles.badgeButton} ${styles.badgeReligiousLaw}`}
+                        aria-label="查看教法约束信息"
+                        {...getDetailInfoInteractiveProps('religious-law-restrictions', { badge: true })}
+                      >
+                        教法约束
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
-                {shouldRenderPassportVisaRiskBadge(selectedCountry.riskLevel) ? (
-                  <div className={styles.detailInfoAnchor}>
-                    <button
-                      type="button"
-                      className={`${styles.badge} ${styles.badgeButton} ${styles.badgeRisk} ${riskBadgeToneClassNameByLevel[getPassportVisaRiskBadgeClassName(selectedCountry.riskLevel)]}`}
-                      aria-label={`查看旅行风险等级和安全提醒：${selectedCountry.riskLevel}`}
-                      {...getDetailInfoInteractiveProps('travel-risk', { badge: true })}
-                    >
-                      {selectedCountry.riskLevel}
-                    </button>
-                  </div>
-                ) : null}
-                {shouldRenderPassportVisaReligiousLawBadge(selectedCountry.religiousLawRestrictions) ? (
-                  <div className={styles.detailInfoAnchor}>
-                    <button
-                      type="button"
-                      className={`${styles.badge} ${styles.badgeButton} ${styles.badgeReligiousLaw}`}
-                      aria-label="查看教法约束信息"
-                      {...getDetailInfoInteractiveProps('religious-law-restrictions', { badge: true })}
-                    >
-                      教法约束
-                    </button>
-                  </div>
-                ) : null}
+
+                <section className={`${styles.section} ${styles.sectionStay}`}>
+                  <p className={styles.sectionLabel}>停留/有效信息</p>
+                  <p className={styles.sectionValue}>{selectedCountry.stayDuration || '未提供'}</p>
+                </section>
+
+                <section className={`${styles.section} ${styles.sectionVisaFee}`}>
+                  <p className={styles.sectionLabel}>签证费</p>
+                  <p className={styles.sectionValue}>{selectedCountry.visaFee || '未提供'}</p>
+                </section>
               </div>
 
               {previewDetailInfoContent && previewPanelLayout && !expandedDetailInfoState ? (
@@ -1133,34 +1235,6 @@ export default function PassportVisaPage() {
                   <p className={styles.detailInfoTooltipBody}>{expandedDetailInfoContent.body}</p>
                 </section>
               ) : null}
-
-              <section className={styles.section}>
-                <p className={styles.sectionLabel}>停留/有效信息</p>
-                <p className={styles.sectionValue}>{selectedCountry.stayDuration || '未提供'}</p>
-              </section>
-
-              <section className={styles.section}>
-                <p className={styles.sectionLabel}>签证费</p>
-                <p className={styles.sectionValue}>{selectedCountry.visaFee || '未提供'}</p>
-              </section>
-
-              <section className={styles.section}>
-                <p className={styles.sectionLabel}>官方签证网站</p>
-                <p className={styles.sectionValue}>
-                  <a className={styles.link} href={selectedCountry.officialVisaUrl} target="_blank" rel="noreferrer">
-                    {selectedCountry.officialVisaUrl}
-                  </a>
-                </p>
-              </section>
-
-              <section className={styles.section}>
-                <p className={styles.sectionLabel}>中国驻当地使馆</p>
-                <p className={styles.sectionValue}>
-                  <a className={styles.link} href={selectedCountry.embassyUrl} target="_blank" rel="noreferrer">
-                    {selectedCountry.embassyUrl}
-                  </a>
-                </p>
-              </section>
             </div>
           </>
         ) : null}

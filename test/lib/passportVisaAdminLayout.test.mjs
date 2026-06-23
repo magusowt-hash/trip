@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 
 test('admin page defines dedicated fixed-panel row templates for list and editor layouts', async () => {
   const css = await fs.readFile(
-    new URL('../app/passport-visa-admin/page.module.css', import.meta.url),
+    new URL('../../src/modules/maps/packages/china-passport-visa-map/admin/ChinaPassportVisaMapAdminPage.module.css', import.meta.url),
     'utf8',
   );
 
@@ -16,7 +16,7 @@ test('admin page defines dedicated fixed-panel row templates for list and editor
 
 test('admin page applies dedicated list and editor panel classes', async () => {
   const source = await fs.readFile(
-    new URL('../app/passport-visa-admin/page.tsx', import.meta.url),
+    new URL('../../src/modules/maps/packages/china-passport-visa-map/admin/ChinaPassportVisaMapAdminPage.tsx', import.meta.url),
     'utf8',
   );
 

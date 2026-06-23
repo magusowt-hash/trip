@@ -1,5 +1,4 @@
 import countries from '../data/passport-visa/countries.json';
-import type { PassportVisaRiskLevel } from './passportVisaAdminTypes';
 
 export type PassportVisaDisplayGroup =
   | 'region-neutral'
@@ -18,11 +17,13 @@ export type PassportVisaSeedItem = {
   stayDuration: string;
   officialVisaUrl: string;
   embassyUrl: string;
-  riskLevel: PassportVisaRiskLevel;
+  riskLevel: string;
   entryResidence: string;
   travelRiskSafety: string;
   safetyPrecautions: string;
   religiousLawRestrictions: string;
+  isHighRisk?: boolean;
+  highRiskNote?: string;
 };
 
 const rawCountries = countries as Array<Partial<PassportVisaSeedItem> & {
@@ -35,11 +36,12 @@ const rawCountries = countries as Array<Partial<PassportVisaSeedItem> & {
   stayDuration: string;
   officialVisaUrl: string;
   embassyUrl: string;
-  riskLevel?: PassportVisaRiskLevel;
+  riskLevel?: string;
   entryResidence?: string;
   travelRiskSafety?: string;
   safetyPrecautions?: string;
   religiousLawRestrictions?: string;
+  riskNote?: string;
 }>;
 
 export const passportVisaSeed = rawCountries.map((country) => ({
@@ -58,4 +60,6 @@ export const passportVisaSeed = rawCountries.map((country) => ({
   travelRiskSafety: country.travelRiskSafety ?? '',
   safetyPrecautions: country.safetyPrecautions ?? '',
   religiousLawRestrictions: country.religiousLawRestrictions ?? '',
+  isHighRisk: country.isHighRisk ?? ((country.riskLevel ?? '低风险') !== '低风险'),
+  highRiskNote: country.highRiskNote ?? country.riskNote ?? '',
 })) satisfies PassportVisaSeedItem[];

@@ -35,6 +35,9 @@ type PassportVisaCountry = {
   travelRiskSafety?: string;
   safetyPrecautions?: string;
   religiousLawRestrictions?: string;
+  isHighRisk?: boolean;
+  highRiskNote?: string;
+  riskNote?: string;
   embassyUrl: string;
 };
 
@@ -63,8 +66,16 @@ async function readJsonFile<T>(filePath: URL): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
+async function readTextFile(filePath: URL) {
+  return fs.readFile(filePath, 'utf8');
+}
+
 async function writeJsonFile(filePath: URL, value: unknown) {
   await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+async function writeTextFile(filePath: URL, value: string) {
+  await fs.writeFile(filePath, value, 'utf8');
 }
 
 function inferEntrySlug(record: PassportVisaCountryRecord) {
@@ -102,7 +113,8 @@ function mapFrontendGroupToDisplayGroup(group: PassportVisaCategoryGroup): Passp
 }
 
 function mapFrontendCountryToAdminRecord(country: PassportVisaCountry): PassportVisaCountryRecord {
-  const riskLevel: PassportVisaRiskLevel = country.riskLevel ?? '低风险';
+  const riskLevel: PassportVisaRiskLevel = country.riskLevel
+    ?? (country.isHighRisk ? '高风险' : '低风险');
 
   return {
     mapCountryCode: country.mapCountryCode ?? '',
@@ -120,7 +132,19 @@ function mapFrontendCountryToAdminRecord(country: PassportVisaCountry): Passport
     safetyPrecautions: country.safetyPrecautions ?? '',
     religiousLawRestrictions: country.religiousLawRestrictions ?? '',
     riskLevel,
+    riskNote: country.highRiskNote ?? country.riskNote ?? '',
   };
+}
+
+function isAdminCountryRecordArray(value: unknown): value is PassportVisaCountryRecord[] {
+  return Array.isArray(value)
+    && value.every((item) => (
+      item
+      && typeof item === 'object'
+      && 'displayGroup' in item
+      && 'rawLabel' in item
+      && 'mapCountryCode' in item
+    ));
 }
 
 function buildFrontendCountryFromRecord(record: PassportVisaCountryRecord): PassportVisaCountry {
@@ -140,19 +164,58 @@ function buildFrontendCountryFromRecord(record: PassportVisaCountryRecord): Pass
     travelRiskSafety: record.travelRiskSafety,
     safetyPrecautions: record.safetyPrecautions,
     religiousLawRestrictions: record.religiousLawRestrictions,
+    isHighRisk: record.riskLevel !== '低风险',
+    highRiskNote: record.riskNote ?? '',
     embassyUrl: record.embassyUrl,
   };
+}
+
+function parseFrontendCountriesModule(source: string) {
+  const moduleMatch = source.match(/export const passportVisaCountries: PassportVisaCountry\[] = (\[[\s\S]*\]);\s*$/);
+  if (!moduleMatch) {
+    throw new Error('Invalid frontend countries module');
+  }
+
+  return JSON.parse(moduleMatch[1]) as PassportVisaCountry[];
+}
+
+function serializeFrontendCountriesModule(countries: PassportVisaCountry[]) {
+  return `import type { PassportVisaCountry } from './passportVisaTypes.ts';
+
+export const passportVisaCountries: PassportVisaCountry[] = ${JSON.stringify(countries, null, 2)};
+`;
+}
+
+async function readCountriesData(filePath: URL) {
+  if (filePath.pathname.endsWith('.json')) {
+    return readJsonFile<unknown>(filePath);
+  }
+
+  return parseFrontendCountriesModule(await readTextFile(filePath));
 }
 
 export function createPassportVisaAdminFileRepository(options: PassportVisaAdminFileRepositoryOptions) {
   return {
     async listCountries() {
-      const frontendCountries = await readJsonFile<PassportVisaCountry[]>(options.countriesPath);
-      return frontendCountries.map(mapFrontendCountryToAdminRecord);
+      const countriesData = await readCountriesData(options.countriesPath);
+      if (isAdminCountryRecordArray(countriesData)) {
+        return countriesData;
+      }
+
+      return (countriesData as PassportVisaCountry[]).map(mapFrontendCountryToAdminRecord);
     },
     async saveCountries(records: PassportVisaCountryRecord[]) {
+      const countriesData = await readCountriesData(options.countriesPath);
+      if (isAdminCountryRecordArray(countriesData)) {
+        await writeJsonFile(options.countriesPath, records);
+        return;
+      }
+
       const nextFrontendCountries = records.map(buildFrontendCountryFromRecord);
-      await writeJsonFile(options.countriesPath, nextFrontendCountries);
+      await writeTextFile(
+        options.countriesPath,
+        serializeFrontendCountriesModule(nextFrontendCountries),
+      );
     },
     async listScenarios() {
       return readJsonFile<PassportVisaScenarioRecord[]>(options.scenariosPath);

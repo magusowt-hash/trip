@@ -8,26 +8,30 @@ import {
   createPassportVisaAdminFileRepository,
 } from './passportVisaAdminRepository.ts';
 
-const sampleFrontendCountries = [
+const sampleFrontendCountriesModule = `import type { PassportVisaCountry } from './passportVisaTypes.ts';
+
+export const passportVisaCountries: PassportVisaCountry[] = [
   {
-    entrySlug: 'cy',
-    mapCountryCode: 'CY',
-    englishName: 'Cyprus',
-    chineseName: '塞浦路斯',
-    visaCategoryRaw: '需提前办理申根/本国签证',
-    visaCategoryGroup: 'conditional-entry',
-    visaFee: '€90',
-    visaRequirement: '',
-    stayDuration: '90天',
-    officialVisaUrl: 'https://www.mfa.gov.cy/visas',
-    riskLevel: '中风险',
-    entryResidence: '旧入境信息',
-    travelRiskSafety: '旧风险信息',
-    safetyPrecautions: '旧安全防范',
-    religiousLawRestrictions: '旧教法约束',
-    embassyUrl: 'https://cy.china-embassy.gov.cn',
-  },
+    "entrySlug": "cy",
+    "mapCountryCode": "CY",
+    "englishName": "Cyprus",
+    "chineseName": "塞浦路斯",
+    "visaCategoryRaw": "需提前办理申根/本国签证",
+    "visaCategoryGroup": "conditional-entry",
+    "visaFee": "€90",
+    "stayDuration": "90天",
+    "officialVisaUrl": "https://www.mfa.gov.cy/visas",
+    "riskLevel": "中风险",
+    "entryResidence": "旧入境信息",
+    "travelRiskSafety": "旧风险信息",
+    "safetyPrecautions": "旧安全防范",
+    "religiousLawRestrictions": "旧教法约束",
+    "isHighRisk": false,
+    "highRiskNote": "",
+    "embassyUrl": "https://cy.china-embassy.gov.cn"
+  }
 ];
+`;
 
 const sampleAdminDetails = [
   {
@@ -49,7 +53,7 @@ const sampleAdminDetails = [
 ];
 
 const realFrontendCountriesPath = new URL(
-  '../data/passport-visa/countries.json',
+  '../../src/modules/maps/packages/china-passport-visa-map/data/passportVisaCountries.ts',
   import.meta.url,
 );
 
@@ -114,6 +118,7 @@ test('repository reads active theme from theme scheme file', async () => {
   assert.ok(Array.isArray(themeScheme.themes));
   assert.equal(themeScheme.themes.length > 0, true);
   assert.deepEqual(theme, themeScheme.themes.find((item) => item.id === themeScheme.activeThemeId));
+  assert.equal(theme.noData, '#EFEDE8');
 });
 
 test('repository persists theme scheme updates to the configured file', async () => {
@@ -168,11 +173,11 @@ test('repository persists theme scheme updates to the configured file', async ()
 
 test('repository reads countries from the configured frontend data module', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'passport-visa-frontend-repo-'));
-  const countriesPath = path.join(tempDir, 'countries.json');
+  const countriesPath = path.join(tempDir, 'passportVisaCountries.ts');
   const scenariosPath = path.join(tempDir, 'scenarios.json');
   const themePath = path.join(tempDir, 'theme.json');
 
-  await fs.writeFile(countriesPath, `${JSON.stringify(sampleFrontendCountries, null, 2)}\n`, 'utf8');
+  await fs.writeFile(countriesPath, sampleFrontendCountriesModule, 'utf8');
   await fs.copyFile(
     new URL('../data/passport-visa/scenarios.json', import.meta.url),
     scenariosPath,
@@ -194,21 +199,51 @@ test('repository reads countries from the configured frontend data module', asyn
   assert.deepEqual(countries[0], {
     ...sampleAdminDetails[0],
     displayGroup: 'arrival-or-evisa',
-    visaRequirement: '',
     entryResidence: '旧入境信息',
     travelRiskSafety: '旧风险信息',
     safetyPrecautions: '旧安全防范',
     religiousLawRestrictions: '旧教法约束',
+    visaRequirement: undefined,
+    riskNote: '',
   });
 });
 
-test('repository persists country updates to the configured frontend data module', async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'passport-visa-frontend-save-'));
+test('repository preserves display groups when countries file already uses admin record shape', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'passport-visa-admin-json-'));
   const countriesPath = path.join(tempDir, 'countries.json');
   const scenariosPath = path.join(tempDir, 'scenarios.json');
   const themePath = path.join(tempDir, 'theme.json');
 
-  await fs.writeFile(countriesPath, `${JSON.stringify(sampleFrontendCountries, null, 2)}\n`, 'utf8');
+  await fs.writeFile(countriesPath, `${JSON.stringify(sampleAdminDetails, null, 2)}\n`, 'utf8');
+  await fs.copyFile(
+    new URL('../data/passport-visa/scenarios.json', import.meta.url),
+    scenariosPath,
+  );
+  await fs.copyFile(
+    new URL('../data/passport-visa/theme.json', import.meta.url),
+    themePath,
+  );
+
+  const repository = createPassportVisaAdminFileRepository({
+    countriesPath: new URL(`file://${countriesPath}`),
+    scenariosPath: new URL(`file://${scenariosPath}`),
+    themePath: new URL(`file://${themePath}`),
+  });
+
+  const countries = await repository.listCountries();
+
+  assert.equal(countries.length, 1);
+  assert.equal(countries[0].displayGroup, 'visa-required');
+  assert.equal(countries[0].rawLabel, '需提前办理申根/本国签证');
+});
+
+test('repository persists country updates to the configured frontend data module', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'passport-visa-frontend-save-'));
+  const countriesPath = path.join(tempDir, 'passportVisaCountries.ts');
+  const scenariosPath = path.join(tempDir, 'scenarios.json');
+  const themePath = path.join(tempDir, 'theme.json');
+
+  await fs.writeFile(countriesPath, sampleFrontendCountriesModule, 'utf8');
   await fs.copyFile(
     new URL('../data/passport-visa/scenarios.json', import.meta.url),
     scenariosPath,
@@ -240,7 +275,11 @@ test('repository persists country updates to the configured frontend data module
 
   await repository.saveCountries(nextCountries);
 
-  const savedFrontendCountries = JSON.parse(await fs.readFile(countriesPath, 'utf8'));
+  const savedCountriesModule = await fs.readFile(countriesPath, 'utf8');
+  const moduleMatch = savedCountriesModule.match(/export const passportVisaCountries: PassportVisaCountry\[] = (\[[\s\S]*\]);\s*$/);
+  assert.ok(moduleMatch);
+
+  const savedFrontendCountries = JSON.parse(moduleMatch[1]);
   assert.equal(savedFrontendCountries.length, 1);
   assert.deepEqual(savedFrontendCountries[0], {
     entrySlug: 'cy',
@@ -257,6 +296,8 @@ test('repository persists country updates to the configured frontend data module
     travelRiskSafety: '新风险信息',
     safetyPrecautions: '新安全防范',
     religiousLawRestrictions: '新教法约束',
+    isHighRisk: true,
+    highRiskNote: '',
     embassyUrl: 'https://cy.china-embassy.gov.cn',
   });
 });

@@ -63,7 +63,7 @@ test('test passport visa frontend wrapper imports src implementation through ali
     source,
     /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/frontend['"]/,
   );
-  assert.match(source, /<FormalPassportVisaPage \/>/);
+  assert.match(source, /<PassportVisaPage \/>/);
 });
 
 test('test passport visa admin wrapper imports src implementation through alias path', async () => {
@@ -76,7 +76,7 @@ test('test passport visa admin wrapper imports src implementation through alias 
     source,
     /from ['"]@\/modules\/maps\/packages\/china-passport-visa-map\/admin['"]/,
   );
-  assert.match(source, /<FormalPassportVisaAdminPage \/>/);
+  assert.match(source, /<ChinaPassportVisaMapAdminPage \/>/);
 });
 
 test('src passport visa frontend route imports formal frontend page through alias path', async () => {

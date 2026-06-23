@@ -46,7 +46,7 @@ const emptyTheme: PassportVisaThemeRecord & { id: string } = {
   visaFree: '#D4A52A',
   arrivalOrEVisa: '#F0DEBF',
   visaRequired: '#8B5E3C',
-  noData: '#F4F3F0',
+  noData: '#EFEDE8',
   stroke: '#FFFDF9',
   accentStrong: '#6F4B2F',
 };

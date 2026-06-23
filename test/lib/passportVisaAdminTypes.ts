@@ -26,6 +26,9 @@ export type PassportVisaCountryRecord = {
   safetyPrecautions: string;
   religiousLawRestrictions: string;
   riskLevel: PassportVisaRiskLevel;
+  isHighRisk?: boolean;
+  highRiskNote?: string;
+  riskNote?: string;
 };
 
 export type PassportVisaScenarioRecord = {

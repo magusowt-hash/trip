@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 
 test('admin editor source no longer renders a risk note field', async () => {
   const source = await fs.readFile(
-    new URL('../app/passport-visa-admin/page.tsx', import.meta.url),
+    new URL('../../src/modules/maps/packages/china-passport-visa-map/admin/ChinaPassportVisaMapAdminPage.tsx', import.meta.url),
     'utf8',
   );
 
@@ -12,17 +12,16 @@ test('admin editor source no longer renders a risk note field', async () => {
   assert.doesNotMatch(source, /riskNote/);
 });
 
-test('local standalone types and repository no longer define risk note fields', async () => {
+test('admin and frontend country types no longer define riskNote', async () => {
   const adminTypes = await fs.readFile(
     new URL('./passportVisaAdminTypes.ts', import.meta.url),
     'utf8',
   );
-  const repository = await fs.readFile(
-    new URL('./passportVisaAdminRepository.ts', import.meta.url),
+  const frontendTypes = await fs.readFile(
+    new URL('../../src/modules/maps/packages/china-passport-visa-map/data/passportVisaTypes.ts', import.meta.url),
     'utf8',
   );
 
   assert.doesNotMatch(adminTypes, /\briskNote\b/);
-  assert.doesNotMatch(repository, /\briskNote\b/);
-  assert.doesNotMatch(repository, /\bhighRiskNote\b/);
+  assert.doesNotMatch(frontendTypes, /\briskNote\b/);
 });

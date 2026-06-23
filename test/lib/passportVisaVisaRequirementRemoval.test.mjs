@@ -2,31 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-test('standalone frontend page no longer renders a visa requirement section', async () => {
+test('admin editor source no longer renders a visa requirement field', async () => {
   const source = await fs.readFile(
-    new URL('../app/passport-visa/page.tsx', import.meta.url),
+    new URL('../../src/modules/maps/packages/china-passport-visa-map/admin/ChinaPassportVisaMapAdminPage.tsx', import.meta.url),
     'utf8',
   );
 
-  assert.doesNotMatch(source, /\bselectedCountry\.visaRequirement\b/);
-  assert.doesNotMatch(source, /签证要求/);
+  assert.doesNotMatch(source, /<label className=\{styles\.label\}>签证要求<\/label>/);
+  assert.doesNotMatch(source, /\bcountryDraft\.visaRequirement\b/);
 });
 
-test('standalone admin flow still keeps visa requirement editing support', async () => {
-  const adminPage = await fs.readFile(
-    new URL('../app/passport-visa-admin/page.tsx', import.meta.url),
-    'utf8',
-  );
+test('admin and frontend country types no longer define visaRequirement', async () => {
   const adminTypes = await fs.readFile(
     new URL('./passportVisaAdminTypes.ts', import.meta.url),
     'utf8',
   );
-  const repository = await fs.readFile(
-    new URL('./passportVisaAdminRepository.ts', import.meta.url),
+  const frontendTypes = await fs.readFile(
+    new URL('../../src/modules/maps/packages/china-passport-visa-map/data/passportVisaTypes.ts', import.meta.url),
     'utf8',
   );
 
-  assert.match(adminPage, /签证要求/);
-  assert.match(adminTypes, /\bvisaRequirement\b/);
-  assert.match(repository, /\bvisaRequirement\b/);
+  assert.doesNotMatch(adminTypes, /\bvisaRequirement\b/);
+  assert.doesNotMatch(frontendTypes, /\bvisaRequirement\b/);
 });
