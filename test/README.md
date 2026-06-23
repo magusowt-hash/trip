@@ -2,19 +2,6 @@
 
 本目录是本机专用的独立测试工程，不参与主项目 git 版本控制。
 
-## 启动
-
-```bash
-cd test
-npm install
-npm run dev
-```
-
-默认地址：
-
-- `http://localhost:3010/`
-- `http://localhost:3010/test-css`
-
 ## 说明
 
 - 当前已将原主项目里的 `test-css` 测试页迁移到这里。
